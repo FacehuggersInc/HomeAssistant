@@ -20,5 +20,13 @@
             "suffix": "deg.",
             "description": "The Longitude of your city"
         }
+    },
+    "tiles": {
+        "positions": {
+            "type": "string",
+            "default": "{}",
+            "value": "{}",
+            "description": "JSON map of tile key to {col, row} grid positions"
+        }
     }
 }

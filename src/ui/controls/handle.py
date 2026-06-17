@@ -51,6 +51,9 @@ class Handle(QWidget):
         self.setCursor(Qt.CursorShape.OpenHandCursor)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
 
+        from src.styling import add_text_shadow
+        add_text_shadow(self, blur=12, offset_x=0, offset_y=0, color="#000000")
+
     # ── Painting ──────────────────────────────────────────────────────────────
 
     def paintEvent(self, event) -> None:  # type: ignore[override]

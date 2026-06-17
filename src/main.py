@@ -122,7 +122,9 @@ class _UIBridge(QObject):
         try:
             fn()
         except Exception as e:
+            import traceback
             print(f"[UIBridge] error executing {fn}: {e}")
+            traceback.print_exc()
 
     def dispatch(self, fn: Callable) -> None:
         self._ui_call.emit(fn)

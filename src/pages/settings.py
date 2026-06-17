@@ -5,8 +5,8 @@ from PyQt6.QtWidgets import (
     QWidget, QHBoxLayout, QVBoxLayout, QLabel, QPushButton,
     QScrollArea, QLineEdit, QComboBox, QFrame, QSizePolicy,
 )
-from PyQt6.QtCore import Qt, QPropertyAnimation, QEasingCurve, QPoint, pyqtProperty
-from PyQt6.QtGui import QPainter, QColor, QBrush
+from PyQt6.QtCore import Qt, QPropertyAnimation, QEasingCurve, pyqtProperty
+from PyQt6.QtGui import QPainter, QColor, QBrush, QPen
 
 from src.mixins import mixin_target
 from src.ui.page import PageFramework
@@ -14,10 +14,15 @@ from src.ui.widget import WidgetFramework
 from src.ui.controls.drawer import Drawer
 from src.ui.controls.buttons import IconButton
 from src.ui.icons import Icons
-from src.styling import COLORS, SIZES, make_font, add_text_shadow
+from src.styling import COLORS, SIZES, make_font
 
 if TYPE_CHECKING:
     from src.main import Client
+
+BLOCK_BG    = "rgba(255,255,255,12)"
+BLOCK_BG_HV = "rgba(255,255,255,18)"
+BORDER      = COLORS.DARK.BORDER.NORMAL
+BORDER_FOCUS= COLORS.PRIMARY.LIGHT
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -29,211 +34,279 @@ def format_name(name: str) -> str:
     return " ".join(f"{w[0].upper()}{w[1:]}" for w in name.split(" "))
 
 
+# ── Dot-grid background ───────────────────────────────────────────────────────
+
+class _GridBackground(QWidget):
+    GRID_SPACING = 32
+    DOT_RADIUS   = 1
+
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+
+    def paintEvent(self, event):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        p.setBrush(QBrush(QColor(255, 255, 255, 18)))
+        p.setPen(Qt.GlobalColor.transparent)
+        s, r = self.GRID_SPACING, self.DOT_RADIUS
+        for x in range(s, self.width(), s):
+            for y in range(s, self.height(), s):
+                p.drawEllipse(x - r, y - r, r * 2, r * 2)
+
+
 # ── Toggle switch ─────────────────────────────────────────────────────────────
 
 class _ToggleSwitch(QWidget):
-    """Custom painted pill-shaped toggle switch."""
+    W, H = 72, 36
 
     def __init__(self, checked: bool = False, parent=None):
         super().__init__(parent)
-        self.setFixedSize(56, 28)
+        self.setFixedSize(self.W, self.H)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._checked = checked
-        self._thumb_x = float(30) if checked else float(4)
-
-        self._anim = QPropertyAnimation(self, b"thumbX")
-        self._anim.setDuration(150)
-        self._anim.setEasingCurve(QEasingCurve.Type.InOutQuad)
-
+        self._checked  = checked
+        self._thumb_x  = float(self.W - self.H + 4) if checked else float(4)
         self._callbacks: list = []
 
-    def _get_thumb(self) -> float:
-        return self._thumb_x
+        self._anim = QPropertyAnimation(self, b"thumbX")
+        self._anim.setDuration(160)
+        self._anim.setEasingCurve(QEasingCurve.Type.InOutQuad)
 
-    def _set_thumb(self, val: float) -> None:
-        self._thumb_x = val
-        self.update()
-
+    def _get_thumb(self) -> float: return self._thumb_x
+    def _set_thumb(self, v: float) -> None:
+        self._thumb_x = v; self.update()
     thumbX = pyqtProperty(float, _get_thumb, _set_thumb)
 
-    def isChecked(self) -> bool:
-        return self._checked
+    def isChecked(self) -> bool: return self._checked
 
     def setChecked(self, val: bool) -> None:
         self._checked = val
         self._anim.stop()
         self._anim.setStartValue(self._thumb_x)
-        self._anim.setEndValue(30.0 if val else 4.0)
+        self._anim.setEndValue(float(self.W - self.H + 4) if val else 4.0)
         self._anim.start()
-        self.update()
 
-    def mousePressEvent(self, event) -> None:
+    def mousePressEvent(self, event):
         self.setChecked(not self._checked)
-        for cb in self._callbacks:
-            cb(self._checked)
+        for cb in self._callbacks: cb(self._checked)
 
-    def connect(self, cb) -> None:
-        self._callbacks.append(cb)
+    def connect(self, cb): self._callbacks.append(cb)
 
-    def paintEvent(self, event) -> None:
+    def paintEvent(self, event):
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
-
-        # Track
         track = QColor(COLORS.PRIMARY.LIGHT if self._checked else COLORS.DARK.BGDARK)
         border = QColor(COLORS.PRIMARY.LIGHT if self._checked else COLORS.DARK.BORDER.NORMAL)
-        p.setBrush(QBrush(track))
-        p.setPen(border)
-        p.drawRoundedRect(0, 0, 56, 28, 14, 14)
-
-        # Thumb
-        p.setBrush(QBrush(QColor("white")))
-        p.setPen(Qt.GlobalColor.transparent)
-        p.drawEllipse(int(self._thumb_x), 4, 20, 20)
+        p.setBrush(QBrush(track)); p.setPen(QPen(border, 1.5))
+        p.drawRoundedRect(0, 0, self.W, self.H, self.H // 2, self.H // 2)
+        p.setBrush(QBrush(QColor("white"))); p.setPen(Qt.GlobalColor.transparent)
+        thumb_size = self.H - 8
+        p.drawEllipse(int(self._thumb_x), 4, thumb_size, thumb_size)
 
 
-# ── Inline input row (input + suffix/prefix as one unit) ─────────────────────
+# ── Unified field widget ──────────────────────────────────────────────────────
+# All input types (string, numeric, path) use one visual style.
+# Prefix/suffix sit inside the border as non-editable greyed labels.
 
-class _InputRow(QWidget):
-    """QLineEdit with an optional prefix label and suffix label inside a shared border."""
+_FIELD_STYLE = f"""
+    QLineEdit {{
+        background: transparent;
+        color: {COLORS.DARK.TEXT.IMPORTANT};
+        border: none;
+        padding: 0 4px;
+        font-size: {SIZES.S3}px;
+    }}
+"""
 
-    def __init__(self, line_edit: QLineEdit, prefix: str = "", suffix: str = ""):
-        super().__init__()
-        self.setStyleSheet(f"""
-            QWidget {{
-                background: {COLORS.DARK.BGDARK};
-                border: 1px solid {COLORS.DARK.BORDER.NORMAL};
-                border-radius: 6px;
-            }}
-        """)
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(0)
-
-        # Remove border from line edit — outer widget provides it
-        line_edit.setStyleSheet(f"""
-            QLineEdit {{
-                background: transparent;
-                color: inherit;
-                border: none;
-                padding: 8px 8px;
-            }}
-            QLineEdit:focus {{ border: none; }}
-        """)
-
-        def _label(text: str, muted: bool = True) -> QLabel:
-            lbl = QLabel(text)
-            lbl.setFont(make_font(SIZES.S2))
-            color = COLORS.DARK.TEXT.MUTED if muted else COLORS.DARK.TEXT.IMPORTANT
-            lbl.setStyleSheet(
-                f"color: {color}; background: transparent; padding: 8px 10px;"
-            )
-            return lbl
-
-        if prefix:
-            layout.addWidget(_label(prefix, muted=False))
-        layout.addWidget(line_edit, stretch=1)
-        if suffix:
-            layout.addWidget(_label(suffix))
-
-
-# ── Setting components ────────────────────────────────────────────────────────
-
-def _make_input_style(color: str) -> str:
+def _field_wrapper(focused: bool = False) -> str:
+    border = COLORS.PRIMARY.LIGHT if focused else COLORS.DARK.BORDER.NORMAL
     return f"""
-        QLineEdit {{
-            background: {COLORS.DARK.BGDARK};
-            color: {color};
-            border: 1px solid {COLORS.DARK.BORDER.NORMAL};
+        QWidget {{
+            background: {COLORS.DARK.BGLIGHT};
+            border: 1px solid {border};
             border-radius: 6px;
-            padding: 8px 12px;
-            font-size: {SIZES.S3}px;
         }}
-        QLineEdit:focus {{ border-color: {COLORS.PRIMARY.LIGHT}; }}
     """
 
+_FIELD_WRAPPER       = _field_wrapper(False)
+_FIELD_WRAPPER_FOCUS = _field_wrapper(True)
 
-class _StringComponent(QLineEdit):
-    def __init__(self, setting, index=None):
+def _adorn_label(text: str, muted: bool = True) -> QLabel:
+    lbl = QLabel(text)
+    lbl.setFont(make_font(SIZES.S2))
+    color = COLORS.DARK.TEXT.MUTED if muted else COLORS.DARK.TEXT.IMPORTANT
+    # Slightly tinted bg to distinguish from editable area
+    lbl.setStyleSheet(
+        f"color: {color};"
+        f"background: rgba(255,255,255,6);"
+        f"padding: 0 10px;"
+    )
+    lbl.setFixedHeight(44)
+    return lbl
+
+
+class _FieldWidget(QWidget):
+    """A styled input container: [prefix?] [QLineEdit] [suffix?]"""
+
+    def __init__(self, line_edit: QLineEdit,
+                 prefix: str = "", suffix: str = ""):
         super().__init__()
-        self._setting = setting
-        self._index   = index
+        self.setStyleSheet(_FIELD_WRAPPER)
+        self.setFixedHeight(44)
+        line_edit.focusInEvent  = lambda e: (self.setStyleSheet(_FIELD_WRAPPER_FOCUS), type(line_edit).focusInEvent(line_edit, e))
+        line_edit.focusOutEvent = lambda e: (self.setStyleSheet(_FIELD_WRAPPER),       type(line_edit).focusOutEvent(line_edit, e))
+
+        row = QHBoxLayout(self)
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(0)
+
+        if prefix:
+            row.addWidget(_adorn_label(prefix, muted=False))
+            sep = QFrame()
+            sep.setFrameShape(QFrame.Shape.VLine)
+            sep.setStyleSheet(f"color: {BORDER}; background: {BORDER};")
+            sep.setFixedWidth(1)
+            row.addWidget(sep)
+
+        line_edit.setStyleSheet(_FIELD_STYLE)
+        line_edit.setFixedHeight(44)
+        row.addWidget(line_edit, stretch=1)
+
+        if suffix:
+            sep2 = QFrame()
+            sep2.setFrameShape(QFrame.Shape.VLine)
+            sep2.setStyleSheet(f"color: {BORDER}; background: {BORDER};")
+            sep2.setFixedWidth(1)
+            row.addWidget(sep2)
+            row.addWidget(_adorn_label(suffix))
+
+
+class _Field(QWidget):
+    """
+    Input field. Draws its own background via paintEvent so parent
+    stylesheet cascades cannot override it.
+    """
+
+    def __init__(self, setting, index=None, is_numeric=False, prefix="", suffix=""):
+        super().__init__()
+        self.setFixedHeight(44)
+        self._bg     = QColor(COLORS.DARK.BGLIGHT)
+        self._border = QColor(COLORS.DARK.BORDER.HIGHLIGHT)
+        self._radius = 6
+
         val = setting["value"] if index is None else setting["value"][index]
-        self.setText(str(val))
-        self.setFont(make_font(SIZES.S3))
-        self.setStyleSheet(_make_input_style("#a8d8a8"))
-        self.textChanged.connect(self._changed)
 
-    def _changed(self, text):
-        if self._index is None:
-            self._setting["value"] = text
-        else:
-            self._setting["value"][self._index] = text
+        row = QHBoxLayout(self)
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(0)
 
+        if prefix:
+            pl = QLabel(str(prefix))
+            pl.setFont(make_font(SIZES.S2))
+            pl.setFixedHeight(44)
+            pl.setStyleSheet(
+                f"color: {COLORS.DARK.TEXT.IMPORTANT};"
+                "background: transparent; border: none; padding: 0 10px;"
+            )
+            sep = QFrame()
+            sep.setFrameShape(QFrame.Shape.VLine)
+            sep.setFixedSize(1, 44)
+            sep.setStyleSheet(f"background: {COLORS.DARK.BORDER.NORMAL}; border: none;")
+            row.addWidget(pl)
+            row.addWidget(sep)
 
-class _NumericComponent(QLineEdit):
-    def __init__(self, setting, index=None):
-        super().__init__()
-        self._setting = setting
-        self._index   = index
-        val = setting["value"] if index is None else setting["value"][index]
-        self.setText(str(val))
-        self.setFont(make_font(SIZES.S3))
-        self.setStyleSheet(_make_input_style("#f4a261"))
-        self.textChanged.connect(self._changed)
+        le = QLineEdit(str(val))
+        le.setFont(make_font(SIZES.S3))
+        le.setFixedHeight(44)
+        le.setStyleSheet(
+            f"QLineEdit {{ background: transparent; color: {COLORS.DARK.TEXT.IMPORTANT};"
+            "border: none; padding: 0 10px; }"
+        )
+        _field = self
 
-    def _changed(self, text):
-        try:
-            val = float(text) if "." in text else int(text)
-        except ValueError:
-            return
-        if self._index is None:
-            self._setting["value"] = val
-        else:
-            self._setting["value"][self._index] = val
+        def _focus_in(e):
+            _field._border = QColor(COLORS.PRIMARY.LIGHT)
+            _field.update()
+            QLineEdit.focusInEvent(le, e)
 
+        def _focus_out(e):
+            _field._border = QColor(COLORS.DARK.BORDER.HIGHLIGHT)
+            _field.update()
+            QLineEdit.focusOutEvent(le, e)
 
-class _PathComponent(QLineEdit):
-    def __init__(self, setting):
-        super().__init__()
-        self._setting = setting
-        self.setText(str(setting["value"]))
-        self.setFont(make_font(SIZES.S3))
-        self.setStyleSheet(_make_input_style("#90caf9"))
-        self.textChanged.connect(lambda t: self._setting.__setitem__("value", t))
+        le.focusInEvent  = _focus_in
+        le.focusOutEvent = _focus_out
+
+        def _changed(text):
+            if is_numeric:
+                try:
+                    v = float(text) if "." in text else int(text)
+                except ValueError:
+                    return
+                if index is None: setting["value"] = v
+                else: setting["value"][index] = v
+            else:
+                if index is None: setting["value"] = text
+                else: setting["value"][index] = text
+
+        le.textChanged.connect(_changed)
+        row.addWidget(le, stretch=1)
+
+        if suffix:
+            sep2 = QFrame()
+            sep2.setFrameShape(QFrame.Shape.VLine)
+            sep2.setFixedSize(1, 44)
+            sep2.setStyleSheet(f"background: {COLORS.DARK.BORDER.NORMAL}; border: none;")
+            sl = QLabel(str(suffix))
+            sl.setFont(make_font(SIZES.S2))
+            sl.setFixedHeight(44)
+            sl.setStyleSheet(
+                f"color: {COLORS.DARK.TEXT.MUTED};"
+                "background: transparent; border: none; padding: 0 10px;"
+            )
+            row.addWidget(sep2)
+            row.addWidget(sl)
+
+    def paintEvent(self, event):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        p.setBrush(QBrush(self._bg))
+        p.setPen(QPen(self._border, 1))
+        p.drawRoundedRect(self.rect().adjusted(0, 0, -1, -1), self._radius, self._radius)
 
 
 class _EnumComponent(QComboBox):
     def __init__(self, setting):
         super().__init__()
         self._setting = setting
-        self._filler  = "-" if "-" in setting.options[0] else ("_" if "_" in setting.options[0] else " ")
+        self._filler  = "-" if setting.options and "-" in setting.options[0] else "_"
         self.setFont(make_font(SIZES.S2))
+        self.setFixedHeight(44)
         self.setStyleSheet(f"""
             QComboBox {{
-                background: {COLORS.DARK.BGDARK};
+                background: {COLORS.DARK.BGLIGHT};
                 color: {COLORS.DARK.TEXT.IMPORTANT};
-                border: 1px solid {COLORS.DARK.BORDER.NORMAL};
+                border: 1px solid {BORDER};
                 border-radius: 6px;
-                padding: 8px 12px;
-                min-height: 40px;
+                padding: 0 12px;
             }}
-            QComboBox::drop-down {{ border: none; width: 30px; }}
+            QComboBox:focus {{ border-color: {BORDER_FOCUS}; }}
+            QComboBox::drop-down {{ border: none; width: 32px; }}
             QComboBox QAbstractItemView {{
                 background: {COLORS.DARK.BG};
                 color: {COLORS.DARK.TEXT.IMPORTANT};
-                border: 1px solid {COLORS.DARK.BORDER.NORMAL};
+                border: 1px solid {BORDER};
                 selection-background-color: {COLORS.DARK.BGLIGHT};
+                padding: 4px;
             }}
         """)
         for option in setting.options:
             self.addItem(format_name(option.strip()), userData=option)
             if option == setting.value:
                 self.setCurrentIndex(self.count() - 1)
-        self.currentIndexChanged.connect(self._changed)
-
-    def _changed(self):
-        self._setting["value"] = self.currentData()
+        self.currentIndexChanged.connect(
+            lambda: self._setting.__setitem__("value", self.currentData())
+        )
 
 
 # ── Setting block ─────────────────────────────────────────────────────────────
@@ -243,9 +316,9 @@ class SettingBlock(QFrame):
         super().__init__()
         self.setStyleSheet(f"""
             QFrame {{
-                background: {COLORS.DARK.BGLIGHT};
+                background: {BLOCK_BG};
                 border-radius: 6px;
-                border: none;
+                border: 1px solid rgba(255,255,255,8);
             }}
         """)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
@@ -258,7 +331,7 @@ class SettingBlock(QFrame):
             outer.addWidget(content)
             return
 
-        # Header row
+        # Header
         header = QHBoxLayout()
         header.setSpacing(12)
         header.setContentsMargins(0, 0, 0, 0)
@@ -272,55 +345,54 @@ class SettingBlock(QFrame):
 
         desc = setting.get("description", "")
         if desc:
-            desc_lbl = QLabel(desc)
-            desc_lbl.setFont(make_font(SIZES.S1))
-            desc_lbl.setStyleSheet(f"color: {COLORS.DARK.TEXT.MUTED}; background: transparent;")
-            desc_lbl.setWordWrap(True)
-            outer.addWidget(desc_lbl)
+            dl = QLabel(desc)
+            dl.setFont(make_font(SIZES.S1))
+            dl.setStyleSheet(f"color: {COLORS.DARK.TEXT.MUTED}; background: transparent;")
+            dl.setWordWrap(True)
+            outer.addWidget(dl)
 
-        t = setting.get("type", "string")
-        prefix = str(setting.get("prefix", "")) if setting.get("prefix") else ""
-        suffix = str(setting.get("suffix", "")) if setting.get("suffix") else ""
+        raw_t  = setting.get("type", "string")
+        # Normalise: "list[float]" → "list", "list[int]" → "list" etc.
+        t      = "list" if raw_t.startswith("list") else raw_t
+        # Normalise: "float" and "double" → "float", keep "int"
+        if t in ("double",): t = "float"
+        prefix = setting.get("prefix", "") or ""
+        suffix = setting.get("suffix", "") or ""
 
         if t == "bool":
             toggle = _ToggleSwitch(bool(setting["value"]))
             toggle.connect(lambda val: setting.__setitem__("value", val))
             header.addWidget(toggle)
 
-        elif t == "string":
-            comp = _StringComponent(setting)
-            outer.addWidget(_InputRow(comp, prefix, suffix) if (prefix or suffix) else comp)
+        elif t in ("string", "path"):
+            outer.addWidget(_Field(setting, prefix=prefix, suffix=suffix))
 
         elif t in ("int", "float", "numeric"):
-            comp = _NumericComponent(setting)
-            outer.addWidget(_InputRow(comp, prefix, suffix) if (prefix or suffix) else comp)
+            outer.addWidget(_Field(setting, is_numeric=True, prefix=prefix, suffix=suffix))
 
         elif t == "enum":
             outer.addWidget(_EnumComponent(setting))
 
         elif t == "list":
+            # is_numeric from raw type or from value content
+            list_numeric = "int" in raw_t or "float" in raw_t or "numeric" in raw_t
             for i, val in enumerate(setting["value"]):
-                pfx = prefix[i] if isinstance(prefix, list) and i < len(prefix) else prefix
-                sfx = suffix[i] if isinstance(suffix, list) and i < len(suffix) else suffix
-                comp = (_StringComponent if isinstance(val, str) else _NumericComponent)(setting, index=i)
-                outer.addWidget(_InputRow(comp, pfx, sfx) if (pfx or sfx) else comp)
-
-        elif t == "path":
-            comp = _PathComponent(setting)
-            outer.addWidget(_InputRow(comp, prefix, suffix) if (prefix or suffix) else comp)
+                pfx = prefix[i] if isinstance(prefix, list) and i < len(prefix) else (prefix or "")
+                sfx = suffix[i] if isinstance(suffix, list) and i < len(suffix) else (suffix or "")
+                is_num = list_numeric or not isinstance(val, str)
+                outer.addWidget(_Field(setting, index=i, is_numeric=is_num,
+                                       prefix=str(pfx), suffix=str(sfx)))
 
 
 # ── Plugin group ──────────────────────────────────────────────────────────────
 
 class _PluginGroup(QFrame):
-    """Groups a plugin's name, meta info, and its setting blocks visually."""
-
     def __init__(self, plugin, key: str, blocks: list):
         super().__init__()
         self.setStyleSheet(f"""
             QFrame {{
-                background: {COLORS.DARK.BG};
-                border: 1px solid {COLORS.DARK.BORDER.NORMAL};
+                background: rgba(255,255,255,6);
+                border: 1px solid rgba(255,255,255,12);
                 border-radius: 8px;
             }}
         """)
@@ -330,42 +402,61 @@ class _PluginGroup(QFrame):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
-        # Header
-        header = QWidget()
-        header.setStyleSheet(f"""
+        # Group header
+        hdr = QWidget()
+        hdr.setStyleSheet(f"""
             QWidget {{
-                background: {COLORS.DARK.BGLIGHT};
-                border-radius: 8px 8px 0px 0px;
+                background: rgba(255,255,255,10);
+                border-radius: 8px 8px 0 0;
+                border-bottom: 1px solid rgba(255,255,255,10);
             }}
         """)
-        h_layout = QVBoxLayout(header)
-        h_layout.setContentsMargins(16, 12, 16, 12)
-        h_layout.setSpacing(2)
+        hl = QVBoxLayout(hdr)
+        hl.setContentsMargins(16, 12, 16, 12)
+        hl.setSpacing(2)
 
-        name_lbl = QLabel(plugin.config.plugin.name)
-        name_lbl.setFont(make_font(SIZES.M1, bold=True))
-        name_lbl.setStyleSheet(f"color: {COLORS.DARK.TEXT.IMPORTANT}; background: transparent;")
+        nl = QLabel(plugin.config.plugin.name)
+        nl.setFont(make_font(SIZES.M1, bold=True))
+        nl.setStyleSheet(f"color: {COLORS.DARK.TEXT.IMPORTANT}; background: transparent;")
 
-        from src.main import Client  # avoid circular at module level
-        meta_lbl = QLabel(f"{key}")
-        meta_lbl.setFont(make_font(SIZES.S1))
-        meta_lbl.setStyleSheet(f"color: {COLORS.DARK.TEXT.MUTED}; background: transparent;")
+        ml = QLabel(key)
+        ml.setFont(make_font(SIZES.S1))
+        ml.setStyleSheet(f"color: {COLORS.DARK.TEXT.MUTED}; background: transparent;")
 
-        h_layout.addWidget(name_lbl)
-        h_layout.addWidget(meta_lbl)
-        layout.addWidget(header)
+        hl.addWidget(nl)
+        hl.addWidget(ml)
+        layout.addWidget(hdr)
 
-        # Blocks area
         if blocks:
             body = QWidget()
-            body.setStyleSheet("QWidget { background: transparent; }")
-            b_layout = QVBoxLayout(body)
-            b_layout.setContentsMargins(12, 12, 12, 12)
-            b_layout.setSpacing(6)
+            body.setStyleSheet("background: transparent;")
+            bl = QVBoxLayout(body)
+            bl.setContentsMargins(12, 12, 12, 12)
+            bl.setSpacing(6)
             for block in blocks:
                 if isinstance(block, QWidget):
-                    b_layout.addWidget(block)
+                    bl.addWidget(block)
             layout.addWidget(body)
+
+
+# ── Section label ─────────────────────────────────────────────────────────────
+
+def _section_label(text: str) -> QLabel:
+    lbl = QLabel(text.upper())
+    lbl.setFont(make_font(SIZES.S1))
+    lbl.setStyleSheet(
+        f"color: {COLORS.DARK.TEXT.MUTED}; background: transparent;"
+        "letter-spacing: 2px; padding-top: 4px;"
+    )
+    return lbl
+
+
+def _divider() -> QFrame:
+    d = QFrame()
+    d.setFrameShape(QFrame.Shape.HLine)
+    d.setFixedHeight(1)
+    d.setStyleSheet(f"background: {COLORS.DARK.BORDER.HIGHLIGHT};")
+    return d
 
 
 # ── Settings page ─────────────────────────────────────────────────────────────
@@ -383,97 +474,91 @@ class SettingsPage(PageFramework):
 
         self.categories: dict[str, list] = {}
 
+        # Dot grid background
+        self._grid = _GridBackground(self)
+        self._grid.setGeometry(0, 0, w, h)
+
+        NAV_W   = 280
+        BAR_H   = 70
+        PAD     = 24
+
         # ── Top bar ───────────────────────────────────────────────────────────
-        # Sits above everything — gives clock widget a clear header to land on
         top_bar = QWidget(self)
-        top_bar.setGeometry(0, 0, w, 70)
-        top_bar.setStyleSheet(f"background: {COLORS.DARK.BGDARK};")
-        top_bar.raise_()
+        top_bar.setGeometry(0, 0, w, BAR_H)
+        top_bar.setStyleSheet(f"background: rgba(0,0,0,60);")
+        self._top_bar = top_bar
 
-        top_layout = QHBoxLayout(top_bar)
-        top_layout.setContentsMargins(32, 0, 32, 0)
-        top_layout.setSpacing(16)
+        tl = QHBoxLayout(top_bar)
+        tl.setContentsMargins(PAD, 0, PAD, 0)
+        tl.setSpacing(0)
 
-        back_btn = QPushButton("← Save & Return")
-        back_btn.setFont(make_font(SIZES.M1, bold=True))
+        back_btn = QPushButton("← Save and Return")
+        back_btn.setFont(make_font(SIZES.S3, bold=True))
         back_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        back_btn.setFixedHeight(48)
+        back_btn.setFixedHeight(44)
         back_btn.setStyleSheet(f"""
             QPushButton {{
                 background: {COLORS.PRIMARY.DARK};
                 color: white;
                 border: none;
                 border-radius: 8px;
-                padding: 0 24px;
+                padding: 0 20px;
             }}
             QPushButton:hover  {{ background: {COLORS.PRIMARY.LIGHT}; }}
-            QPushButton:pressed{{ background: {COLORS.PRIMARY.DARK}; }}
+            QPushButton:pressed{{ background: {COLORS.PRIMARY.DARK}; opacity: 0.8; }}
         """)
         back_btn.clicked.connect(self.return_and_save)
 
-        settings_title = QLabel("Settings")
-        settings_title.setFont(make_font(SIZES.M3, bold=True))
-        settings_title.setStyleSheet(
-            f"color: {COLORS.DARK.TEXT.IMPORTANT}; background: transparent;"
-        )
+        tl.addWidget(back_btn)
+        tl.addStretch()
 
-        top_layout.addWidget(back_btn)
-        top_layout.addStretch()
-        top_layout.addWidget(settings_title)
-
-        # ── Main body (below top bar) ─────────────────────────────────────────
+        # ── Body ──────────────────────────────────────────────────────────────
         body = QWidget(self)
-        body.setGeometry(0, 70, w, h - 70)
+        body.setGeometry(0, BAR_H, w, h - BAR_H)
         body.setStyleSheet("background: transparent;")
+        self._body = body
 
-        body_layout = QHBoxLayout(body)
-        body_layout.setContentsMargins(0, 0, 0, 0)
-        body_layout.setSpacing(1)
+        bl = QHBoxLayout(body)
+        bl.setContentsMargins(0, 0, 0, 0)
+        bl.setSpacing(0)
 
-        # Left nav
+        # Nav panel
         nav_panel = QWidget()
-        nav_panel.setFixedWidth(280)
-        nav_panel.setStyleSheet(f"background: {COLORS.DARK.BG};")
-        nav_layout = QVBoxLayout(nav_panel)
-        nav_layout.setContentsMargins(16, 16, 16, 16)
-        nav_layout.setSpacing(4)
+        nav_panel.setFixedWidth(NAV_W)
+        nav_panel.setStyleSheet(f"background: rgba(0,0,0,40);")
+        nl = QVBoxLayout(nav_panel)
+        nl.setContentsMargins(PAD, PAD, PAD, PAD)
+        nl.setSpacing(4)
 
         self._nav_list = QVBoxLayout()
         self._nav_list.setSpacing(4)
-        self._nav_list.setContentsMargins(0, 0, 0, 0)
-        nav_layout.addLayout(self._nav_list)
-        nav_layout.addStretch()
+        nl.addLayout(self._nav_list)
+        nl.addStretch()
+        bl.addWidget(nav_panel)
 
-        body_layout.addWidget(nav_panel)
-
-        # Right content
+        # Content scroll
         self._content_scroll = QScrollArea()
         self._content_scroll.setWidgetResizable(True)
-        self._content_scroll.setStyleSheet(f"""
-            QScrollArea {{ border: none; background: {COLORS.DARK.BGDARK}; }}
-            QScrollBar:vertical {{
-                background: {COLORS.DARK.BGDARK}; width: 6px; margin: 0;
-            }}
-            QScrollBar::handle:vertical {{
-                background: {COLORS.DARK.BORDER.NORMAL}; border-radius: 3px;
-            }}
-            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0; }}
+        self._content_scroll.setStyleSheet("""
+            QScrollArea { border: none; background: transparent; }
+            QScrollBar:vertical { background: transparent; width: 6px; margin: 0; }
+            QScrollBar::handle:vertical { background: rgba(255,255,255,40); border-radius: 3px; }
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
         """)
         self._content_scroll.setHorizontalScrollBarPolicy(
             Qt.ScrollBarPolicy.ScrollBarAlwaysOff
         )
 
         self._content_widget = QWidget()
-        self._content_widget.setStyleSheet(f"background: {COLORS.DARK.BGDARK};")
+        self._content_widget.setStyleSheet("background: transparent;")
         self._content_layout = QVBoxLayout(self._content_widget)
-        self._content_layout.setContentsMargins(28, 24, 28, 100)
+        self._content_layout.setContentsMargins(PAD, PAD, PAD, 100)
         self._content_layout.setSpacing(8)
         self._content_layout.addStretch()
         self._content_scroll.setWidget(self._content_widget)
+        bl.addWidget(self._content_scroll, stretch=1)
 
-        body_layout.addWidget(self._content_scroll, stretch=1)
-
-        # ── Widget manager + Drawer ───────────────────────────────────────────
+        # ── Widget manager ────────────────────────────────────────────────────
         self.widget_manager = WidgetFramework(
             client, "#settings",
             padding=client.SETTINGS.home.widget_margin.value
@@ -482,8 +567,8 @@ class SettingsPage(PageFramework):
         self.widget_manager.setGeometry(0, 0, w, h)
         self.widget_manager.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
         self.widget_manager.show()
-        self.widget_manager.raise_()
 
+        # ── Drawer ────────────────────────────────────────────────────────────
         self.drawer = Drawer(client, position="bottom")
         self.drawer.setParent(self)
         self.drawer.place_on_page()
@@ -492,7 +577,11 @@ class SettingsPage(PageFramework):
             IconButton(Icons.FULLSCREEN, client.toggle_fullscreen),
             IconButton(Icons.CLOSE,      client.stop),
         ])
+
+        # Raise order: grid < body < top_bar < widget_manager < drawer
+        self._grid.lower()
         self.drawer.raise_()
+        self.widget_manager.raise_()
 
         # ── Timeout ───────────────────────────────────────────────────────────
         self._timeout_id = client.TIMEOUTS.add(
@@ -538,10 +627,10 @@ class SettingsPage(PageFramework):
             extended_path = f"{path}.{key}" if path else key
             if "type" in val and "value" in val:
                 try:
-                    setting_obj = pointer
+                    obj = pointer
                     for part in extended_path.split("."):
-                        setting_obj = setting_obj[part]
-                    group.append(SettingBlock(self.client, setting_obj, key))
+                        obj = obj[part]
+                    group.append(SettingBlock(self.client, obj, key))
                 except Exception:
                     pass
             else:
@@ -552,18 +641,8 @@ class SettingsPage(PageFramework):
                         gap.setFixedHeight(6)
                         gap.setStyleSheet("background: transparent;")
                         group.append(gap)
-                    lbl = QLabel(format_name(key).upper())
-                    lbl.setFont(make_font(SIZES.S1))
-                    lbl.setStyleSheet(
-                        f"color: {COLORS.DARK.TEXT.MUTED}; background: transparent;"
-                        f"letter-spacing: 2px; padding-top: 4px;"
-                    )
-                    divider = QFrame()
-                    divider.setFrameShape(QFrame.Shape.HLine)
-                    divider.setFixedHeight(1)
-                    divider.setStyleSheet(f"background: {COLORS.DARK.BORDER.HIGHLIGHT};")
-                    group.append(lbl)
-                    group.append(divider)
+                    group.append(_section_label(format_name(key)))
+                    group.append(_divider())
                     group.extend(children)
         return group
 
@@ -573,13 +652,13 @@ class SettingsPage(PageFramework):
             self.new_category(key.lower(), self.builder(pointer, grouped_dict, key, key))
 
     def _page_additions(self) -> None:
-        plugin_groups = []
+        groups = []
         for plugin, key in self.client.plugin_manager.get_plugins():
             if not hasattr(plugin, "settings"):
                 continue
             blocks = self.builder(plugin.settings, plugin.settings.to_dict(), "", "")
-            plugin_groups.append(_PluginGroup(plugin, key, blocks))
-        self.new_category("plugins", plugin_groups)
+            groups.append(_PluginGroup(plugin, key, blocks))
+        self.new_category("plugins", groups)
 
     @mixin_target("settings.setup.tab.generation")
     def _build_nav(self) -> None:
@@ -601,7 +680,7 @@ class SettingsPage(PageFramework):
                 first = False
 
     def _nav_style(self, active: bool) -> str:
-        bg = COLORS.DARK.BGLIGHT if active else "transparent"
+        bg = "rgba(255,255,255,18)" if active else "transparent"
         return f"""
             QPushButton {{
                 background: {bg};
@@ -611,7 +690,7 @@ class SettingsPage(PageFramework):
                 padding: 0 12px;
                 text-align: left;
             }}
-            QPushButton:hover {{ background: {COLORS.DARK.BGLIGHT}; }}
+            QPushButton:hover {{ background: rgba(255,255,255,12); }}
         """
 
     def _switch_tab(self, key: str, btn: QPushButton) -> None:
@@ -668,13 +747,10 @@ class SettingsPage(PageFramework):
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
         w, h = self.width(), self.height()
-        # Resize top bar and body
-        for child in self.children():
-            from PyQt6.QtWidgets import QWidget as _QW
-            if isinstance(child, _QW) and child.geometry().y() == 0 and child.geometry().height() == 70:
-                child.setGeometry(0, 0, w, 70)
-            elif isinstance(child, _QW) and child.geometry().y() == 70:
-                child.setGeometry(0, 70, w, h - 70)
+        BAR_H = 70
+        self._grid.setGeometry(0, 0, w, h)
+        self._top_bar.setGeometry(0, 0, w, BAR_H)
+        self._body.setGeometry(0, BAR_H, w, h - BAR_H)
         self.widget_manager.setGeometry(0, 0, w, h)
         self.widget_manager.update_geometry()
         self.drawer.apply_parent_width()

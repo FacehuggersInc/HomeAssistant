@@ -93,16 +93,10 @@ class CoreWidgetsBundle(Plugin):
     @mixin("sub.tiles.__init__", "corewidgetsbundle", "after")
     def _inject_tiles_widgets(self, sub_tiles, *args):
         self.pages["sub.tiles"] = sub_tiles
-        widgets = [
-            DateTimeWidget(
-                self.client,
-                show_date=False, show_time=True,
-                time_size=28, time_font="poppins-light",
-                anchor="top-right", width=150, height=60,
-            )
-        ]
-        self.client.public.cwb_widgets["sub.tiles"] = widgets
-        sub_tiles.features().add_widgets(widgets)
+        
+        # Wire this plugin for tile position persistence
+        if sub_tiles.has_feature("set_tile_plugin"):
+            sub_tiles.features().set_tile_plugin(self)
 
     @mixin("sub.home.__init__", "corewidgetsbundle", "after")
     def _inject_home_widgets(self, sub_home, *args):

@@ -28,6 +28,9 @@ class PluginManager():
 		for plugin_dir in plugin_dirs:
 			if not plugin_dir.exists(): continue
 			for plugin_path in plugin_dir.iterdir():
+				if plugin_path.name.endswith(".DISABLED"):
+					self.client.log("info", f"[PluginManager] Plugin '{plugin_path.name}' was not loaded due to '.DISABLED' tag")
+					continue
 				self.load_plugin( plugin_path )
 
 	def import_module_from_path(self, py_file: Path) -> ModuleType | None:
