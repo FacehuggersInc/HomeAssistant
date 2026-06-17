@@ -24,32 +24,11 @@ def FlaskApp(client):
 
 	@app.route("/update")
 	def update_client():
-		import sys, subprocess, os
 		if not client.BUILT:
 			return {"request":"Failed", "reason": "Wait until the Program has started fully."}
-		here = os.path.abspath(os.path.dirname(sys.argv[0]))
-		updater_path = os.path.join(here, "updater.py")
-		repo_zip = "https://github.com/FacehuggersInc/HomeAssistant/archive/refs/heads/main.zip"
-		relaunch_path = os.path.join(here, "app.py")
-		creationflags = 0
-		if os.name == "nt":
-			creationflags = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
-		if os.name == "nt":
-			subprocess.Popen(
-				[sys.executable, updater_path, here, repo_zip, relaunch_path, "force"],
-				creationflags=creationflags,
-				close_fds=True,
-			)
-		else:
-			# start_new_session=True gives updater its own process group so it
-			# survives when the app (and startup.sh terminal) closes
-			subprocess.Popen(
-				[sys.executable, updater_path, here, repo_zip, relaunch_path, "force"],
-				start_new_session=True,
-				close_fds=True,
-			)
+		client.UPDATE = True
 		client.call_on_ui(client.stop)
-		return {"request":"Success", "message": "Update started, application will restart."}
+		return {"request":"Success", "message": "Update triggered."}
 
 	@app.route("/notify/", methods=["GET"])
 	def redirects_bad_endpoint():

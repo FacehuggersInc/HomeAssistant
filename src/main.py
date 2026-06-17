@@ -197,6 +197,7 @@ class Client:
 
         self.BUILT    = False
         self.RESTART  = False
+        self.UPDATE   = False   # set True to exit with code 42 for startup.sh loop
 
         self.__LAST_COLLECTION = time.time()
 
@@ -852,6 +853,12 @@ class Client:
 
         if self.__LOG:
             self.__LOG.close()
+
+        if self.UPDATE:
+            self.log("info", "Update flag set — exiting with code 42 for startup.sh")
+            if self.__LOG:
+                self.__LOG.close()
+            sys.exit(42)
 
         if self.RESTART:
             self.log("warning", "Restarting ...")

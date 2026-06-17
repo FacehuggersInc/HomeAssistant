@@ -1,26 +1,27 @@
 #!/bin/bash
-# Startup script for Desktop Home Assistant
-# Loops so that after an update the app relaunches automatically.
-
 cd "$(dirname "$0")"
 source .venv/bin/activate
 
-while true; do
-    python app.py force
-    EXIT_CODE=$?
+# On first run, launch normally
+python app.py force
+EXIT_CODE=$?
 
-    # Exit code 0 = normal close, stop looping
-    if [ $EXIT_CODE -eq 0 ]; then
+while true; do
+    if [ $EXIT_CODE -eq 42 ]; then
+        echo "[startup] Downloading and installing update..."
+        python app.py update
+        UPDATE_CODE=$?
+        if [ $UPDATE_CODE -eq 42 ]; then
+            echo "[startup] Update installed, relaunching..."
+            python app.py force
+            EXIT_CODE=$?
+        else
+            echo "[startup] Update failed (code $UPDATE_CODE), relaunching existing version..."
+            python app.py force
+            EXIT_CODE=$?
+        fi
+    else
+        # Normal exit (0) or crash — stop looping
         break
     fi
-
-    # Exit code 42 = update was triggered, loop back and relaunch
-    if [ $EXIT_CODE -eq 42 ]; then
-        echo "[startup] Update complete, relaunching..."
-        sleep 1
-        continue
-    fi
-
-    # Any other exit = unexpected crash, stop
-    break
 done
