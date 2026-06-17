@@ -1,5 +1,7 @@
 #!/bin/bash
-# Direct launcher - skips the auto-updater
+# Launches the app directly (no auto-update).
+# Uses 'exec' to replace this bash process with python,
+# so there is no bash parent that can die and take the terminal.
 cd "$(dirname "$0")"
 source .venv/bin/activate
-python app.py force
+exec python app.py force
