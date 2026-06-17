@@ -2,6 +2,7 @@
 from src import Client
 import os, sys, subprocess, time
 
+# Updates Local Files
 def update():
     here = os.path.abspath(os.path.dirname(sys.argv[0]))
 
