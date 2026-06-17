@@ -15,6 +15,7 @@ if __name__ == "__main__":
     relaunch_args = sys.argv[4:]
     temp_dir = tempfile.mkdtemp()
     zip_path = os.path.join(temp_dir, "update.zip")
+    ignore_exts = ["sh"]
 
     try:
         # Wait a bit for main.py to close
@@ -40,6 +41,9 @@ if __name__ == "__main__":
             dest = os.path.join(install_path, rel)
             os.makedirs(dest, exist_ok=True)
             for f in files:
+                if f.split(".")[-1] in ignore_exts:
+                    log(f"Skipping '{f}' for having ext '{f.split(".")[-1]}' in ignore_exts")
+                    continue
                 shutil.copy2(os.path.join(root, f), os.path.join(dest, f))
 
         log("Cleaning up...")
