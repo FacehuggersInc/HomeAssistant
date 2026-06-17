@@ -57,12 +57,9 @@ def _get_data_dir(app_name: str) -> Path:
     system = _platform.system()
     if system == "Windows":
         base = Path(os.getenv("LOCALAPPDATA") or Path.home() / "AppData" / "Local")
-    elif system == "Linux":
-        base = Path(os.getenv("XDG_DATA_HOME") or Path.home() / ".local" / "share")
-    elif system == "Darwin":
-        base = Path.home() / "Library" / "Application Support"
     else:
-        base = Path.home()
+        # Linux (Arch, Mint, Ubuntu, etc.) — XDG compliant
+        base = Path(os.getenv("XDG_DATA_HOME") or Path.home() / ".local" / "share")
     return base / app_name.replace(" ", "")
 
 

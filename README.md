@@ -8,7 +8,7 @@ A fullscreen desktop assistant application built with Python and PyQt6. Acts as 
 
 - Python 3.11 or newer
 - pip
-- A display (X11 or Wayland on Linux, any display on Windows)
+- A display (X11 or Wayland on Linux, or Windows)
 
 ---
 
@@ -195,7 +195,6 @@ Settings are stored at:
 |---|---|
 | Windows | `%LOCALAPPDATA%\DesktopHomeAssistant\DesktopHomeAssistant.json` |
 | Linux | `~/.local/share/DesktopHomeAssistant/DesktopHomeAssistant.json` |
-| macOS | `~/Library/Application Support/DesktopHomeAssistant/DesktopHomeAssistant.json` |
 
 The settings file is created automatically on first run from the template at `src/assets/data/new-template.json`. Edit it directly or use the settings page in the app.
 
