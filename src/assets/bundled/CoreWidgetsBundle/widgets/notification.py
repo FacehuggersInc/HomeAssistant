@@ -244,12 +244,14 @@ class NotificationDialog(QWidget):
         h = win_h - (margin * 3) - 55
 
         self.setFixedSize(w, h)
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.setStyleSheet(f"""
-            QWidget {{
+            QWidget#notif_dialog {{
                 background: {COLORS.DARK.BG};
                 border-radius: 8px;
             }}
         """)
+        self.setObjectName("notif_dialog")
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(16, 12, 16, 12)

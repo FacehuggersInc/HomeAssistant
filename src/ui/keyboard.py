@@ -1,226 +1,239 @@
-from src import *
+from __future__ import annotations
+from typing import Callable
 
-LAYOUTS = {}
-with open("src/assets/data/keyboard_layouts.json", "r") as file:
-	LAYOUTS = json.load(file)
+from PyQt6.QtWidgets import (
+    QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
+    QLabel, QLineEdit, QGridLayout,
+)
+from PyQt6.QtCore import Qt, QPropertyAnimation, QEasingCurve, QPoint, pyqtSignal
+from PyQt6.QtGui import QPainter, QColor, QBrush, QPen
 
-class ActionKey(ft.FloatingActionButton):
-	def __init__(self, key:str, call:Callable, width:int = None):
-		self.label = ft.Text(
-			value = key,
-			style = STYLES.I1
-		)
+from src.styling import COLORS, make_font, SIZES
 
-		super().__init__(
-			elevation = 2,
-			width = width,
-			hover_elevation = 2,
-			focus_elevation = 2,
-			bgcolor = ft.Colors.with_opacity(0.9, ft.Colors.GREY_900),
-			shape = ft.RoundedRectangleBorder(radius = 4),
-			content = ft.SafeArea(
-				minimum_padding = 5,
-				content = self.label
-			),
-			on_click = call
-		)
 
-class Key(ft.FloatingActionButton):
-	def __init__(self, key:dict, call:Callable):
-		self.lower = key["lower"]
-		self.alt = key["upper"]
-		self.current = self.lower
-		self.mode = "lower"
+# ── Key button ────────────────────────────────────────────────────────────────
 
-		self.label = ft.Text(
-			value = self.lower,
-			style = STYLES.I1
-		)
+class _Key(QPushButton):
+    def __init__(self, label: str, action: str = None, wide: bool = False):
+        super().__init__(label)
+        self.action = action or label
+        self.setFont(make_font(SIZES.S2, bold=False))
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        w = 100 if wide else 52
+        self.setFixedSize(w, 52)
+        self.setStyleSheet(f"""
+            QPushButton {{
+                background: {COLORS.DARK.BGLIGHT};
+                color: {COLORS.DARK.TEXT.IMPORTANT};
+                border: 1px solid {COLORS.DARK.BORDER.NORMAL};
+                border-radius: 6px;
+                font-size: {SIZES.S2}px;
+            }}
+            QPushButton:hover  {{ background: {COLORS.DARK.BG}; }}
+            QPushButton:pressed{{ background: rgba(255,255,255,8); }}
+        """)
 
-		super().__init__(
-			elevation = 2,
-			hover_elevation = 2,
-			focus_elevation = 2,
-			bgcolor = ft.Colors.with_opacity(0.9, ft.Colors.GREY_900),
-			shape = ft.RoundedRectangleBorder(radius = 4),
-			content = ft.SafeArea(
-				minimum_padding = 5,
-				content = self.label
-			),
-			on_click = call
-		)
 
-	def shift(self, event=None):
-		if self.mode == "lower":
-			self.label.value = self.alt
-			self.current = self.alt
-			self.mode = "alt"
-		else:
-			self.label.value = self.lower
-			self.current = self.lower
-			self.mode = "lower"
+# ── Base keyboard ─────────────────────────────────────────────────────────────
 
-class KeyboardOverlay(ft.Container):
-	def __init__(self, layout, client, field_control:ft.TextField):
-		self.client = client
-		self.layout : list[list[dict[str, str]]] = LAYOUTS[layout]
-		self.field_control : ft.TextField = field_control
-		self.field_on_change = self.field_control.on_change
-		self.field_control.on_change = self.__on_change_wrapper
+class KeyboardPopup(QWidget):
+    """
+    Floating keyboard that types into a target QLineEdit.
+    Slides up from the bottom of the overlay.
+    """
 
-		self.input_used = False
+    submitted = pyqtSignal(str)   # emitted on Enter/Done
 
-		self.keys = []
-		self.rows = []
-		self.inserts = [
-			(0, -1, "Backspace", self.backspace, 165),
-			(2, -1, "Enter", self.confirm, 110),
-			(2, 0, 75),
-			(3, (0, -1), "Shift", self.shift, 110),
-			(4, 0, "Space", self.space, 600)
-		]
+    def __init__(self, client, target: QLineEdit, parent: QWidget = None):
+        super().__init__(parent)
+        self.client = client
+        self.target = target
+        self._caps  = False
 
-		self.display_field = ft.TextField(
-			value = self.field_control.value,
-			height=65,
-			width = float("inf"),
-			border_radius=8,
-			border_color=COLORS.DARK.BORDER.NORMAL,
-			bgcolor=COLORS.DARK.BGDARK,
-			text_style=STYLES.I2,
-		)
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        self.setStyleSheet(f"""
+            QWidget#kb_popup {{
+                background: {COLORS.DARK.BG};
+                border-top: 1px solid {COLORS.DARK.BORDER.NORMAL};
+                border-radius: 0px;
+            }}
+        """)
+        self.setObjectName("kb_popup")
 
-		#Characters
-		for i, row in enumerate(self.layout):
-			key_row = ft.Row(width = float("inf"), spacing = 8, alignment=ft.MainAxisAlignment.CENTER)
-			for key in row:
-				key_ctrl = Key(key, self.on_type)
-				self.keys.append(key_ctrl)
-				key_row.controls.append( key_ctrl )
-			self.rows.append(key_row)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(16, 12, 16, 12)
+        outer.setSpacing(8)
 
-		#Action Keys
-		for data in self.inserts:
-			if not data[0] < len(self.rows):
-				key_row = ft.Row(width = float("inf"), spacing = 4, alignment=ft.MainAxisAlignment.CENTER)
-				self.rows.append(key_row)
+        # Preview bar
+        preview_row = QHBoxLayout()
+        self._preview = QLabel()
+        self._preview.setFont(make_font(SIZES.S3))
+        self._preview.setStyleSheet(
+            f"color: {COLORS.DARK.TEXT.IMPORTANT}; background: transparent;"
+        )
+        self._refresh_preview()
 
-			if len(data) > 3:
-				row = self.rows[data[0]]
-				data = data[1:]
+        close_btn = _Key("✕", "close", wide=False)
+        close_btn.clicked.connect(self.close_keyboard)
 
-				if isinstance(data[0], int):
-					if not data[0] == -1:
-						row.controls.insert(
-							data[0],
-							ActionKey(data[1], data[2], data[3])
-						)
-					else:
-						row.controls.append(ActionKey(data[1], data[2], data[3]))
-				elif isinstance(data[0], tuple):
-					for index in data[0]:
-						if not index == -1:
-							row.controls.insert(
-								index,
-								ActionKey(data[1], data[2], data[3])
-							)
-						else:
-							row.controls.append(ActionKey(data[1], data[2], data[3]))
-			else:
-				data = data[1:]
-				if not data[0] == -1:
-					row.controls.insert(
-						data[0],
-						ft.Row(width = data[1])
-					)
-				else:
-					row.controls.append(ft.Row(width = data[1]))
+        preview_row.addWidget(self._preview, stretch=1)
+        preview_row.addWidget(close_btn)
+        outer.addLayout(preview_row)
 
-		width = 1015
-		height = 450
-		super().__init__(
-			width = width,
-			height = height,
-			padding = 10,
-			border_radius = 8,
-			border = ft.border.all(2, ft.Colors.with_opacity(0.8, COLORS.DARK.BGDARK)),
-			bgcolor = ft.Colors.GREY_900,
-			gradient = ft.LinearGradient(
-				begin=ft.alignment.top_left,
-				end=ft.alignment.bottom_right,
-				colors=[
-					ft.Colors.with_opacity(0.98, COLORS.DARK.BGDARK),
-					ft.Colors.with_opacity(0.98, ft.Colors.GREY_900)
-				]
-			),
-			content = ft.Column(
-				expand = True,
-				spacing = 0,
-				controls = [
-					self.display_field,
-					ft.Column(
-						expand = True,
-						spacing = 4,
-						alignment=ft.MainAxisAlignment.CENTER,
-						controls = self.rows
-					)
-				]
-			),
-			left = (self.client.SETTINGS.application.window.size.value[0] // 2) - (width // 2),
-			bottom = self.client.SETTINGS.home.widget_margin.value
-		)
+        # Build key rows
+        self._key_grid = QGridLayout()
+        self._key_grid.setSpacing(6)
+        outer.addLayout(self._key_grid)
 
-	def input_check(self, event = None):
-		pass
+        self._build_keys()
 
-	def confirm(self, event = None):
-		self.field_control.on_change = self.field_on_change
-		self.client.close_keyboard()
+        # Animation
+        self._anim = QPropertyAnimation(self, b"pos")
+        self._anim.setDuration(200)
+        self._anim.setEasingCurve(QEasingCurve.Type.OutCubic)
 
-	def backspace(self, event = None):
-		val = self.field_control.value
-		if str(val):  # avoid errors on empty
-			self.field_control.value = val[:-1]
-			self.update_field()
-			self.trigger_on_change(event)
-		else:
-			self.update_display()
+    # ── Key layout ────────────────────────────────────────────────────────────
 
-	def shift(self, event = None):
-		"""Shifts all Keys to their Alterative Character"""
-		for key in self.keys:
-			key.shift()
-		self.update()
+    def _build_keys(self) -> None:
+        rows = self._key_rows()
+        for r, row in enumerate(rows):
+            col = 0
+            for key_data in row:
+                if isinstance(key_data, tuple):
+                    label, action, wide = key_data
+                else:
+                    label = action = key_data
+                    wide = False
+                btn = _Key(label, action, wide=wide)
+                btn.clicked.connect(lambda _, a=action: self._press(a))
+                span = 2 if wide else 1
+                self._key_grid.addWidget(btn, r, col, 1, span)
+                col += span
 
-	def space(self, event = None):
-		"""Adds a space to the Text Field value"""
-		self.type(key = " ")
+    def _key_rows(self) -> list:
+        """Override in subclasses for different layouts."""
+        return [
+            ["1","2","3","4","5","6","7","8","9","0"],
+            ["q","w","e","r","t","y","u","i","o","p"],
+            ["a","s","d","f","g","h","j","k","l"],
+            [("⇧","shift",False),"z","x","c","v","b","n","m",("⌫","backspace",False)],
+            [("⎵","space",True),(".",".",False),("-","-",False),("_","_",False),
+             ("Done","done",True)],
+        ]
 
-	def type(self, event=None, key: str = ""):
-		"""Appends key to the Text Field value"""
-		self.field_control.value += key
-		self.update_field()
+    # ── Key handling ──────────────────────────────────────────────────────────
 
-	def on_type(self, event):
-		"""When a Character Key is clicked, type its key into the Text Field"""
-		self.type(key = event.control.current)
-		self.trigger_on_change(event)
+    def _press(self, action: str) -> None:
+        t = self.target
+        if action == "backspace":
+            cur = t.cursorPosition()
+            if cur > 0:
+                text = t.text()
+                t.setText(text[:cur-1] + text[cur:])
+                t.setCursorPosition(cur - 1)
+        elif action == "space":
+            self._insert(" ")
+        elif action == "shift":
+            self._caps = not self._caps
+            self._rebuild_caps()
+        elif action == "done":
+            self.submitted.emit(t.text())
+            self.close_keyboard()
+        elif action == "close":
+            self.close_keyboard()
+        elif len(action) == 1:
+            self._insert(action.upper() if self._caps else action)
+            if self._caps:
+                self._caps = False
+                self._rebuild_caps()
+        self._refresh_preview()
 
-	def update_field(self):
-		"""Updates the target tText Field"""
-		try: self.field_control.update()
-		except: pass
+    def _insert(self, char: str) -> None:
+        t = self.target
+        cur  = t.cursorPosition()
+        text = t.text()
+        t.setText(text[:cur] + char + text[cur:])
+        t.setCursorPosition(cur + 1)
 
-	def update_display(self):
-		"""Update display to mimic Text Field"""
-		self.display_field.value = self.field_control.value
-		self.display_field.update()
+    def _rebuild_caps(self) -> None:
+        # Re-render single-char key labels for caps state
+        for i in range(self._key_grid.count()):
+            item = self._key_grid.itemAt(i)
+            if item and item.widget():
+                btn = item.widget()
+                if isinstance(btn, _Key) and len(btn.action) == 1 and btn.action.isalpha():
+                    btn.setText(btn.action.upper() if self._caps else btn.action)
 
-	def trigger_on_change(self, event):
-		"""When keyboard triggers a change, it calls on change on the Text Field"""
-		self.__on_change_wrapper(event)
+    def _refresh_preview(self) -> None:
+        text = self.target.text() if self.target else ""
+        if len(text) > 40:
+            text = "…" + text[-40:]
+        self._preview.setText(text or " ")
 
-	def __on_change_wrapper(self, event):
-		"""Allow for Update of Display when on change occurs outside of keyboard functionality"""
-		if self.field_on_change: self.field_on_change(event)
-		self.update_display()
+    # ── Show / hide ───────────────────────────────────────────────────────────
+
+    def show_keyboard(self) -> None:
+        parent = self.parent()
+        if not parent:
+            return
+        pw, ph = parent.width(), parent.height()
+        self.setFixedWidth(pw)
+        self.adjustSize()
+        kh = self.sizeHint().height()
+        self.setFixedHeight(kh)
+        self.move(0, ph)          # start off-screen below
+        self.show()
+        self.raise_()
+        self._anim.stop()
+        self._anim.setStartValue(QPoint(0, ph))
+        self._anim.setEndValue(QPoint(0, ph - kh))
+        self._anim.start()
+
+    def close_keyboard(self) -> None:
+        parent = self.parent()
+        ph = parent.height() if parent else 1000
+        self._anim.stop()
+        self._anim.setStartValue(self.pos())
+        self._anim.setEndValue(QPoint(0, ph))
+        self._anim.finished.connect(self.hide)
+        self._anim.start()
+
+
+# ── Numpad (int / float only) ─────────────────────────────────────────────────
+
+class NumpadPopup(KeyboardPopup):
+    """Compact numpad for int / float / numeric settings."""
+
+    def _key_rows(self) -> list:
+        return [
+            ["7", "8", "9"],
+            ["4", "5", "6"],
+            ["1", "2", "3"],
+            [("±","negate",False), "0", ("⌫","backspace",False)],
+            [(".", ".", False), ("Done","done",True)],
+        ]
+
+    def _press(self, action: str) -> None:
+        if action == "negate":
+            text = self.target.text()
+            if text.startswith("-"):
+                self.target.setText(text[1:])
+            else:
+                self.target.setText("-" + text)
+            self._refresh_preview()
+        else:
+            super()._press(action)
+
+
+# ── Factory ───────────────────────────────────────────────────────────────────
+
+def make_keyboard(client, target: QLineEdit, setting_type: str,
+                  parent: QWidget) -> KeyboardPopup:
+    """Return the appropriate keyboard for the setting type."""
+    numeric_types = {"int", "float", "numeric", "list[int]", "list[float]"}
+    if setting_type in numeric_types:
+        kb = NumpadPopup(client, target, parent)
+    else:
+        kb = KeyboardPopup(client, target, parent)
+    return kb

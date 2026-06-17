@@ -17,11 +17,30 @@ def FlaskApp(client):
 
 	@app.route("/restart")
 	def restart_client():
-		if client.BUILT: 
-			client.RESTART = True
-			return {"request":"Success"}
-		
-		return {"request":"Failed", "reason": "Wait until the Program has started fully."}
+		if not client.BUILT:
+			return {"request":"Failed", "reason": "Wait until the Program has started fully."}
+		client.RESTART = True
+		return {"request":"Success"}
+
+	@app.route("/update")
+	def update_client():
+		import sys, subprocess, os
+		if not client.BUILT:
+			return {"request":"Failed", "reason": "Wait until the Program has started fully."}
+		here = os.path.abspath(os.path.dirname(sys.argv[0]))
+		updater_path = os.path.join(here, "updater.py")
+		repo_zip = "https://github.com/FacehuggersInc/HomeAssistant/archive/refs/heads/main.zip"
+		relaunch_path = os.path.join(here, "app.py")
+		creationflags = 0
+		if os.name == "nt":
+			creationflags = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
+		subprocess.Popen(
+			[sys.executable, updater_path, here, repo_zip, relaunch_path, "force"],
+			creationflags=creationflags,
+			close_fds=True,
+		)
+		client.call_on_ui(client.stop)
+		return {"request":"Success", "message": "Update started, application will restart."}
 
 	@app.route("/notify/", methods=["GET"])
 	def redirects_bad_endpoint():
@@ -30,11 +49,12 @@ def FlaskApp(client):
 	@app.route("/notify", methods=["GET"])
 	def backend_notify():
 		try:
-			icon = request.args.get("icon")
+			__ico = request.args.get("icon")
+			icon = __ico.split(".")[-1] 
 			title = request.args.get("title")
 			body = request.args.get("body")
 
-			if icon != None and title != None and body != None:
+			if icon and title and body:
 				client.simple_notify(icon, title, body)
 				return {"request":"Success"}, 200
 			else:
@@ -107,4 +127,3 @@ def FlaskApp(client):
 			return {"request":"Failed", "reason":"No Query(q) Given!"}, 404
 
 	return app
-

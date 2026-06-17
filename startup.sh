@@ -1,4 +1,5 @@
 #!/bin/bash
-cd /home/tree/HomeAssistant/
+# Direct launcher - skips the auto-updater
+cd "$(dirname "$0")"
 source .venv/bin/activate
-python app.py
+python app.py force

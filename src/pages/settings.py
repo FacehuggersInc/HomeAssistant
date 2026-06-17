@@ -3,7 +3,7 @@ from typing import TYPE_CHECKING
 
 from PyQt6.QtWidgets import (
     QWidget, QHBoxLayout, QVBoxLayout, QLabel, QPushButton,
-    QScrollArea, QLineEdit, QComboBox, QFrame, QSizePolicy,
+    QScrollArea, QLineEdit, QComboBox, QFrame, QSizePolicy, QFileDialog,
 )
 from PyQt6.QtCore import Qt, QPropertyAnimation, QEasingCurve, pyqtProperty
 from PyQt6.QtGui import QPainter, QColor, QBrush, QPen
@@ -15,6 +15,7 @@ from src.ui.controls.drawer import Drawer
 from src.ui.controls.buttons import IconButton
 from src.ui.icons import Icons
 from src.styling import COLORS, SIZES, make_font
+from src.ui.keyboard import make_keyboard
 
 if TYPE_CHECKING:
     from src.main import Client
@@ -215,6 +216,7 @@ class _Field(QWidget):
             row.addWidget(pl)
             row.addWidget(sep)
 
+        self.client = setting.client if hasattr(setting, 'client') else None
         le = QLineEdit(str(val))
         le.setFont(make_font(SIZES.S3))
         le.setFixedHeight(44)
@@ -228,6 +230,17 @@ class _Field(QWidget):
             _field._border = QColor(COLORS.PRIMARY.LIGHT)
             _field.update()
             QLineEdit.focusInEvent(le, e)
+            # Open keyboard popup
+            page = _field.window()
+            if page and not hasattr(page, "_kb") or (hasattr(page, "_kb") and page._kb is None):
+                pass
+            try:
+                overlay = _field.client._overlay_manager
+                kb = make_keyboard(_field.client, le, _field._setting_type, overlay)
+                page._kb = kb
+                kb.show_keyboard()
+            except Exception:
+                pass
 
         def _focus_out(e):
             _field._border = QColor(COLORS.DARK.BORDER.HIGHLIGHT)
@@ -364,11 +377,45 @@ class SettingBlock(QFrame):
             toggle.connect(lambda val: setting.__setitem__("value", val))
             header.addWidget(toggle)
 
-        elif t in ("string", "path"):
-            outer.addWidget(_Field(setting, prefix=prefix, suffix=suffix))
+        elif t == "string":
+            outer.addWidget(_Field(setting, self.client, prefix=prefix, suffix=suffix))
+
+        elif t == "path":
+            field = _Field(setting, self.client, is_path=True, prefix=prefix, suffix=suffix)
+            browse = QPushButton("Browse")
+            browse.setFixedSize(80, 44)
+            browse.setFont(make_font(SIZES.S1))
+            browse.setCursor(Qt.CursorShape.PointingHandCursor)
+            browse.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+            browse.setStyleSheet(
+                f"QPushButton {{ background: {COLORS.DARK.BGLIGHT};"
+                f" color: {COLORS.DARK.TEXT.IMPORTANT};"
+                f" border: 1px solid {COLORS.DARK.BORDER.NORMAL};"
+                f" border-radius: 6px; }}"
+                f"QPushButton:hover {{ background: {COLORS.DARK.BG}; }}"
+            )
+            def _browse(checked=False, _s=setting, _f=field):
+                from PyQt6.QtWidgets import QFileDialog
+                current = str(_s["value"])
+                chosen = QFileDialog.getExistingDirectory(None, "Select folder", current)
+                if chosen:
+                    _s["value"] = chosen
+                    for child in _f.children():
+                        if isinstance(child, QLineEdit):
+                            child.setText(chosen)
+                            break
+            browse.clicked.connect(_browse)
+            path_row = QWidget()
+            path_row.setStyleSheet("background: transparent;")
+            path_hl = QHBoxLayout(path_row)
+            path_hl.setContentsMargins(0,0,0,0)
+            path_hl.setSpacing(6)
+            path_hl.addWidget(field, stretch=1)
+            path_hl.addWidget(browse)
+            outer.addWidget(path_row)
 
         elif t in ("int", "float", "numeric"):
-            outer.addWidget(_Field(setting, is_numeric=True, prefix=prefix, suffix=suffix))
+            outer.addWidget(_Field(setting, self.client, is_numeric=True, prefix=prefix, suffix=suffix))
 
         elif t == "enum":
             outer.addWidget(_EnumComponent(setting))
