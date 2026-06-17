@@ -282,11 +282,13 @@ class Client:
         self.SWITCHING_PAGE  = False
         self.PAGE            = None
         self.PAGES: dict     = {}
-        self.DEFAULT_PAGE    = "#"   # plugins can change this
+        self.DEFAULT_PAGE    = ""    # set by plugins; empty = show RootPage
 
-        # SettingsPage is the only core-framework page
+        # Core framework pages
         from src.pages.settings import SettingsPage
+        from src.pages.root import RootPage
         self.add_page("#settings", "Settings Page", SettingsPage)
+        self.add_page("#root",     "Root Page",     RootPage)
 
         self.plugin_manager = PluginManager(self, self.plugin_dirs)
         self.plugin_manager.load_plugins()
@@ -692,7 +694,16 @@ class Client:
                 # Navigate to home page once
                 if not self.get_state("home_page_setup"):
                     self.set_state("home_page_setup", True)
-                    self.call_on_ui(lambda: self.goto(self.DEFAULT_PAGE))
+                    def _goto_default():
+                        target = self.DEFAULT_PAGE
+                        if not target or not self.has_page(target):
+                            if target:
+                                self.log("warning", f"Default page '{target}' not registered — showing RootPage")
+                            else:
+                                self.log("info", "No default page set — showing RootPage")
+                            target = "#root"
+                        self.goto(target)
+                    self.call_on_ui(_goto_default)
 
                 # Track window size changes
                 def _check_size():
