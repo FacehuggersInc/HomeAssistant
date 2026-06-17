@@ -1,0 +1,168 @@
+{
+  "home": {
+		"widget_margin": {
+			"type": "int",
+			"default": 28,
+			"value": 28,
+			"description": "The Outer Margin of Widgets on the Home Page"
+		},
+		"time_format": {
+			"type": "string",
+			"default": "%I:%M %p",
+			"value": "%I:%M %p"
+		},
+		"date_format": {
+			"type": "string",
+			"default": "%a, %b %d",
+			"value": "%a, %b %d"
+		},
+		"background_cycle_interval": {
+			"type": "int",
+			"default": 75,
+			"value": 75,
+			"suffix": "sec",
+			"description": "The amount of time in seconds before the background cycles to a new Wallpaper"
+		},
+		"background_fade_duration": {
+			"type": "int",
+			"default": 1200,
+			"value": 1200,
+			"suffix": "ms",
+			"description": "How long the fade animation should be when a Wallpaper cycles"
+		},
+		"images": {
+			"type": "path",
+			"default": "C:\\Home\\Images",
+			"value": "C:\\Home\\Images",
+			"description": "Home Background's Path for Cycling Images"
+		},
+		"pinned": {
+			"type": "path",
+			"default": " ",
+			"value": " ",
+			"description": "The Path to your Pinned Image for the Home Background"
+		},
+		"show_normal_media_player": {
+			"type": "bool",
+			"default": false,
+			"value": false,
+			"description": "If the normal Media Player should show (The black box with Play / Pause, Next, and Previous)"
+		},
+		"show_whats_playing": {
+			"type": "bool",
+			"default": false,
+			"value": false,
+			"description": "If the title of whats playing should show. This will be positioned above or below the media controls and will show if the media controls aren't showing"
+		},
+		"media_player_position": {
+			"type": "enum",
+			"default": "bottom-right",
+			"value": "bottom-right",
+			"options": [
+				"top-left",
+				"top-center",
+				"top-right",
+				"bottom-left",
+				"bottom-center",
+				"bottom-right"
+			],
+			"description": "Where should the media controls / player be positioned"
+		}
+  },
+  "accessibility": {
+		"handles_open_on_touch": {
+			"type": "bool",
+			"default": false,
+			"value": false,
+			"description": "Drawer Handles instead of needing a swiping action, require just a touch to open"
+		}
+  },
+  "notifications": {
+		"notification_duration": {
+			"type": "float",
+			"default": 4.5,
+			"value": 4.5,
+			"suffix": "sec",
+			"description": "How long a notification stays on screen"
+		},
+		"notification_queue_delay": {
+			"type": "float",
+			"default": 0.4,
+			"value": 0.4,
+			"suffix": "sec",
+			"description": "The delay in seconds between notifications in queue"
+		},
+		"notification_position": {
+			"type": "enum",
+			"default": "bottom-right",
+			"value": "bottom-right",
+			"options": [
+				"top-left",
+				"top-center",
+				"top-right",
+				"bottom-left",
+				"bottom-center",
+				"bottom-right"
+			],
+			"description": "Where should notifications appear"
+		}
+  },
+  "plugins": {
+		"media": {
+			"username": {
+				"type": "string",
+				"default": "colin.a.bond",
+				"value": "colin.a.bond",
+				"description": "Your Username for your music API"
+			}
+		},
+		"weather": {
+			"timezone": {
+				"type": "string",
+				"default": "America/Chicago",
+				"value": "America/Chicago",
+				"description": "The timezone you're in"
+			},
+			"latitude": {
+				"type": "float",
+				"default": 41.2619,
+				"value": 41.2619,
+				"suffix": "deg.",
+				"description": "The Latitude of your city"
+			},
+			"longitude": {
+				"type": "float",
+				"default": -95.8608,
+				"value": -95.8608,
+				"suffix": "deg.",
+				"description": "The Longitude of your city"
+			}
+		}
+  },
+  "application": {
+		"window": {
+			"size": {
+				"type": "list[float]",
+				"default": [1920.0, 1080.0],
+				"value": [1920.0, 1080.0],
+				"prefix": ["w", "h"],
+				"suffix": ["px", "px"],
+				"description": "Set the size of the window. NOTE: this doesn't effect the actual size, its a reference"
+			},
+			"position": {
+				"type": "list[int]",
+				"default": [1074, 1701],
+				"value": [1074, 1701],
+				"prefix": ["x", "y"],
+				"suffix": ["px", "px"],
+				"description": "Where the window will position itself on startup"
+			},
+			"auto_lock": {
+				"type": "bool",
+				"default": true,
+				"value": true,
+				"description": "Whether the app will automatically on startup, position at X and Y, then fullscreen"
+			}
+		}
+	}
+}

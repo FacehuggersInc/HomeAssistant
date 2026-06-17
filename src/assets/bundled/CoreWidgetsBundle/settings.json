@@ -1,0 +1,24 @@
+{
+    "weather": {
+        "timezone": {
+            "type": "string",
+            "default": "America/Chicago",
+            "value": "America/Chicago",
+            "description": "The timezone you're in"
+        },
+        "latitude": {
+            "type": "numeric",
+            "default": 41.2619,
+            "value": 41.2619,
+            "suffix": "deg.",
+            "description": "The Latitude of your city"
+        },
+        "longitude": {
+            "type": "numeric",
+            "default": -95.8608,
+            "value": -95.8608,
+            "suffix": "deg.",
+            "description": "The Longitude of your city"
+        }
+    }
+}

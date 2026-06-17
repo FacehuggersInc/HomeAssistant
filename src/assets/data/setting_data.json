@@ -1,0 +1,54 @@
+{
+	"descriptions" : {
+		"application" : "Main settings for the App",
+	
+		"home" : "Home Settings",
+		"home.show_normal_media_player":"If the normal Media Player should show (The black box with Play / Pause, Next, and Previous)",
+		"home.show_whats_playing" : "If the title of whats playing should show. This will be positioned above or below the media controls and will show if the media controls aren't showing",
+		"home.media_player_position" : "Where should the media controls / player be positioned",
+		"home.background_cycle_interval" : "The amount of time in seconds before the background cycles to a new Wallpaper",
+		"home.background_fade_duration" : "How long the fade animation should be when a Wallpaper cycles",
+		"home.images" : "Home Background's Path for Cycling Images",
+		"home.pinned" : "The Path to your Pinned Image for the Home Background",
+		"home.widget_margin" : "The Outer Margin of Widgets on the Home Page",
+
+		"accessibility" : "Settings to make use of this app easier",
+		"accessibility.handles_open_on_touch" : "Drawer Handles instead of needing a swiping action, require just a touch to open",
+		
+		"application.window.size" : "Set the size of the window. NOTE: this doesn't effect the actual size, its a reference",
+		"application.window.position" : "Where the window will position itself on startup",
+		"application.window.auto_lock" : "Whether the app will automatically on startup, position at X and Y, then fullscreen",
+		
+		"notifications.notification_queue_delay" : "The delay in seconds between notifications in queue",
+		"notifications.notification_duration" : "How long a notification stays on screen",
+		"notifications.notification_position" : "Where should notifications appear",
+
+		"plugins" : "API and External Addon Settings",
+
+		"plugins.media.username" : "Your Username for your music API",
+
+		"plugins.weather" : "weather Settings",
+		"plugins.weather.timezone" : "The timezone you're in",
+		"plugins.weather.latitude" : "The Latitude of your city",
+		"plugins.weather.longitude": "The Longitude of your city",
+
+		"plugins.RTSP_streaming.ip" : "Local IP Address to the security System",
+		"plugins.RTSP_streaming.port" : "the PORT the RTSP stream uses",
+		"plugins.RTSP_streaming.channels" : "The number of channels your System supports"
+
+	},
+	"prefix" : {
+		"application.window.size" : ["w", "h"],
+		"application.window.position" : ["x", "y"]
+	},
+	"suffix" : {
+		"notifications.notification_queue_delay" : "sec",
+		"notifications.notification_duration" : "sec",
+		"application.window.position" : ["px", "px"],
+		"application.window.size" : ["px", "px"],
+		"home.background_cycle_interval" : "sec",
+		"home.background_fade_duration" : "ms",
+		"plugins.weather.latitude" : "deg.",
+		"plugins.weather.longitude": "deg."
+	}
+}

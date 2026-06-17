@@ -1,0 +1,45 @@
+# ── UI ────────────────────────────────────────────────────────────────────────
+PyQt6
+qtawesome
+
+# ── Settings ──────────────────────────────────────────────────────────────────
+dynaconf
+
+# ── NLP / Intent Engine ───────────────────────────────────────────────────────
+spacy
+# After install run: python -m spacy download en_core_web_sm
+word2number
+
+# ── STT ───────────────────────────────────────────────────────────────────────
+faster-whisper
+sounddevice
+webrtcvad
+numpy
+torch
+noisereduce
+
+# ── TTS ───────────────────────────────────────────────────────────────────────
+elevenlabs
+
+# ── Weather API ───────────────────────────────────────────────────────────────
+openmeteo-requests
+requests-cache
+retry-requests
+pandas
+
+# ── APIs / Backend ────────────────────────────────────────────────────────────
+flask
+requests
+python-dotenv
+
+# ── Image Processing ──────────────────────────────────────────────────────────
+Pillow
+
+# ── System ────────────────────────────────────────────────────────────────────
+psutil
+pynput
+
+# ── Windows-only (pip skips these on Linux/macOS) ─────────────────────────────
+pyautogui ; sys_platform == "win32"
+pygetwindow ; sys_platform == "win32"
+winsdk ; sys_platform == "win32"

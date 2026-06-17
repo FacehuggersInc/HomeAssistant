@@ -1,0 +1,6 @@
+[plugin]
+name = "Core Widgets Bundle"
+key = "corewidgetsbundle"
+
+[settings]
+path = "src/assets/bundled/CoreWidgetsBundle/settings.json"

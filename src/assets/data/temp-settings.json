@@ -1,0 +1,70 @@
+{
+    "home": {
+        "widget_margin": 28,
+        "time_format": "%I:%M %p",
+        "date_format": "%a, %b %d",
+        "background_cycle_interval": 75,
+        "background_fade_duration": 1200,
+        "images": "C:\\Home\\Images",
+        "pinned": " ",
+        "show_normal_media_player": false,
+        "show_whats_playing": false,
+        "media_player_position": {
+            "value": "bottom-right",
+            "options": [
+                "top-left",
+                "top-center",
+                "top-right",
+                "bottom-left",
+                "bottom-center",
+                "bottom-right"
+            ]
+        }
+    },
+    "accessibility": {
+        "handles_open_on_touch": false
+    },
+    "notifications": {
+        "notification_duration": 4.5,
+        "notification_queue_delay": 0.4,
+        "notification_position": {
+            "value": "bottom-right",
+            "options": [
+                "top-left",
+                "top-center",
+                "top-right",
+                "bottom-left",
+                "bottom-center",
+                "bottom-right"
+            ]
+        }
+    },
+    "plugins": {
+        "::ext?extends": "C:\\Home\\versions\\beta-1\\test.json",
+        "media": {
+            "username": "colin.a.bond"
+        },
+        "weather": {
+            "timezone": "America/Chicago",
+            "latitude": 41.2619,
+            "longitude": -95.8608
+        }
+    },
+    "application": {
+        "window": {
+            "size": {
+                "set": [
+                    1920.0,
+                    1080.0
+                ]
+            },
+            "position": {
+                "set": [
+                    1074,
+                    1701
+                ]
+            },
+            "auto_lock": true
+        }
+    }
+}
