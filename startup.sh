@@ -1,7 +1,26 @@
 #!/bin/bash
-# Launches the app directly (no auto-update).
-# Uses 'exec' to replace this bash process with python,
-# so there is no bash parent that can die and take the terminal.
+# Startup script for Desktop Home Assistant
+# Loops so that after an update the app relaunches automatically.
+
 cd "$(dirname "$0")"
 source .venv/bin/activate
-exec python app.py force
+
+while true; do
+    python app.py force
+    EXIT_CODE=$?
+
+    # Exit code 0 = normal close, stop looping
+    if [ $EXIT_CODE -eq 0 ]; then
+        break
+    fi
+
+    # Exit code 42 = update was triggered, loop back and relaunch
+    if [ $EXIT_CODE -eq 42 ]; then
+        echo "[startup] Update complete, relaunching..."
+        sleep 1
+        continue
+    fi
+
+    # Any other exit = unexpected crash, stop
+    break
+done
