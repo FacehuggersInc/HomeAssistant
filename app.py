@@ -2,6 +2,7 @@ import os
 import sys
 import subprocess
 
+
 def update():
     here          = os.path.abspath(os.path.dirname(sys.argv[0]))
     updater_path  = os.path.join(here, "updater.py")
@@ -24,5 +25,6 @@ if __name__ == "__main__":
     if len(sys.argv) > 1 and sys.argv[1] == "force":
         from src import Client
         CLIENT = Client()
+        CLIENT.run()
     else:
         update()
