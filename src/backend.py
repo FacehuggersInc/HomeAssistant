@@ -21,7 +21,7 @@ def FlaskApp(client):
 		static_folder=os.path.join(here, "static"),
 	)
 
-	# ── Auth helper ───────────────────────────────────────────────────────────
+	# AUTH
 
 	def auth():
 		"""Return error response tuple if ?id= is missing or wrong, else None."""

@@ -2,7 +2,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Type
 
 from PyQt6.QtWidgets import QWidget, QPushButton
-from PyQt6.QtCore import Qt, QPropertyAnimation, QEasingCurve, QPoint
+from PyQt6.QtCore import Qt, QPropertyAnimation, QEasingCurve, QPoint, QTimer
 from PyQt6.QtGui import QPainter, QColor, QBrush, QPen
 
 import qtawesome as qta
@@ -119,6 +119,23 @@ class TrashBin(QWidget):
 
 
 ##SUB TILES PAGE
+#
+# Owns and wires together the whole Tile System for this page:
+#   - TileGrid    : where placed tiles live
+#   - TilePanel   : where registered-but-unplaced tiles live
+#   - TrashBin    : drop target to remove a tile from the grid
+#
+# register_tile() is the ONLY method a plugin should call. It decides
+# where a tile goes by checking TileGrid.load_positions() — if the
+# tile's KEY has a saved position from a previous session, it goes
+# straight to the grid at that saved spot. Otherwise it respects the
+# in_grid argument (grid if True, panel if False). This means plugins
+# never need to track tile placement themselves between restarts.
+#
+# notify_drag_started() / notify_drag_ended() are called by both
+# Tile (tile.py) and TilePanelRow (tile_panel.py) so the trash bin
+# behaves the same whether a tile is being dragged within the grid
+# or out of the panel for the first time.
 
 class SubTilesPage(SubPageFramework):
 
@@ -142,6 +159,7 @@ class SubTilesPage(SubPageFramework):
 
         margin = int(client.SETTINGS.home.widget_margin.value)
         self.tile_grid = TileGrid(client, cols=16, rows=10)
+        #drawer height is set further below, once self.drawer exists
         self.tile_grid.setParent(self)
         self.tile_grid.setGeometry(0, 0, w, h)
         self.tile_grid.show()
@@ -177,6 +195,10 @@ class SubTilesPage(SubPageFramework):
             IconButton(Icons.FULLSCREEN, client.toggle_fullscreen),
             IconButton(Icons.CLOSE,      client.stop),
         ])
+
+        #grid leaves matching breathing room at the bottom — wired
+        #directly here now rather than through a plugin-facing setter
+        self.tile_grid.set_drawer_height(self.drawer.handle.height())
 
         ## -- PANEL BUTTON
         #subtle button in the top-right corner to open the tile panel
@@ -218,35 +240,76 @@ class SubTilesPage(SubPageFramework):
             "remove_tile":            self.tile_grid.remove_tile,
             "get_tile":               self.tile_grid.get_tile,
             "tile_grid":              self.tile_grid,
-            "set_tile_plugin":        self.set_tile_plugin,
         })
 
-    def set_tile_plugin(self, plugin) -> None:
-        """Called by CoreWidgetsBundle after mixin fires to wire persistence."""
-        self.tile_grid.plugin = plugin
-        self.tile_grid.set_drawer_height(self.drawer.handle.height())
+        ## -- TICK TIMER
+        #
+        # SubPageFramework.tick() exists to be called by something, but
+        # nothing in HomePage ever drove it with a QTimer — meaning
+        # tick() was never actually being called at all, so placed
+        # tiles never updated their content. Rather than depend on
+        # HomePage to drive this, SubTilesPage owns its own QTimer the
+        # same way individual Widgets do (see Widget.start_tick in
+        # src/ui/widget.py) — self-contained and not reliant on the
+        # parent page implementing anything extra.
+        self.tick_timer = QTimer(self)
+        self.tick_timer.timeout.connect(self.tick)
+        self.tick_timer.start(1000)   #once per second, same cadence as DateTimeWidget etc.
 
-    def register_tile(self, tile: Tile, in_grid: bool = False,
-                      col: int = 0, row: int = 0) -> None:
+    def register_tile(self, tile_class: type[Tile], *args,
+                      in_grid: bool = False, col: int = 0, row: int = 0,
+                      **kwargs) -> Tile:
         """
-        Register a tile with this page.
+        Register a tile class with this page. This is the ONLY method a
+        plugin needs to call — placement persistence is handled
+        entirely here and inside TileGrid, never by the plugin itself.
 
-        If in_grid=True it is placed directly on the grid at col/row.
-        Otherwise it appears in the tile panel to be dragged out.
+        Pass the CLASS, not an instance — this page constructs it.
+        Any *args/**kwargs are forwarded to tile_class(client, *args,
+        **kwargs). client is always passed automatically as the first
+        argument so plugins never need to pass it themselves:
 
-        The tile must have KEY, NAME and ICON defined.
+            sub_tiles.features().register_tile(ClockTile, in_grid=False)
+
+        Decision order for where the tile ends up:
+          1. if TileGrid already has a SAVED position for this tile's
+             KEY (from a previous session), it goes straight to the
+             grid at that saved spot — in_grid is ignored in this case
+          2. otherwise, in_grid decides: True -> grid at col/row,
+             False -> tile panel, waiting to be dragged out
+
+        The tile class must define KEY and NAME (ICON is recommended
+        but not required — a fallback icon is used if missing).
+
+        Returns the constructed Tile instance, in case the plugin needs
+        a reference to it for anything else.
         """
-        if not tile.KEY:
+        if not tile_class.KEY:
             raise ValueError("Tile.KEY must be set before registering")
-        if not tile.NAME:
-            raise ValueError(f"Tile '{tile.KEY}' must have NAME set")
+        if not tile_class.NAME:
+            raise ValueError(f"Tile '{tile_class.KEY}' must have NAME set")
+
+        #this page constructs the tile — the plugin only ever hands
+        #over the class plus whatever constructor args it needs
+        tile = tile_class(self.client, *args, **kwargs)
 
         self.registry[tile.KEY] = tile
 
-        if in_grid:
+        #check for a position saved from a previous session BEFORE
+        #deciding what in_grid would otherwise do — a tile the user
+        #already placed should never reset back to the panel on restart
+        saved = self.tile_grid.load_positions()
+        if tile.KEY in saved:
+            #add_tile() itself also checks load_positions() and will
+            #use the saved col/row, so the values passed here are just
+            #placeholders in case something goes wrong reading the save
+            self.tile_grid.add_tile(tile, col, row)
+        elif in_grid:
             self.tile_grid.add_tile(tile, col, row)
         else:
             self.tile_panel.add_tile(tile)
+
+        return tile
 
     ##DRAG NOTIFICATIONS
 
@@ -267,6 +330,22 @@ class SubTilesPage(SubPageFramework):
     def tick(self) -> None:
         self.widget_manager.tick_widgets()
         self.drawer.tick()
+
+        #one-time diagnostic — remove once tile ticking is confirmed
+        #working. Logs how many tiles are actually in the grid and
+        #being ticked, since "tile shows --:--" usually means either
+        #it's still sitting in the panel (never ticked continuously by
+        #design) or this loop genuinely isn't running.
+        if not getattr(self, "_tick_diag_logged", False):
+            self._tick_diag_logged = True
+            self.client.log(
+                "info",
+                f"[SubTilesPage] tick() firing — tile_grid has {len(self.tile_grid.tiles)} "
+                f"placed tile(s): {[t.KEY for t in self.tile_grid.tiles]}; "
+                f"panel has {len(self.tile_panel.rows)} unplaced tile(s): "
+                f"{list(self.tile_panel.rows.keys())}"
+            )
+
         self.tile_grid.tick()
 
     ##RESIZE

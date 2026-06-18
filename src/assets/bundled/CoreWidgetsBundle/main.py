@@ -95,22 +95,10 @@ class CoreWidgetsBundle(Plugin):
     def _inject_tiles_widgets(self, sub_tiles, *args):
         self.pages["sub.tiles"] = sub_tiles
 
-        if sub_tiles.has_feature("set_tile_plugin"):
-            sub_tiles.features().set_tile_plugin(self)
-
-        #register example clock tile — starts in panel, not grid
-        sub_tiles.features().register_tile(ClockTile(self.client), in_grid=False)
-
-        widgets = [
-            DateTimeWidget(
-                self.client,
-                show_date=False, show_time=True,
-                time_size=28, time_font="poppins-light",
-                anchor="top-right", width=150, height=60,
-            )
-        ]
-        self.client.public.cwb_widgets["sub.tiles"] = widgets
-        sub_tiles.features().add_widgets(widgets)
+        #register example clock tile — pass the CLASS, not an instance;
+        #SubTilesPage constructs it and handles persistence/placement
+        #entirely on its own, this plugin never touches that machinery
+        sub_tiles.features().register_tile(ClockTile, in_grid=False)
 
     @mixin("sub.home.__init__", "corewidgetsbundle", "after")
     def _inject_home_widgets(self, sub_home, *args):
