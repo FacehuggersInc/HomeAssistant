@@ -42,7 +42,7 @@ class OverlayManager(QWidget):
     """
 
     def __init__(self, client: "Client"):
-        super().__init__(client._window if hasattr(client, "_window") else None)
+        super().__init__(client.window if hasattr(client, "_window") else None)
         self.client = client
 
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
@@ -107,7 +107,7 @@ class OverlayManager(QWidget):
 class OverlayedWidget(QWidget):
     """
     A floating notification card that slides in from off-screen.
-    Parented to client._overlay_manager (a top-level Tool window).
+    Parented to client.overlay_manager (a top-level Tool window).
 
     Accepts either a pre-built content QWidget OR raw data keys
     (icon, title, body) and builds its own content widget.
@@ -133,7 +133,7 @@ class OverlayedWidget(QWidget):
         **_kwargs,
     ):
         # Parent to overlay manager — now a top-level window so parenting works fine
-        super().__init__(client._overlay_manager)
+        super().__init__(client.overlay_manager)
         self.client = client
 
         self.setFixedSize(width, height)
@@ -266,7 +266,7 @@ class OverlayedWidget(QWidget):
         margin = 20
 
         # Always use the overlay manager's live size
-        overlay = self.client._overlay_manager
+        overlay = self.client.overlay_manager
         win_w = overlay.width()
         win_h = overlay.height()
 
@@ -399,7 +399,7 @@ class DialogManager:
         if self.dialog_stack:
             self.dialog_stack[-1].hide()
 
-        dialog.setParent(self.client._overlay_manager)
+        dialog.setParent(self.client.overlay_manager)
         dialog.show()
         dialog.raise_()
         self.dialog_stack.append(dialog)
@@ -409,7 +409,7 @@ class DialogManager:
         self.blocker.raise_()
         dialog.raise_()  # dialog above blocker
         # Allow clicks on the blocker/dialog to register
-        self.client._overlay_manager.setAttribute(
+        self.client.overlay_manager.setAttribute(
             Qt.WidgetAttribute.WA_TransparentForMouseEvents, False
         )
 
@@ -430,7 +430,7 @@ class DialogManager:
         else:
             self.blocker.hide()
             # Re-enable passthrough when no dialogs are open
-            self.client._overlay_manager.setAttribute(
+            self.client.overlay_manager.setAttribute(
                 Qt.WidgetAttribute.WA_TransparentForMouseEvents, True
             )
 
