@@ -1,14 +1,25 @@
-#!/bin/bash
-# Run this manually to update and relaunch.
-# Uses the same startup loop as startup.sh.
-cd "$(dirname "$0")"
-source .venv/bin/activate
+#!/usr/bin/env bash
+set -e
 
-# Run the inline updater (exits 42), then loop like startup.sh does
-python app.py update
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR"
+
+if [ -f ".venv/bin/activate" ]; then
+    source ".venv/bin/activate"
+fi
+
+set +e
+
+PYTHON=$(which python 2>/dev/null || which python3 2>/dev/null)
+
+echo "[update] Running update..."
+"$PYTHON" app.py update
 EXIT_CODE=$?
 
 if [ $EXIT_CODE -eq 42 ]; then
-    echo "[update.sh] Update installed, launching..."
-    exec python app.py force
+    echo "[update] Update installed, launching..."
+    exec "$PYTHON" app.py force
+else
+    echo "[update] Update failed with code $EXIT_CODE"
+    exit $EXIT_CODE
 fi
