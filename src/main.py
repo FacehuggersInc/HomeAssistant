@@ -832,10 +832,10 @@ class Client:
         exit_code = self.app.exec()
 
         if self.UPDATE:
-            sys.exit(42)
+            subprocess.Popen([sys.executable])
 
         if self.RESTART:
-            subprocess.Popen([sys.executable] + sys.argv)
+            subprocess.Popen([sys.executable] + ["force"])
 
         if self.LOG:
             self.LOG.close()
