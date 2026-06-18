@@ -39,6 +39,9 @@ from src.assistant.tts import TTSProcessing
 from src.ui.overlays import OverlayManager, NotificationManager, DialogManager
 from src.styling import COLORS, make_background_qss, THEME_GRADIENT_QSS
 
+from src.pages.settings import SettingsPage
+from src.pages.root import RootPage
+
 EVENT_LEVELS = Literal["debug", "info", "warning", "error", "critical"]
 EVENTS = Literal[
     "initialized", "on_focus", "on_un_focus", "on_visit", "on_leave",
@@ -295,10 +298,7 @@ class Client:
         self.PAGES: dict    = {}
         self.DEFAULT_PAGE   = ""
 
-        from src.pages.settings import SettingsPage
-        from src.pages.root import RootPage
         self.add_page("#settings", "Settings Page", SettingsPage)
-        self.add_page("#root",     "Root Page",     RootPage)
 
         self.plugin_manager = PluginManager(self, self.plugin_dirs)
         self.plugin_manager.load_plugins()
@@ -682,6 +682,7 @@ class Client:
                                 self.log("warning", f"Default page '{target}' not registered — showing RootPage")
                             else:
                                 self.log("info", "No default page set — showing RootPage")
+                                self.add_page("#root",     "Root Page",     RootPage)
                             target = "#root"
                         self.goto(target)
                     self.call_on_ui(goto_default)
