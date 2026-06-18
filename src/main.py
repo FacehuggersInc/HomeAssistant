@@ -851,17 +851,13 @@ class Client:
         self.build()
         exit_code = self._app.exec()
 
-        if self.__LOG:
-            self.__LOG.close()
-
         if self.UPDATE:
-            self.log("info", "Update flag set — exiting with code 42 for startup.sh")
-            if self.__LOG:
-                self.__LOG.close()
             sys.exit(42)
 
         if self.RESTART:
-            self.log("warning", "Restarting ...")
             subprocess.Popen([sys.executable] + sys.argv)
+
+        if self.__LOG:
+            self.__LOG.close()
 
         sys.exit(exit_code)

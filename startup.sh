@@ -2,26 +2,17 @@
 cd "$(dirname "$0")"
 source .venv/bin/activate
 
-# On first run, launch normally
-python app.py force
-EXIT_CODE=$?
-
 while true; do
+    python app.py force
+    EXIT_CODE=$?
+
+    # Exit 42 = update was downloaded and installed, just relaunch
     if [ $EXIT_CODE -eq 42 ]; then
-        echo "[startup] Downloading and installing update..."
-        python app.py update
-        UPDATE_CODE=$?
-        if [ $UPDATE_CODE -eq 42 ]; then
-            echo "[startup] Update installed, relaunching..."
-            python app.py force
-            EXIT_CODE=$?
-        else
-            echo "[startup] Update failed (code $UPDATE_CODE), relaunching existing version..."
-            python app.py force
-            EXIT_CODE=$?
-        fi
-    else
-        # Normal exit (0) or crash — stop looping
-        break
+        echo "[startup] Relaunching after update..."
+        sleep 1
+        continue
     fi
+
+    # Any other code = normal close or crash, stop
+    break
 done
