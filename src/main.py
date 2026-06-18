@@ -39,9 +39,6 @@ from src.assistant.tts import TTSProcessing
 from src.ui.overlays import OverlayManager, NotificationManager, DialogManager
 from src.styling import COLORS, make_background_qss, THEME_GRADIENT_QSS
 
-from src.pages.settings import SettingsPage
-from src.pages.root import RootPage
-
 EVENT_LEVELS = Literal["debug", "info", "warning", "error", "critical"]
 EVENTS = Literal[
     "initialized", "on_focus", "on_un_focus", "on_visit", "on_leave",
@@ -233,11 +230,13 @@ class Client:
         self.ASSETS: dict = {}
 
         cwd = Path(os.getcwd())
-        self.register_asset("local",   Asset(cwd),                                "FOLDER")
-        self.register_asset("logs",    Asset(cwd / "logs"),                       "FOLDER")
-        self.register_asset("plugins", Asset(cwd / "plugins"),                    "FOLDER")
-        self.register_asset("bundled", Asset(cwd / "src" / "assets" / "bundled"), "FOLDER")
-        self.register_asset("fonts",   Asset(cwd / "src" / "assets" / "fonts"),   "FOLDER")
+        local_asset = Asset(cwd)
+        local_asset.mark_uploadable()
+        self.register_asset("local",   local_asset,                             "FOLDER")
+        self.register_asset("logs",    Asset(cwd / "logs"),                     "FOLDER")
+        self.register_asset("plugins", Asset(cwd / "plugins"),                  "FOLDER")
+        self.register_asset("fonts",   Asset(cwd / "src" / "assets" / "fonts"), "FOLDER")
+        self.register_asset("icons",   Asset(cwd / "src" / "assets" / "icons"), "FOLDER")
 
         self.DATAPATH = Asset(get_data_dir(APP_NAME))
         self.DATA     = Asset(self.DATAPATH / f"{APP_NAME.replace(' ', '')}.json")
@@ -251,11 +250,9 @@ class Client:
         ## -- SETTINGS
 
         self.SETTINGS = Dynaconf(settings_files=[str(self.DATA)])
-        self.register_asset(
-            "background_images",
-            Asset(self.SETTINGS.home.images.value),
-            "FOLDER",
-        )
+        bg_asset = Asset(self.SETTINGS.home.images.value)
+        bg_asset.mark_uploadable()
+        self.register_asset("background_images", bg_asset, "FOLDER")
 
         ## -- ASSISTANT
 
@@ -298,7 +295,10 @@ class Client:
         self.PAGES: dict    = {}
         self.DEFAULT_PAGE   = ""
 
+        from src.pages.settings import SettingsPage
+        from src.pages.root import RootPage
         self.add_page("#settings", "Settings Page", SettingsPage)
+        self.add_page("#root",     "Root Page",     RootPage)
 
         self.plugin_manager = PluginManager(self, self.plugin_dirs)
         self.plugin_manager.load_plugins()
@@ -682,7 +682,6 @@ class Client:
                                 self.log("warning", f"Default page '{target}' not registered — showing RootPage")
                             else:
                                 self.log("info", "No default page set — showing RootPage")
-                                self.add_page("#root",     "Root Page",     RootPage)
                             target = "#root"
                         self.goto(target)
                     self.call_on_ui(goto_default)

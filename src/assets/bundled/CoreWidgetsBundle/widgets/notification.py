@@ -172,7 +172,7 @@ class NotificationCenterWidget(Widget):
         )
 
         self._dialog_timeout_id = client.TIMEOUTS.add(
-            30, self._close_dialog,
+            30, self.close_dialog,
             f"notify_center_dialog:{client.uuid()}"
         )
 
@@ -185,7 +185,7 @@ class NotificationCenterWidget(Widget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
 
-        self._btn = IconButton(Icons.BELL, self._open_history, size=self.SIZE)
+        self._btn = IconButton(Icons.BELL, self.open_history, size=self.SIZE // 2)
         self._btn.setParent(self)
         self._btn.move(0, 0)
         self._btn.resize(self.SIZE, self.SIZE)
@@ -214,12 +214,12 @@ class NotificationCenterWidget(Widget):
         self.show_dot()
         super().show()
 
-    def _close_dialog(self) -> None:
+    def close_dialog(self) -> None:
         dialog = self.client.DIALOG.get()
         if isinstance(dialog, NotificationDialog):
             self.client.DIALOG.close()
 
-    def _open_history(self, event=None) -> None:
+    def open_history(self, event=None) -> None:
         self.client.DIALOG.open(NotificationDialog(self))
         self.client.TIMEOUTS.start(self._dialog_timeout_id)
         self.client.simple_notify("notification", "Open Center", "Should be opening ...", True)
@@ -305,8 +305,8 @@ class NotificationDialog(QWidget):
         self._populate()
 
         # Position: top-right, below the notification center button
-        win_w  = int(self.client.SETTINGS.application.window.size.value[0])
-        self.move(win_w - w - margin, (margin * 2) + 55)
+        geo = self.client.get_window().geometry()
+        self.move(geo.x() + geo.width(), geo.y() + 55)
 
     def _populate(self) -> None:
         # Clear existing items (except the stretch)

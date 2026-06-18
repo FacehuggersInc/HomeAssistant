@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Upload — {{ key }}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='upload.css') }}">
+    <style>
+        .top-bar {
+            position: fixed;
+            top: 0; left: 0; right: 0;
+            height: 52px;
+            background: #0d0d0d;
+            border-bottom: 1px solid #1a1a1a;
+            display: flex;
+            align-items: center;
+            padding: 0 20px;
+            gap: 16px;
+            z-index: 100;
+        }
+        .back-btn {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 14px;
+            background: #1a1a1a;
+            border: 1px solid #2a2a2a;
+            border-radius: 6px;
+            color: #aaa;
+            font-size: 13px;
+            text-decoration: none;
+            transition: background 0.15s, color 0.15s;
+        }
+        .back-btn:hover { background: #222; color: #fff; }
+        .top-bar-title {
+            font-size: 15px;
+            font-weight: 600;
+            color: #fff;
+        }
+        .top-bar-key {
+            font-size: 13px;
+            color: #444;
+            font-family: monospace;
+        }
+        .layout { padding-top: 52px; }
+    </style>
+</head>
+<body>
+    <div class="top-bar">
+        <a class="back-btn" href="/upload?id={{ id }}">&#8592; Back</a>
+        <span class="top-bar-title">Upload</span>
+        <span class="top-bar-key">{{ key }}</span>
+    </div>
+
+    <div class="layout">
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <span class="sidebar-title">Uploading to</span>
+                <span class="sidebar-key">{{ key }}</span>
+                <span class="sidebar-path">{{ path }}</span>
+            </div>
+            <div class="file-list" id="fileList">
+                <p class="empty-hint">No files queued yet.</p>
+            </div>
+            <button class="upload-btn" id="uploadBtn" disabled>
+                Upload All
+            </button>
+        </aside>
+
+        <main class="main">
+            <div class="drop-zone" id="dropZone">
+                <div class="drop-icon">&#8679;</div>
+                <div class="drop-label">Drag &amp; drop files here</div>
+                <div class="drop-sub">or</div>
+                <label class="browse-btn" for="fileInput">Browse Files</label>
+                <input type="file" id="fileInput" multiple hidden>
+                <div class="drop-sub supported">Supported: images, zip archives</div>
+            </div>
+            <div class="result-area" id="resultArea"></div>
+        </main>
+    </div>
+
+    <script src="{{ url_for('static', filename='upload.js') }}"></script>
+</body>
+</html>

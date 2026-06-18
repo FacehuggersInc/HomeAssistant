@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Upload</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='upload.css') }}">
+    <style>
+        .index-wrap {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            gap: 32px;
+            padding: 40px;
+        }
+        .index-title { font-size: 28px; font-weight: 700; color: #fff; }
+        .index-sub   { font-size: 14px; color: #444; margin-top: -20px; }
+
+        .asset-grid {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 16px;
+            justify-content: center;
+            max-width: 900px;
+        }
+
+        .asset-card {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            padding: 24px 28px;
+            background: #141414;
+            border: 1px solid #222;
+            border-radius: 12px;
+            text-decoration: none;
+            color: #ccc;
+            min-width: 220px;
+            transition: border-color 0.15s, background 0.15s;
+        }
+        .asset-card:hover { border-color: #2a7d4f; background: #0e1f17; }
+
+        .card-top {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        .card-icon  { font-size: 32px; }
+        .card-key   { font-size: 17px; font-weight: 600; color: #fff; }
+
+        .card-path {
+            font-size: 11px;
+            color: #333;
+            font-family: monospace;
+            word-break: break-all;
+        }
+
+        .card-stats {
+            display: flex;
+            gap: 16px;
+            padding-top: 10px;
+            border-top: 1px solid #1e1e1e;
+        }
+        .stat {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+        }
+        .stat-value { font-size: 15px; font-weight: 600; color: #ccc; }
+        .stat-label { font-size: 10px; color: #444; text-transform: uppercase; letter-spacing: 1px; }
+
+        .no-exist {
+            font-size: 11px;
+            color: #6e2a2a;
+            padding: 4px 8px;
+            background: #1f0e0e;
+            border-radius: 4px;
+            display: inline-block;
+        }
+
+        .empty { font-size: 15px; color: #444; }
+    </style>
+</head>
+<body>
+    <div class="index-wrap">
+        <div class="index-title">Upload</div>
+        <div class="index-sub">Select a destination</div>
+
+        {% if assets %}
+        <div class="asset-grid">
+            {% for asset in assets %}
+            <a class="asset-card" href="/upload/{{ asset.key }}?id={{ id }}">
+                <div class="card-top">
+                    <span class="card-icon">📁</span>
+                    <span class="card-key">{{ asset.key }}</span>
+                </div>
+                <div class="card-path">{{ asset.path }}</div>
+                {% if asset.exists %}
+                <div class="card-stats">
+                    <div class="stat">
+                        <span class="stat-value">{{ asset.file_count }}</span>
+                        <span class="stat-label">Files</span>
+                    </div>
+                    <div class="stat">
+                        <span class="stat-value">{{ asset.size }}</span>
+                        <span class="stat-label">Total Size</span>
+                    </div>
+                </div>
+                {% else %}
+                <span class="no-exist">Folder does not exist yet</span>
+                {% endif %}
+            </a>
+            {% endfor %}
+        </div>
+        {% else %}
+        <p class="empty">No uploadable assets are registered.</p>
+        {% endif %}
+    </div>
+</body>
+</html>

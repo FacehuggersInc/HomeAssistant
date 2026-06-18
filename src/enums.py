@@ -48,9 +48,12 @@ def clear_events():
 
 ## ETC CLASSES
 class Asset(Path):
-	def __init__(self, *args):
-		super().__init__(*args)
 
+	def mark_uploadable(self) -> "Asset":
+		"""Mark this asset as uploadable. Returns self for chaining."""
+		object.__setattr__(self, "uploadable_flag", True)
+		return self
 
-
-
+	@property
+	def is_uploadable(self) -> bool:
+		return object.__getattribute__(self, "uploadable_flag") if "uploadable_flag" in self.__dict__ else False

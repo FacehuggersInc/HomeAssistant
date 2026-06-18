@@ -1,0 +1,210 @@
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    background: #0d0d0d;
+    color: #e0e0e0;
+    height: 100vh;
+    overflow: hidden;
+}
+
+.layout {
+    display: flex;
+    height: 100vh;
+}
+
+/* ── Sidebar ── */
+
+.sidebar {
+    width: 300px;
+    min-width: 240px;
+    background: #141414;
+    border-right: 1px solid #222;
+    display: flex;
+    flex-direction: column;
+    padding: 24px 16px 16px;
+    gap: 12px;
+}
+
+.sidebar-header {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid #222;
+}
+
+.sidebar-title {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    color: #555;
+}
+
+.sidebar-key {
+    font-size: 18px;
+    font-weight: 600;
+    color: #fff;
+}
+
+.sidebar-path {
+    font-size: 11px;
+    color: #444;
+    word-break: break-all;
+    font-family: monospace;
+}
+
+.file-list {
+    flex: 1;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.empty-hint {
+    font-size: 13px;
+    color: #444;
+    text-align: center;
+    margin-top: 24px;
+}
+
+.file-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 10px;
+    background: #1a1a1a;
+    border-radius: 6px;
+    border: 1px solid #222;
+    font-size: 13px;
+    color: #ccc;
+    min-width: 0;
+}
+
+.file-item .file-icon {
+    font-size: 18px;
+    flex-shrink: 0;
+}
+
+.file-item .file-name {
+    flex: 1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.file-item .file-size {
+    font-size: 11px;
+    color: #555;
+    flex-shrink: 0;
+}
+
+.file-item.done   { border-color: #2a6e3f; background: #0e1f17; color: #6fcf97; }
+.file-item.error  { border-color: #6e2a2a; background: #1f0e0e; color: #eb5757; }
+.file-item.uploading { border-color: #4a7cb5; background: #0e1624; }
+
+.upload-btn {
+    padding: 12px;
+    background: #1a5c38;
+    color: #fff;
+    border: none;
+    border-radius: 8px;
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.15s;
+}
+
+.upload-btn:hover:not(:disabled)  { background: #22753f; }
+.upload-btn:disabled { background: #1a1a1a; color: #444; cursor: not-allowed; }
+
+/* ── Main ── */
+
+.main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 24px;
+    padding: 40px;
+}
+
+.drop-zone {
+    width: 100%;
+    max-width: 600px;
+    border: 2px dashed #2a2a2a;
+    border-radius: 16px;
+    padding: 60px 40px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+    cursor: pointer;
+    transition: border-color 0.15s, background 0.15s;
+    text-align: center;
+}
+
+.drop-zone.dragover {
+    border-color: #2a7d4f;
+    background: rgba(42, 125, 79, 0.08);
+}
+
+.drop-icon {
+    font-size: 56px;
+    color: #333;
+    line-height: 1;
+}
+
+.drop-zone.dragover .drop-icon { color: #2a7d4f; }
+
+.drop-label {
+    font-size: 20px;
+    font-weight: 600;
+    color: #aaa;
+}
+
+.drop-sub {
+    font-size: 14px;
+    color: #444;
+}
+
+.drop-sub.supported {
+    font-size: 12px;
+    color: #333;
+    margin-top: 4px;
+}
+
+.browse-btn {
+    padding: 10px 28px;
+    background: #1e1e1e;
+    border: 1px solid #333;
+    border-radius: 8px;
+    color: #ccc;
+    font-size: 14px;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s;
+}
+
+.browse-btn:hover {
+    background: #252525;
+    border-color: #555;
+}
+
+.result-area {
+    width: 100%;
+    max-width: 600px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.result-msg {
+    padding: 12px 16px;
+    border-radius: 8px;
+    font-size: 14px;
+}
+
+.result-msg.success { background: #0e1f17; border: 1px solid #2a6e3f; color: #6fcf97; }
+.result-msg.error   { background: #1f0e0e; border: 1px solid #6e2a2a; color: #eb5757; }

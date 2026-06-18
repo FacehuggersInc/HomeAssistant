@@ -7,6 +7,7 @@ from .widgets.datetime import DateTimeWidget
 from .widgets.weather import WeatherWidget
 from .widgets.wotd import WordOfTheDayWidget
 from .widgets.notification import NotificationCenterWidget
+from .widgets.tiles.clock_tile import ClockTile
 from .pages.home import HomePage
 from .pages.sub.calendar import SubCalendarPage
 from .api.openmeteo import OpenMeteoAPI
@@ -93,10 +94,23 @@ class CoreWidgetsBundle(Plugin):
     @mixin("sub.tiles.__init__", "corewidgetsbundle", "after")
     def _inject_tiles_widgets(self, sub_tiles, *args):
         self.pages["sub.tiles"] = sub_tiles
-        
-        # Wire this plugin for tile position persistence
+
         if sub_tiles.has_feature("set_tile_plugin"):
             sub_tiles.features().set_tile_plugin(self)
+
+        #register example clock tile — starts in panel, not grid
+        sub_tiles.features().register_tile(ClockTile(self.client), in_grid=False)
+
+        widgets = [
+            DateTimeWidget(
+                self.client,
+                show_date=False, show_time=True,
+                time_size=28, time_font="poppins-light",
+                anchor="top-right", width=150, height=60,
+            )
+        ]
+        self.client.public.cwb_widgets["sub.tiles"] = widgets
+        sub_tiles.features().add_widgets(widgets)
 
     @mixin("sub.home.__init__", "corewidgetsbundle", "after")
     def _inject_home_widgets(self, sub_home, *args):

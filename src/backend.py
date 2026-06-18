@@ -1,5 +1,5 @@
 from src import *
-from flask import Flask, jsonify, redirect, send_from_directory, request
+from flask import Flask, jsonify, redirect, send_from_directory, request, render_template
 
 ADDRESS = "0.0.0.0"
 PORT = 5000
@@ -13,7 +13,13 @@ def FlaskService(stop_event, client, flask):
 		server.handle_request()
 
 def FlaskApp(client):
-	app = Flask(APP_NAME.replace(" ", "") + "_backend")
+	import os
+	here = os.path.dirname(os.path.abspath(__file__))
+	app = Flask(
+		APP_NAME.replace(" ", "") + "_backend",
+		template_folder=os.path.join(here, "templates"),
+		static_folder=os.path.join(here, "static"),
+	)
 
 	# ── Auth helper ───────────────────────────────────────────────────────────
 
@@ -33,7 +39,7 @@ def FlaskApp(client):
 		Call at the top of any route function:
 			@app.route("/something")
 			def something():
-				_log()
+				log()
 				...
 		"""
 		args = {k: ("***" if k == "id" else v) for k, v in request.args.items()}
@@ -44,7 +50,6 @@ def FlaskApp(client):
 
 	@app.route("/terminate")
 	def terminate_client():
-		log()
 		err = auth()
 		if err: return err
 		client.simple_notify("kill", "Termination", "Was asked to Terminate via API")
@@ -54,7 +59,6 @@ def FlaskApp(client):
 
 	@app.route("/restart")
 	def restart_client():
-		log()
 		err = auth()
 		if err: return err
 		if not client.BUILT:
@@ -64,7 +68,6 @@ def FlaskApp(client):
 
 	@app.route("/update")
 	def update_client():
-		log()
 		err = auth()
 		if err: return err
 		if not client.BUILT:
@@ -133,7 +136,6 @@ def FlaskApp(client):
 
 	@app.route("/notify", methods=["GET"])
 	def backend_notify():
-		log()
 		try:
 			__ico = request.args.get("icon")
 			icon  = __ico.split(".")[-1]
@@ -154,7 +156,6 @@ def FlaskApp(client):
 	@app.route("/asset/<key>", methods=["GET"])
 	@app.route("/asset/<key>/<filename>", methods=["GET"])
 	def asset_download(key, filename=None):
-		log()
 		err = auth()
 		if err: return err
 
@@ -164,7 +165,7 @@ def FlaskApp(client):
 		if not path:
 			return {"request": "Failed", "reason": f"Asset '{key}' not found"}, 404
 
-		def safe(f):
+		def _safe(f):
 			"""Exclude dotfiles and anything under src/."""
 			name = f.name
 			rel  = f.as_posix()
@@ -175,20 +176,20 @@ def FlaskApp(client):
 			)
 
 		if filename is None:
-			files = [f.name for f in path.iterdir() if safe(f)]
+			files = [f.name for f in path.iterdir() if _safe(f)]
 			return {"request": "Success", "key": key, "files": files}
 
 		if filename.startswith(".") or "src/" in filename.replace("\\", "/"):
 			return {"request": "Failed", "reason": "Access denied"}, 403
 
 		if "." not in filename:
-			match = next((f for f in path.iterdir() if f.stem == filename and safe(f)), None)
+			match = next((f for f in path.iterdir() if f.stem == filename and _safe(f)), None)
 			if match:
 				return send_from_directory(path.as_posix(), match.name)
 			return {"request": "Failed", "reason": f"No file with stem '{filename}' in '{key}'"}, 404
 
 		actual = path / filename
-		if actual.exists() and safe(actual):
+		if actual.exists() and _safe(actual):
 			return send_from_directory(path.as_posix(), actual.name, as_attachment=True)
 		if actual.exists():
 			return {"request": "Failed", "reason": "Access denied"}, 403
@@ -196,7 +197,6 @@ def FlaskApp(client):
 
 	@app.route("/settings/<path:path>", methods=["GET", "POST"])
 	def setting_set(path):
-		log()
 		if path:
 			setting = client.SETTINGS.get_path(path)
 			if setting is not None:
@@ -212,7 +212,6 @@ def FlaskApp(client):
 
 	@app.route("/plugins/<plugin_key>/reload", methods=["GET"])
 	def reload_plugin(plugin_key):
-		log()
 		if not client.BUILT:
 			return {"request": "Failed", "reason": "The Application is still building..."}, 200
 		if plugin_key:
@@ -226,12 +225,120 @@ def FlaskApp(client):
 
 	@app.route("/process", methods=["GET"])
 	def start_intent():
-		log()
 		query = request.args.get("q")
 		if query and query.strip():
 			Thread(target=client.STT.pre_processing, args=[query]).start()
 			return {"request": "Success"}, 200
 		else:
 			return {"request": "Failed", "reason": "No Query(q) Given!"}, 404
+
+	@app.route("/upload", methods=["GET"])
+	def upload_index():
+		log()
+		err = auth()
+		if err: return err
+
+		#collect all uploadable FOLDER assets with stats
+		uploadable = []
+		for key, asset in client.ASSETS.get("FOLDER", {}).items():
+			if not getattr(asset, "is_uploadable", False):
+				continue
+			info = {"key": key, "path": str(asset), "exists": False, "file_count": 0, "size": "0 B", "size_bytes": 0}
+			try:
+				import os
+				if asset.exists():
+					info["exists"] = True
+					files = [f for f in asset.iterdir() if f.is_file() and not f.name.startswith(".")]
+					total = sum(f.stat().st_size for f in files)
+					info["file_count"] = len(files)
+					info["size_bytes"] = total
+					if total < 1024:
+						info["size"] = f"{total} B"
+					elif total < 1024 * 1024:
+						info["size"] = f"{total / 1024:.1f} KB"
+					elif total < 1024 ** 3:
+						info["size"] = f"{total / (1024 * 1024):.1f} MB"
+					else:
+						info["size"] = f"{total / (1024 ** 3):.2f} GB"
+			except Exception:
+				pass
+			uploadable.append(info)
+
+		id_param = request.args.get("id", "")
+		return render_template("upload_index.html", assets=uploadable, id=id_param)
+
+	@app.route("/upload/<key>", methods=["GET"])
+	def upload_page(key):
+		log()
+		err = auth()
+		if err: return err
+
+		path = client.asset("FOLDER", key)
+		if not path:
+			return {"request": "Failed", "reason": f"No FOLDER asset '{key}'"}, 404
+
+		if not getattr(path, "is_uploadable", False):
+			return {"request": "Failed", "reason": f"Asset '{key}' is not marked as uploadable"}, 403
+
+		id_param = request.args.get("id", "")
+		return render_template("upload.html", key=key, path=str(path), id=id_param)
+
+	@app.route("/upload/<key>", methods=["POST"])
+	def upload_file(key):
+		log()
+		err = auth()
+		if err: return err
+
+		path = client.asset("FOLDER", key)
+		if not path:
+			return {"request": "Failed", "reason": f"No FOLDER asset '{key}'"}, 404
+
+		if not getattr(path, "is_uploadable", False):
+			return {"request": "Failed", "reason": f"Asset '{key}' is not marked as uploadable"}, 403
+
+		if "file" not in request.files:
+			return {"request": "Failed", "reason": "No file in request"}, 400
+
+		import zipfile, os, re
+
+		file = request.files["file"]
+		if not file.filename:
+			return {"request": "Failed", "reason": "Empty filename"}, 400
+
+		#sanitize filename - strip path components, replace unsafe chars
+		filename = os.path.basename(file.filename)
+		filename = re.sub(r"[^\w\s.-]", "", filename).strip()
+		if not filename:
+			return {"request": "Failed", "reason": "Invalid filename"}, 400
+
+		#ensure destination exists
+		path.mkdir(parents=True, exist_ok=True)
+
+		dest = path / filename
+
+		#if zip - extract contents into the folder
+		if filename.lower().endswith(".zip"):
+			import tempfile
+			with tempfile.NamedTemporaryFile(delete=False, suffix=".zip") as tmp:
+				file.save(tmp.name)
+				tmp_path = tmp.name
+			try:
+				with zipfile.ZipFile(tmp_path, "r") as z:
+					#only extract safe files - no path traversal
+					extracted = []
+					for member in z.infolist():
+						member_name = os.path.basename(member.filename)
+						if not member_name or member_name.startswith("."):
+							continue
+						out_path = path / member_name
+						with z.open(member) as src, open(out_path, "wb") as dst:
+							shutil.copyfileobj(src, dst)
+						extracted.append(member_name)
+				return {"request": "Success", "message": f"Extracted {len(extracted)} files from {filename}", "files": extracted}
+			finally:
+				os.unlink(tmp_path)
+		else:
+			file.save(str(dest))
+			return {"request": "Success", "message": f"{filename} uploaded to {key}"}
 
 	return app
