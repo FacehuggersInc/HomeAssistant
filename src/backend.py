@@ -10,22 +10,65 @@ def FlaskService(stop_event, client, flask):
 	server.timeout = 1
 
 	while not stop_event.is_set():
-		server.handle_request()  # handle one request at a time
+		server.handle_request()
 
 def FlaskApp(client):
-	app = Flask(f"{APP_NAME.replace(" ","")}_backend")
+	app = Flask(APP_NAME.replace(" ", "") + "_backend")
+
+	# ── Auth helper ───────────────────────────────────────────────────────────
+
+	def auth():
+		"""Return error response tuple if ?id= is missing or wrong, else None."""
+		given = request.args.get("id", "").strip()
+		if not given:
+			return {"request": "Failed", "reason": "Missing required ?id= parameter"}, 401
+		if given != client.CLIENT_ID:
+			return {"request": "Failed", "reason": "Invalid client ID"}, 403
+		return None
+
+	def log():
+		"""
+		Log the current request endpoint and query args.
+		Masks the id= parameter if present.
+		Call at the top of any route function:
+			@app.route("/something")
+			def something():
+				_log()
+				...
+		"""
+		args = {k: ("***" if k == "id" else v) for k, v in request.args.items()}
+		arg_str = "  " + "  ".join(f"{k}={v}" for k, v in args.items()) if args else ""
+		client.log("info", f"[API] {request.method} {request.path}{arg_str}")
+
+	## CLIENT CONTROL
+
+	@app.route("/terminate")
+	def terminate_client():
+		log()
+		err = auth()
+		if err: return err
+		client.simple_notify("kill", "Termination", "Was asked to Terminate via API")
+		time.sleep(1)
+		client.call_on_ui(client.stop)
+		return {"request": "Success"}
 
 	@app.route("/restart")
 	def restart_client():
+		log()
+		err = auth()
+		if err: return err
 		if not client.BUILT:
-			return {"request":"Failed", "reason": "Wait until the Program has started fully."}
+			return {"request": "Failed", "reason": "Wait until the Program has started fully."}
 		client.RESTART = True
-		return {"request":"Success"}
+		return {"request": "Success"}
 
 	@app.route("/update")
 	def update_client():
+		log()
+		err = auth()
+		if err: return err
 		if not client.BUILT:
-			return {"request":"Failed", "reason": "Wait until the Program has started fully."}
+			return {"request": "Failed", "reason": "Wait until the Program has started fully."}
 
 		import shutil, zipfile, tempfile, urllib.request, os, sys
 
@@ -71,6 +114,7 @@ def FlaskApp(client):
 					copied += 1
 
 			client.simple_notify("check", "Update", f"Done. {copied} files updated. Restarting...")
+			time.sleep(2)
 			client.UPDATE = True
 			client.call_on_ui(client.stop)
 			return {"request": "Success", "message": f"{copied} files updated, restarting."}
@@ -81,88 +125,113 @@ def FlaskApp(client):
 		finally:
 			shutil.rmtree(temp_dir, ignore_errors=True)
 
+	## TASKS
+
 	@app.route("/notify/", methods=["GET"])
 	def redirects_bad_endpoint():
 		return redirect(f"{request.base_url.rstrip('/')}?{request.query_string.decode()}")
-	
+
 	@app.route("/notify", methods=["GET"])
 	def backend_notify():
+		log()
 		try:
 			__ico = request.args.get("icon")
-			icon = __ico.split(".")[-1] 
+			icon  = __ico.split(".")[-1]
 			title = request.args.get("title")
-			body = request.args.get("body")
-
+			body  = request.args.get("body")
 			if icon and title and body:
 				client.simple_notify(icon, title, body)
-				return {"request":"Success"}, 200
+				return {"request": "Success"}, 200
 			else:
-				missing_args = []
-				if not icon: missing_args.append("icon")
-				if not title: missing_args.append("title")
-				if not body: missing_args.append("body")
-				return {"request":"Failed", "reason":f"missing -> {missing_args}"}, 404
+				missing = []
+				if not icon:  missing.append("icon")
+				if not title: missing.append("title")
+				if not body:  missing.append("body")
+				return {"request": "Failed", "reason": f"missing -> {missing}"}, 404
 		except Exception as e:
-			return {"request":"Failed", "reason":e}, 500
-		
-	@app.route("/asset/<key>/<filename>", methods=["GET"])
-	def asset_download(key, filename):
-		path = client.asset("FOLDER", key)
-		if path:
-			
-			actual = None
-			if len(filename.split(".")) == 1:
-				for file in path.iterdir():
-					if file.stem == filename:
-						actual = path / file
-						break
-			else:
-				actual = path / filename
+			return {"request": "Failed", "reason": str(e)}, 500
 
-			if actual.exists():
-				if len(filename.split(".")) > 1:
-					return send_from_directory(path.as_posix(), actual.name, as_attachment=True)
-				else:
-					return send_from_directory(path.as_posix(), actual.name)
-			else:
-				return {"request":"Failed", "reason":f"File {filename} does not exists in {key}"}
-		else:
-			return {"request":"Failed", "path":[path, key, filename]}
-		
-	@app.route("/settings/<path>", methods=["GET", "POST"])
+	@app.route("/asset/<key>", methods=["GET"])
+	@app.route("/asset/<key>/<filename>", methods=["GET"])
+	def asset_download(key, filename=None):
+		log()
+		err = auth()
+		if err: return err
+
+		type_ = request.args.get("type", "FOLDER").upper()
+		path  = client.asset(type_, key)
+
+		if not path:
+			return {"request": "Failed", "reason": f"Asset '{key}' not found"}, 404
+
+		def safe(f):
+			"""Exclude dotfiles and anything under src/."""
+			name = f.name
+			rel  = f.as_posix()
+			return (
+				f.is_file()
+				and not name.startswith(".")
+				and "src/" not in rel
+			)
+
+		if filename is None:
+			files = [f.name for f in path.iterdir() if safe(f)]
+			return {"request": "Success", "key": key, "files": files}
+
+		if filename.startswith(".") or "src/" in filename.replace("\\", "/"):
+			return {"request": "Failed", "reason": "Access denied"}, 403
+
+		if "." not in filename:
+			match = next((f for f in path.iterdir() if f.stem == filename and safe(f)), None)
+			if match:
+				return send_from_directory(path.as_posix(), match.name)
+			return {"request": "Failed", "reason": f"No file with stem '{filename}' in '{key}'"}, 404
+
+		actual = path / filename
+		if actual.exists() and safe(actual):
+			return send_from_directory(path.as_posix(), actual.name, as_attachment=True)
+		if actual.exists():
+			return {"request": "Failed", "reason": "Access denied"}, 403
+		return {"request": "Failed", "reason": f"File '{filename}' not found in '{key}'"}, 404
+
+	@app.route("/settings/<path:path>", methods=["GET", "POST"])
 	def setting_set(path):
+		log()
 		if path:
 			setting = client.SETTINGS.get_path(path)
-			if not setting == None:
+			if setting is not None:
 				if not request.args.get("v"):
-					return {"request":"Success", "setting":setting}, 200
+					return {"request": "Success", "setting": setting}, 200
 				else:
 					client.SETTINGS.set_path(path, request.args.get("v"))
-					return {"request":"Success", "setting":client.SETTINGS.get_path(path)}, 200
+					return {"request": "Success", "setting": client.SETTINGS.get_path(path)}, 200
 			else:
 				return {"request": "Failed", "reason": f"No Setting at {path}"}, 404
 		else:
-			return {"request": "Failed", "reason": f"No given Path"}, 404
+			return {"request": "Failed", "reason": "No given Path"}, 404
 
 	@app.route("/plugins/<plugin_key>/reload", methods=["GET"])
 	def reload_plugin(plugin_key):
-		if not client.BUILT: return {"request":"Failed", "reason":"The Application is still building and setting up... please wait 5 seconds"}, 200
+		log()
+		if not client.BUILT:
+			return {"request": "Failed", "reason": "The Application is still building..."}, 200
 		if plugin_key:
 			if client.plugin_manager.plugins.get(plugin_key):
-				client.plugin_manager.reload_plugin( plugin_key )
-				return {"request":"Success"}, 200
+				client.plugin_manager.reload_plugin(plugin_key)
+				return {"request": "Success"}, 200
 			else:
-				return {"request":"Failed", "reason": f"No Plugin by the name '{plugin_key}' is loaded."}, 404
+				return {"request": "Failed", "reason": f"No Plugin '{plugin_key}' loaded."}, 404
 		else:
-			return {"request":"Failed", "reason":"No Plugin Key Given!"}, 404
-		
+			return {"request": "Failed", "reason": "No Plugin Key Given!"}, 404
+
 	@app.route("/process", methods=["GET"])
 	def start_intent():
+		log()
 		query = request.args.get("q")
-		if query.strip():
-			Thread(target = client.STT.pre_processing, args = [query, ]).start()
-			return {"request":"Success"}, 200
+		if query and query.strip():
+			Thread(target=client.STT.pre_processing, args=[query]).start()
+			return {"request": "Success"}, 200
 		else:
-			return {"request":"Failed", "reason":"No Query(q) Given!"}, 404
+			return {"request": "Failed", "reason": "No Query(q) Given!"}, 404
 
 	return app

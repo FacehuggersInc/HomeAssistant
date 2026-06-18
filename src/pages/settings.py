@@ -1,4 +1,6 @@
 from __future__ import annotations
+import socket
+import platform
 from typing import TYPE_CHECKING
 
 from PyQt6.QtWidgets import (
@@ -506,6 +508,75 @@ def _divider() -> QFrame:
     return d
 
 
+
+# ── Info page ─────────────────────────────────────────────────────────────────
+
+def _build_info_page(client) -> list:
+    """Build the widgets for the Info category."""
+    import socket, platform
+
+    def _local_ip() -> str:
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.connect(("8.8.8.8", 80))
+            ip = s.getsockname()[0]
+            s.close()
+            return ip
+        except Exception:
+            return "unavailable"
+
+    rows = [
+        ("Application",  client.WINDOW_NAME),
+        ("Client ID",    client.CLIENT_ID),
+        ("Local IP",     _local_ip()),
+        ("API Port",     "5000"),
+        ("Platform",     f"{platform.system()} {platform.release()}"),
+        ("Python",       platform.python_version()),
+        ("Data Path",    str(client.DATAPATH)),
+    ]
+
+    widgets = []
+    for label, value in rows:
+        card = QFrame()
+        card.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        card.setStyleSheet(f"""
+            QFrame {{
+                background: rgba(255,255,255,12);
+                border-radius: 6px;
+                border: 1px solid rgba(255,255,255,8);
+            }}
+        """)
+        card.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        row = QHBoxLayout(card)
+        row.setContentsMargins(14, 10, 14, 10)
+        row.setSpacing(12)
+
+        lbl = QLabel(label)
+        lbl.setFont(make_font(SIZES.S2, bold=True))
+        lbl.setStyleSheet(f"color: {COLORS.DARK.TEXT.MUTED}; background: transparent;")
+        lbl.setFixedWidth(120)
+
+        val = QLabel(str(value))
+        val.setFont(make_font(SIZES.S2))
+        val.setStyleSheet(f"color: {COLORS.DARK.TEXT.IMPORTANT}; background: transparent;")
+        val.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        val.setWordWrap(True)
+
+        row.addWidget(lbl)
+        row.addWidget(val, stretch=1)
+        widgets.append(card)
+
+    # API usage hint
+    hint = QLabel(
+        f"Client ID is required as ?id=CLIENT_ID on all control and asset API requests."
+    )
+    hint.setFont(make_font(SIZES.S1))
+    hint.setStyleSheet(f"color: {COLORS.DARK.TEXT.MUTED}; background: transparent; padding: 4px 0;")
+    hint.setWordWrap(True)
+    widgets.append(hint)
+
+    return widgets
+
 # ── Settings page ─────────────────────────────────────────────────────────────
 
 class SettingsPage(PageFramework):
@@ -697,6 +768,8 @@ class SettingsPage(PageFramework):
     def _generate_settings(self, pointer, grouped_dict: dict) -> None:
         for key in grouped_dict:
             self.new_category(key.lower(), self.builder(pointer, grouped_dict, key, key))
+        # Info is always last
+        self.new_category("info", _build_info_page(self.client))
 
     def _page_additions(self) -> None:
         groups = []

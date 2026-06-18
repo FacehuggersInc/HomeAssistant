@@ -242,6 +242,9 @@ class Client:
         self.register_asset("data", self.DATA, "json")
         self.create_user_data_files()
 
+        # ── Client ID (generated once, persisted) ────────────────────────────
+        self.CLIENT_ID = self._load_or_create_client_id()
+
         # ── External data ─────────────────────────────────────────────────────
         self.SETTINGS = Dynaconf(settings_files=[str(self.DATA)])
         self.register_asset(
@@ -806,6 +809,18 @@ class Client:
         with open(path, "w") as f:
             json.dump(obj, f, indent=4)
 
+    def _load_or_create_client_id(self) -> str:
+        """Load persisted client ID or generate a new short one."""
+        id_path = self.DATAPATH / "client.id"
+        if id_path.exists():
+            return id_path.read_text().strip()
+        # Short human-readable ID: 4 groups of 4 hex chars
+        import uuid as _u
+        raw = _u.uuid4().hex.upper()
+        client_id = f"{raw[0:4]}-{raw[4:8]}-{raw[8:12]}-{raw[12:16]}"
+        id_path.write_text(client_id)
+        return client_id
+
     def create_user_data_files(self) -> None:
         if not self.DATAPATH.exists():
             self.log("info", f"Creating DATA Folder @ {self.DATAPATH}")
@@ -851,7 +866,10 @@ class Client:
         self.build()
         exit_code = self._app.exec()
 
+        print(f"[run] exec() returned exit_code={exit_code} UPDATE={self.UPDATE} RESTART={self.RESTART}", flush=True)
+
         if self.UPDATE:
+            print("[run] Exiting with code 42 for update", flush=True)
             sys.exit(42)
 
         if self.RESTART:
