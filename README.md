@@ -4,6 +4,8 @@ A fullscreen desktop assistant application built with Python and PyQt6. Acts as 
 
 THIS IS A HUGE WIP. In its current state this Application is merely a glorified picture clock and weather application with a overly complicated backend to allow for high customization via Plugins alone. It currently supports wallpaper cycling, a clock and a weather widget, with a backend API to control a few things remotely. Those are just the things that Work out of the box.
 
+It's UI architecture previously used Flet (a python flutter framework) but iv'e since moved to PyQT, so some Widgets are still the in Flet build of the previous app. So Many things that windows 'needs' to run arent actually being used. This also includes the 'assistant pipeline', this has been Disabled in the meantime as i work on the UI and backend of this App.
+
 ---
 
 ## Requirements
