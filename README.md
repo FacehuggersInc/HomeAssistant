@@ -1,10 +1,10 @@
 # Desktop Home Assistant
 
-A fullscreen desktop assistant application built with Python and PyQt6. Acts as a smart home display similar to Google Home Hub or Amazon Echo Show — cycling wallpapers, clock, weather, word of the day, notifications, and a voice assistant pipeline.
+A fullscreen desktop assistant application built with Python and PyQt6. It acts as a smart home display similar to Google Home Hub or Amazon Echo Show — cycling wallpapers, clock, weather, word of the day, notifications, and a voice assistant pipeline.
 
-THIS IS A HUGE WIP. In its current state this Application is merely a glorified picture clock and weather application with a overly complicated backend to allow for high customization via Plugins alone. It currently supports wallpaper cycling, a clock and a weather widget, with a backend API to control a few things remotely. Those are just the things that Work out of the box.
+THIS IS A HUGE WIP. In its current state, this application is merely a glorified picture clock and weather application with an overly complicated backend to allow for high customization via plugins alone. It currently supports wallpaper cycling, a clock and weather widget, with a backend API to control a few things remotely. Those are just the things that work out of the box.
 
-It's UI architecture previously used Flet (a python flutter framework) but iv'e since moved to PyQT, so some Widgets are still the in Flet build of the previous app. So Many things that windows 'needs' to run arent actually being used. This also includes the 'assistant pipeline', this has been Disabled in the meantime as i work on the UI and backend of this App.
+Its UI architecture previously used Flet (a Python Flutter framework), but I've since moved to PyQt, so some widgets are still in the Flet build of the previous app. So many things that Windows version 'needs' to run aren't actually being used. This also includes the 'assistant pipeline'; this has been disabled in the meantime as I work on the UI and backend of this app.
 
 ---
 
