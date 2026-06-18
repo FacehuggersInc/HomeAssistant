@@ -185,7 +185,7 @@ class NotificationCenterWidget(Widget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
 
-        self._btn = IconButton(Icons.BELL, self._open_history, size=self.SIZE // 2)
+        self._btn = IconButton(Icons.BELL, self._open_history, size=self.SIZE)
         self._btn.setParent(self)
         self._btn.move(0, 0)
         self._btn.resize(self.SIZE, self.SIZE)
@@ -222,6 +222,7 @@ class NotificationCenterWidget(Widget):
     def _open_history(self, event=None) -> None:
         self.client.DIALOG.open(NotificationDialog(self))
         self.client.TIMEOUTS.start(self._dialog_timeout_id)
+        self.client.simple_notify("notification", "Open Center", "Should be opening ...", True)
 
 
 # ── Notification dialog ───────────────────────────────────────────────────────
