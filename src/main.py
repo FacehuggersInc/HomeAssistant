@@ -233,11 +233,11 @@ class Client:
         self.ASSETS: dict = {}
 
         cwd = Path(os.getcwd())
-        self.register_asset("local",   Asset(cwd),                              "FOLDER")
-        self.register_asset("logs",    Asset(cwd / "logs"),                     "FOLDER")
-        self.register_asset("plugins", Asset(cwd / "plugins"),                  "FOLDER")
-        self.register_asset("fonts",   Asset(cwd / "src" / "assets" / "fonts"), "FOLDER")
-        self.register_asset("icons",   Asset(cwd / "src" / "assets" / "icons"), "FOLDER")
+        self.register_asset("local",   Asset(cwd),                                "FOLDER")
+        self.register_asset("logs",    Asset(cwd / "logs"),                       "FOLDER")
+        self.register_asset("plugins", Asset(cwd / "plugins"),                    "FOLDER")
+        self.register_asset("bundled", Asset(cwd / "src" / "assets" / "bundled"), "FOLDER")
+        self.register_asset("fonts",   Asset(cwd / "src" / "assets" / "fonts"),   "FOLDER")
 
         self.DATAPATH = Asset(get_data_dir(APP_NAME))
         self.DATA     = Asset(self.DATAPATH / f"{APP_NAME.replace(' ', '')}.json")
