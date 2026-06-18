@@ -2,6 +2,8 @@
 
 A fullscreen desktop assistant application built with Python and PyQt6. Acts as a smart home display similar to Google Home Hub or Amazon Echo Show — cycling wallpapers, clock, weather, word of the day, notifications, and a voice assistant pipeline.
 
+THIS IS A HUGE WIP. In its current state this Application is merely a glorified picture clock and weather application with a overly complicated backend to allow for high customization via Plugins alone. It currently supports wallpaper cycling, a clock and a weather widget, with a backend API to control a few things remotely. Those are just the things that Work out of the box.
+
 ---
 
 ## Requirements
