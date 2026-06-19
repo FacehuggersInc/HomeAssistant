@@ -12,7 +12,7 @@ def FlaskService(stop_event, client, flask):
 	while not stop_event.is_set():
 		server.handle_request()
 
-def FlaskApp(client:Client):
+def FlaskApp(client):
 	here = os.path.dirname(os.path.abspath(__file__))
 	app = Flask(
 		APP_NAME.replace(" ", "") + "_backend",
