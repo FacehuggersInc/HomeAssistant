@@ -12,8 +12,7 @@ def FlaskService(stop_event, client, flask):
 	while not stop_event.is_set():
 		server.handle_request()
 
-def FlaskApp(client):
-	import os
+def FlaskApp(client:Client):
 	here = os.path.dirname(os.path.abspath(__file__))
 	app = Flask(
 		APP_NAME.replace(" ", "") + "_backend",
@@ -21,8 +20,7 @@ def FlaskApp(client):
 		static_folder=os.path.join(here, "static"),
 	)
 
-	# AUTH
-
+	# AUTH & HELPERS
 	def auth():
 		"""Return error response tuple if ?id= is missing or wrong, else None."""
 		given = request.args.get("id", "").strip()
@@ -32,7 +30,7 @@ def FlaskApp(client):
 			return {"request": "Failed", "reason": "Invalid client ID"}, 403
 		return None
 
-	def log():
+	def log(level:str = "info", extra:str = ""):
 		"""
 		Log the current request endpoint and query args.
 		Masks the id= parameter if present.
@@ -44,10 +42,15 @@ def FlaskApp(client):
 		"""
 		args = {k: ("***" if k == "id" else v) for k, v in request.args.items()}
 		arg_str = "  " + "  ".join(f"{k}={v}" for k, v in args.items()) if args else ""
-		client.log("info", f"[API] {request.method} {request.path}{arg_str}")
 
-	## CLIENT CONTROL
+		if not extra:
+			client.log(level, f"[API] {request.method} {request.path}{arg_str}")
+		else:
+			client.log(level, f"[API][{extra}] {request.method} {request.path}{arg_str}")
 
+
+
+	## CLIENT CONTROL ENDPOINTS
 	@app.route("/terminate")
 	def terminate_client():
 		err = auth()
@@ -128,8 +131,9 @@ def FlaskApp(client):
 		finally:
 			shutil.rmtree(temp_dir, ignore_errors=True)
 
-	## TASKS
 
+
+	## TASKS ENDPOINTS
 	@app.route("/notify/", methods=["GET"])
 	def redirects_bad_endpoint():
 		return redirect(f"{request.base_url.rstrip('/')}?{request.query_string.decode()}")
@@ -152,77 +156,7 @@ def FlaskApp(client):
 				return {"request": "Failed", "reason": f"missing -> {missing}"}, 404
 		except Exception as e:
 			return {"request": "Failed", "reason": str(e)}, 500
-
-	@app.route("/asset/<key>", methods=["GET"])
-	@app.route("/asset/<key>/<filename>", methods=["GET"])
-	def asset_download(key, filename=None):
-		err = auth()
-		if err: return err
-
-		type_ = request.args.get("type", "FOLDER").upper()
-		path  = client.asset(type_, key)
-
-		if not path:
-			return {"request": "Failed", "reason": f"Asset '{key}' not found"}, 404
-
-		def _safe(f):
-			"""Exclude dotfiles and anything under src/."""
-			name = f.name
-			rel  = f.as_posix()
-			return (
-				f.is_file()
-				and not name.startswith(".")
-				and "src/" not in rel
-			)
-
-		if filename is None:
-			files = [f.name for f in path.iterdir() if _safe(f)]
-			return {"request": "Success", "key": key, "files": files}
-
-		if filename.startswith(".") or "src/" in filename.replace("\\", "/"):
-			return {"request": "Failed", "reason": "Access denied"}, 403
-
-		if "." not in filename:
-			match = next((f for f in path.iterdir() if f.stem == filename and _safe(f)), None)
-			if match:
-				return send_from_directory(path.as_posix(), match.name)
-			return {"request": "Failed", "reason": f"No file with stem '{filename}' in '{key}'"}, 404
-
-		actual = path / filename
-		if actual.exists() and _safe(actual):
-			return send_from_directory(path.as_posix(), actual.name, as_attachment=True)
-		if actual.exists():
-			return {"request": "Failed", "reason": "Access denied"}, 403
-		return {"request": "Failed", "reason": f"File '{filename}' not found in '{key}'"}, 404
-
-	@app.route("/settings/<path:path>", methods=["GET", "POST"])
-	def setting_set(path):
-		if path:
-			setting = client.SETTINGS.get_path(path)
-			if setting is not None:
-				if not request.args.get("v"):
-					return {"request": "Success", "setting": setting}, 200
-				else:
-					client.SETTINGS.set_path(path, request.args.get("v"))
-					return {"request": "Success", "setting": client.SETTINGS.get_path(path)}, 200
-			else:
-				return {"request": "Failed", "reason": f"No Setting at {path}"}, 404
-		else:
-			return {"request": "Failed", "reason": "No given Path"}, 404
-
-	@app.route("/plugins/<plugin_key>/reload", methods=["GET"])
-	def reload_plugin(plugin_key):
-		if not client.BUILT:
-			return {"request": "Failed", "reason": "The Application is still building..."}, 200
-		if plugin_key:
-			if client.plugin_manager.plugins.get(plugin_key):
-				client.plugin_manager.reload_plugin(plugin_key)
-				return {"request": "Success"}, 200
-			else:
-				return {"request": "Failed", "reason": f"No Plugin '{plugin_key}' loaded."}, 404
-		else:
-			return {"request": "Failed", "reason": "No Plugin Key Given!"}, 404
-
+	
 	@app.route("/process", methods=["GET"])
 	def start_intent():
 		query = request.args.get("q")
@@ -232,6 +166,9 @@ def FlaskApp(client):
 		else:
 			return {"request": "Failed", "reason": "No Query(q) Given!"}, 404
 
+
+
+	## ASSET MANAGEMENT ENDPOINTS
 	@app.route("/upload", methods=["GET"])
 	def upload_index():
 		log()
@@ -340,5 +277,114 @@ def FlaskApp(client):
 		else:
 			file.save(str(dest))
 			return {"request": "Success", "message": f"{filename} uploaded to {key}"}
+
+	@app.route("/asset/<key>", methods=["GET"])
+	@app.route("/asset/<key>/<filename>", methods=["GET"])
+	def asset_download(key, filename=None):
+		err = auth()
+		if err: return err
+
+		type_ = request.args.get("type", "FOLDER").upper()
+		path  = client.asset(type_, key)
+
+		if not path:
+			return {"request": "Failed", "reason": f"Asset '{key}' not found"}, 404
+
+		def _safe(f):
+			"""Exclude dotfiles and anything under src/."""
+			name = f.name
+			rel  = f.as_posix()
+			return (
+				f.is_file()
+				and not name.startswith(".")
+				and "src/" not in rel
+			)
+
+		if filename is None:
+			files = [f.name for f in path.iterdir() if _safe(f)]
+			return {"request": "Success", "key": key, "files": files}
+
+		if filename.startswith(".") or "src/" in filename.replace("\\", "/"):
+			return {"request": "Failed", "reason": "Access denied"}, 403
+
+		if "." not in filename:
+			match = next((f for f in path.iterdir() if f.stem == filename and _safe(f)), None)
+			if match:
+				return send_from_directory(path.as_posix(), match.name)
+			return {"request": "Failed", "reason": f"No file with stem '{filename}' in '{key}'"}, 404
+
+		actual = path / filename
+		if actual.exists() and _safe(actual):
+			return send_from_directory(path.as_posix(), actual.name, as_attachment=True)
+		if actual.exists():
+			return {"request": "Failed", "reason": "Access denied"}, 403
+		return {"request": "Failed", "reason": f"File '{filename}' not found in '{key}'"}, 404
+
+	@app.route("/settings/<path:path>", methods=["GET", "POST"])
+	def setting_set(path):
+		if path:
+			setting = client.SETTINGS.get_path(path)
+			if setting is not None:
+				if not request.args.get("v"):
+					return {"request": "Success", "setting": setting}, 200
+				else:
+					client.SETTINGS.set_path(path, request.args.get("v"))
+					return {"request": "Success", "setting": client.SETTINGS.get_path(path)}, 200
+			else:
+				return {"request": "Failed", "reason": f"No Setting at {path}"}, 404
+		else:
+			return {"request": "Failed", "reason": "No given Path"}, 404
+
+
+
+	## PLUGIN ENDPOINTS
+	@app.route("/plugins/<plugin_key>/<endpoint>", methods=["GET"])
+	def reload_plugin(plugin_key, endpoint):
+		log()
+		
+		if not client.BUILT: return {"request": "Failed", "reason": "The Application is still building..."}, 200
+		err = auth()
+		if err: return err
+
+		if plugin_key and endpoint:
+			if client.plugin_manager.plugins.has_plugin(plugin_key):
+				match endpoint:
+					case "reload":
+						client.plugin_manager.reload_plugin(plugin_key)
+						return {"request": "Success"}, 200
+					case _: #! NOT BUILT YET
+						try:
+							return {"request":"Failed", "reason":f"There is no endpoint ({endpoint}) here ..."}, 404
+						except Exception as e:
+							return {"request":"Failed", "reason":f"There is no endpoint ({endpoint}) here AND it errored: {e}"}, 404
+			else:
+				return {"request": "Failed", "reason": f"No Plugin '{plugin_key}' loaded."}, 404
+		else:
+			return {"request": "Failed", "reason": "No Plugin Key Given!"}, 404
+
+	@app.route("/public/<endpoint>", methods=["GET", "POST"])
+	def registered_endpoint_routing(endpoint):
+		if not client.BUILT: return {"request": "Failed", "reason": "The Application is still building..."}, 200
+
+		if endpoint:
+			api_endpoint = client.API_REGISTRY.get_endpoint(endpoint)
+			client.log("debug", str(api_endpoint))
+			if api_endpoint and isinstance(api_endpoint, tuple):
+				owner, end = api_endpoint
+				log("info", f"Registry.{owner}")
+				if end.authed:
+					err = auth()
+					if err: return err
+
+				try:
+					return end.call(**request.args)
+				except Exception as e:
+					return {"request":"Failed", "reason":f"Public endpoint failed due to: {e}"}, 200
+			
+			else:
+				log("warning", "Registry.None")
+				return {"request":"Failed", "reason":f"No Public endpoint under the name '{endpoint}'"}, 404
+		
+		return {"request":"Failed"}, 200
 
 	return app

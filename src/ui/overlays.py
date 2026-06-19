@@ -42,7 +42,7 @@ class OverlayManager(QWidget):
     """
 
     def __init__(self, client: "Client"):
-        super().__init__(client.window if hasattr(client, "_window") else None)
+        super().__init__(client.window if hasattr(client, "window") else None)
         self.client = client
 
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)

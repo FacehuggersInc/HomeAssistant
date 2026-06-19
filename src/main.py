@@ -30,6 +30,7 @@ from src.enums import clear_events, get_global_events, TriggerAppEvent, Asset
 from src.timing import TimeoutScheduler
 from src.mixins import MixinManager, mixin_target
 from src.plugin.loader import PluginManager
+from src.apiregistry import APIRegistry
 from src.backend import FlaskApp, FlaskService
 from src.api.spotify import SpotifyAPI
 from src.api.wordnik import WordnikAPI
@@ -191,6 +192,10 @@ class Client:
 
         self.LAST_COLLECTION = time.time()
 
+        self.STATES = {
+            "home_page_setup": False
+        }
+
         ## -- EVENTS
 
         self.EVENTS: dict = {
@@ -263,7 +268,7 @@ class Client:
         self.TTS    = None
 
         ## -- APIS
-
+        self.API_REGISTRY = APIRegistry(self)
         self.API: dict = {
             "wordnik": WordnikAPI(self),
         }
@@ -318,10 +323,10 @@ class Client:
     ##EVENTS
 
     def set_state(self, state_name: str, state) -> None:
-        self.EVENTS["states"][state_name] = state
+        self.STATES[state_name] = state
 
     def get_state(self, state_name: str):
-        return self.EVENTS["states"].get(state_name)
+        return self.STATES.get(state_name)
 
     def subscribe_to_event(self, on_call_type: EVENTS, callable_: Callable,
                            call_index: int = -1) -> None:

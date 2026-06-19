@@ -683,7 +683,9 @@ class SettingsPage(PageFramework):
         )
         self.widget_manager.setParent(self)
         self.widget_manager.setGeometry(0, 0, w, h)
-        self.widget_manager.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        #empty space falls through via WidgetFramework's own ignore()'d
+        #mouse events, not WA_TransparentForMouseEvents (which would also
+        #block child widget buttons from receiving clicks)
         self.widget_manager.show()
 
         # ── Drawer ────────────────────────────────────────────────────────────

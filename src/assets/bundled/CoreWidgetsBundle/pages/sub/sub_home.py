@@ -27,8 +27,10 @@ class SubHomePage(SubPageFramework):
         self.setFixedSize(w, h)
         self.setStyleSheet("background-color: #0d0d0d;")
 
-        # Widget layer — WA_TransparentForMouseEvents so clicks pass through
-        # to any widget below it (e.g. the drawer handle)
+        # Widget layer — empty space passes clicks through to the drawer
+        # handle via WidgetFramework's own mouse event handling (it
+        # ignore()s clicks rather than using WA_TransparentForMouseEvents,
+        # which would also make child widgets like buttons unclickable)
         self.widget_manager = WidgetFramework(
             client   = client,
             page_key = "#",
@@ -36,9 +38,6 @@ class SubHomePage(SubPageFramework):
         )
         self.widget_manager.setParent(self)
         self.widget_manager.setGeometry(0, 0, w, h)
-        self.widget_manager.setAttribute(
-            Qt.WidgetAttribute.WA_TransparentForMouseEvents, True
-        )
         self.widget_manager.show()
 
         # Drawer — placed and shown by place_on_page()

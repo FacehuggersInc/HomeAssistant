@@ -170,6 +170,8 @@ class PluginManager():
 				except Exception as e:
 					self.client.log("error", f"[PluginManager] Failed to instantiate '{plugin_name}' : {e}")
 	
+
+
 	## UN-LOADER
 	def unload_plugin(self, plugin_key: str, quick:bool = False) -> bool:
 		# 1. Find the plugin instance
@@ -185,22 +187,27 @@ class PluginManager():
 			except Exception as e:
 				self.client.log("error", f"[PluginManager] Error during the unloading of a hook : {plugin_key} : {e}")
 
+		# 3. Save Plugin Settings
 		if hasattr(plugin, "settings"):
 			path = plugin.config["settings"]["path"]
 			with open(path, "w") as jsonfile:
 				json.dump(plugin.settings.to_dict(), jsonfile, indent = 4)
 			print(f"{plugin_key} : saved settings")
 
+		# etc. If not Quick Unloading; Remove Mixins, Remove from Plugin Registry | essentially this is for hot reloading, if quick is true, its because the app is shutting down
 		if not quick:
 			# Restore & rewrap all mixin targets
 			self.client.mixin_manager.remove_plugin_mixins( plugin_key )
 
-			# 3. Remove from plugin registry
+			# etc a. Auto Unload Registered API Endpoints
+			self.client.API_REGISTRY.unregister(plugin_key)
+
+			# etc b. Remove from plugin registry
 			del self.plugins[plugin_key]
 			self.client.SKILLS.un_register( plugin_key )
 			self.client.public.clear( plugin_key )
 
-			# 4. Remove from sys.modules
+			# etc c. Remove from sys.modules
 			module_name = plugin.__class__.__module__  # e.g. "myplugin.main"
 			base_name = module_name.split(".")[0]      # e.g. "myplugin"
 
@@ -210,7 +217,7 @@ class PluginManager():
 
 			gc.collect()
 
-			self.client.log("info", f"[PluginManager] Successfully unloaded {plugin_key}")
+			self.client.log("info", f"[PluginManager] Successfully unloaded '{plugin_key}'")
 
 		return True
 
@@ -254,6 +261,13 @@ class PluginManager():
 
 	
 	## MANAGEMENT
+	def has_plugin(self, plugin_key:str) -> bool:
+		plugin = self.plugins.get(plugin_key, None)
+		if plugin != None:
+			return True
+		
+		return False
+
 	def get_plugins(self) -> list[tuple[Plugin, str]]:
 		return [(self.plugins[key], key) for key in self.plugins.keys()]
 

@@ -2,7 +2,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from PyQt6.QtWidgets import QWidget, QVBoxLayout, QLabel, QHBoxLayout, QScrollArea, QPushButton
-from PyQt6.QtCore import Qt, QPropertyAnimation, QEasingCurve, QPoint, QSize
+from PyQt6.QtCore import Qt, QPropertyAnimation, QEasingCurve, QPoint, QSize, QEvent
 from PyQt6.QtGui import QPainter, QColor, QBrush, QPen, QMouseEvent
 
 import qtawesome as qta
@@ -15,18 +15,44 @@ if TYPE_CHECKING:
     from src.ui.widgets.tile_grid import TileGrid
 
 
-##TILE PANEL ROW
+##TILE PANEL ITEM
 
-class TilePanelRow(QWidget):
+class TilePanelItem(QWidget):
     """
-    A single row in the tile panel representing a registered-but-unplaced
-    tile. Dragging this row out and over the grid places the real tile.
+    A single item in the tile panel: a title label above the actual
+    Tile instance, rendered small (scaled down from real grid size but
+    keeping the same grid_w:grid_h aspect ratio) so it looks like a true
+    preview of how the tile will appear once placed — not a generic
+    icon+name row like before.
 
-    The tile widget itself is NOT parented to TileGrid while it sits in
-    a row — only a temporary "ghost" preview follows the cursor during
-    the drag. The real Tile only gets attached to TileGrid once it's
-    actually dropped onto it, via place_tile_on_grid().
+    Only the Tile itself is draggable here, not the title or the item
+    container — clicking/dragging the title does nothing.
+
+    IMPORTANT: dragging is implemented via installEventFilter(self) on
+    the tile (see __init__), not via this item's own mousePressEvent
+    etc. Tile is a real QWidget with its own built-in drag handling for
+    sitting inside a TileGrid, and it's the tile — not this item — that
+    sits directly under the cursor. Qt would deliver mouse events to
+    Tile first, letting its grid-drag logic run against
+    preview_container as if it were a TileGrid (it isn't), silently
+    eating every click. The event filter intercepts mouse events on the
+    tile before Tile's own handlers ever see them — see eventFilter()
+    and the _on_tile_* methods below.
+
+    Dragging behaviour:
+      - drop on the grid          -> tile is placed there (existing flow)
+      - drop on the trash bin     -> tile stays in the panel (no-op, since
+                                     it never left the panel to begin with)
+      - drag outside the WINDOW   -> panel closes immediately, tile drops
+                                     back into its spot in the list
     """
+
+    #the preview fills the largest box it can within this max size while
+    #keeping the tile's real grid_w:grid_h aspect ratio — a 1x1 tile and
+    #a 4x4 tile both end up visually as large as the panel allows, just
+    #shaped differently, rather than both using the same fixed
+    #per-grid-unit size (which made big tiles huge and small tiles tiny)
+    MAX_PREVIEW_SIZE = 220
 
     DRAG_THRESHOLD = 8
 
@@ -36,88 +62,134 @@ class TilePanelRow(QWidget):
         self.panel      = panel
         self.drag_start: QPoint | None = None
         self.dragging   = False
-        self.ghost:      QWidget | None = None   #floating preview, created on drag start
 
-        self.setFixedHeight(64)
-        self.setCursor(Qt.CursorShape.OpenHandCursor)
-        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
-        self.setStyleSheet(f"""
-            QWidget {{
-                background: rgba(255,255,255,8);
-                border-radius: 8px;
-                border: 1px solid rgba(255,255,255,10);
-            }}
-        """)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(6)
+        outer.setAlignment(Qt.AlignmentFlag.AlignHCenter)
 
-        row = QHBoxLayout(self)
-        row.setContentsMargins(12, 0, 12, 0)
-        row.setSpacing(12)
+        #title sits above the tile preview, completely separate from
+        #drag handling — clicking/dragging the title does nothing
+        title_lbl = QLabel(tile.NAME or tile.KEY)
+        title_lbl.setFont(make_font(SIZES.S2, bold=True))
+        title_lbl.setStyleSheet(
+            f"color: {COLORS.DARK.TEXT.IMPORTANT}; background: transparent;"
+        )
+        title_lbl.setAlignment(Qt.AlignmentFlag.AlignHCenter)
+        outer.addWidget(title_lbl)
 
-        #icon — falls back to a generic puzzle piece if ICON is missing
-        #or isn't a valid qtawesome name
-        icon_lbl = QLabel()
-        icon_lbl.setFixedSize(32, 32)
-        icon_lbl.setStyleSheet("background: transparent; border: none;")
+        #scale so the LARGER of width/height hits MAX_PREVIEW_SIZE,
+        #keeping the tile's real aspect ratio — e.g. a 1x2 tile ends up
+        #110x220, a 4x4 tile ends up 220x220, both "as big as possible"
+        ratio = tile.grid_w / tile.grid_h
+        if ratio >= 1:
+            preview_w = self.MAX_PREVIEW_SIZE
+            preview_h = int(self.MAX_PREVIEW_SIZE / ratio)
+        else:
+            preview_h = self.MAX_PREVIEW_SIZE
+            preview_w = int(self.MAX_PREVIEW_SIZE * ratio)
+
+        #the tile preview sits inside a fixed-size container, itself
+        #centred in the item — the container does NOT use
+        #MAX_PREVIEW_SIZE directly so a 1x4 tile (tall+thin) doesn't
+        #leave huge empty space beside it; only the box the tile itself
+        #actually needs is reserved, then the whole thing is centred by
+        #outer's AlignHCenter
+        self.preview_container = QWidget()
+        self.preview_container.setFixedSize(preview_w, preview_h)
+        self.preview_container.setStyleSheet("background: transparent;")
+        outer.addWidget(self.preview_container, alignment=Qt.AlignmentFlag.AlignHCenter)
+
+        tile.setParent(self.preview_container)
+        tile.move(0, 0)
+        tile.resize(preview_w, preview_h)
+        tile.show()
+
+        #Tile defines its own mousePressEvent/mouseMoveEvent/
+        #mouseReleaseEvent for dragging within a TileGrid. Since the
+        #Tile widget itself is what's physically under the cursor here
+        #(not this TilePanelItem, which only wraps around it), Qt
+        #delivers mouse events to the Tile FIRST — this item's own
+        #mousePressEvent etc. below never fire at all for clicks landing
+        #on the tile. Tile's grid-drag logic then runs against
+        #preview_container as if it were a TileGrid, which it isn't,
+        #so nothing visible happens and the click is effectively eaten.
+        #
+        #installEventFilter lets this item intercept those events
+        #before Tile's own handlers ever see them — eventFilter() below
+        #re-implements the same press/move/release logic that used to
+        #live directly in this item's own mouse handlers, but now
+        #actually receives the clicks.
+        tile.installEventFilter(self)
+
+        #tick once now so the preview shows current data immediately —
+        #see TilePanel.tick_once() for why this isn't continuous
         try:
-            icon_lbl.setPixmap(qta.icon(tile.ICON or "mdi.puzzle", color="white").pixmap(28, 28))
+            tile.tick_once()
         except Exception:
-            icon_lbl.setPixmap(qta.icon("mdi.puzzle", color="white").pixmap(28, 28))
+            pass
 
-        #name + grid size, stacked vertically next to the icon
-        text_col = QVBoxLayout()
-        text_col.setSpacing(1)
-        text_col.setContentsMargins(0, 0, 0, 0)
+    def eventFilter(self, watched, event) -> bool:
+        """
+        Intercepts mouse events meant for self.tile, BEFORE Tile's own
+        mousePressEvent/mouseMoveEvent/mouseReleaseEvent ever run. This
+        exists because Tile is a QWidget with its own built-in drag
+        handling designed for sitting inside a TileGrid — when the same
+        Tile instance sits inside this item's small preview_container
+        instead, Qt still delivers mouse events to the Tile FIRST (it's
+        what's physically under the cursor), so Tile's own handlers
+        would consume the click and run grid-drag logic against
+        preview_container as if it were a TileGrid. It isn't, so
+        nothing happens: no drag starts, no log fires, nothing.
+        Installing this filter on the tile (see __init__) means THIS
+        method sees the event first and can return True to stop it from
+        ever reaching Tile's own handlers.
 
-        name_lbl = QLabel(tile.NAME or tile.KEY)
-        name_lbl.setFont(make_font(SIZES.S2, bold=True))
-        name_lbl.setStyleSheet(f"color: {COLORS.DARK.TEXT.IMPORTANT}; background: transparent; border: none;")
+        Returns True to swallow the event (stop further processing),
+        False to let it continue normally.
+        """
+        if event.type() == QEvent.Type.MouseButtonPress:
+            return self._on_tile_press(event)
+        elif event.type() == QEvent.Type.MouseMove:
+            return self._on_tile_move(event)
+        elif event.type() == QEvent.Type.MouseButtonRelease:
+            return self._on_tile_release(event)
+        return False   #anything else (paint, resize, etc.) passes through untouched
 
-        size_lbl = QLabel(f"{tile.grid_w} × {tile.grid_h}")
-        size_lbl.setFont(make_font(SIZES.S1))
-        size_lbl.setStyleSheet(f"color: {COLORS.DARK.TEXT.MUTED}; background: transparent; border: none;")
+    def _on_tile_press(self, event: QMouseEvent) -> bool:
+        if event.button() != Qt.MouseButton.LeftButton:
+            return False
+        self.drag_start = event.globalPosition().toPoint()
+        self.dragging    = False
+        return True   #swallow — Tile's own mousePressEvent must not also run
 
-        text_col.addWidget(name_lbl)
-        text_col.addWidget(size_lbl)
-
-        row.addWidget(icon_lbl)
-        row.addLayout(text_col, stretch=1)
-
-    def mousePressEvent(self, event: QMouseEvent) -> None:
-        #just record where the press started — dragging only begins
-        #once the cursor moves past DRAG_THRESHOLD in mouseMoveEvent
-        if event.button() == Qt.MouseButton.LeftButton:
-            self.drag_start = event.globalPosition().toPoint()
-            self.dragging   = False
-
-    def mouseMoveEvent(self, event: QMouseEvent) -> None:
+    def _on_tile_move(self, event: QMouseEvent) -> bool:
         if self.drag_start is None:
-            return
+            return False
 
         delta = event.globalPosition().toPoint() - self.drag_start
 
         if not self.dragging and max(abs(delta.x()), abs(delta.y())) >= self.DRAG_THRESHOLD:
-            #threshold crossed for the first time this drag — start
-            #the ghost preview and tell the page to show the trash bin
-            #(same trash bin used when dragging a tile already on the grid)
+            #crossing the threshold for the first time — detach the tile
+            #from its small preview container and reparent it to the
+            #page itself so it can move freely on top of everything,
+            #the same way a tile already on the grid does mid-drag
             self.dragging = True
-            self.create_ghost()
-            page = self.panel.page
-            if hasattr(page, 'notify_drag_started'):
-                page.notify_drag_started()
+            self.start_real_drag()
 
-        if self.dragging and self.ghost:
-            #move the ghost to follow the cursor, centred under it
+        if self.dragging:
             page = self.panel.page
+            local = page.mapFromGlobal(event.globalPosition().toPoint())
+            #keep the cursor roughly centred on the tile while dragging
+            self.tile.move(local.x() - self.tile.width() // 2,
+                           local.y() - self.tile.height() // 2)
+
+            grid = self.panel.grid
             if hasattr(page, 'trash_bin'):
                 page.trash_bin.set_hot(page.trash_bin.is_over(event.globalPosition().toPoint()))
-            local = page.mapFromGlobal(event.globalPosition().toPoint())
-            self.ghost.move(local.x() - self.ghost.width() // 2,
-                            local.y() - self.ghost.height() // 2)
 
-            #also compute which grid cell the cursor is over right now,
-            #so TileGrid can draw the same green guide box it shows for
-            #tiles being dragged from within the grid itself
-            grid = self.panel.grid
+            #drive the same green guide box TileGrid shows for tiles
+            #being dragged from inside the grid itself
             grid_pos = grid.mapFromGlobal(event.globalPosition().toPoint())
             col = int((grid_pos.x() - grid.origin_x) // (grid.cell_size + grid.gap_x))
             row = int((grid_pos.y() - grid.origin_y) // (grid.cell_size + grid.gap_y))
@@ -128,80 +200,119 @@ class TilePanelRow(QWidget):
             grid.dragging_tile = self.tile
             grid.update()
 
-    def mouseReleaseEvent(self, event: QMouseEvent) -> None:
-        was_dragging    = self.dragging
-        self.dragging    = False
-        self.drag_start  = None
+            #check whether the cursor has left the application window
+            #entirely — if so, START sliding the panel closed right
+            #away for instant visual feedback. Critically this does NOT
+            #hide() the panel yet: TilePanelItem (this very widget) is a
+            #descendant of TilePanel, and hiding an ancestor mid-drag
+            #stops Qt from delivering any further mouse events to this
+            #widget at all — including the eventual mouseReleaseEvent.
+            #The drag would die silently: no tile under the cursor, and
+            #releasing the mouse button does nothing. start_slide_out()
+            #only animates the position; the panel is properly hidden
+            #once mouseReleaseEvent actually completes, below.
+            if self.panel.open and not self.panel.closing:
+                self.panel.start_slide_out()
 
-        #ghost preview is only ever needed mid-drag — clean it up
-        #unconditionally on release
-        if self.ghost:
-            self.ghost.deleteLater()
-            self.ghost = None
+        return True   #swallow — Tile's own mouseMoveEvent must not also run
 
-        if was_dragging:
-            page = self.panel.page
-            gpos = event.globalPosition().toPoint()
+    def _on_tile_release(self, event: QMouseEvent) -> bool:
+        was_dragging   = self.dragging
+        self.dragging   = False
+        self.drag_start = None
 
-            #hide the trash bin and clear the grid's guide box regardless
-            #of where the tile was dropped — both only matter mid-drag
-            if hasattr(page, 'trash_bin'):
-                page.trash_bin.hide_after_drag()
-            self.panel.grid.dragging_tile = None
-            self.panel.grid.hover_col     = -1
-            self.panel.grid.hover_row     = -1
-            self.panel.grid.update()
+        if not was_dragging:
+            return False   #wasn't a drag (just a click) — let Tile handle it normally
 
-            #only place the tile if it was actually dropped within the
-            #grid's screen rect — otherwise it just stays in the panel
-            grid              = self.panel.grid
-            grid_global       = grid.mapToGlobal(QPoint(0, 0))
-            drop_global       = event.globalPosition().toPoint()
-            grid_rect_global  = grid.rect().translated(grid_global)
+        gpos = event.globalPosition().toPoint()
+        page = self.panel.page
+        grid = self.panel.grid
 
-            if grid_rect_global.contains(drop_global):
-                grid_pos = grid.mapFromGlobal(drop_global)
-                col = int((grid_pos.x() - grid.origin_x) // (grid.cell_size + grid.gap_x))
-                row = int((grid_pos.y() - grid.origin_y) // (grid.cell_size + grid.gap_y))
-                col = max(0, min(col, grid.cols - self.tile.grid_w))
-                row = max(0, min(row, grid.rows - self.tile.grid_h))
-                #this is the moment the tile actually leaves the panel
-                #and becomes a real grid tile — see place_tile_on_grid()
-                self.panel.place_tile_on_grid(self.tile, col, row)
+        #always clear guide box / trash bin state — both only matter mid-drag
+        if hasattr(page, 'trash_bin'):
+            page.trash_bin.hide_after_drag()
+        grid.dragging_tile = None
+        grid.hover_col     = -1
+        grid.hover_row     = -1
+        grid.update()
 
-    def create_ghost(self) -> None:
+        if self._cursor_outside_window(gpos):
+            #dragged out of the window entirely — the panel was only
+            #VISUALLY sliding closed during the drag (see
+            #_on_tile_move above), so finalize that now: actually hide
+            #it and flip its open flag. The tile never really left the
+            #panel's data, so just put it back into its preview slot.
+            self.restore_preview()
+            if self.panel.closing:
+                self.panel.finish_slide_out()
+            return True
+
+        #check if dropped within the grid's screen rect
+        grid_global      = grid.mapToGlobal(QPoint(0, 0))
+        grid_rect_global = grid.rect().translated(grid_global)
+
+        if grid_rect_global.contains(gpos):
+            grid_pos = grid.mapFromGlobal(gpos)
+            col = int((grid_pos.x() - grid.origin_x) // (grid.cell_size + grid.gap_x))
+            row = int((grid_pos.y() - grid.origin_y) // (grid.cell_size + grid.gap_y))
+            col = max(0, min(col, grid.cols - self.tile.grid_w))
+            row = max(0, min(row, grid.rows - self.tile.grid_h))
+            #the tile actually leaves the panel here — see place_tile_on_grid()
+            self.panel.place_tile_on_grid(self.tile, col, row)
+        else:
+            #missed the grid, still inside the window — snap back into
+            #the panel preview rather than leaving it floating loose
+            self.restore_preview()
+
+        return True   #swallow — Tile's own mouseReleaseEvent must not also run
+
+    def start_real_drag(self) -> None:
         """
-        Build the floating dashed-border preview that follows the cursor
-        while dragging this row. Sized to roughly match what the tile
-        would look like once placed, using the grid's current cell_size
-        so the preview isn't wildly off from the real thing.
+        Detach the tile from its small fixed preview container and
+        reparent it to the page so it can move freely across the whole
+        screen during the drag, matching how a tile already on the grid
+        behaves. Resized up to whatever size it would actually be on
+        the grid right now, not the small preview size, so the user
+        sees an accurate full-size tile while dragging.
         """
         page = self.panel.page
-        tile = self.tile
         grid = self.panel.grid
+
+        self.tile.setParent(page)
+        self.tile.raise_()
 
         if grid.cell_size > 0:
             #cast to int — gap_x/gap_y are floats since TileGrid
             #stretches them to fill leftover space, and Qt size setters
             #reject floats outright
-            w = int(tile.grid_w * grid.cell_size + (tile.grid_w - 1) * grid.gap_x)
-            h = int(tile.grid_h * grid.cell_size + (tile.grid_h - 1) * grid.gap_y)
+            w = int(self.tile.grid_w * grid.cell_size + (self.tile.grid_w - 1) * grid.gap_x)
+            h = int(self.tile.grid_h * grid.cell_size + (self.tile.grid_h - 1) * grid.gap_y)
         else:
-            #grid hasn't been laid out yet (cell_size still 0) — use a
-            #reasonable placeholder size instead of crashing
-            w, h = 120, 120
+            #grid hasn't been laid out yet — fall back to the preview
+            #container's current size rather than crashing
+            w = self.preview_container.width()
+            h = self.preview_container.height()
 
-        self.ghost = QWidget(page)
-        self.ghost.setFixedSize(w, h)
-        self.ghost.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
-        self.ghost.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
-        self.ghost.setStyleSheet(
-            "background: rgba(255,255,255,15);"
-            "border: 2px dashed rgba(255,255,255,60);"
-            "border-radius: 10px;"
-        )
-        self.ghost.show()
-        self.ghost.raise_()
+        self.tile.resize(w, h)
+        self.tile.show()
+
+        page = self.panel.page
+        if hasattr(page, 'notify_drag_started'):
+            page.notify_drag_started()
+
+    def restore_preview(self) -> None:
+        """Put the tile back into its small preview slot at its original size."""
+        self.tile.setParent(self.preview_container)
+        self.tile.move(0, 0)
+        self.tile.resize(self.preview_container.size())
+        self.tile.show()
+
+    def _cursor_outside_window(self, global_pos: QPoint) -> bool:
+        """True if global_pos has left the application's own window bounds."""
+        window = self.panel.client.window
+        window_global = window.mapToGlobal(QPoint(0, 0))
+        window_rect    = window.rect().translated(window_global)
+        return not window_rect.contains(global_pos)
 
 
 ##TILE PANEL
@@ -222,8 +333,12 @@ class TilePanel(QWidget):
         self.client = client
         self.page   = page
         self.grid   = grid
-        self.rows:  dict[str, TilePanelRow] = {}   #tile.KEY -> its row widget
+        self.items: dict[str, TilePanelItem] = {}   #tile.KEY -> its panel item
         self.open   = False
+        #True for the window between starting a visual slide-out and
+        #actually finishing it — see start_slide_out()/finish_slide_out()
+        #below and TilePanelItem.mouseMoveEvent for why this exists
+        self.closing = False
 
         #start fully off-screen to the right, same width as the panel —
         #toggle() animates it sliding in from here
@@ -270,7 +385,7 @@ class TilePanel(QWidget):
         sub.setWordWrap(True)
         layout.addWidget(sub)
 
-        #scrollable list of TilePanelRow widgets
+        #scrollable list of TilePanelItem widgets
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setStyleSheet("QScrollArea { border: none; background: transparent; }"
@@ -282,8 +397,8 @@ class TilePanel(QWidget):
         self.list_widget.setStyleSheet("background: transparent;")
         self.list_layout = QVBoxLayout(self.list_widget)
         self.list_layout.setContentsMargins(0, 0, 0, 0)
-        self.list_layout.setSpacing(8)
-        self.list_layout.addStretch()   #keeps rows pinned to the top as they're added
+        self.list_layout.setSpacing(16)
+        self.list_layout.addStretch()   #keeps items pinned to the top as they're added
 
         scroll.setWidget(self.list_widget)
         layout.addWidget(scroll, stretch=1)
@@ -300,26 +415,30 @@ class TilePanel(QWidget):
         tile is dragged off the grid into the trash bin (it lands back
         here instead of being destroyed).
         """
-        if tile.KEY in self.rows:
-            #already listed — avoid duplicate rows for the same tile
+        if tile.KEY in self.items:
+            #already listed — avoid duplicate items for the same tile
             return
-        row = TilePanelRow(tile, self)
-        self.rows[tile.KEY] = row
-        #insert before the trailing stretch so new rows stack at the bottom
-        self.list_layout.insertWidget(self.list_layout.count() - 1, row)
+        item = TilePanelItem(tile, self)
+        self.items[tile.KEY] = item
+        #insert before the trailing stretch so new items stack at the bottom
+        self.list_layout.insertWidget(self.list_layout.count() - 1, item)
 
     def remove_tile(self, key: str) -> None:
-        """Remove a tile's row from the panel — called once it's placed onto the grid."""
-        if key in self.rows:
-            self.rows[key].deleteLater()
-            del self.rows[key]
+        """Remove a tile's panel item — called once it's placed onto the grid."""
+        if key in self.items:
+            self.items[key].deleteLater()
+            del self.items[key]
 
     def place_tile_on_grid(self, tile: Tile, col: int, row: int) -> None:
         """
-        The handoff point from panel to grid. Called by TilePanelRow
+        The handoff point from panel to grid. Called by TilePanelItem
         when a drag ends successfully over the grid.
         """
-        self.remove_tile(tile.KEY)         #row no longer needed
+        #the tile is leaving the panel for good — it needs its own
+        #normal Tile mouse handling back, not this item's filtered
+        #version (see TilePanelItem.__init__ / eventFilter)
+        tile.removeEventFilter(self.items[tile.KEY])
+        self.remove_tile(tile.KEY)         #panel item no longer needed
         tile.setParent(self.grid)          #tile now belongs to TileGrid
         self.grid.add_tile(tile, col, row) #same entry point used for saved-position restoration
         self.toggle()                      #close the panel so the new tile is visible
@@ -333,9 +452,9 @@ class TilePanel(QWidget):
         tiles are by TileGrid.tick(), since there's no reason to update
         a preview nobody is looking at.
         """
-        for tile in [r.tile for r in self.rows.values()]:
+        for item in self.items.values():
             try:
-                tile.tick_once()
+                item.tile.tick_once()
             except Exception:
                 #a broken tile's tick() shouldn't be able to break the
                 #whole panel from opening
@@ -343,20 +462,18 @@ class TilePanel(QWidget):
 
     def toggle(self) -> None:
         """Slide the panel in if closed, or out if open."""
-        pw = self.page.width()
-        ph = self.page.height()
-        self.setFixedHeight(ph)
-        self.anim.stop()
-
         if self.open:
-            #slide back out to fully off-screen, then hide once finished
-            #(hiding immediately would cut the animation short)
-            self.anim.setStartValue(self.pos())
-            self.anim.setEndValue(QPoint(pw, 0))
-            self.anim.finished.connect(self.hide)
+            #normal close (e.g. the X button) — slide out AND hide once
+            #the animation finishes, immediately. There's no in-progress
+            #drag to worry about here, unlike start_slide_out() below.
+            self.start_slide_out()
+            self.anim.finished.connect(self.finish_slide_out)
             self.anim.finished.connect(lambda: self.anim.finished.disconnect())
-            self.open = False
         else:
+            pw = self.page.width()
+            ph = self.page.height()
+            self.setFixedHeight(ph)
+            self.anim.stop()
             #must be visible before/while animating in, and ticked once
             #so previews are current right as they become visible
             self.move(pw, 0)
@@ -366,8 +483,32 @@ class TilePanel(QWidget):
             self.anim.setStartValue(QPoint(pw, 0))
             self.anim.setEndValue(QPoint(pw - self.WIDTH, 0))
             self.open = True
+            self.anim.start()
 
+    def start_slide_out(self) -> None:
+        """
+        Begin animating the panel sliding off-screen WITHOUT hiding it
+        yet. Used both by the normal close button (toggle() above,
+        immediately followed by finish_slide_out()) and by
+        TilePanelItem when a drag carries the cursor outside the
+        window — in that second case, hiding the panel right away would
+        stop Qt delivering further mouse events to the TilePanelItem
+        that's still mid-drag, since it's a descendant of this panel.
+        finish_slide_out() is deferred until the drag's
+        mouseReleaseEvent actually fires.
+        """
+        pw = self.page.width()
+        self.closing = True
+        self.anim.stop()
+        self.anim.setStartValue(self.pos())
+        self.anim.setEndValue(QPoint(pw, 0))
         self.anim.start()
+
+    def finish_slide_out(self) -> None:
+        """Actually hide the panel and clear its open/closing flags, once it's safe to do so."""
+        self.hide()
+        self.open    = False
+        self.closing = False
 
     def resizeEvent(self, event) -> None:
         #only height needs to track the page — width is fixed

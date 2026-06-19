@@ -6,12 +6,12 @@ from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QPushButton, QScrollArea, QFrame, QSizePolicy,
 )
-from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtCore import Qt, QTimer, QPropertyAnimation, QEasingCurve, QPoint
 from PyQt6.QtGui import QColor, QPainter, QBrush, QPen
 
 from src.ui.widget import Widget
 from src.ui.controls.buttons import IconButton
-from src.ui.icons import Icons
+from src.ui.icons import Icons, icon as resolve_icon
 from src.styling import COLORS, make_font, make_background_qss
 
 if TYPE_CHECKING:
@@ -30,11 +30,17 @@ class NotificationHistoryItem(QFrame):
         self._history   = history
         self._timestamp = timestamp
 
+        #card background — deliberately LIGHTER than NotificationPanel's
+        #own background (COLORS.DARK.BG) so each item reads as a
+        #distinct card rather than blending into the panel behind it.
+        #Using the same colour as the parent panel was the original bug
+        #here: visually there was no contrast between "this is a
+        #notification card" and "this is empty panel background".
         self.setStyleSheet(f"""
             QFrame {{
-                background: {COLORS.DARK.BG};
-                border-radius: 4px;
-                border: none;
+                background: {COLORS.DARK.BGLIGHT};
+                border-radius: 6px;
+                border: 1px solid rgba(255,255,255,10);
             }}
         """)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
@@ -43,12 +49,22 @@ class NotificationHistoryItem(QFrame):
         layout.setContentsMargins(10, 8, 10, 8)
         layout.setSpacing(12)
 
-        # Icon
-        icon_lbl = QLabel(icon[:1].upper() if icon else "🔔")
-        icon_lbl.setFont(make_font(20))
-        icon_lbl.setStyleSheet("color: white; background: transparent;")
+        # Icon — resolved through the same Icons/qtawesome system every
+        # other icon in the app uses, instead of just taking the first
+        # character of the icon string (which is what was happening
+        # before: "check" became "C", "download" became "D", etc. —
+        # never an actual icon at all)
+        icon_lbl = QLabel()
         icon_lbl.setFixedSize(36, 36)
+        icon_lbl.setStyleSheet("background: transparent;")
         icon_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        try:
+            icon_lbl.setPixmap(resolve_icon(icon or "bell", color="white").pixmap(24, 24))
+        except Exception:
+            #resolve_icon() already falls back to a generic icon for
+            #unresolvable names, so this is only a last-resort guard
+            #against something unexpected (e.g. a non-string icon arg)
+            icon_lbl.setPixmap(resolve_icon("bell", color="white").pixmap(24, 24))
         layout.addWidget(icon_lbl)
 
         # Text
@@ -121,34 +137,29 @@ class NotificationHistory:
         else:
             self.items = self.client.public.cwb_notifications
 
-    def _get_dialog(self) -> "NotificationDialog | None":
-        dialog = self.client.DIALOG.get()
-        if isinstance(dialog, NotificationDialog):
-            return dialog
-        return None
-
     def add(self, icon: str, title: str, body: str, timestamp: datetime = None) -> None:
         ts = timestamp or datetime.now()
         self.items.insert(0, (self, icon, title, body, ts))
         self.manager.show()
-        dialog = self._get_dialog()
-        if dialog:
-            dialog.refresh_list()
+        #refresh the panel's contents if it's already open and visible
+        panel = self.manager._panel
+        if panel and panel.open:
+            panel.refresh_list()
 
     def remove(self, timestamp: datetime) -> None:
         self.items = [i for i in self.items if i[4] != timestamp]
         if not self.items:
             self.manager.hide()
-            dialog = self._get_dialog()
-            if dialog:
-                self.client.DIALOG.close()
+            panel = self.manager._panel
+            if panel and panel.open:
+                panel.toggle()
 
     def clear(self) -> None:
         self.items.clear()
         self.manager.hide()
-        dialog = self._get_dialog()
-        if dialog:
-            self.client.DIALOG.close()
+        panel = self.manager._panel
+        if panel and panel.open:
+            panel.toggle()
 
 
 # ── Notification center widget ────────────────────────────────────────────────
@@ -172,7 +183,7 @@ class NotificationCenterWidget(Widget):
         )
 
         self._dialog_timeout_id = client.TIMEOUTS.add(
-            30, self.close_dialog,
+            30, self._close_dialog,
             f"notify_center_dialog:{client.uuid()}"
         )
 
@@ -185,7 +196,7 @@ class NotificationCenterWidget(Widget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
 
-        self._btn = IconButton(Icons.BELL, self.open_history, size=self.SIZE // 2)
+        self._btn = IconButton(Icons.BELL, self._open_history, size=self.SIZE // 2)
         self._btn.setParent(self)
         self._btn.move(0, 0)
         self._btn.resize(self.SIZE, self.SIZE)
@@ -195,6 +206,8 @@ class NotificationCenterWidget(Widget):
         self._dot.setGeometry(self.SIZE - 18, 5, 13, 13)
         self._dot.setStyleSheet("background: #3b82f6; border-radius: 6px;")
         self._dot.hide()
+
+        self._panel: "NotificationPanel | None" = None
 
         if self.history.items:
             self.show_dot()
@@ -214,51 +227,67 @@ class NotificationCenterWidget(Widget):
         self.show_dot()
         super().show()
 
-    def close_dialog(self) -> None:
-        dialog = self.client.DIALOG.get()
-        if isinstance(dialog, NotificationDialog):
-            self.client.DIALOG.close()
+    def _close_dialog(self) -> None:
+        if self._panel and self._panel.open:
+            self._panel.toggle()
 
-    def open_history(self, event=None) -> None:
-        self.client.DIALOG.open(NotificationDialog(self))
+    def _open_history(self, event=None) -> None:
+        #lazily build the panel once, then just toggle it open/closed
+        #from then on — same pattern TilePanel uses
+        if self._panel is None:
+            self._panel = NotificationPanel(self)
+        self._panel.toggle()
         self.client.TIMEOUTS.start(self._dialog_timeout_id)
-        self.client.simple_notify("notification", "Open Center", "Should be opening ...", True)
 
 
-# ── Notification dialog ───────────────────────────────────────────────────────
+# ── Notification panel ──────────────────────────────────────────────────────
 
-class NotificationDialog(QWidget):
+class NotificationPanel(QWidget):
     """
-    Slide-in panel listing notification history.
-    Parented and positioned by the DialogManager.
+    Slide-in panel listing notification history, anchored to the
+    right edge of the screen — same approach as TilePanel
+    (src/ui/widgets/tile_panel.py), which is known to position and
+    animate correctly.
+
+    Why not DialogManager: NotificationDialog used to be parented and
+    shown via client.DIALOG.open(), which reparents the widget onto the
+    overlay manager AFTER its position was already set in __init__.
+    Reparenting a QWidget resets its geometry relative to the new
+    parent, which is what caused the dialog to always appear centred
+    instead of at the top-right corner. This panel sidesteps that
+    entirely by parenting itself directly to the overlay manager up
+    front, then sliding in/out via QPropertyAnimation the same way
+    TilePanel does — no DialogManager involved at all.
     """
+
+    WIDTH = 475
 
     def __init__(self, manager: NotificationCenterWidget):
-        super().__init__()
+        super().__init__(manager.client.window)
         self.manager = manager
         self.client  = manager.client
+        self.open    = False
 
         margin = int(self.client.SETTINGS.home.widget_margin.value)
+        win_w  = int(self.client.SETTINGS.application.window.size.value[0])
         win_h  = int(self.client.SETTINGS.application.window.size.value[1])
 
-        w = 475
-        h = win_h - (margin * 3) - 55
-
-        self.setFixedSize(w, h)
+        self.setFixedSize(self.WIDTH, win_h - (margin * 3) - 55)
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.setStyleSheet(f"""
-            QWidget#notif_dialog {{
+            QWidget#notif_panel {{
                 background: {COLORS.DARK.BG};
                 border-radius: 8px;
+                border: 1px solid rgba(255,255,255,12);
             }}
         """)
-        self.setObjectName("notif_dialog")
+        self.setObjectName("notif_panel")
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(16, 12, 16, 12)
         outer.setSpacing(8)
 
-        # Header
+        #header — title, close button, clear-history button
         header = QHBoxLayout()
         title_lbl = QLabel("Notifications")
         title_lbl.setFont(make_font(20, bold=True))
@@ -266,8 +295,19 @@ class NotificationDialog(QWidget):
             f"color: {COLORS.DARK.TEXT.IMPORTANT}; background: transparent;"
         )
 
+        close_btn = QPushButton("\u2715")
+        close_btn.setFixedSize(28, 28)
+        close_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        close_btn.setStyleSheet(
+            "QPushButton { background: rgba(255,255,255,8); color: rgba(255,255,255,140);"
+            " border: 1px solid rgba(255,255,255,12); border-radius: 6px; font-size: 13px; }"
+            "QPushButton:hover { background: rgba(255,255,255,18); color: white; }"
+        )
+        close_btn.clicked.connect(self.toggle)
+
         clear_btn = QPushButton("Clear history")
         clear_btn.setFixedWidth(120)
+        clear_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         clear_btn.setStyleSheet(f"""
             QPushButton {{
                 background: rgba(0,0,0,50);
@@ -284,9 +324,10 @@ class NotificationDialog(QWidget):
         header.addWidget(title_lbl)
         header.addStretch()
         header.addWidget(clear_btn)
+        header.addWidget(close_btn)
         outer.addLayout(header)
 
-        # Scrollable list
+        #scrollable list of history items
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setStyleSheet("QScrollArea { border: none; background: transparent; }")
@@ -304,12 +345,40 @@ class NotificationDialog(QWidget):
 
         self._populate()
 
-        # Position: top-right, below the notification center button
-        geo = self.client.get_window().geometry()
-        self.move(geo.x() + geo.width(), geo.y() + 55)
+        #start fully off-screen past the right edge — slid into view by toggle()
+        self.move(win_w, (margin * 2) + 55)
+        self.hide()
+
+        self.anim = QPropertyAnimation(self, b"pos")
+        self.anim.setDuration(220)
+        self.anim.setEasingCurve(QEasingCurve.Type.OutCubic)
+
+    def toggle(self) -> None:
+        """Slide the panel in if closed, or out if open — same approach as TilePanel.toggle()."""
+        margin = int(self.client.SETTINGS.home.widget_margin.value)
+        win_w  = int(self.client.SETTINGS.application.window.size.value[0])
+        y      = (margin * 2) + 55
+
+        self.anim.stop()
+
+        if self.open:
+            self.anim.setStartValue(self.pos())
+            self.anim.setEndValue(QPoint(win_w, y))
+            self.anim.finished.connect(self.hide)
+            self.anim.finished.connect(lambda: self.anim.finished.disconnect())
+            self.open = False
+        else:
+            self.move(win_w, y)
+            self.show()
+            self.raise_()
+            self._populate()   #refresh contents each time it's opened
+            self.anim.setStartValue(QPoint(win_w, y))
+            self.anim.setEndValue(QPoint(win_w - self.WIDTH - margin, y))
+            self.open = True
+
+        self.anim.start()
 
     def _populate(self) -> None:
-        # Clear existing items (except the stretch)
         while self._list_layout.count() > 1:
             item = self._list_layout.takeAt(0)
             if item.widget():

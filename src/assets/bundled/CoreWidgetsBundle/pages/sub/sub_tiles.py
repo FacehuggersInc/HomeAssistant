@@ -9,7 +9,6 @@ import qtawesome as qta
 
 from src.mixins import mixin_target
 from src.ui.page import SubPageFramework
-from src.ui.widget import WidgetFramework
 from src.ui.widgets.tile import Tile
 from src.ui.widgets.tile_grid import TileGrid
 from src.ui.widgets.tile_panel import TilePanel
@@ -40,7 +39,6 @@ class GridBackground(QWidget):
         for x in range(s, self.width(), s):
             for y in range(s, self.height(), s):
                 p.drawEllipse(x - r, y - r, r * 2, r * 2)
-
 
 
 ##TRASH BIN
@@ -125,6 +123,14 @@ class TrashBin(QWidget):
 #   - TilePanel   : where registered-but-unplaced tiles live
 #   - TrashBin    : drop target to remove a tile from the grid
 #
+# NOTE: this page does NOT have a WidgetFramework / anchored Widget
+# layer like other pages (home, settings). It was removed deliberately
+# — TileGrid already covers everything a widget layer would have been
+# used for here, and the two systems fighting over mouse event
+# transparency was causing real clickability bugs. If a future need
+# arises for anchored widgets on this specific page, that decision
+# should be revisited carefully against TileGrid's own mouse handling.
+#
 # register_tile() is the ONLY method a plugin should call. It decides
 # where a tile goes by checking TileGrid.load_positions() — if the
 # tile's KEY has a saved position from a previous session, it goes
@@ -173,18 +179,6 @@ class SubTilesPage(SubPageFramework):
 
         self.trash_bin = TrashBin(self)
 
-        ## -- WIDGET MANAGER
-
-        self.widget_manager = WidgetFramework(
-            client   = client,
-            page_key = "#tiles",
-            padding  = margin,
-        )
-        self.widget_manager.setParent(self)
-        self.widget_manager.setGeometry(0, 0, w, h)
-        self.widget_manager.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
-        self.widget_manager.show()
-
         ## -- DRAWER
 
         self.drawer = Drawer(client, position="bottom")
@@ -223,7 +217,6 @@ class SubTilesPage(SubPageFramework):
         ## -- Z-ORDER
 
         self.grid_bg.lower()
-        self.widget_manager.raise_()
         self.drawer.raise_()
         self.panel_btn.raise_()
         self.tile_panel.raise_()
@@ -231,8 +224,6 @@ class SubTilesPage(SubPageFramework):
         ## -- FEATURES
 
         self.add_features({
-            "add_widgets":            self.widget_manager.add,
-            "remove_widget":          self.widget_manager.remove,
             "add_drawer_controls":    self.drawer.insert_controls,
             "remove_drawer_controls": self.drawer.remove_controls,
             "register_tile":          self.register_tile,
@@ -328,24 +319,7 @@ class SubTilesPage(SubPageFramework):
     ##TICK
 
     def tick(self) -> None:
-        self.widget_manager.tick_widgets()
         self.drawer.tick()
-
-        #one-time diagnostic — remove once tile ticking is confirmed
-        #working. Logs how many tiles are actually in the grid and
-        #being ticked, since "tile shows --:--" usually means either
-        #it's still sitting in the panel (never ticked continuously by
-        #design) or this loop genuinely isn't running.
-        if not getattr(self, "_tick_diag_logged", False):
-            self._tick_diag_logged = True
-            self.client.log(
-                "info",
-                f"[SubTilesPage] tick() firing — tile_grid has {len(self.tile_grid.tiles)} "
-                f"placed tile(s): {[t.KEY for t in self.tile_grid.tiles]}; "
-                f"panel has {len(self.tile_panel.rows)} unplaced tile(s): "
-                f"{list(self.tile_panel.rows.keys())}"
-            )
-
         self.tile_grid.tick()
 
     ##RESIZE
@@ -355,8 +329,6 @@ class SubTilesPage(SubPageFramework):
         w, h = self.width(), self.height()
         self.grid_bg.setGeometry(0, 0, w, h)
         self.tile_grid.setGeometry(0, 0, w, h)
-        self.widget_manager.setGeometry(0, 0, w, h)
-        self.widget_manager.update_geometry()
         self.drawer.apply_parent_width()
         self.panel_btn.move(w - 56, 16)
         if self.tile_panel.open:
