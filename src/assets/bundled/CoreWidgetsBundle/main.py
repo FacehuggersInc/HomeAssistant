@@ -5,11 +5,10 @@ from src.ui.controls.buttons import IconButton
 from .widgets.cycling_background import CyclingBackground
 from .widgets.datetime import DateTimeWidget
 from .widgets.weather import WeatherWidget
-from .widgets.wotd import WordOfTheDayWidget
+from .....suspended_assets.wotd import WordOfTheDayWidget
 from .widgets.notification import NotificationCenterWidget
 from .widgets.tiles.clock_tile import ClockTile
 from .pages.home import HomePage
-from .pages.sub.calendar import SubCalendarPage
 from .api.openmeteo import OpenMeteoAPI
 
 
@@ -97,10 +96,6 @@ class CoreWidgetsBundle(Plugin):
     @mixin("home.__init__", "corewidgetsbundle", "after")
     def _inject_home_sub_pages(self, home_page, *args):
         self.pages["home"] = home_page
-        self.client.public.cwb_sub_pages = [("calendar", SubCalendarPage)]
-        for key, page_class in self.client.public.cwb_sub_pages:
-            if home_page.has_feature("add_sub_page"):
-                home_page.features().add_sub_page(key, page_class)
 
     @mixin("settings.__init__", "corewidgetsbundle", "after")
     def _inject_settings_widgets(self, settings_page, *args):
@@ -153,7 +148,6 @@ class CoreWidgetsBundle(Plugin):
         widgets = [
             DateTimeWidget(self.client, show_date=True, show_time=True),
             WeatherWidget(self.client),
-            WordOfTheDayWidget(self.client),
             NotificationCenterWidget(self.client),
         ]
         self.client.public.cwb_widgets["sub.home"] = widgets
