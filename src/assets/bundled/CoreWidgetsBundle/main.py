@@ -5,7 +5,6 @@ from src.ui.controls.buttons import IconButton
 from .widgets.cycling_background import CyclingBackground
 from .widgets.datetime import DateTimeWidget
 from .widgets.weather import WeatherWidget
-from .....suspended_assets.wotd import WordOfTheDayWidget
 from .widgets.notification import NotificationCenterWidget
 from .widgets.tiles.clock_tile import ClockTile
 from .pages.home import HomePage
