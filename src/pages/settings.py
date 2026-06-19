@@ -147,43 +147,6 @@ def _adorn_label(text: str, muted: bool = True) -> QLabel:
     lbl.setFixedHeight(44)
     return lbl
 
-
-class _FieldWidget(QWidget):
-    """A styled input container: [prefix?] [QLineEdit] [suffix?]"""
-
-    def __init__(self, line_edit: QLineEdit,
-                 prefix: str = "", suffix: str = ""):
-        super().__init__()
-        self.setStyleSheet(_FIELD_WRAPPER)
-        self.setFixedHeight(44)
-        line_edit.focusInEvent  = lambda e: (self.setStyleSheet(_FIELD_WRAPPER_FOCUS), type(line_edit).focusInEvent(line_edit, e))
-        line_edit.focusOutEvent = lambda e: (self.setStyleSheet(_FIELD_WRAPPER),       type(line_edit).focusOutEvent(line_edit, e))
-
-        row = QHBoxLayout(self)
-        row.setContentsMargins(0, 0, 0, 0)
-        row.setSpacing(0)
-
-        if prefix:
-            row.addWidget(_adorn_label(prefix, muted=False))
-            sep = QFrame()
-            sep.setFrameShape(QFrame.Shape.VLine)
-            sep.setStyleSheet(f"color: {BORDER}; background: {BORDER};")
-            sep.setFixedWidth(1)
-            row.addWidget(sep)
-
-        line_edit.setStyleSheet(_FIELD_STYLE)
-        line_edit.setFixedHeight(44)
-        row.addWidget(line_edit, stretch=1)
-
-        if suffix:
-            sep2 = QFrame()
-            sep2.setFrameShape(QFrame.Shape.VLine)
-            sep2.setStyleSheet(f"color: {BORDER}; background: {BORDER};")
-            sep2.setFixedWidth(1)
-            row.addWidget(sep2)
-            row.addWidget(_adorn_label(suffix))
-
-
 class _Field(QWidget):
     """
     Input field. Draws its own background via paintEvent so parent
@@ -329,6 +292,7 @@ class _EnumComponent(QComboBox):
 class SettingBlock(QFrame):
     def __init__(self, client, setting=None, key="", content: QWidget = None):
         super().__init__()
+        self.client = client
         self.setStyleSheet(f"""
             QFrame {{
                 background: {BLOCK_BG};
@@ -380,10 +344,10 @@ class SettingBlock(QFrame):
             header.addWidget(toggle)
 
         elif t == "string":
-            outer.addWidget(_Field(setting, self.client, prefix=prefix, suffix=suffix))
+            outer.addWidget(_Field(setting, prefix=prefix, suffix=suffix))
 
         elif t == "path":
-            field = _Field(setting, self.client, is_path=True, prefix=prefix, suffix=suffix)
+            field = _Field(setting, prefix=prefix, suffix=suffix)
             browse = QPushButton("Browse")
             browse.setFixedSize(80, 44)
             browse.setFont(make_font(SIZES.S1))
@@ -417,7 +381,7 @@ class SettingBlock(QFrame):
             outer.addWidget(path_row)
 
         elif t in ("int", "float", "numeric"):
-            outer.addWidget(_Field(setting, self.client, is_numeric=True, prefix=prefix, suffix=suffix))
+            outer.addWidget(_Field(setting, is_numeric=True, prefix=prefix, suffix=suffix))
 
         elif t == "enum":
             outer.addWidget(_EnumComponent(setting))
@@ -676,18 +640,6 @@ class SettingsPage(PageFramework):
         self._content_scroll.setWidget(self._content_widget)
         bl.addWidget(self._content_scroll, stretch=1)
 
-        # ── Widget manager ────────────────────────────────────────────────────
-        self.widget_manager = WidgetFramework(
-            client, "#settings",
-            padding=client.SETTINGS.home.widget_margin.value
-        )
-        self.widget_manager.setParent(self)
-        self.widget_manager.setGeometry(0, 0, w, h)
-        #empty space falls through via WidgetFramework's own ignore()'d
-        #mouse events, not WA_TransparentForMouseEvents (which would also
-        #block child widget buttons from receiving clicks)
-        self.widget_manager.show()
-
         # ── Drawer ────────────────────────────────────────────────────────────
         self.drawer = Drawer(client, position="bottom")
         self.drawer.setParent(self)
@@ -698,10 +650,9 @@ class SettingsPage(PageFramework):
             IconButton(Icons.CLOSE,      client.stop),
         ])
 
-        # Raise order: grid < body < top_bar < widget_manager < drawer
+        # Raise order: grid < body < top_bar < drawer
         self._grid.lower()
         self.drawer.raise_()
-        self.widget_manager.raise_()
 
         # ── Timeout ───────────────────────────────────────────────────────────
         self._timeout_id = client.TIMEOUTS.add(
@@ -711,8 +662,6 @@ class SettingsPage(PageFramework):
 
         # ── Features ─────────────────────────────────────────────────────────
         self.add_features({
-            "add_widgets":            self.widget_manager.add,
-            "remove_widget":          self.widget_manager.remove,
             "add_drawer_controls":    self.drawer.insert_controls,
             "remove_drawer_controls": self.drawer.remove_controls,
             "new_category":           self.new_category,
@@ -739,10 +688,12 @@ class SettingsPage(PageFramework):
     def builder(self, pointer, data: dict, filter_key: str = "", path: str = "") -> list:
         group = []
         if not isinstance(data, dict):
+            self.client.log("warning", f"[SettingsPage.builder] data was not a Dictionary to be read (was {type(data)})")
             return group
         settings = data[filter_key] if filter_key else data
         for key, val in settings.items():
             if not isinstance(val, dict):
+                self.client.log("warning", f"[SettingsPage.builder] The value under '{key}' was not a Valid object to be built with. (was {type(val)}, meant to be dict)")
                 continue
             extended_path = f"{path}.{key}" if path else key
             if "type" in val and "value" in val:
@@ -750,9 +701,9 @@ class SettingsPage(PageFramework):
                     obj = pointer
                     for part in extended_path.split("."):
                         obj = obj[part]
-                    group.append(SettingBlock(self.client, obj, key))
-                except Exception:
-                    pass
+                    group.append(SettingBlock(client=self.client, setting=obj, key=key))
+                except Exception as e:
+                    self.client.log("error", f"[SettingsPage.builder] an error was thrown under '{extended_path}'/'{key}' when creating SettingBlock: {e}", include_traceback = True)
             else:
                 children = self.builder(pointer, settings, key, extended_path)
                 if children:
@@ -775,7 +726,8 @@ class SettingsPage(PageFramework):
 
     def _page_additions(self) -> None:
         groups = []
-        for plugin, key in self.client.plugin_manager.get_plugins():
+        plugins = self.client.plugin_manager.get_plugins()
+        for plugin, key in plugins:
             if not hasattr(plugin, "settings"):
                 continue
             blocks = self.builder(plugin.settings, plugin.settings.to_dict(), "", "")
@@ -873,6 +825,4 @@ class SettingsPage(PageFramework):
         self._grid.setGeometry(0, 0, w, h)
         self._top_bar.setGeometry(0, 0, w, BAR_H)
         self._body.setGeometry(0, BAR_H, w, h - BAR_H)
-        self.widget_manager.setGeometry(0, 0, w, h)
-        self.widget_manager.update_geometry()
         self.drawer.apply_parent_width()

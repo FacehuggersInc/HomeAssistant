@@ -155,17 +155,18 @@ class PluginManager():
 						with open(path, "r") as settings_file:
 							settings = json.load(settings_file)
 							setattr(plugin_instance, "settings", Settings( settings ))
-							print(f"{plugin_name} loaded : {config["settings"]["path"]}")
+							self.client.log("info", f"[PluginManager][{plugin_name}] Settings Were Loaded ({config["settings"]["path"]})")
 
 					setattr(plugin_instance, "config", Settings( config ))
 					setattr(plugin_instance, "client", self.client)
 					
-					#self.client.pluggy_manager.register(plugin_instance, name=config["plugin"]["key"])
 					key = config["plugin"]["key"]
 					self.plugins[ key ] = plugin_instance
 					self.registered[key] = plugin_path
 
 					self.client.log("info", f"[PluginManager] Loaded key:{key}, class:{plugin_name}, name:{config["plugin"]["name"]}")
+
+					return
 
 				except Exception as e:
 					self.client.log("error", f"[PluginManager] Failed to instantiate '{plugin_name}' : {e}")

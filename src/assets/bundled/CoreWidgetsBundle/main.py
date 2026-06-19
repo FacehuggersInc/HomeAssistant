@@ -99,16 +99,6 @@ class CoreWidgetsBundle(Plugin):
     @mixin("settings.__init__", "corewidgetsbundle", "after")
     def _inject_settings_widgets(self, settings_page, *args):
         self.pages["settings"] = settings_page
-        widgets = [
-            DateTimeWidget(
-                self.client,
-                show_date=False, show_time=True,
-                time_size=28, time_font="poppins-light",
-                anchor="top-right", width=150, height=60,
-            )
-        ]
-        self.client.public.cwb_widgets["settings"] = widgets
-        settings_page.features().add_widgets(widgets)
 
     @mixin("sub.tiles.__init__", "corewidgetsbundle", "after")
     def _inject_tiles_widgets(self, sub_tiles, *args):

@@ -2,7 +2,9 @@ from src import *
 
 class Plugin:
 	def __init__(self):
-		self.client : Client
+		self.client : Client #Client Access
+		self.settings: Settings #The Public settings for this plugin, gets thrown into the Settings page and is editable from Users
+		self.config : Settings #From the Toml file in the Plugin Folder. Your local and private settings
 
 	def load(self):
 		"""
