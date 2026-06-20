@@ -12,6 +12,9 @@ class Plugin:
 		"""
 		pass
 
+	def reload(self):
+		"""After your plugin is reloaded (after another load). You dont need to trigger the load function again."""
+
 	def built(self):
 		"""When the Application is fully built, this will be called"""
 		pass

@@ -200,7 +200,7 @@ class _Field(QWidget):
             if page and not hasattr(page, "_kb") or (hasattr(page, "_kb") and page._kb is None):
                 pass
             try:
-                overlay = _field.client.overlay_manager
+                overlay = _field.client.OVERLAYS
                 kb = make_keyboard(_field.client, le, _field._setting_type, overlay)
                 page._kb = kb
                 kb.show_keyboard()
@@ -726,7 +726,7 @@ class SettingsPage(PageFramework):
 
     def _page_additions(self) -> None:
         groups = []
-        plugins = self.client.plugin_manager.get_plugins()
+        plugins = self.client.PLUGIN.get_plugins()
         for plugin, key in plugins:
             if not hasattr(plugin, "settings"):
                 continue

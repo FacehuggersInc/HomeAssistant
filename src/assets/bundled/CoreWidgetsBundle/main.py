@@ -41,8 +41,8 @@ class CoreWidgetsBundle(Plugin):
         self.client.API["weather"] = OpenMeteoAPI(self, self.client)
 
         # Register pages owned by this plugin
-        self.client.add_page("#", "Home Page", HomePage)
-        self.client.DEFAULT_PAGE = "#"
+        self.client.add_page("#cwb_home_page", "Home Page", HomePage)
+        self.client.DEFAULT_PAGE = "#cwb_home_page"
 
         #Register API
         api_endpoint, registered_flag = self.client.API_REGISTRY.register(
@@ -55,6 +55,9 @@ class CoreWidgetsBundle(Plugin):
 
         self.client.log("info", "[CoreWidgetsBundle] Loaded.")
 
+    def reload(self):
+        pass
+
     def unload(self):
         current_page = self.client.PAGE
 
@@ -63,7 +66,7 @@ class CoreWidgetsBundle(Plugin):
                 widget.stop_tick()
                 current_page.features().remove_widget(widget.KEY)
 
-        elif current_page and current_page.name == "#":
+        elif current_page and current_page.name == "#cwb_home_page":
             sub_home  = self.pages.get("sub.home")
             sub_tiles = self.pages.get("sub.tiles")
 
@@ -86,6 +89,8 @@ class CoreWidgetsBundle(Plugin):
                     widget.stop_tick()
                     if sub_tiles.has_feature("remove_widget"):
                         sub_tiles.features().remove_widget(widget.KEY)
+        
+        del self.client.PAGES["#cwb_home_page"]
 
     ## CALLBACKS
     def api_endpoint_test(self, *args, **kwargs):

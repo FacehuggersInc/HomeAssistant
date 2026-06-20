@@ -350,10 +350,10 @@ def FlaskApp(client):
 		if err: return err
 
 		if plugin_key and endpoint:
-			if client.plugin_manager.plugins.has_plugin(plugin_key):
+			if client.PLUGIN.has_plugin(plugin_key):
 				match endpoint:
 					case "reload":
-						client.plugin_manager.reload_plugin(plugin_key)
+						client.PLUGIN.reload_plugin(plugin_key)
 						return {"request": "Success"}, 200
 					case _: #! NOT BUILT YET
 						try:
@@ -385,7 +385,6 @@ def FlaskApp(client):
 					client.log("error", f"[backend.registered_endpoint_routing] Endpoint Call Failed: {e}")
 					return {"request":"Failed", "reason":f"Public endpoint failed due to: {e}"}, 200
 					
-			
 			else:
 				log("warning", "Registry.None")
 				return {"request":"Failed", "reason":f"No Public endpoint under the name '{endpoint}'"}, 404

@@ -30,10 +30,9 @@ from src.enums import clear_events, get_global_events, TriggerAppEvent, Asset
 from src.timing import TimeoutScheduler
 from src.mixins import MixinManager, mixin_target
 from src.plugin.loader import PluginManager
-from src.apiregistry import APIRegistry
+from src.registries.api_registry import APIRegistry
+from src.registries.public_registry import PublicRegistry
 from src.backend import FlaskApp, FlaskService
-from src.api.spotify import SpotifyAPI
-from src.api.wordnik import WordnikAPI
 from src.assistant.skill import Skill, SkillIntentEngine
 from src.assistant.stt import STTProcessing
 from src.assistant.tts import TTSProcessing
@@ -60,44 +59,6 @@ def get_data_dir(app_name: str) -> Path:
         #XDG compliant - works on Arch, Mint, Ubuntu etc.
         base = Path(os.getenv("XDG_DATA_HOME") or Path.home() / ".local" / "share")
     return base / app_name.replace(" ", "")
-
-
-##PUBLIC REGISTRY
-
-class PublicRegistry:
-    """Central registry for plugin-exposed classes, variables and etc."""
-
-    def __init__(self):
-        self.exposed: dict[str, list[str]] = {}
-
-    def has(self, name: str) -> bool:
-        return hasattr(self, name)
-
-    def expose(self, plugin: str, name: str, value, overwrite: bool = False):
-        if hasattr(self, name) and not overwrite:
-            print(f"PublicRegistry.expose cannot expose {name}, it's already exposed")
-        self.exposed.setdefault(plugin, [])
-        if name not in self.exposed[plugin]:
-            self.exposed[plugin].append(name)
-        setattr(self, name, value)
-
-    def unexpose(self, plugin: str, name: str):
-        if plugin in self.exposed and name in self.exposed[plugin]:
-            delattr(self, name)
-            self.exposed[plugin].remove(name)
-
-    def clear(self, plugin: str):
-        if plugin not in self.exposed:
-            return
-        for key in self.exposed[plugin]:
-            if hasattr(self, key):
-                delattr(self, key)
-        del self.exposed[plugin]
-
-    def list(self, plugin: str = None) -> dict:
-        if plugin:
-            return {name: getattr(self, name) for name in self.exposed.get(plugin, [])}
-        return {p: [n for n in names] for p, names in self.exposed.items()}
 
 
 ##UI BRIDGE
@@ -269,14 +230,10 @@ class Client:
 
         ## -- APIS
         self.API_REGISTRY = APIRegistry(self)
-        self.API: dict = {
-            "wordnik": WordnikAPI(self),
-        }
+        self.API: dict = {} #This is for custom API Classes (NOT the API_REGISTRY which handles backend.py Flask REST API endpoints)
 
         ## -- OVERLAYS
-
-        self.overlay_manager      = OverlayManager(self)
-        self.OVERLAYS             = self.overlay_manager
+        self.OVERLAYS             = OverlayManager(self)
         self.DIALOG               = DialogManager(self)
         self.NOTIFICATION_MANAGER = NotificationManager(
             self,
@@ -286,9 +243,9 @@ class Client:
 
         ## -- PLUGINS
 
-        self.mixin_manager = MixinManager(self)
-        self.public        = PublicRegistry()
-        self.plugin_dirs   = [
+        self.MIXINS = MixinManager(self)
+        self.public = PublicRegistry()
+        self.plugin_dirs = [
             Asset(Path("src") / "assets" / "bundled"),
             Asset("plugins"),
         ]
@@ -305,9 +262,9 @@ class Client:
         self.add_page("#settings", "Settings Page", SettingsPage)
         self.add_page("#root",     "Root Page",     RootPage)
 
-        self.plugin_manager = PluginManager(self, self.plugin_dirs)
-        self.plugin_manager.load_plugins()
-        self.mixin_manager.apply_mixins_to(self)
+        self.PLUGIN = PluginManager(self, self.plugin_dirs)
+        self.PLUGIN.load_plugins()
+        self.MIXINS.apply_mixins_to(self)
 
         self.page_host = QWidget(self.window)
         self.page_host.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
@@ -477,7 +434,7 @@ class Client:
             )
             self.PAGE.hide()
 
-        self.PAGES[page]["object"] = self.mixin_manager.apply_mixins_to(
+        self.PAGES[page]["object"] = self.MIXINS.apply_mixins_to(
             self.PAGES[page]["object"]
         )
         self.PAGE = self.PAGES[page]["object"](self, data)
@@ -488,7 +445,7 @@ class Client:
         self.PAGE.setGeometry(0, 0, w, h)
         self.PAGE.show()
         self.PAGE.raise_()
-        self.overlay_manager.raise_()
+        self.OVERLAYS.raise_()
 
         if window_config:
             self.configure(**window_config)
@@ -538,12 +495,12 @@ class Client:
         self.page_host.setParent(self.window)
         self.page_host.show()
 
-        self.overlay_manager.setParent(self.window)
-        self.overlay_manager.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
-        self.overlay_manager.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
-        self.overlay_manager.setGeometry(0, 0, w, h)
-        self.overlay_manager.show()
-        self.overlay_manager.raise_()
+        self.OVERLAYS.setParent(self.window)
+        self.OVERLAYS.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        self.OVERLAYS.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        self.OVERLAYS.setGeometry(0, 0, w, h)
+        self.OVERLAYS.show()
+        self.OVERLAYS.raise_()
 
         self.internal_build_setup()
 
@@ -551,7 +508,7 @@ class Client:
         self.BUILT = True
 
         def sync_overlay():
-            self.overlay_manager.raise_()
+            self.OVERLAYS.raise_()
             self.NOTIFICATION_MANAGER.reset_initial_delay(1.0)
 
         QTimer.singleShot(300, sync_overlay)
@@ -607,8 +564,8 @@ class Client:
 
     def on_window_resized(self, new_w: int, new_h: int) -> None:
         self.page_host.setGeometry(0, 0, new_w, new_h)
-        self.overlay_manager.setGeometry(0, 0, new_w, new_h)
-        self.overlay_manager.update_geometry(new_w, new_h)
+        self.OVERLAYS.setGeometry(0, 0, new_w, new_h)
+        self.OVERLAYS.update_geometry(new_w, new_h)
         if self.PAGE:
             self.PAGE.setGeometry(0, 0, new_w, new_h)
 
@@ -673,7 +630,7 @@ class Client:
                     self.call_on_ui(
                         lambda: (
                             self.iterate_event_callables("initialized", None, True),
-                            self.plugin_manager.build_plugins(),
+                            self.PLUGIN.build_plugins(),
                         )
                     )
 
@@ -809,7 +766,7 @@ class Client:
     def stop(self, event=None) -> None:
         self.log("info", "Closing Client ...")
         self.iterate_event_callables("on_close", event)
-        self.plugin_manager.unload_plugins()
+        self.PLUGIN.unload_plugins()
         self.dump(self.SETTINGS.as_dict(), self.DATA)
         self.cleanup()
         self.window.hide()

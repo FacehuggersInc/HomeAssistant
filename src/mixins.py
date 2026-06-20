@@ -27,9 +27,6 @@ class MixinManager:
 		self.client = client
 		self._patched_targets = {}
 
-	# ---------------------------
-	# Applying / restoring
-	# ---------------------------
 	def _make_wrapper(self, attr, hooks, is_class_method=False):
 		"""Create a wrapper with before/after hooks attached"""
 
@@ -40,8 +37,8 @@ class MixinManager:
 
 			for f, plugin in hooks["before"]:
 				f(
-					self.client.plugin_manager.plugins[plugin],
-					obj or self.client.plugin_manager,  # fall back only if no obj
+					self.client.PLUGIN.plugins[plugin],
+					obj or self.client.PLUGIN,  # fall back only if no obj
 					*args,
 					**kwargs
 				)
@@ -50,8 +47,8 @@ class MixinManager:
 
 			for f, plugin in hooks["after"]:
 				f(
-					self.client.plugin_manager.plugins[plugin],
-					obj or self.client.plugin_manager,
+					self.client.PLUGIN.plugins[plugin],
+					obj or self.client.PLUGIN,
 					*args,
 					**kwargs
 				)
@@ -116,9 +113,6 @@ class MixinManager:
 
 		return False
 
-	# ---------------------------
-	# Unloading / cleanup
-	# ---------------------------
 	def mixin_count(self, plugin_key:str):
 		total = 0
 		for target, hooks in _registry.items():

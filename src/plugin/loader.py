@@ -144,6 +144,7 @@ class PluginManager():
 
 					#Load Config
 					config = self.load_toml(plugin_path, plugin_name)
+					config['path'] = plugin_path / "plugin.toml"
 					if not config: return
 
 					#Get / Load Settings Template 
@@ -193,12 +194,12 @@ class PluginManager():
 			path = plugin.config["settings"]["path"]
 			with open(path, "w") as jsonfile:
 				json.dump(plugin.settings.to_dict(), jsonfile, indent = 4)
-			print(f"{plugin_key} : saved settings")
+			self.client.log("info", f"[PluginManager] '{self.plugin_key}' Settings Saved.")
 
 		# etc. If not Quick Unloading; Remove Mixins, Remove from Plugin Registry | essentially this is for hot reloading, if quick is true, its because the app is shutting down
 		if not quick:
 			# Restore & rewrap all mixin targets
-			self.client.mixin_manager.remove_plugin_mixins( plugin_key )
+			self.client.MIXINS.remove_plugin_mixins( plugin_key )
 
 			# etc a. Auto Unload Registered API Endpoints
 			self.client.API_REGISTRY.unregister(plugin_key)
@@ -232,26 +233,17 @@ class PluginManager():
 			reloaded_plugin = self.plugins[plugin_key]
 			reloaded_plugin.load()
 
-			#Reloading to re-assign mixins
-			reload_page = None
-			if self.client.mixin_manager.plugin_has_mixins_on( plugin_key, self.client ):
-				self.client.restart()
-
-			elif self.client.mixin_manager.plugin_has_mixins_on( plugin_key, self.client.PAGE ):
-				reload_page = "#"
-			else:
-				if self.client.PAGE.name == "#":
-					for sub in self.client.PAGE.sub_pages:
-						if self.client.mixin_manager.plugin_has_mixins_on( plugin_key, sub ):
-							reload_page = "#"
-							break
-
-			if not reload_page == None:
-				self.client.goto(reload_page, override = True)
-				if self.client.BUILT and hasattr(reloaded_plugin, "built"):
-					reloaded_plugin.built()
+			reload_page = "#root"
+			if self.client.PAGE.name in self.client.PAGES:
+				reload_page = self.client.PAGE.name
+			
+			self.client.goto(reload_page, override = True)
+			if self.client.BUILT and hasattr(reloaded_plugin, "built"):
+				reloaded_plugin.built()
 			
 			time.sleep(1)
+
+			reloaded_plugin.reload()
 			
 			self.client.simple_notify(
 				"extension",
@@ -295,7 +287,7 @@ class PluginManager():
 			plugin.load()
 
 		for plugin, key in self.get_plugins():
-			self.client.mixin_manager.apply_mixins_to( plugin )
+			self.client.MIXINS.apply_mixins_to( plugin )
 
 	def build_plugins(self):
 		self.client.log("info", "[PluginManager] Building Plugins ...")

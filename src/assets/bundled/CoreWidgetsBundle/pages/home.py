@@ -30,10 +30,10 @@ class HomePage(PageFramework):
 
         # Create default sub-pages
         self._add_sub_page_internal(
-            "home",  client.mixin_manager.apply_mixins_to(SubHomePage)(client, self)
+            "home",  client.MIXINS.apply_mixins_to(SubHomePage)(client, self)
         )
         self._add_sub_page_internal(
-            "tiles", client.mixin_manager.apply_mixins_to(SubTilesPage)(client, self)
+            "tiles", client.MIXINS.apply_mixins_to(SubTilesPage)(client, self)
         )
 
         # Position sub-pages in virtual grid
@@ -68,7 +68,7 @@ class HomePage(PageFramework):
             return
         w = self.width()
         h = self.height()
-        page = self.client.mixin_manager.apply_mixins_to(page_class)(self.client, self)
+        page = self.client.MIXINS.apply_mixins_to(page_class)(self.client, self)
         page.setParent(self)
         page.setFixedSize(w, h)
         page.move(page.coord[0] * w, page.coord[1] * h)

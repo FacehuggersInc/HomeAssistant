@@ -76,7 +76,7 @@ class TileGrid(QWidget):
     def get_owning_plugin(self):
         """Look up the plugin instance that owns tile persistence, or None if unavailable."""
         try:
-            return self.client.plugin_manager.plugins.get(self.owning_plugin_key)
+            return self.client.PLUGIN.plugins.get(self.owning_plugin_key)
         except Exception:
             return None
 
