@@ -27,8 +27,7 @@ BLOCK_BG_HV = "rgba(255,255,255,18)"
 BORDER      = COLORS.DARK.BORDER.NORMAL
 BORDER_FOCUS= COLORS.PRIMARY.LIGHT
 
-
-# ── Helpers ───────────────────────────────────────────────────────────────────
+## HELPERS
 
 def format_name(name: str) -> str:
     for sep in ("_", "-"):
@@ -37,9 +36,8 @@ def format_name(name: str) -> str:
     return " ".join(f"{w[0].upper()}{w[1:]}" for w in name.split(" "))
 
 
-# ── Dot-grid background ───────────────────────────────────────────────────────
 
-class _GridBackground(QWidget):
+class GridBackground(QWidget):
     GRID_SPACING = 32
     DOT_RADIUS   = 1
 
@@ -57,10 +55,9 @@ class _GridBackground(QWidget):
             for y in range(s, self.height(), s):
                 p.drawEllipse(x - r, y - r, r * 2, r * 2)
 
+## CONTROLS
 
-# ── Toggle switch ─────────────────────────────────────────────────────────────
-
-class _ToggleSwitch(QWidget):
+class ToggleSwitch(QWidget):
     W, H = 72, 36
 
     def __init__(self, checked: bool = False, parent=None):
@@ -107,47 +104,7 @@ class _ToggleSwitch(QWidget):
         p.drawEllipse(int(self._thumb_x), 4, thumb_size, thumb_size)
 
 
-# ── Unified field widget ──────────────────────────────────────────────────────
-# All input types (string, numeric, path) use one visual style.
-# Prefix/suffix sit inside the border as non-editable greyed labels.
-
-_FIELD_STYLE = f"""
-    QLineEdit {{
-        background: transparent;
-        color: {COLORS.DARK.TEXT.IMPORTANT};
-        border: none;
-        padding: 0 4px;
-        font-size: {SIZES.S3}px;
-    }}
-"""
-
-def _field_wrapper(focused: bool = False) -> str:
-    border = COLORS.PRIMARY.LIGHT if focused else COLORS.DARK.BORDER.NORMAL
-    return f"""
-        QWidget {{
-            background: {COLORS.DARK.BGLIGHT};
-            border: 1px solid {border};
-            border-radius: 6px;
-        }}
-    """
-
-_FIELD_WRAPPER       = _field_wrapper(False)
-_FIELD_WRAPPER_FOCUS = _field_wrapper(True)
-
-def _adorn_label(text: str, muted: bool = True) -> QLabel:
-    lbl = QLabel(text)
-    lbl.setFont(make_font(SIZES.S2))
-    color = COLORS.DARK.TEXT.MUTED if muted else COLORS.DARK.TEXT.IMPORTANT
-    # Slightly tinted bg to distinguish from editable area
-    lbl.setStyleSheet(
-        f"color: {color};"
-        f"background: rgba(255,255,255,6);"
-        f"padding: 0 10px;"
-    )
-    lbl.setFixedHeight(44)
-    return lbl
-
-class _Field(QWidget):
+class Field(QWidget):
     """
     Input field. Draws its own background via paintEvent so parent
     stylesheet cascades cannot override it.
@@ -253,7 +210,7 @@ class _Field(QWidget):
         p.drawRoundedRect(self.rect().adjusted(0, 0, -1, -1), self._radius, self._radius)
 
 
-class _EnumComponent(QComboBox):
+class EnumComponent(QComboBox):
     def __init__(self, setting):
         super().__init__()
         self._setting = setting
@@ -285,9 +242,6 @@ class _EnumComponent(QComboBox):
         self.currentIndexChanged.connect(
             lambda: self._setting.__setitem__("value", self.currentData())
         )
-
-
-# ── Setting block ─────────────────────────────────────────────────────────────
 
 class SettingBlock(QFrame):
     def __init__(self, client, setting=None, key="", content: QWidget = None):
@@ -339,15 +293,15 @@ class SettingBlock(QFrame):
         suffix = setting.get("suffix", "") or ""
 
         if t == "bool":
-            toggle = _ToggleSwitch(bool(setting["value"]))
+            toggle = ToggleSwitch(bool(setting["value"]))
             toggle.connect(lambda val: setting.__setitem__("value", val))
             header.addWidget(toggle)
 
         elif t == "string":
-            outer.addWidget(_Field(setting, prefix=prefix, suffix=suffix))
+            outer.addWidget(Field(setting, prefix=prefix, suffix=suffix))
 
         elif t == "path":
-            field = _Field(setting, prefix=prefix, suffix=suffix)
+            field = Field(setting, prefix=prefix, suffix=suffix)
             browse = QPushButton("Browse")
             browse.setFixedSize(80, 44)
             browse.setFont(make_font(SIZES.S1))
@@ -381,10 +335,10 @@ class SettingBlock(QFrame):
             outer.addWidget(path_row)
 
         elif t in ("int", "float", "numeric"):
-            outer.addWidget(_Field(setting, is_numeric=True, prefix=prefix, suffix=suffix))
+            outer.addWidget(Field(setting, is_numeric=True, prefix=prefix, suffix=suffix))
 
         elif t == "enum":
-            outer.addWidget(_EnumComponent(setting))
+            outer.addWidget(EnumComponent(setting))
 
         elif t == "list":
             # is_numeric from raw type or from value content
@@ -393,13 +347,12 @@ class SettingBlock(QFrame):
                 pfx = prefix[i] if isinstance(prefix, list) and i < len(prefix) else (prefix or "")
                 sfx = suffix[i] if isinstance(suffix, list) and i < len(suffix) else (suffix or "")
                 is_num = list_numeric or not isinstance(val, str)
-                outer.addWidget(_Field(setting, index=i, is_numeric=is_num,
+                outer.addWidget(Field(setting, index=i, is_numeric=is_num,
                                        prefix=str(pfx), suffix=str(sfx)))
 
 
-# ── Plugin group ──────────────────────────────────────────────────────────────
 
-class _PluginGroup(QFrame):
+class PluginGroup(QFrame):
     def __init__(self, plugin, key: str, blocks: list):
         super().__init__()
         self.setStyleSheet(f"""
@@ -557,7 +510,7 @@ class SettingsPage(PageFramework):
         self.categories: dict[str, list] = {}
 
         # Dot grid background
-        self._grid = _GridBackground(self)
+        self._grid = GridBackground(self)
         self._grid.setGeometry(0, 0, w, h)
 
         NAV_W   = 280
@@ -731,7 +684,7 @@ class SettingsPage(PageFramework):
             if not hasattr(plugin, "settings"):
                 continue
             blocks = self.builder(plugin.settings, plugin.settings.to_dict(), "", "")
-            groups.append(_PluginGroup(plugin, key, blocks))
+            groups.append(PluginGroup(plugin, key, blocks))
         self.new_category("plugins", groups)
 
     @mixin_target("settings.setup.tab.generation")

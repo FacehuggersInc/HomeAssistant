@@ -1,6 +1,7 @@
 from PyQt6.QtGui import QColor, QFont, QLinearGradient, QGradient
 from PyQt6.QtCore import Qt
 
+from src import *
 from src.settings import Settings
 
 # ── Colour helpers ──────────────────────────────────────────────────────────
@@ -143,3 +144,113 @@ def add_text_shadow(widget, blur: int = 4, offset_x: int = 1,
     effect.setOffset(offset_x, offset_y)
     effect.setColor(QColor(color))
     widget.setGraphicsEffect(effect)
+
+## CSS LOADING & SETTING
+
+DATA_PATH = "src"
+STYLES_PATH = "static"
+
+def load_styles():
+    styles = Path(os.path.join(os.getcwd(), DATA_PATH)) / STYLES_PATH
+    if not styles.exists(): styles.mkdir(exist_ok=True)
+    for file in styles.iterdir():
+        STYLES[file.stem] = get_styles_from_file(file.stem)
+    with open(".styles", "w") as file:
+        json.dump(STYLES, file, indent = 2)
+
+def get_style_sheet(css_file_name:str) -> str:
+    styles = Path(os.path.join(os.getcwd(), DATA_PATH)) / STYLES_PATH
+    if not styles.exists(): styles.mkdir(exist_ok=True)
+    stylesheet = styles / f"{css_file_name.strip()}.css"
+    if os.path.exists(stylesheet):
+        with open(stylesheet, "r") as file:
+            return file.read()
+    
+    return ""
+
+def get_styles_from_file(css_file_name:str) -> dict:
+    styles = Path(os.path.join(os.getcwd(), DATA_PATH)) / STYLES_PATH
+    if not styles.exists(): styles.mkdir(exist_ok=True)
+    stylesheet = styles / f"{css_file_name.strip()}.css"
+    found_styles : dict = {}
+
+    if os.path.exists(stylesheet):
+        with open(stylesheet, "r") as file:
+            found_style = False
+            key = ""
+            for line in file.readlines():
+                clean = line.strip()
+
+                #Finalize Block
+                if found_style:
+                    if "}" in clean:
+                        found_style = False
+                        key = ""
+                    else:
+                        prop, value = clean.split(":", 1)
+                        found_styles[key][prop.strip()] = value.strip().replace(";", "")
+
+                #Build Key
+                if not found_style and clean.endswith(","):
+                    key += clean
+
+                #Start Capturing
+                if "{" in clean:
+                    key += clean.split("{")[0].strip()
+                    found_styles[key] = {}
+                    found_style = True
+    
+    return found_styles
+
+def get_style(id: str, clazz: str, object_tag: str = None, override: dict = None) -> str:
+    styles: dict = STYLES.get(id)
+    if not styles:
+        return ""
+
+    found_styles = []
+    for key in styles:
+        if clazz in key or (object_tag and object_tag in key):
+            found_styles.append((key, styles[key]))
+
+    style_str = ""
+
+    if found_styles:
+        for key, style in found_styles:
+            pseudo = ""
+            if ":" in key:
+                pseudo = f":{key.split(':')[-1].strip()}"
+
+            # determine target selector
+            if key.strip()[0] in [".", "#"]:
+                target = f"{object_tag}{pseudo}"
+            else:
+                target = object_tag
+
+            final_style = dict(style)
+
+            if override:
+                # "*" applies ONLY to base selector (no pseudo)
+                if "*" in override and pseudo == "":
+                    final_style.update(override["*"])
+
+                # apply pseudo overrides like ":hover"
+                for state, values in override.items():
+                    if state != "*" and state in key:
+                        final_style.update(values)
+
+            style_str += f"{target.strip()} {{\n"
+            for prop, value in final_style.items():
+                style_str += f"    {prop}: {value};\n"
+            style_str += "}\n"
+
+    return style_str
+
+def set_style(style_able:object, id:str, clazz:str, object_tag:str = None, override:dict = None):
+    try:
+        tag = style_able.__class__.__name__ if not object_tag else object_tag
+        style = get_style(id, clazz, tag, override)
+        if tag == ".button-primary":
+            print(style)
+        style_able.setStyleSheet( style )
+    except Exception as e:
+        print(f"Failed to set style on '{style_able.__class__.__name__}' with {id}:{clazz} ? {e}")
