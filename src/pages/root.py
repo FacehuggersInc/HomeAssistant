@@ -146,6 +146,11 @@ class RootPage(PageFramework):
 
         self.drawer.raise_()
 
+    def stop(self) -> None:
+        """Called by Client.goto() when navigating away — see Drawer.stop()."""
+        super().stop()
+        self.drawer.stop()
+
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
         w, h = self.width(), self.height()

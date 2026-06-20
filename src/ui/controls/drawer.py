@@ -152,6 +152,22 @@ class Drawer(QWidget):
         self.is_open = False
         self._animate_to(self._hidden_y())
 
+    def stop(self) -> None:
+        """
+        Cancel this drawer's auto-close timeout.
+
+        MUST be called from the owning page's own stop() before that
+        page is torn down. Without this, the auto-close timeout (added
+        in __init__ via client.TIMEOUTS.add) keeps a reference to
+        self._close bound to THIS Drawer instance — if the page (and
+        this drawer) gets destroyed before the 15-second timeout fires,
+        the scheduler still calls the now-dead bound method later via
+        call_on_ui, raising "RuntimeError: wrapped C/C++ object of type
+        Drawer has been deleted" the moment it tries to touch self in
+        any way (e.g. self.parent() in _hidden_y()).
+        """
+        self.client.TIMEOUTS.cancel(self._timeout_id)
+
     def _animate_to(self, y: int) -> None:
         self._anim.stop()
         self._anim.setStartValue(self.pos())

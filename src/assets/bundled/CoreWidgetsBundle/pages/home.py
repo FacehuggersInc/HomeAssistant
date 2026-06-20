@@ -163,3 +163,13 @@ class HomePage(PageFramework):
 
     def stop(self) -> None:
         super().stop()
+        # Cascade to every sub-page so things like a sub-page's own
+        # Drawer get their cleanup run (cancelling auto-close timeouts
+        # etc.) — without this, a sub-page's stop() was never called at
+        # all when HomePage itself got torn down (navigating away, or a
+        # plugin reload), leaving things like Drawer's auto-close timer
+        # pointed at a soon-to-be-deleted widget. See Drawer.stop() for
+        # the specific symptom that caused.
+        for page in self.sub_page_dict.values():
+            if hasattr(page, "stop"):
+                page.stop()

@@ -315,6 +315,10 @@ class SubTilesPage(SubPageFramework):
         self.drawer.tick()
         self.tile_grid.tick()
 
+    def stop(self) -> None:
+        """Called by HomePage.stop() when navigating away — see Drawer.stop()."""
+        self.drawer.stop()
+
     ##RESIZE
 
     def resizeEvent(self, event) -> None:

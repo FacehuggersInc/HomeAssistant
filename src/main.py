@@ -243,6 +243,12 @@ class Client:
 
         ## -- OVERLAYS
         self.OVERLAYS             = OverlayManager(self)
+        # Tracks the single currently-open KeyboardPopup, if any. Used
+        # by make_keyboard()/Field._focus_in (see settings.py) to close
+        # any previous keyboard before opening a new one — without this,
+        # clicking from one settings field into another opened a SECOND
+        # keyboard on top of the first instead of replacing it.
+        self.ACTIVE_KEYBOARD = None
         self.DIALOG               = DialogManager(self)
         self.NOTIFICATION_MANAGER = NotificationManager(
             self,

@@ -7,7 +7,7 @@ from PyQt6.QtWidgets import (
     QWidget, QHBoxLayout, QVBoxLayout, QLabel, QPushButton,
     QScrollArea, QLineEdit, QComboBox, QFrame, QSizePolicy, QFileDialog,
 )
-from PyQt6.QtCore import Qt, QPropertyAnimation, QEasingCurve, pyqtProperty
+from PyQt6.QtCore import Qt, QPropertyAnimation, QEasingCurve, pyqtProperty, QPoint
 from PyQt6.QtGui import QPainter, QColor, QBrush, QPen
 
 from src.mixins import mixin_target
@@ -39,6 +39,89 @@ def format_name(name: str) -> str:
         if sep in name:
             return " ".join(w.capitalize() for w in name.split(sep))
     return " ".join(f"{w[0].upper()}{w[1:]}" for w in name.split(" "))
+
+
+class DragScrollArea(QScrollArea):
+    """
+    QScrollArea with manual drag-to-scroll, for touchscreens.
+
+    QScrollArea only responds to mouse wheel / scrollbar dragging by
+    default — no touch-drag support at all, which is the actual cause
+    of "can't touch-scroll the settings page" on a touchscreen device.
+
+    QScroller (Qt's built-in fix for this) was tried and rejected here:
+    QScroller.ScrollerGestureType.LeftMouseButtonGesture installs an
+    APPLICATION-WIDE event filter that intercepts every left mouse
+    press/move/release first, to decide whether it's a scroll-drag,
+    before letting it through to whatever's actually under the cursor
+    — this broke clicking on the on-screen keyboard popup, which lives
+    in a completely different parent (client.OVERLAYS) but still had
+    its clicks intercepted by that global filter.
+    QScroller.ScrollerGestureType.TouchGesture avoids the global mouse
+    filter, but only engages for genuine QTouchEvents — if the target
+    hardware reports touch input as synthesized mouse events (common on
+    embedded panels without a real touch driver, which this hardware
+    appears to be), TouchGesture has nothing to grab and never scrolls
+    at all.
+
+    This class sidesteps both problems: it's just an ordinary
+    mousePressEvent/mouseMoveEvent/mouseReleaseEvent override on ITSELF
+    (well, its viewport), entirely local to this one widget. No global
+    filter, no gesture recognizer — it can never intercept or delay a
+    click meant for some other widget anywhere else in the app.
+    """
+
+    DRAG_THRESHOLD = 6   # pixels of movement before a press counts as a drag, not a click
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.viewport().installEventFilter(self)
+        self._drag_active   = False
+        self._drag_start_y  = 0
+        self._scroll_start  = 0
+
+    def eventFilter(self, watched, event):
+        # Installed on the viewport specifically (not via a global
+        # filter) — this ONLY ever sees events already destined for
+        # this scroll area's own viewport, never anything from another
+        # widget elsewhere in the app.
+        if watched is self.viewport():
+            etype = event.type()
+            if etype == event.Type.MouseButtonPress:
+                return self._on_press(event)
+            elif etype == event.Type.MouseMove:
+                return self._on_move(event)
+            elif etype == event.Type.MouseButtonRelease:
+                return self._on_release(event)
+        return super().eventFilter(watched, event)
+
+    def _on_press(self, event) -> bool:
+        if event.button() != Qt.MouseButton.LeftButton:
+            return False
+        self._drag_active  = False   # not yet a drag — just a candidate press
+        self._drag_start_y = event.globalPosition().toPoint().y()
+        self._scroll_start = self.verticalScrollBar().value()
+        return False   # let the press still reach whatever's under it (e.g. a button)
+
+    def _on_move(self, event) -> bool:
+        if not (event.buttons() & Qt.MouseButton.LeftButton):
+            return False
+        dy = event.globalPosition().toPoint().y() - self._drag_start_y
+        if not self._drag_active and abs(dy) >= self.DRAG_THRESHOLD:
+            self._drag_active = True
+        if self._drag_active:
+            self.verticalScrollBar().setValue(self._scroll_start - dy)
+            return True   # consume — this is now a scroll drag, not a click-drag
+        return False
+
+    def _on_release(self, event) -> bool:
+        was_dragging = self._drag_active
+        self._drag_active = False
+        # If we actually dragged, swallow the release so it doesn't
+        # ALSO register as a click on whatever's underneath (e.g. a
+        # Field gaining focus and popping the keyboard open just from
+        # scrolling past it).
+        return was_dragging
 
 
 
@@ -115,12 +198,20 @@ class Field(QWidget):
     stylesheet cascades cannot override it.
     """
 
-    def __init__(self, setting, index=None, is_numeric=False, prefix="", suffix=""):
+    def __init__(self, client, setting, index=None, is_numeric=False, prefix="", suffix="", label=""):
         super().__init__()
         self.setFixedHeight(44)
         self._bg     = QColor(FIELD_BG)
         self._border = QColor(FIELD_BORDER)
         self._radius = 6
+        self.client  = client
+        self._label  = label   # display name shown on the keyboard popup when this field is focused
+        # make_keyboard() uses this to decide numpad vs full keyboard —
+        # it was never being set at all before, which meant opening the
+        # keyboard threw AttributeError every single time (silently
+        # swallowed by a bare except below, at the call site in
+        # _focus_in further down this file).
+        self._setting_type = "numeric" if is_numeric else "string"
 
         val = setting["value"] if index is None else setting["value"][index]
 
@@ -140,7 +231,6 @@ class Field(QWidget):
             row.addWidget(pl)
             row.addWidget(sep)
 
-        self.client = setting.client if hasattr(setting, 'client') else None
         le = QLineEdit(str(val))
         le.setFont(make_font(SIZES.S3))
         le.setFixedHeight(44)
@@ -151,17 +241,33 @@ class Field(QWidget):
             _field._border = QColor(FIELD_BORDER_FOCUS)
             _field.update()
             QLineEdit.focusInEvent(le, e)
-            # Open keyboard popup
-            page = _field.window()
-            if page and not hasattr(page, "_kb") or (hasattr(page, "_kb") and page._kb is None):
-                pass
+            # Open keyboard popup. _field.client used to always be None
+            # here (Field guessed it via hasattr(setting, 'client'),
+            # but the setting object never had one) — every exception
+            # this triggered downstream was then silently swallowed by
+            # a bare "except Exception: pass" below, which is why
+            # nothing ever visibly happened. client is now passed into
+            # Field properly, and exceptions are no longer hidden.
             try:
                 overlay = _field.client.OVERLAYS
-                kb = make_keyboard(_field.client, le, _field._setting_type, overlay)
-                page._kb = kb
+
+                # Close whatever keyboard (if any) is already open
+                # before opening a new one. Without this, focusing a
+                # different field while a keyboard was already showing
+                # opened a SECOND keyboard on top of the first instead
+                # of replacing it — each Field's focus handler is its
+                # own private closure with no shared state, so this has
+                # to be tracked somewhere global. client.ACTIVE_KEYBOARD
+                # is that single shared slot.
+                previous_kb = _field.client.ACTIVE_KEYBOARD
+                if previous_kb is not None:
+                    previous_kb.close_keyboard()
+
+                kb = make_keyboard(_field.client, le, _field._setting_type, overlay, label=_field._label)
+                _field.client.ACTIVE_KEYBOARD = kb
                 kb.show_keyboard()
-            except Exception:
-                pass
+            except Exception as exc:
+                _field.client.log("error", f"[Settings] Failed to open keyboard popup: {exc}", include_traceback=True)
 
         def _focus_out(e):
             _field._border = QColor(FIELD_BORDER)
@@ -242,7 +348,8 @@ class SettingBlock(QFrame):
         header.setSpacing(12)
         header.setContentsMargins(0, 0, 0, 0)
 
-        name_lbl = QLabel(setting.get("name") or format_name(key))
+        display_name = setting.get("name") or format_name(key)
+        name_lbl = QLabel(display_name)
         name_lbl.setFont(make_font(SIZES.S2, bold=True))
         set_style(name_lbl, "common", "text-strong")
         header.addWidget(name_lbl)
@@ -271,10 +378,10 @@ class SettingBlock(QFrame):
             header.addWidget(toggle)
 
         elif t == "string":
-            outer.addWidget(Field(setting, prefix=prefix, suffix=suffix))
+            outer.addWidget(Field(self.client, setting, prefix=prefix, suffix=suffix, label=display_name))
 
         elif t == "path":
-            field = Field(setting, prefix=prefix, suffix=suffix)
+            field = Field(self.client, setting, prefix=prefix, suffix=suffix, label=display_name)
             browse = QPushButton("Browse")
             browse.setFixedSize(80, 44)
             browse.setFont(make_font(SIZES.S1))
@@ -302,7 +409,7 @@ class SettingBlock(QFrame):
             outer.addWidget(path_row)
 
         elif t in ("int", "float", "numeric"):
-            outer.addWidget(Field(setting, is_numeric=True, prefix=prefix, suffix=suffix))
+            outer.addWidget(Field(self.client, setting, is_numeric=True, prefix=prefix, suffix=suffix, label=display_name))
 
         elif t == "enum":
             outer.addWidget(EnumComponent(setting))
@@ -314,8 +421,8 @@ class SettingBlock(QFrame):
                 pfx = prefix[i] if isinstance(prefix, list) and i < len(prefix) else (prefix or "")
                 sfx = suffix[i] if isinstance(suffix, list) and i < len(suffix) else (suffix or "")
                 is_num = list_numeric or not isinstance(val, str)
-                outer.addWidget(Field(setting, index=i, is_numeric=is_num,
-                                       prefix=str(pfx), suffix=str(sfx)))
+                outer.addWidget(Field(self.client, setting, index=i, is_numeric=is_num,
+                                       prefix=str(pfx), suffix=str(sfx), label=display_name))
 
 
 
@@ -508,7 +615,7 @@ class SettingsPage(PageFramework):
         bl.addWidget(nav_panel)
 
         # Content scroll
-        self._content_scroll = QScrollArea()
+        self._content_scroll = DragScrollArea()
         self._content_scroll.setWidgetResizable(True)
         self._content_scroll.setStyleSheet(get_style_sheet("settings_scroll"))
         self._content_scroll.setHorizontalScrollBarPolicy(
@@ -691,6 +798,7 @@ class SettingsPage(PageFramework):
     def stop(self) -> None:
         super().stop()
         self.client.TIMEOUTS.cancel(self._timeout_id)
+        self.drawer.stop()
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)

@@ -79,3 +79,7 @@ class SubHomePage(SubPageFramework):
     def tick(self) -> None:
         self.widget_manager.tick_widgets()
         self.drawer.tick()
+
+    def stop(self) -> None:
+        """Called by HomePage.stop() when navigating away — see Drawer.stop()."""
+        self.drawer.stop()
