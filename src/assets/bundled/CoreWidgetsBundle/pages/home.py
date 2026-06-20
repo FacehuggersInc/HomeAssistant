@@ -18,7 +18,17 @@ class HomePage(PageFramework):
 
     @mixin_target("home.__init__")
     def __init__(self, client: "Client", data=None):
-        super().__init__(key="#", client=client, data=data)
+        # NOTE: this MUST match the key this page is registered under in
+        # CoreWidgetsBundle.load() — currently "#cwb_home_page". It used
+        # to be registered as plain "#" before pages were moved onto
+        # PageRegistry with proper plugin ownership, and this hardcoded
+        # value was never updated to match. The mismatch meant
+        # self.name (and therefore self.client.PAGE.name everywhere
+        # else in the app) never actually equalled "#cwb_home_page",
+        # silently breaking anything that checked for it — including a
+        # plugin's own unload() trying to detect "am I currently the
+        # page being shown".
+        super().__init__(key="#cwb_home_page", client=client, data=data)
 
         w = int(client.SETTINGS.application.window.size.value[0])
         h = int(client.SETTINGS.application.window.size.value[1])

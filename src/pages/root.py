@@ -42,13 +42,45 @@ class _GridBackground(QWidget):
 
 class RootPage(PageFramework):
     """
-    Shown when no plugin has registered a default page.
-    Displays a subtle grid background and a helpful message in the centre.
-    Still provides a drawer with Settings, Fullscreen, and Close.
+    Shown when no plugin has registered a default page, or as an
+    in-between screen while a plugin is mid-reload.
+
+    Displays a subtle grid background and a message in the centre. The
+    message is configurable via the `data` dict passed to
+    client.goto("#root", data={...}) — this is what lets a plugin (or
+    PluginManager during a hot reload) show something contextual like
+    "CoreWidgetsBundle is reloading..." instead of the generic
+    "no home page installed" message, so there's a visible difference
+    between "nothing is registered at all" and "something is
+    temporarily unavailable mid-reload".
+
+    data keys (all optional):
+        title     : str  — headline text. Default: "No home page installed"
+        body      : str  — supporting text, \\n for line breaks.
+        hint      : str  — monospace path/hint line shown below the body.
+        show_hint : bool — set False to hide the hint line entirely.
+                    Default: True (only matters if hint is also set or
+                    defaulted)
+
+    Still provides a drawer with Settings, Fullscreen, and Close
+    regardless of what message is showing.
     """
+
+    DEFAULT_TITLE = "No home page installed"
+    DEFAULT_BODY  = (
+        "Install a plugin that registers a page, or add\n"
+        "CoreWidgetsBundle for the default home experience."
+    )
+    DEFAULT_HINT  = "src/assets/bundled/CoreWidgetsBundle"
 
     def __init__(self, client: "Client", data=None):
         super().__init__(key="#", client=client, data=data)
+
+        data = data or {}
+        title_text = data.get("title", self.DEFAULT_TITLE)
+        body_text  = data.get("body",  self.DEFAULT_BODY)
+        hint_text  = data.get("hint",  self.DEFAULT_HINT)
+        show_hint  = data.get("show_hint", True)
 
         w = int(client.SETTINGS.application.window.size.value[0])
         h = int(client.SETTINGS.application.window.size.value[1])
@@ -69,31 +101,30 @@ class RootPage(PageFramework):
         layout.setSpacing(16)
         layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        title = QLabel("No home page installed")
+        title = QLabel(title_text)
         title.setFont(make_font(28, bold=True))
         set_style(title, "common", "text-strong")
         title.setAlignment(Qt.AlignmentFlag.AlignHCenter)
+        title.setWordWrap(True)
         add_text_shadow(title, blur=8)
 
-        body = QLabel(
-            "Install a plugin that registers a page, or add\n"
-            "CoreWidgetsBundle for the default home experience."
-        )
+        body = QLabel(body_text)
         body.setFont(make_font(16, bold=False))
         set_style(body, "common", "text-muted")
         body.setAlignment(Qt.AlignmentFlag.AlignHCenter)
         body.setWordWrap(True)
         add_text_shadow(body, blur=6)
 
-        hint = QLabel("src/assets/bundled/CoreWidgetsBundle")
-        hint.setFont(make_font(13, bold=False, family="monospace"))
-        set_style(hint, "root", "root-hint")
-        hint.setAlignment(Qt.AlignmentFlag.AlignHCenter)
-
         layout.addWidget(title)
         layout.addWidget(body)
-        layout.addSpacing(8)
-        layout.addWidget(hint)
+
+        if show_hint and hint_text:
+            hint = QLabel(hint_text)
+            hint.setFont(make_font(13, bold=False, family="monospace"))
+            set_style(hint, "root", "root-hint")
+            hint.setAlignment(Qt.AlignmentFlag.AlignHCenter)
+            layout.addSpacing(8)
+            layout.addWidget(hint)
 
         # Centre the message widget
         centre.adjustSize()

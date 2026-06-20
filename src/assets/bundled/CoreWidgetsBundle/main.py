@@ -1,6 +1,6 @@
 from src.mixins import mixin
 from src.plugin.template import Plugin
-from src.ui.controls.buttons import IconButton
+from src.plugin.carryover import PluginCarryover
 
 from .widgets.cycling_background import CyclingBackground
 from .widgets.datetime import DateTimeWidget
@@ -34,14 +34,14 @@ class CoreWidgetsBundle(Plugin):
 
     ## CORE
 
-    def load(self):
+    def load(self, carryover: PluginCarryover = None):
         self.client.public.expose("corewidgetsbundle", "cwb_widgets",   self.widgets)
         self.client.public.expose("corewidgetsbundle", "cwb_drawer",    self.drawer_btns)
         self.client.public.expose("corewidgetsbundle", "cwb_sub_pages", self.sub_pages)
         self.client.API["weather"] = OpenMeteoAPI(self, self.client)
 
         # Register pages owned by this plugin
-        self.client.add_page("#cwb_home_page", "Home Page", HomePage)
+        self.client.add_page("#cwb_home_page", "Home Page", HomePage, owner="corewidgetsbundle")
         self.client.DEFAULT_PAGE = "#cwb_home_page"
 
         #Register API
@@ -55,11 +55,35 @@ class CoreWidgetsBundle(Plugin):
 
         self.client.log("info", "[CoreWidgetsBundle] Loaded.")
 
-    def reload(self):
-        pass
+    def reload(self, carryover: PluginCarryover = None):
+        # override=True is required here. reload_plugin() already calls
+        # client.goto(reload_page, override=True) using the page we were
+        # on BEFORE unload — by the time this runs, self.client.PAGE.name
+        # is very likely already "#cwb_home_page", which means a plain
+        # goto("#cwb_home_page") (no override) hits goto()'s own early
+        # return guard ("if self.PAGE and self.PAGE.name == page and not
+        # override: return") and silently does nothing. That's not
+        # actually a problem by itself — but it WAS masking the real bug
+        # below, since this call looked like it should matter and didn't.
+        if carryover and carryover.has("was_on_plugin_page"):
+            self.client.goto("#cwb_home_page", override=True)
 
-    def unload(self):
+    def unload(self, carryover: PluginCarryover = None):
         current_page = self.client.PAGE
+
+        # current_page can legitimately be None (e.g. reload triggered
+        # while no page is showing) — accessing .name on it directly
+        # without checking for None first raises AttributeError. Because
+        # PluginManager.unload_plugin() wraps this whole call in a
+        # try/except that only LOGS the error rather than re-raising it,
+        # that crash was silent: carryover.set(...) below never ran,
+        # carryover.has("was_on_plugin_page") was always False on the
+        # next load/reload, and the "go back to where I was" behaviour
+        # never fired — with no visible symptom other than a quiet log
+        # line saying unload() errored.
+        if current_page and current_page.name == "#cwb_home_page":
+            carryover.set("was_on_plugin_page", (True, "#cwb_home_page"))
+            carryover.set("handled_navigation", True)
 
         if current_page and current_page.name == "#settings":
             for widget in self.widgets.get("settings", []):
@@ -89,12 +113,15 @@ class CoreWidgetsBundle(Plugin):
                     widget.stop_tick()
                     if sub_tiles.has_feature("remove_widget"):
                         sub_tiles.features().remove_widget(widget.KEY)
-        
-        del self.client.PAGES["#cwb_home_page"]
+
+        #pages registered under this plugin's key are cleaned up
+        #automatically by PluginManager.unload_plugin() via
+        #self.client.PAGES.unregister("corewidgetsbundle") — same
+        #pattern as API_REGISTRY. No manual del needed here anymore.
 
     ## CALLBACKS
     def api_endpoint_test(self, *args, **kwargs):
-        return {"request":"Success",  "package":self.client.public.exposed["corewidgetsbundle"]}, 200
+        return {"request": "Success", "package": self.client.public.exposed["corewidgetsbundle"]}, 200
 
     ## MIXINS
     @mixin("home.__init__", "corewidgetsbundle", "after")
@@ -146,5 +173,3 @@ class CoreWidgetsBundle(Plugin):
         ]
         self.client.public.cwb_widgets["sub.home"] = widgets
         sub_home.features().add_widgets(widgets)
-
-    

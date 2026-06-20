@@ -353,8 +353,15 @@ def FlaskApp(client):
 			if client.PLUGIN.has_plugin(plugin_key):
 				match endpoint:
 					case "reload":
-						client.PLUGIN.reload_plugin(plugin_key)
-						return {"request": "Success"}, 200
+						# reload_plugin() ends up calling client.goto(), which does
+						# real QWidget mutations (setParent, deleteLater, show,
+						# raise_). Those MUST happen on the Qt main thread — calling
+						# reload_plugin() directly from this Flask request thread
+						# was exactly the kind of cross-thread Qt violation that
+						# caused long hangs and unpredictable/corrupted state.
+						# call_on_ui() is the existing bridge built for this.
+						client.call_on_ui(lambda: client.PLUGIN.reload_plugin(plugin_key))
+						return {"request": "Success", "message": "Reload queued."}, 200
 					case _: #! NOT BUILT YET
 						try:
 							return {"request":"Failed", "reason":f"There is no endpoint ({endpoint}) here ..."}, 404

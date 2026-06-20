@@ -1,11 +1,13 @@
 from src import os, time, json, ILUtil, Path, sys, ModuleType, tomllib
 import gc
+import inspect
 
 from src.enums import Asset
 
 from src.settings import Settings
 
 from src.plugin.template import Plugin
+from src.plugin.carryover import PluginCarryover
 
 class PluginManager():
 	def __init__(self, client, dirs:list[Asset]):
@@ -175,7 +177,22 @@ class PluginManager():
 
 
 	## UN-LOADER
-	def unload_plugin(self, plugin_key: str, quick:bool = False) -> bool:
+	def _accepts_carryover(self, bound_method) -> bool:
+		"""
+		True if a plugin's load()/reload()/unload() method accepts a
+		positional argument for carryover, beyond self. Lets plugins
+		written before PluginCarryover existed keep their old
+		zero-argument signatures working unchanged — we only pass
+		carryover through if the method actually has a parameter slot
+		for it.
+		"""
+		try:
+			sig = inspect.signature(bound_method)
+			return len(sig.parameters) >= 1
+		except (TypeError, ValueError):
+			return False
+
+	def unload_plugin(self, plugin_key: str, quick:bool = False, carryover=None) -> bool:
 		# 1. Find the plugin instance
 		plugin = self.plugins.get(plugin_key)
 		if not plugin:
@@ -183,9 +200,18 @@ class PluginManager():
 			return False
 
 		# 2. Call shutdown/unload hook if available
+		# carryover is the PluginCarryover created by reload_plugin() for
+		# this one reload cycle, or None for a normal/shutdown unload
+		# (see PluginCarryover's docstring). Plugins whose unload() was
+		# written before this existed still work unchanged — the call
+		# below only passes carryover if the plugin's unload() actually
+		# accepts a parameter for it.
 		if hasattr(plugin, "unload") and callable(plugin.unload):
 			try:
-				plugin.unload()
+				if carryover is not None and self._accepts_carryover(plugin.unload):
+					plugin.unload(carryover)
+				else:
+					plugin.unload()
 			except Exception as e:
 				self.client.log("error", f"[PluginManager] Error during the unloading of a hook : {plugin_key} : {e}")
 
@@ -194,7 +220,7 @@ class PluginManager():
 			path = plugin.config["settings"]["path"]
 			with open(path, "w") as jsonfile:
 				json.dump(plugin.settings.to_dict(), jsonfile, indent = 4)
-			self.client.log("info", f"[PluginManager] '{self.plugin_key}' Settings Saved.")
+			self.client.log("info", f"[PluginManager] '{plugin_key}' Settings Saved.")
 
 		# etc. If not Quick Unloading; Remove Mixins, Remove from Plugin Registry | essentially this is for hot reloading, if quick is true, its because the app is shutting down
 		if not quick:
@@ -203,6 +229,17 @@ class PluginManager():
 
 			# etc a. Auto Unload Registered API Endpoints
 			self.client.API_REGISTRY.unregister(plugin_key)
+
+			# etc a2. Auto Unload Registered Pages
+			# This is what fixes the leftover blank window during hot
+			# reload — pages registered with this plugin as owner
+			# (e.g. add_page(..., owner=plugin_key)) are now torn down
+			# automatically here, the same way API endpoints already
+			# were. Without this, a plugin's old page instance/class
+			# stayed registered and alive (just hidden) indefinitely,
+			# even after the plugin module itself was removed from
+			# sys.modules below.
+			self.client.PAGES.unregister(plugin_key)
 
 			# etc b. Remove from plugin registry
 			del self.plugins[plugin_key]
@@ -226,24 +263,88 @@ class PluginManager():
 	def reload_plugin(self, plugin_key:str):
 		plugin_path : Path = self.registered.get(plugin_key)
 		if plugin_path and plugin_path.exists() and self.plugins.get(plugin_key):
-			self.unload_plugin( plugin_key )
+			# Tell every OTHER plugin that this one is about to be
+			# unloaded, BEFORE any teardown actually happens. The event
+			# data is just the plugin's key — any plugin that depends on
+			# or cooperates with the one being reloaded (shared state via
+			# self.client.public, a feature it registered onto another
+			# plugin's page, etc.) gets a chance to react (pause, detach,
+			# show its own message) while the reloading plugin is still
+			# fully intact, rather than discovering it's gone after the
+			# fact with no warning.
+			self.client.iterate_event_callables("on_plugin_reloading", plugin_key)
+
+			# Remember what page we were on BEFORE unloading. unload_plugin
+			# now properly destroys the current page if it belongs to this
+			# plugin (see PageRegistry._destroy_instance_if_current), which
+			# sets self.client.PAGE to None — reading PAGE.name AFTER
+			# unloading would crash exactly in the common case of reloading
+			# a plugin while looking at one of its own pages.
+			previous_page = self.client.PAGE.name if self.client.PAGE else "#root"
+
+			# unload_plugin() deletes this plugin from self.plugins, so
+			# its display name has to be captured BEFORE that happens —
+			# self.plugin_name(plugin_key) would otherwise raise a KeyError
+			# once we try to build the "Reloading '...'" message below.
+			plugin_display_name = self.plugin_name(plugin_key)
+
+			# One PluginCarryover per reload cycle. The OLD plugin
+			# instance's unload() gets it first to stash whatever it
+			# wants to survive — the NEW instance's load() and reload()
+			# get the exact same object back afterward. See
+			# src/plugin/carryover.py for the full contract.
+			carryover = PluginCarryover()
+
+			self.unload_plugin( plugin_key, carryover=carryover )
+
+			# Show a clearly DIFFERENT message than the generic "no home
+			# page installed" one while this plugin is actually mid-reload
+			# — there's a real gap here (the sleep below, plus
+			# load_plugin() reading the module from disk) where the old
+			# page is already destroyed and the new one doesn't exist yet.
+			# Without this, that gap either showed a stale frame or the
+			# same "nothing registered" message you'd see if the plugin
+			# were permanently gone, which made it impossible to tell the
+			# two situations apart at a glance.
+			self.client.goto("#root", data={
+				"title": f"Reloading '{plugin_display_name or plugin_key}'…",
+				"body":  "This plugin is being reloaded and will be back shortly.",
+				"show_hint": False,
+			}, override=True)
+
 			time.sleep(1)
 			self.load_plugin( plugin_path )
 
 			reloaded_plugin = self.plugins[plugin_key]
-			reloaded_plugin.load()
+			if self._accepts_carryover(reloaded_plugin.load):
+				reloaded_plugin.load(carryover)
+			else:
+				reloaded_plugin.load()
 
-			reload_page = "#root"
-			if self.client.PAGE.name in self.client.PAGES:
-				reload_page = self.client.PAGE.name
-			
-			self.client.goto(reload_page, override = True)
+			# handled_navigation lets a plugin's unload() opt out of the
+			# fallback navigation below entirely — useful if load()/built()
+			# already moved somewhere specific and the fallback would just
+			# undo that. See PluginCarryover's docstring for the full
+			# contract; this is the ONLY point where it's checked, since
+			# unload() is the only hook that runs before this.
+			if not carryover.get("handled_navigation", False):
+				# If the page we were on no longer exists (it belonged to
+				# this plugin and got torn down above, and the plugin's
+				# fresh load() hasn't re-registered it under the same key
+				# for some reason), fall back to root rather than calling
+				# goto() with a stale key.
+				reload_page = previous_page if self.client.PAGES.has_page(previous_page) else "#root"
+				self.client.goto(reload_page, override = True)
+
 			if self.client.BUILT and hasattr(reloaded_plugin, "built"):
 				reloaded_plugin.built()
 			
 			time.sleep(1)
 
-			reloaded_plugin.reload()
+			if self._accepts_carryover(reloaded_plugin.reload):
+				reloaded_plugin.reload(carryover)
+			else:
+				reloaded_plugin.reload()
 			
 			self.client.simple_notify(
 				"extension",

@@ -32,6 +32,7 @@ from src.mixins import MixinManager, mixin_target
 from src.plugin.loader import PluginManager
 from src.registries.api_registry import APIRegistry
 from src.registries.public_registry import PublicRegistry
+from src.registries.page_registry import PageRegistry
 from src.backend import FlaskApp, FlaskService
 from src.assistant.skill import Skill, SkillIntentEngine
 from src.assistant.stt import STTProcessing
@@ -44,7 +45,7 @@ EVENTS = Literal[
     "initialized", "on_focus", "on_un_focus", "on_visit", "on_leave",
     "on_update", "on_minimize", "on_maximize", "on_fullscreen",
     "on_state_change", "on_close", "on_settings_saved",
-    "on_woke_assistant", "on_assistant_transcribed",
+    "on_woke_assistant", "on_assistant_transcribed", "on_plugin_reloading",
 ]
 APP_NAME = "Desktop Home Assistant"
 
@@ -178,6 +179,7 @@ class Client:
                 "on_settings_saved":        [],
                 "on_woke_assistant":        [],
                 "on_assistant_transcribed": [],
+                "on_plugin_reloading":      [],
             },
         }
 
@@ -261,7 +263,7 @@ class Client:
 
         self.SWITCHING_PAGE = False
         self.PAGE           = None
-        self.PAGES: dict    = {}
+        self.PAGES          = PageRegistry(self)
         self.DEFAULT_PAGE   = ""
 
         from src.pages.settings import SettingsPage
@@ -402,10 +404,11 @@ class Client:
                 return features.get_path(feature_path)["call"](*args, **kwargs)
 
     def has_page(self, query: str) -> bool:
-        return bool(self.PAGES.get(query))
+        return self.PAGES.has_page(query)
 
-    def get_page_data(self, name: str) -> dict:
-        return self.PAGES.get(name)
+    def get_page_data(self, name: str):
+        """Returns the PageEntry for a registered page key, or None."""
+        return self.PAGES.get_entry(name)
 
     def get_page(self):
         return self.PAGE
@@ -413,11 +416,22 @@ class Client:
     def get_pages(self):
         return self.PAGES.keys()
 
-    def add_page(self, key: str, display: str, un_initialized_page) -> None:
-        self.PAGES[key] = {
-            "display": display,
-            "object":  un_initialized_page,
-        }
+    def add_page(self, key: str, display: str, page_class, owner: str = "client") -> None:
+        """
+        Register a page. owner defaults to "client" for the Client's
+        own built-in pages (#root, #settings). Plugins registering
+        their own pages should pass their own plugin key as owner —
+        this is what lets PluginManager.unload_plugin() automatically
+        clean up every page a plugin registered, the same way it
+        already does for API endpoints (see API_REGISTRY.unregister).
+
+        Without a real owner, an unloaded/reloaded plugin's old pages
+        would stay registered under PageRegistry forever, which is
+        exactly what caused the leftover blank window during hot
+        reload: the stale page entry/instance never got torn down
+        because nothing tracked who was responsible for cleaning it up.
+        """
+        self.PAGES.register(owner, key, display, page_class)
 
     def is_switching_page(self) -> bool:
         return self.SWITCHING_PAGE
@@ -428,10 +442,17 @@ class Client:
         if self.PAGE and self.PAGE.name == page and not override:
             return
 
+        entry = self.PAGES.get_entry(page)
+        if not entry:
+            self.log("warning", f"goto() called with unregistered page '{page}' — ignoring")
+            return
+
         self.SWITCHING_PAGE = True
         self.log("info", f"initializing / going to page '{page}'")
 
         if self.PAGE:
+            old_entry = self.PAGES.get_entry(self.PAGE.name)
+
             if hasattr(self.PAGE, "stop"):
                 self.PAGE.stop()
             self.iterate_event_callables(
@@ -441,10 +462,23 @@ class Client:
             )
             self.PAGE.hide()
 
-        self.PAGES[page]["object"] = self.MIXINS.apply_mixins_to(
-            self.PAGES[page]["object"]
-        )
-        self.PAGE = self.PAGES[page]["object"](self, data)
+            #the previous page instance is fully torn down here, not
+            #just hidden. Leaving it merely hidden (the old behaviour)
+            #meant it stayed alive indefinitely as a hidden child of
+            #page_host — normally harmless, but during plugin hot
+            #reload the OLD page class/instance could end up coexisting
+            #with a freshly reloaded one with the same key, which is
+            #what produced the leftover blank window: two real QWidget
+            #instances under page_host, one of them stale and orphaned
+            #from its now-unloaded module.
+            self.PAGE.setParent(None)
+            self.PAGE.deleteLater()
+            if old_entry:
+                old_entry.instance = None
+
+        entry.page_class = self.MIXINS.apply_mixins_to(entry.page_class)
+        self.PAGE = entry.page_class(self, data)
+        entry.instance = self.PAGE
 
         self.PAGE.setParent(self.page_host)
         w = int(self.SETTINGS.application.window.size.value[0])

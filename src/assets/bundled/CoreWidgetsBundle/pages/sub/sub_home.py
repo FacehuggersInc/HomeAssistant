@@ -34,7 +34,7 @@ class SubHomePage(SubPageFramework):
         # which would also make child widgets like buttons unclickable)
         self.widget_manager = WidgetFramework(
             client   = client,
-            page_key = "#",
+            page_key = "sub.home",
             padding  = client.SETTINGS.home.widget_margin.value,
         )
         self.widget_manager.setParent(self)

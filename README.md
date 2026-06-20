@@ -22,7 +22,9 @@ This project is still a work in progress and will continue to evolve over time.
 * Mixin system
 * Public registry system
 * API registry system
-* Plugin hot reloading
+* Page registry system
+* Event system
+* Plugin hot reloading with state carryover
 * Flask backend API
 * Optional voice assistant support
 
@@ -145,6 +147,14 @@ Widgets and Tiles are reusable UI components. Usually added via Pages and their 
 
 Registries manage and store extendable objects. Like API Endpoints, Pages, Etc. These are meant to be easily registered and unloaded for plugin use.
 
+Three concrete registries currently exist:
+
+* `PublicRegistry` — plugin-exposed variables and objects (`self.client.public`)
+* `APIRegistry` — backend API endpoints owned by a plugin (`self.client.API_REGISTRY`)
+* `PageRegistry` — pages owned by a plugin or the Client itself (`self.client.PAGES`)
+
+All three follow the same shape: `register(owner, key, ...)` and `unregister(owner, key="")`. Registering something under your plugin's key means `PluginManager.unload_plugin()` cleans it up automatically when your plugin is unloaded or reloaded — you should not need to manually remove anything you registered this way (see Plugin Lifecycle → `unload()`).
+
 Understanding these concepts will make understanding the rest of the application much easier.
 
 ---
@@ -230,16 +240,16 @@ class MyPlugin(Plugin):
     def __init__(self):
         pass
 
-    def load(self):
+    def load(self, carryover=None):
         pass
 
     def built(self):
         pass
 
-    def reload(self):
+    def reload(self, carryover=None):
         pass
 
-    def unload(self):
+    def unload(self, carryover=None):
         pass
 ```
 
@@ -295,6 +305,8 @@ Typical tasks:
 
 Anything that interacts with the application structure should happen here.
 
+During a hot reload, `load()` receives the same `PluginCarryover` object your previous instance's `unload()` was given — use it to restore anything you stashed there. On the very first load when the application starts, `carryover` is `None`, since nothing has ever been unloaded yet.
+
 ---
 
 ## `built()`
@@ -334,7 +346,11 @@ __init__()
 load()
 
 built()
+
+reload()
 ```
+
+`reload()` receives the same `PluginCarryover` object `load()` did for this reload cycle, in case you'd rather restore state here instead of in `load()`.
 
 ---
 
@@ -355,6 +371,48 @@ signal.disconnect(...)
 Things added through registries do not need to be manually removed.
 
 Only undo things that you explicitly created yourself.
+
+### Carrying state across a reload
+
+If you need something to survive being unloaded and reloaded — open connections, in-memory caches, runtime state that shouldn't live in `settings.json` — use the `carryover` argument:
+
+```python
+def unload(self, carryover=None):
+    if carryover:
+        carryover.set("cache", self.cache)
+        # do NOT stop/close it — it needs to survive into the next load()
+
+def load(self, carryover=None):
+    if carryover and carryover.has("cache"):
+        self.cache = carryover.get("cache")
+    else:
+        self.cache = {}   # first-ever load, nothing to restore
+```
+
+### Controlling navigation during a reload
+
+By default, `PluginManager.reload_plugin()` navigates back to whichever page was on screen before the unload (or `#root` if that page no longer exists) once your plugin is reloaded. If your plugin would rather decide that for itself — for example, navigating somewhere specific from `load()`, `built()`, or `reload()` — set the reserved `handled_navigation` key to `True` from `unload()`:
+
+```python
+def unload(self, carryover=None):
+    if carryover and <some condition>:
+        carryover.set("handled_navigation", True)
+```
+
+`unload()` is the only lifecycle hook that runs *before* `reload_plugin()`'s own fallback navigation — setting this flag anywhere later (`load()`, `reload()`) is too late, since the fallback call will already have happened.
+
+While your plugin is mid-reload (between `unload()` finishing and `load()` running), `#root` is shown automatically with a contextual "Reloading '\<plugin name>'…" message — distinct from the generic "no home page installed" message `#root` shows when nothing is registered at all. You can show your own custom `#root` message anywhere by passing a `data` dict:
+
+```python
+self.client.goto("#root", data={
+    "title": "Custom title",
+    "body": "Custom body text.",
+    "hint": "Optional monospace hint line",
+    "show_hint": False,   # hide the hint line entirely
+}, override=True)
+```
+
+`carryover` is only ever non-`None` during a hot reload triggered through `PluginManager.reload_plugin()`. It is `None` when the whole application is shutting down, since there is no future `load()` to hand anything to in that case.
 
 ---
 
@@ -486,6 +544,77 @@ TileGrid
 
 Tile
 ```
+
+---
+
+# Events
+
+Events let any part of the application — Client, plugins, pages — react to things happening elsewhere without being directly wired together.
+
+There are two kinds.
+
+## Client events
+
+A fixed set of built-in events the Client fires itself, at predictable moments:
+
+```text
+initialized
+on_focus
+on_un_focus
+on_visit
+on_leave
+on_update
+on_minimize
+on_maximize
+on_fullscreen
+on_state_change
+on_close
+on_settings_saved
+on_woke_assistant
+on_assistant_transcribed
+on_plugin_reloading
+```
+
+Subscribe with `subscribe_to_event` / unsubscribe with `unsubscribe_from_event`:
+
+```python
+def my_handler(event):
+    ...
+
+self.client.subscribe_to_event("on_visit", my_handler)
+self.client.unsubscribe_from_event("on_visit", my_handler)
+```
+
+Each handler receives one `event` argument — its shape depends on which event fired (some pass a dict with context, some pass a single value, some pass `None`).
+
+### `on_plugin_reloading`
+
+Fired right before `PluginManager.reload_plugin()` does anything else — before `unload()` is even called on the plugin being reloaded. `event` is the **plugin key being reloaded**, as a plain string.
+
+This exists so other plugins can react to a plugin going away before it actually does — pause something that depends on it, detach a feature it registered onto your page, show a temporary message — rather than discovering it's gone after the fact with no warning.
+
+```python
+def on_other_plugin_reloading(plugin_key: str):
+    if plugin_key == "corewidgetsbundle":
+        # do something before it tears itself down
+        ...
+
+self.client.subscribe_to_event("on_plugin_reloading", on_other_plugin_reloading)
+```
+
+## Custom events
+
+Plugins can also define and fire their own event names — anything not in the built-in list above.
+
+```python
+self.client.create_on_call_event("my_custom_event")
+
+self.client.trigger_on_call_event_iteration("my_custom_event", some_data)
+```
+
+Other plugins subscribe to a custom event exactly the same way as a built-in one, via `subscribe_to_event`.
+
+`create_on_call_event` and `trigger_on_call_event_iteration` will raise if you pass one of the built-in event names — those are reserved for the Client and must be triggered through its own internal calls, not from plugin code.
 
 ---
 
