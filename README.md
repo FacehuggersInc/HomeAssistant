@@ -187,13 +187,20 @@ main.py
 At minimum it must contain:
 
 ```toml
+[plugin]
 name = "My Plugin"
-
 key = "myplugin"
+
+[settings]
+path = "/path/to/.json
 ```
 
 * `name` = Display name
 * `key` = Unique identifier
+
+* `path` = a json file
+
+the settings path will be joined into the default settings page under plugins for Public settings.
 
 ## main.py
 
@@ -201,7 +208,15 @@ key = "myplugin"
 
 This is where your Plugin class lives.
 
-Plugins interact with the Client through `self.client`.
+Your plugin class needs to inherit the Plugin class from src/plugin/template
+
+Plugins interact with the Client through `self.client`. 
+
+They can also interact with their loaded settings via self.settings.path.to.setting. 
+Due note that settings require to be set like this:
+```python
+self.settings['path']['to']['setting'] = new_setting
+```
 
 Example:
 
@@ -282,7 +297,7 @@ Anything that interacts with the application structure should happen here.
 
 `built()` runs once the entire application has been built.
 
-This is where plugins should interact with live systems and built UI.
+This is where plugins should interact with live systems and built UI, though, due note you can still do some of this via page features in the load function, especially if you are just adding UI.
 
 Examples:
 
@@ -341,7 +356,7 @@ Only undo things that you explicitly created yourself.
 
 # Pages
 
-Pages own UI systems.
+Pages own UI systems and features to interact with them.
 
 Pages should be responsible for organizing and displaying content.
 
@@ -520,7 +535,7 @@ Use Mixins whenever you need to extend existing behavior.
 
 Avoid directly modifying another system whenever possible.
 
-Or feel free to directly add mixin_targets to functions you feel do not need new source code.
+Or feel free to directly add mixin_targets to functions you feel do not need new source code, but you want to extend.
 
 ---
 
