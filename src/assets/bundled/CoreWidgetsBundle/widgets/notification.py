@@ -113,6 +113,30 @@ class NotificationHistoryItem(QFrame):
 # ── Notification history ───────────────────────────────────────────────────────
 
 class NotificationHistory:
+    """
+    Tracks notification history independently of any single
+    NotificationCenterWidget instance.
+
+    This object is exposed globally via client.public (see
+    NotificationCenterWidget.__init__), which means it can OUTLIVE the
+    specific widget instance that created it. The home page (and its
+    NotificationCenterWidget) gets destroyed and rebuilt every time
+    Client.goto() navigates away and back, or a plugin reloads — but
+    nothing clears client.public.notification_history on a normal page
+    navigation, only on plugin unload. So self.manager can end up
+    pointing at a widget whose underlying C++ object has already been
+    deleted by Qt, while this Python object is still very much alive
+    and still the one client.simple_notify() reaches for.
+
+    is_manager_alive() below guards every method that touches
+    self.manager for exactly this reason — calling .show()/.hide() or
+    reading an attribute off a deleted QWidget raises
+    "RuntimeError: wrapped C/C++ object ... has been deleted", which
+    is silent and easy to trigger just by calling simple_notify() from
+    any page other than the one whose widget originally created this
+    history object.
+    """
+
     def __init__(self, manager: "NotificationCenterWidget"):
         self.manager = manager
         self.client  = manager.client
@@ -123,9 +147,30 @@ class NotificationHistory:
         else:
             self.items = self.client.public.cwb_notifications
 
+    def is_manager_alive(self) -> bool:
+        """True if self.manager's underlying Qt widget still exists."""
+        if self.manager is None:
+            return False
+        try:
+            from PyQt6 import sip
+            return not sip.isdeleted(self.manager)
+        except ImportError:
+            # sip unavailable for some reason — fall back to a plain
+            # attribute access, which itself raises RuntimeError on a
+            # deleted widget and is caught the same way
+            try:
+                self.manager.isVisible()
+                return True
+            except RuntimeError:
+                return False
+
     def add(self, icon: str, title: str, body: str, timestamp: datetime = None) -> None:
         ts = timestamp or datetime.now()
         self.items.insert(0, (self, icon, title, body, ts))
+
+        if not self.is_manager_alive():
+            return
+
         self.manager.show()
         #refresh the panel's contents if it's already open and visible
         panel = self.manager._panel
@@ -134,7 +179,7 @@ class NotificationHistory:
 
     def remove(self, timestamp: datetime) -> None:
         self.items = [i for i in self.items if i[4] != timestamp]
-        if not self.items:
+        if not self.items and self.is_manager_alive():
             self.manager.hide()
             panel = self.manager._panel
             if panel and panel.open:
@@ -142,6 +187,8 @@ class NotificationHistory:
 
     def clear(self) -> None:
         self.items.clear()
+        if not self.is_manager_alive():
+            return
         self.manager.hide()
         panel = self.manager._panel
         if panel and panel.open:
@@ -173,11 +220,28 @@ class NotificationCenterWidget(Widget):
             f"notify_center_dialog:{client.uuid()}"
         )
 
-        self.history = NotificationHistory(self)
-        client.public.expose(
-            "corewidgetsbundle", "notification_history",
-            self.history, overwrite=True
-        )
+        # Reuse the existing NotificationHistory if one was already
+        # exposed by a previous NotificationCenterWidget instance,
+        # re-pointing its manager at THIS fresh widget instead of
+        # creating a brand new, disconnected history object. The home
+        # page (and this widget) gets destroyed and rebuilt on every
+        # navigation away-and-back or plugin reload — without this,
+        # client.public.notification_history would keep pointing at
+        # whichever widget instance last constructed a NotificationHistory,
+        # and that instance's underlying Qt object is gone the moment
+        # you navigate elsewhere. is_manager_alive() in NotificationHistory
+        # is still the real safety net for whenever NO home page exists
+        # at all (e.g. simple_notify() called from Settings), but
+        # re-linking here keeps that gap as small as possible.
+        if client.public.has("notification_history"):
+            self.history = client.public.notification_history
+            self.history.manager = self
+        else:
+            self.history = NotificationHistory(self)
+            client.public.expose(
+                "corewidgetsbundle", "notification_history",
+                self.history, overwrite=True
+            )
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
