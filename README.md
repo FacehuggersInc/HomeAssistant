@@ -81,8 +81,8 @@ Client Application
 ├── Registries
 ├── Pages
 │   └── Features
-├── Widgets
-├── Tiles
+│       └── Widgets
+│       └── Tiles
 └── Mixins
 
 Flask Backend API
