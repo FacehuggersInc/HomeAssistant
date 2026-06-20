@@ -1,189 +1,68 @@
-# Desktop Home Assistant
+# Home Assistant
 
-A fullscreen desktop assistant application built with Python and PyQt6. It acts as a smart home display similar to Google Home Hub or Amazon Echo Show — cycling wallpapers, clock, weather, word of the day, notifications, and a voice assistant pipeline.
+A highly customizable smart home dashboard built with Python and PyQt6.
 
-THIS IS A HUGE WIP. In its current state, this application is merely a glorified picture clock and weather application with an overly complicated backend to allow for high customization via plugins alone. It currently supports wallpaper cycling, a clock and weather widget, with a backend API to control a few things remotely. Those are just the things that work out of the box.
+At its core, this project is essentially a giant plugin system disguised as a Home Assistant application.
 
-Its UI architecture previously used Flet (a Python Flutter framework), but I've since moved to PyQt, so some widgets are still in the Flet build of the previous app. So many things that Windows version 'needs' to run aren't actually being used. This also includes the 'assistant pipeline'; this has been disabled in the meantime as I work on the UI and backend of this app.
+The goal is to create a desktop based smart display similar to a Google Home Hub or Echo Show while remaining extremely customizable. Nearly everything visible on screen can be added, modified, or removed entirely through plugins.
 
----
+The Client intentionally contains very little hardcoded functionality. Most functionality is provided by plugins which build the application at runtime.
 
-## Requirements
-
-- Python 3.11 or newer
-- pip
-- A display (X11 or Wayland on Linux, or Windows)
+This project is still a work in progress and will continue to evolve over time.
 
 ---
 
-## Installation
+# Features
 
-### Windows
+* Plugin driven architecture
+* Dynamic page system
+* Feature driven page extensions
+* Widget framework
+* Tile framework
+* Mixin system
+* Public registry system
+* API registry system
+* Plugin hot reloading
+* Flask backend API
+* Optional voice assistant support
 
-**1. Install Python**
+---
 
-Download and install Python 3.11+ from [python.org](https://www.python.org/downloads/).
-During installation, check **"Add Python to PATH"**.
+# Installation
 
-**2. Install system dependencies**
+## Clone the repository
 
-Install [Chocolatey](https://chocolatey.org/install) if not already installed, then:
+```bash
+git clone https://github.com/FacehuggersInc/HomeAssistant.git
 
-```powershell
-choco install ffmpeg
-```
-
-**3. Clone or download the project**
-
-```powershell
-cd C:\Projects
-git clone <repo-url> HomeAssistant
 cd HomeAssistant
 ```
 
-**4. Create and activate a virtual environment**
+## Create a virtual environment
 
-```powershell
+### Windows
+
+```bash
 python -m venv .venv
+
 .venv\Scripts\activate
 ```
 
-**5. Install Python dependencies**
-
-```powershell
-pip install -r requirements.txt
-python -m spacy download en_core_web_sm
-```
-
-**6. Run**
-
-```powershell
-python app.py
-```
-
----
-
-### Arch Linux
-
-**1. Install system packages**
+### Linux
 
 ```bash
-sudo pacman -S --needed \
-  python \
-  python-pip \
-  base-devel \
-  portaudio \
-  ffmpeg \
-  qt6-base \
-  git
-```
+python3 -m venv .venv
 
-- `base-devel` — required to build `webrtcvad` (C extension)
-- `portaudio` — required by `sounddevice`
-- `ffmpeg` — required by `faster-whisper` and audio processing
-- `qt6-base` — Qt6 runtime libraries
-
-**2. Clone or download the project**
-
-```bash
-git clone <repo-url> ~/HomeAssistant
-cd ~/HomeAssistant
-```
-
-**3. Create and activate a virtual environment**
-
-In VSCode: open the project folder, press `Ctrl+Shift+P` → `Python: Create Environment` → `Venv`.
-
-Or from the terminal:
-
-```bash
-python -m venv .venv
 source .venv/bin/activate
 ```
 
-**4. Install Python dependencies**
+## Install dependencies
 
 ```bash
 pip install -r requirements.txt
-python -m spacy download en_core_web_sm
 ```
 
-**5. Run**
-
-```bash
-python app.py
-```
-
-**Wayland note (Hyprland, Sway, etc.):**
-
-```bash
-export QT_QPA_PLATFORM=wayland
-python app.py
-```
-
-Or add it to your compositor's autostart.
-
----
-
-### Linux Mint
-
-Linux Mint ships Python 3 but may not have a recent enough version. Check first:
-
-```bash
-python3 --version
-```
-
-If it's below 3.11, install a newer version:
-
-```bash
-sudo apt install software-properties-common
-sudo add-apt-repository ppa:deadsnakes/ppa
-sudo apt update
-sudo apt install python3.12 python3.12-venv python3.12-dev
-```
-
-**1. Install system packages**
-
-```bash
-sudo apt update
-sudo apt install -y \
-  python3-pip \
-  python3-venv \
-  build-essential \
-  portaudio19-dev \
-  ffmpeg \
-  libxcb-xinerama0 \
-  libxcb-cursor0 \
-  git
-```
-
-- `portaudio19-dev` — required by `sounddevice`
-- `ffmpeg` — required by `faster-whisper`
-- `libxcb-xinerama0` and `libxcb-cursor0` — required by Qt6 on X11
-- `build-essential` — required to build `webrtcvad`
-
-**2. Clone or download the project**
-
-```bash
-git clone <repo-url> ~/HomeAssistant
-cd ~/HomeAssistant
-```
-
-**3. Create and activate a virtual environment**
-
-```bash
-python3.12 -m venv .venv
-source .venv/bin/activate
-```
-
-**4. Install Python dependencies**
-
-```bash
-pip install -r requirements.txt
-python -m spacy download en_core_web_sm
-```
-
-**5. Run**
+## Run the application
 
 ```bash
 python app.py
@@ -191,120 +70,472 @@ python app.py
 
 ---
 
-## Configuration
+# Project Overview
 
-Settings are stored at:
+The project is separated into two major systems.
 
-| Platform | Path |
-|---|---|
-| Windows | `%LOCALAPPDATA%\DesktopHomeAssistant\DesktopHomeAssistant.json` |
-| Linux | `~/.local/share/DesktopHomeAssistant/DesktopHomeAssistant.json` |
+```text
+Client Application
+│
+├── Plugin Loader
+├── Registries
+├── Pages
+│   └── Features
+├── Widgets
+├── Tiles
+└── Mixins
 
-The settings file is created automatically on first run from the template at `src/assets/data/new-template.json`. Edit it directly or use the settings page in the app.
+Flask Backend API
+│
+└── External communication
+```
 
-Key settings to configure after first run:
+## Client Application
 
-- `home.images.value` — path to a folder of wallpaper images
-- `notifications.notification_position.value` — where notifications appear (`top-right` recommended)
-- `weather.latitude.value` and `weather.longitude.value` — your location for weather data
-- `weather.timezone.value` — your timezone string (e.g. `America/New_York`)
+The Client Application is the actual PyQt application.
+
+Its responsibility is to coordinate systems, not own them.
+
+Most functionality should exist inside plugins.
+
+The Client is responsible for:
+
+* Loading plugins
+* Building pages
+* Coordinating features
+* Managing widgets
+* Managing tiles
+* Managing public data
+* Managing APIs
+* Managing application state
+
+## Flask Backend API
+
+`backend.py` is a separate Flask application used for external communication.
+
+This backend should be thought of as a server and not part of the Client Application itself.
 
 ---
 
-## Plugin Development
+# Core Concepts
 
-Plugins live in the `plugins/` folder at the project root. Each plugin is a folder containing:
+The entire application is built around a few core concepts.
 
+## Plugins
+
+Plugins provide functionality.
+
+## Pages
+
+Pages own UI systems.
+
+## Features
+
+Features expose extensibility for Pages.
+
+## Mixins
+
+Mixins extend existing behavior.
+
+## Widgets & Tiles
+
+Widgets and Tiles are reusable UI components.
+
+## Registries
+
+Registries expose globally accessible resources.
+
+Understanding these concepts will make understanding the rest of the application much easier.
+
+---
+
+# Plugins
+
+Plugins are the primary way to extend the application.
+
+A plugin can:
+
+* Register pages
+* Register APIs
+* Expose public data
+* Add widgets
+* Add tiles
+* Extend existing pages
+* Extend existing behavior
+* Add entirely new functionality
+
+If you find yourself modifying the Client itself, consider whether it should instead exist as a plugin.
+
+---
+
+# Plugin Structure
+
+Every plugin requires two files.
+
+```text
+MyPlugin/
+
+plugin.toml
+
+main.py
 ```
-plugins/
-└── MyPlugin/
-    ├── plugin.toml       # name and key
-    ├── main.py           # Plugin subclass
-    └── widgets/          # optional widget files
-        └── my_widget.py
-```
 
-**plugin.toml**
+## plugin.toml
+
+`plugin.toml` is required.
+
+At minimum it must contain:
 
 ```toml
-[plugin]
 name = "My Plugin"
-key  = "myplugin"
+
+key = "myplugin"
 ```
 
-**main.py**
+* `name` = Display name
+* `key` = Unique identifier
+
+## main.py
+
+`main.py` is the required entrypoint.
+
+This is where your Plugin class lives.
+
+Plugins interact with the Client through `self.client`.
+
+Example:
 
 ```python
-from src.plugin.template import Plugin
-from src.mixins import mixin
-from src.ui.icons import Icons
-from .widgets.my_widget import MyWidget
-
 class MyPlugin(Plugin):
 
-    def load(self):
-        self.client.log("info", "[MyPlugin] Loaded.")
+    def __init__(self):
+        pass
 
-    @mixin("sub.home.__init__", "myplugin", "after")
-    def inject_widgets(self, sub_home, *args):
-        sub_home.features().add_widgets([MyWidget(self.client)])
+    def load(self):
+        pass
+
+    def built(self):
+        pass
+
+    def reload(self):
+        pass
 
     def unload(self):
         pass
 ```
 
-Plugins can also register pages:
+---
 
-```python
-def load(self):
-    from .pages.my_page import MyPage
-    self.client.add_page("#mypage", "My Page", MyPage)
-```
+# Plugin Lifecycle
 
-And register custom icons:
+Plugins go through multiple stages during their lifetime.
 
-```python
-from src.ui.icons import register
-register("my-icon", "mdi.rocket")
+Each stage has a different responsibility.
+
+## `__init__()`
+
+`__init__()` runs while the Client Application is initializing and plugins are being instantiated.
+
+The application has **not been built yet**.
+
+Use this for:
+
+* Creating variables
+* Loading JSON files
+* Loading configuration files
+* Loading assets
+* Loading templates
+* Initializing external libraries
+
+Avoid:
+
+* Accessing pages
+* Accessing features
+* Adding widgets
+* Adding tiles
+* Interacting with built UI
+
+Nothing inside `__init__()` should depend on the Client already existing.
+
+Think of this stage as preparation only.
+
+---
+
+## `load()`
+
+`load()` runs once the Client Application is available.
+
+Use this stage to register systems and connect your plugin to the application.
+
+Typical tasks:
+
+* Register pages
+* Register APIs
+* Expose public data
+* Connect systems together
+
+Anything that interacts with the application structure should happen here.
+
+---
+
+## `built()`
+
+`built()` runs once the entire application has been built.
+
+This is where plugins should interact with live systems and built UI.
+
+Examples:
+
+* Accessing pages
+* Using page features
+* Adding widgets
+* Adding tiles
+* Modifying drawer controls
+* Interacting with active interfaces
+
+Anything that depends on UI already existing should happen here.
+
+---
+
+## `reload()`
+
+Plugins can be reloaded without restarting the entire application.
+
+Typical flow:
+
+```text
+unload()
+
+destroy plugin
+
+create plugin
+
+__init__()
+
+load()
+
+built()
 ```
 
 ---
 
-## Enabling Voice Assistant
+## `unload()`
 
-STT and TTS are disabled by default. To enable them, open `src/main.py` and find the assistant block in `__init__`:
+`unload()` runs before a plugin is unloaded or reloaded.
 
-```python
-self.STT = None   # STTProcessing(self)  — disabled
-self.TTS = None   # TTSProcessing(self)   — disabled
-```
+Everything manually created should be manually cleaned up.
 
-Replace with:
+Examples:
 
 ```python
-self.STT = STTProcessing(self)
-self.TTS = TTSProcessing(self)
+timer.stop()
+
+signal.disconnect(...)
 ```
 
-Voice requires an ElevenLabs API key (for TTS) set in your `.env` file at the project root:
+Things added through registries do not need to be manually removed.
 
+Only undo things that you explicitly created yourself.
+
+---
+
+# Pages
+
+Pages own UI systems.
+
+Pages should be responsible for organizing and displaying content.
+
+Pages often expose Features that plugins can interact with.
+
+Examples from `CoreWidgetsBundle`:
+
+```text
+HomePage
+
+SubHomePage
+
+SubTilesPage
 ```
-ELEVENLABS_API_KEY=your_key_here
+
+Pages may own systems such as:
+
+* WidgetFramework
+* TileGrid
+* TilePanel
+* Drawer controls
+* Sub page navigation
+
+Pages own UI.
+
+Plugins extend Pages.
+
+---
+
+# Features
+
+Features are one of the primary extension systems of the application.
+
+Pages expose functionality through Features rather than allowing direct access to their internals.
+
+Plugins should prefer interacting with Features whenever possible.
+
+Think of Features as an API that Pages expose.
+
+Examples:
+
+```python
+page.features()
+```
+
+Features may expose functionality such as:
+
+```text
+add_widgets
+
+remove_widget
+
+add_drawer_controls
+
+remove_drawer_controls
+
+add_sub_page
+
+remove_sub_page
+```
+
+Always prefer using Features when extending existing pages.
+
+---
+
+# Widgets
+
+Widgets are reusable UI components.
+
+Widgets are not intended to be directly inserted into layouts.
+
+Instead, they are managed by Page systems such as `WidgetFramework`.
+
+Examples from `CoreWidgetsBundle`:
+
+* WeatherWidget
+* DateTimeWidget
+* NotificationCenterWidget
+* CyclingBackground
+
+Flow:
+
+```text
+Plugin
+
+↓
+
+Page Feature
+
+↓
+
+WidgetFramework
+
+↓
+
+Widget
 ```
 
 ---
 
-## Suppressing the Kvantum style warning
+# Tiles
 
-On systems with Kvantum installed as the default Qt theme, you may see:
+Tiles are lightweight interactive UI components.
 
+Tiles are managed by Page systems such as `TileGrid`.
+
+Like Widgets, plugins should not directly manipulate layouts.
+
+Flow:
+
+```text
+Plugin
+
+↓
+
+Page Feature
+
+↓
+
+TileGrid
+
+↓
+
+Tile
 ```
-QApplication: invalid style override 'kvantum' passed, ignoring it.
-```
 
-This is harmless. To suppress it, add to the top of `app.py`:
+---
+
+# Mixins
+
+Mixins are one of the core extension systems of the application.
+
+They allow plugins to inject functionality into existing systems without modifying the original source code.
+
+Mixins work by wrapping functions before or after they execute.
+
+---
+
+## `@mixin_target()`
+
+`mixin_target()` marks a function as available for plugins to hook into.
+
+Example:
 
 ```python
-import os
-os.environ["QT_STYLE_OVERRIDE"] = ""
+@mixin_target("refresh_weather")
+def refresh_weather(self):
+
+    ...
 ```
+
+---
+
+## `mixin()`
+
+`mixin()` attaches functionality to an existing mixin target.
+
+```python
+mixin(
+    key="refresh_weather",
+    plugin="mypluginkey,
+    when="before"
+)
+
+mixin(
+    key="refresh_weather",
+    plugin="mypluginkey,
+    when="after"
+)
+```
+
+* `before` runs before the original function
+* `after` runs after the original function
+
+Use Mixins whenever you need to extend existing behavior.
+
+Avoid directly modifying another system whenever possible.
+
+Or feel free to directly add mixin_targets to functions you feel do not need new source code.
+
+---
+
+# Development Philosophy
+
+This project intentionally favors modularity over simplicity.
+
+The Client should remain relatively small while plugins provide most functionality.
+
+Pages own UI.
+
+Features expose extensibility.
+
+Mixins extend behavior.
+
+Plugins build functionality.
+
+Everything should be as modular as possible.
