@@ -190,6 +190,25 @@ path = "/path/to/.json"
 
 the settings path will be joined into the default settings page under plugins for Public settings.
 
+### Load order and dependencies
+
+Two more optional fields under `[plugin]` control the order plugins load in:
+
+```toml
+[plugin]
+name = "My Addon"
+key  = "myaddon"
+order = 10
+dependencies = ["corewidgetsbundle"]
+```
+
+* `order` — an integer. Lower loads first. Defaults to `0` if omitted. Only matters as a **tiebreaker** between plugins that have no dependency relationship to each other — a real dependency always takes priority over `order` alone.
+* `dependencies` — a list of other plugins' `key` values. Every key listed here is guaranteed to load before this plugin does, as long as it actually exists and there's no circular dependency.
+
+`PluginManager` resolves the final load order automatically at startup using these two fields together: dependencies first, `order` to break ties among everything else. A plugin with a missing or invalid `plugin.toml` doesn't block any other plugin from loading — it's just scheduled last, with a warning logged. A circular dependency is handled the same way: logged as a warning, then loaded in a best-effort order rather than refusing to start.
+
+You don't need to declare `order` or `dependencies` at all unless load order actually matters for your plugin — most plugins can omit both fields entirely.
+
 ## main.py
 
 `main.py` is the required entrypoint.

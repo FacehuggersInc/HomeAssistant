@@ -26,14 +26,157 @@ class PluginManager():
 			module = self.import_module_from_path(plugin_path / "main.py")
 		if module:	self.register_plugin_classes(module, plugin_path)
 
-	def load_plugins_from_directories(self, plugin_dirs: list[Path]):
+	def scan_plugin_toml(self, plugin_path: Path) -> dict | None:
+		"""
+		Read ONLY plugin.toml — no module import, no code execution.
+		Used by resolve_load_order() to build the dependency graph
+		before any plugin code actually runs. This has to be a separate,
+		lighter pass than load_toml() because load_toml() is normally
+		called AFTER a plugin's module is already imported (it wants
+		the Python class name for log messages) — but dependency
+		ordering has to be decided BEFORE any plugin is imported at all,
+		so nothing here can depend on that having happened yet.
+
+		Returns the raw toml dict (or None if missing/invalid), plus the
+		plugin_path attached under "_scan_path" for the caller's
+		convenience.
+		"""
+		toml_path = plugin_path / "plugin.toml"
+		if not toml_path.exists():
+			return None
+		try:
+			with open(toml_path, "rb") as f:
+				config = tomllib.load(f)
+		except Exception as e:
+			self.client.log("warning", f"[PluginManager] Failed to pre-scan '{plugin_path.name}/plugin.toml': {e}")
+			return None
+
+		plugin_section = config.get("plugin")
+		if not plugin_section or "key" not in plugin_section:
+			return None
+
+		config["_scan_path"] = plugin_path
+		return config
+
+	def resolve_load_order(self, plugin_dirs: list[Path]) -> list[Path]:
+		"""
+		Pre-scan every plugin.toml across all plugin directories (no
+		module imports yet) and compute a load order that respects:
+
+		  1. dependencies — a plugin listed in another plugin's
+		     `dependencies` array loads first, whenever possible.
+		  2. order — an integer tiebreaker among plugins with no
+		     dependency relationship to each other; lower loads first.
+		     Defaults to 0 if omitted.
+
+		plugin.toml shape:
+
+		    [plugin]
+		    name = "My Plugin"
+		    key  = "myplugin"
+		    order = 10                       # optional, default 0
+		    dependencies = ["otherplugin"]   # optional, default []
+
+		Implementation: Kahn's algorithm (BFS topological sort). At each
+		step, every plugin with zero remaining unmet dependencies is a
+		candidate; candidates are sorted by `order` (then by key, for a
+		stable result when order ties) before being added to the
+		schedule, which is what makes `order` act as a tiebreaker
+		rather than an absolute ranking — a real dependency edge always
+		wins over `order` alone.
+
+		Plugins with a missing/invalid plugin.toml, or a dependency that
+		never resolves to a real plugin, are scheduled last (in folder
+		order) with a warning rather than being dropped — a plugin
+		failing to declare itself correctly shouldn't silently prevent
+		every OTHER plugin from loading.
+
+		A circular dependency is also not fatal: whatever's left over
+		once no more zero-dependency candidates exist is appended in
+		whatever order remains, with a warning identifying the cycle as
+		best as can be determined.
+		"""
+		# 1. Pre-scan every plugin folder across every plugin directory
+		scanned: dict[str, dict] = {}      # key -> toml config
+		unscannable: list[Path] = []       # paths with no valid plugin.toml
+
 		for plugin_dir in plugin_dirs:
-			if not plugin_dir.exists(): continue
+			if not plugin_dir.exists():
+				continue
 			for plugin_path in plugin_dir.iterdir():
 				if plugin_path.name.endswith(".DISABLED"):
 					self.client.log("info", f"[PluginManager] Plugin '{plugin_path.name}' was not loaded due to '.DISABLED' tag")
 					continue
-				self.load_plugin( plugin_path )
+				if not plugin_path.is_dir() or not (plugin_path / "main.py").exists():
+					continue
+
+				config = self.scan_plugin_toml(plugin_path)
+				if config is None:
+					unscannable.append(plugin_path)
+					continue
+
+				key = config["plugin"]["key"]
+				if key in scanned:
+					self.client.log("warning", f"[PluginManager] Duplicate plugin key '{key}' found at '{plugin_path}' — keeping the first one scanned ('{scanned[key]['_scan_path']}')")
+					continue
+				scanned[key] = config
+
+		# 2. Build the dependency graph
+		# dependencies[key] = set of keys that must load before `key`
+		dependencies: dict[str, set] = {}
+		for key, config in scanned.items():
+			deps = config.get("plugin", {}).get("dependencies", []) or []
+			resolved_deps = set()
+			for dep in deps:
+				if dep in scanned:
+					resolved_deps.add(dep)
+				else:
+					self.client.log("warning", f"[PluginManager] Plugin '{key}' depends on '{dep}', which was not found — ignoring that dependency")
+			dependencies[key] = resolved_deps
+
+		def get_order(key: str) -> int:
+			return int(scanned[key].get("plugin", {}).get("order", 0) or 0)
+
+		# 3. Kahn's algorithm — repeatedly take all currently-resolvable
+		# plugins (zero remaining unmet dependencies), sorted by order
+		# then key for a stable, predictable result among ties.
+		remaining = dict(dependencies)   # mutable copy we'll shrink
+		scheduled: list[str] = []
+
+		while remaining:
+			ready = [k for k, deps in remaining.items() if not deps]
+			if not ready:
+				# Circular dependency — nothing left has zero unmet deps.
+				# Break the deadlock by scheduling whatever has the FEWEST
+				# remaining unmet deps (best-effort) rather than refusing
+				# to load anything at all.
+				cycle_keys = list(remaining.keys())
+				self.client.log("warning", f"[PluginManager] Circular or unresolvable plugin dependency detected among: {cycle_keys} — loading in best-effort order")
+				ready = sorted(remaining.keys(), key=lambda k: (len(remaining[k]), get_order(k), k))[:1]
+
+			ready.sort(key=lambda k: (get_order(k), k))
+			for key in ready:
+				scheduled.append(key)
+				del remaining[key]
+
+			for deps in remaining.values():
+				deps.difference_update(ready)
+
+		# 4. Build the final path list: resolved plugins in dependency
+		# order, then anything that failed to scan at all (folder order,
+		# since there's no metadata to sort those by)
+		ordered_paths = [scanned[key]["_scan_path"] for key in scheduled]
+		ordered_paths.extend(unscannable)
+
+		if scheduled:
+			self.client.log("info", f"[PluginManager] Resolved plugin load order: {scheduled}")
+
+		return ordered_paths
+
+	def load_plugins_from_directories(self, plugin_dirs: list[Path]):
+		ordered_paths = self.resolve_load_order(plugin_dirs)
+		for plugin_path in ordered_paths:
+			self.load_plugin( plugin_path )
 
 	def import_module_from_path(self, py_file: Path) -> ModuleType | None:
 		plugin_dir = py_file.parent

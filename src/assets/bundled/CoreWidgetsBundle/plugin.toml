@@ -1,4 +1,6 @@
 [plugin]
+order = 0
+dependencies = []
 name = "Core Widgets Bundle"
 key = "corewidgetsbundle"
 
