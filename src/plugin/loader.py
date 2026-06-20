@@ -356,7 +356,7 @@ class PluginManager():
 				else:
 					plugin.unload()
 			except Exception as e:
-				self.client.log("error", f"[PluginManager] Error during the unloading of a hook : {plugin_key} : {e}")
+				self.client.log("error", f"[PluginManager] Error during the unloading of a hook : {plugin_key}", include_traceback = True)
 
 		# 3. Save Plugin Settings
 		if hasattr(plugin, "settings"):
