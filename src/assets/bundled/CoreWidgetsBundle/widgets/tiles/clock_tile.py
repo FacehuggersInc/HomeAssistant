@@ -7,7 +7,7 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFontMetrics
 
 from src.ui.widgets.tile import Tile
-from src.styling import make_font, COLORS, add_text_shadow
+from src.styling import make_font, add_text_shadow, set_style
 
 if TYPE_CHECKING:
     from src.main import Client
@@ -35,17 +35,13 @@ class ClockTile(Tile):
 
         self.time_lbl = QLabel("--:--")
         self.time_lbl.setFont(make_font(42, bold=False, family="poppins-light"))
-        self.time_lbl.setStyleSheet(
-            f"color: {COLORS.DARK.TEXT.IMPORTANT}; background: transparent;"
-        )
+        set_style(self.time_lbl, "common", "text-strong")
         self.time_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         add_text_shadow(self.time_lbl, blur=10)
 
         self.date_lbl = QLabel("---")
         self.date_lbl.setFont(make_font(13, bold=False, family="poppins-light"))
-        self.date_lbl.setStyleSheet(
-            f"color: {COLORS.DARK.TEXT.MUTED}; background: transparent;"
-        )
+        set_style(self.date_lbl, "common", "text-muted")
         self.date_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         add_text_shadow(self.date_lbl, blur=6)
 

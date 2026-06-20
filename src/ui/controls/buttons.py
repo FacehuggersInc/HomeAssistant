@@ -6,7 +6,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, QSize
 from PyQt6.QtGui import QIcon
 
-from src.styling import COLORS, STYLES, make_font, add_text_shadow
+from src.styling import STYLES, make_font, add_text_shadow, set_style
 from src.ui.icons import icon as resolve_to_icon, resolve as resolve_name
 
 
@@ -43,15 +43,8 @@ class IconButton(QPushButton):
 
         self._set_icon(icon, color, size)
 
-        self.setStyleSheet(f"""
-            QPushButton {{
-                background: transparent;
-                border: none;
-                border-radius: {size}px;
-            }}
-            QPushButton:hover  {{ background: rgba(255,255,255,25); }}
-            QPushButton:pressed{{ background: rgba(255,255,255,50); }}
-        """)
+        set_style(self, "buttons", "icon-button",
+                  override={"*": {"border-radius": f"{size}px"}})
 
         self.setVisible(visible)
         self.clicked.connect(lambda _checked=False: func())
@@ -123,18 +116,9 @@ class IconAndTextButton(QPushButton):
         )
         self.setLayoutDirection(layout_dir)
 
-        self.setStyleSheet(f"""
-            QPushButton {{
-                background: {bgcolor};
-                color: {color};
-                border-radius: {radius}px;
-                border: none;
-                padding: 8px 12px;
-                text-align: left;
-            }}
-            QPushButton:hover  {{ background: rgba(255,255,255,15); }}
-            QPushButton:pressed{{ background: rgba(255,255,255,30); }}
-        """)
+        set_style(self, "buttons", "icon-text-button", override={
+            "*": {"background": bgcolor, "color": color, "border-radius": f"{radius}px"},
+        })
 
         self.clicked.connect(lambda _checked=False: func())
 
@@ -176,27 +160,12 @@ class DropdownButton(QToolButton):
         self.setIcon(q_icon)
         self.setIconSize(QSize(size + 8, size + 8))
 
-        self.setStyleSheet(f"""
-            QToolButton {{
-                background: {COLORS.DARK.BGDARK};
-                border: none;
-                border-radius: {size}px;
-            }}
-            QToolButton:hover  {{ background: rgba(255,255,255,20); }}
-            QToolButton::menu-indicator {{ image: none; }}
-        """)
+        set_style(self, "buttons", "dropdown-button",
+                  override={"*": {"border-radius": f"{size}px"}})
 
         self.setVisible(visible)
         self._menu = QMenu(self)
-        self._menu.setStyleSheet(f"""
-            QMenu {{
-                background: {COLORS.DARK.BG};
-                color: {COLORS.DARK.TEXT.IMPORTANT};
-                border: 1px solid {COLORS.DARK.BORDER.NORMAL};
-                border-radius: 4px;
-            }}
-            QMenu::item:selected {{ background: {COLORS.DARK.BGLIGHT}; }}
-        """)
+        set_style(self._menu, "buttons", "dropdown-menu")
         self._rebuild_menu()
         self.setMenu(self._menu)
 

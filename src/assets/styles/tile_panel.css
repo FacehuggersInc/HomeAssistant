@@ -1,0 +1,19 @@
+/* src/ui/widgets/tile_panel.py */
+
+.tile-panel {
+    background: #262626;
+    border-left: 1px solid rgba(255,255,255,12);
+}
+
+.tile-panel-close {
+    background: rgba(255,255,255,8);
+    color: rgba(255,255,255,120);
+    border: 1px solid rgba(255,255,255,12);
+    border-radius: 6px;
+    font-size: 14px;
+}
+
+.tile-panel-close:hover {
+    background: rgba(255,255,255,18);
+    color: white;
+}

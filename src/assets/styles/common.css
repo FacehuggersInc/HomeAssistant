@@ -1,0 +1,22 @@
+/* Shared classes pulled in from almost every widget file. Hex values
+   below are the resolved output of styling.py's COLORS palette at the
+   time this file was written — see src/styling.py if the palette
+   itself ever changes. */
+
+.transparent {
+    background: transparent;
+}
+
+.text-strong {
+    color: #f2f2f2;
+    background: transparent;
+}
+
+.text-muted {
+    color: #b3b3b3;
+    background: transparent;
+}
+
+.page-background {
+    background-color: #0d0d0d;
+}

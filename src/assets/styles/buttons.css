@@ -1,0 +1,59 @@
+/* src/ui/controls/buttons.py — size/colour/radius arguments that vary
+   per call site are patched in at runtime via set_style()'s override
+   dict; everything else lives here. */
+
+.icon-button {
+    background: transparent;
+    border: none;
+    border-radius: 0px;
+}
+
+.icon-button:hover {
+    background: rgba(255,255,255,25);
+}
+
+.icon-button:pressed {
+    background: rgba(255,255,255,50);
+}
+
+.icon-text-button {
+    background: transparent;
+    color: white;
+    border-radius: 2px;
+    border: none;
+    padding: 8px 12px;
+    text-align: left;
+}
+
+.icon-text-button:hover {
+    background: rgba(255,255,255,15);
+}
+
+.icon-text-button:pressed {
+    background: rgba(255,255,255,30);
+}
+
+.dropdown-button {
+    background: #0d0d0d;
+    border: none;
+    border-radius: 0px;
+}
+
+.dropdown-button:hover {
+    background: rgba(255,255,255,20);
+}
+
+.dropdown-button::menu-indicator {
+    image: none;
+}
+
+.dropdown-menu {
+    background: #262626;
+    color: #f2f2f2;
+    border: 1px solid #4d4d4d;
+    border-radius: 4px;
+}
+
+.dropdown-menu::item:selected {
+    background: #333333;
+}

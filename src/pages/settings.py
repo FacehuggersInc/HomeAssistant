@@ -16,16 +16,21 @@ from src.ui.widget import WidgetFramework
 from src.ui.controls.drawer import Drawer
 from src.ui.controls.buttons import IconButton
 from src.ui.icons import Icons
-from src.styling import COLORS, SIZES, make_font
+from src.styling import COLORS, SIZES, make_font, set_style, get_style_sheet
 from src.ui.keyboard import make_keyboard
 
 if TYPE_CHECKING:
     from src.main import Client
 
-BLOCK_BG    = "rgba(255,255,255,12)"
-BLOCK_BG_HV = "rgba(255,255,255,18)"
-BORDER      = COLORS.DARK.BORDER.NORMAL
-BORDER_FOCUS= COLORS.PRIMARY.LIGHT
+## INTERACTIVE SURFACE COLORS
+## -- Field, EnumComponent, and ToggleSwitch's "off" state all share this
+## -- translucent white-overlay tier, one step lighter than a
+## -- setting-block card, so the editable part of a setting reads as
+## -- raised OUT of its card rather than a disconnected solid-gray box.
+
+FIELD_BG           = QColor(255, 255, 255, 40)
+FIELD_BORDER       = QColor(255, 255, 255, 55)
+FIELD_BORDER_FOCUS = QColor(COLORS.PRIMARY.LIGHT)
 
 ## HELPERS
 
@@ -95,8 +100,8 @@ class ToggleSwitch(QWidget):
     def paintEvent(self, event):
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
-        track = QColor(COLORS.PRIMARY.LIGHT if self._checked else COLORS.DARK.BGDARK)
-        border = QColor(COLORS.PRIMARY.LIGHT if self._checked else COLORS.DARK.BORDER.NORMAL)
+        track = QColor(COLORS.PRIMARY.LIGHT) if self._checked else QColor(FIELD_BG)
+        border = QColor(COLORS.PRIMARY.LIGHT) if self._checked else QColor(FIELD_BORDER)
         p.setBrush(QBrush(track)); p.setPen(QPen(border, 1.5))
         p.drawRoundedRect(0, 0, self.W, self.H, self.H // 2, self.H // 2)
         p.setBrush(QBrush(QColor("white"))); p.setPen(Qt.GlobalColor.transparent)
@@ -113,8 +118,8 @@ class Field(QWidget):
     def __init__(self, setting, index=None, is_numeric=False, prefix="", suffix=""):
         super().__init__()
         self.setFixedHeight(44)
-        self._bg     = QColor(COLORS.DARK.BGLIGHT)
-        self._border = QColor(COLORS.DARK.BORDER.HIGHLIGHT)
+        self._bg     = QColor(FIELD_BG)
+        self._border = QColor(FIELD_BORDER)
         self._radius = 6
 
         val = setting["value"] if index is None else setting["value"][index]
@@ -127,14 +132,11 @@ class Field(QWidget):
             pl = QLabel(str(prefix))
             pl.setFont(make_font(SIZES.S2))
             pl.setFixedHeight(44)
-            pl.setStyleSheet(
-                f"color: {COLORS.DARK.TEXT.IMPORTANT};"
-                "background: transparent; border: none; padding: 0 10px;"
-            )
+            set_style(pl, "settings", "field-affix-prefix")
             sep = QFrame()
             sep.setFrameShape(QFrame.Shape.VLine)
             sep.setFixedSize(1, 44)
-            sep.setStyleSheet(f"background: {COLORS.DARK.BORDER.NORMAL}; border: none;")
+            set_style(sep, "settings", "field-separator")
             row.addWidget(pl)
             row.addWidget(sep)
 
@@ -142,14 +144,11 @@ class Field(QWidget):
         le = QLineEdit(str(val))
         le.setFont(make_font(SIZES.S3))
         le.setFixedHeight(44)
-        le.setStyleSheet(
-            f"QLineEdit {{ background: transparent; color: {COLORS.DARK.TEXT.IMPORTANT};"
-            "border: none; padding: 0 10px; }"
-        )
+        set_style(le, "settings", "field-input", object_tag="QLineEdit")
         _field = self
 
         def _focus_in(e):
-            _field._border = QColor(COLORS.PRIMARY.LIGHT)
+            _field._border = QColor(FIELD_BORDER_FOCUS)
             _field.update()
             QLineEdit.focusInEvent(le, e)
             # Open keyboard popup
@@ -165,7 +164,7 @@ class Field(QWidget):
                 pass
 
         def _focus_out(e):
-            _field._border = QColor(COLORS.DARK.BORDER.HIGHLIGHT)
+            _field._border = QColor(FIELD_BORDER)
             _field.update()
             QLineEdit.focusOutEvent(le, e)
 
@@ -191,14 +190,11 @@ class Field(QWidget):
             sep2 = QFrame()
             sep2.setFrameShape(QFrame.Shape.VLine)
             sep2.setFixedSize(1, 44)
-            sep2.setStyleSheet(f"background: {COLORS.DARK.BORDER.NORMAL}; border: none;")
+            set_style(sep2, "settings", "field-separator")
             sl = QLabel(str(suffix))
             sl.setFont(make_font(SIZES.S2))
             sl.setFixedHeight(44)
-            sl.setStyleSheet(
-                f"color: {COLORS.DARK.TEXT.MUTED};"
-                "background: transparent; border: none; padding: 0 10px;"
-            )
+            set_style(sl, "settings", "field-affix-suffix")
             row.addWidget(sep2)
             row.addWidget(sl)
 
@@ -217,24 +213,7 @@ class EnumComponent(QComboBox):
         self._filler  = "-" if setting.options and "-" in setting.options[0] else "_"
         self.setFont(make_font(SIZES.S2))
         self.setFixedHeight(44)
-        self.setStyleSheet(f"""
-            QComboBox {{
-                background: {COLORS.DARK.BGLIGHT};
-                color: {COLORS.DARK.TEXT.IMPORTANT};
-                border: 1px solid {BORDER};
-                border-radius: 6px;
-                padding: 0 12px;
-            }}
-            QComboBox:focus {{ border-color: {BORDER_FOCUS}; }}
-            QComboBox::drop-down {{ border: none; width: 32px; }}
-            QComboBox QAbstractItemView {{
-                background: {COLORS.DARK.BG};
-                color: {COLORS.DARK.TEXT.IMPORTANT};
-                border: 1px solid {BORDER};
-                selection-background-color: {COLORS.DARK.BGLIGHT};
-                padding: 4px;
-            }}
-        """)
+        self.setStyleSheet(get_style_sheet("settings_combobox"))
         for option in setting.options:
             self.addItem(format_name(option.strip()), userData=option)
             if option == setting.value:
@@ -247,13 +226,7 @@ class SettingBlock(QFrame):
     def __init__(self, client, setting=None, key="", content: QWidget = None):
         super().__init__()
         self.client = client
-        self.setStyleSheet(f"""
-            QFrame {{
-                background: {BLOCK_BG};
-                border-radius: 6px;
-                border: 1px solid rgba(255,255,255,8);
-            }}
-        """)
+        set_style(self, "settings", "setting-block")
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
 
         outer = QVBoxLayout(self)
@@ -271,7 +244,7 @@ class SettingBlock(QFrame):
 
         name_lbl = QLabel(setting.get("name") or format_name(key))
         name_lbl.setFont(make_font(SIZES.S2, bold=True))
-        name_lbl.setStyleSheet(f"color: {COLORS.DARK.TEXT.IMPORTANT}; background: transparent;")
+        set_style(name_lbl, "common", "text-strong")
         header.addWidget(name_lbl)
         header.addStretch()
         outer.addLayout(header)
@@ -280,7 +253,7 @@ class SettingBlock(QFrame):
         if desc:
             dl = QLabel(desc)
             dl.setFont(make_font(SIZES.S1))
-            dl.setStyleSheet(f"color: {COLORS.DARK.TEXT.MUTED}; background: transparent;")
+            set_style(dl, "common", "text-muted")
             dl.setWordWrap(True)
             outer.addWidget(dl)
 
@@ -307,13 +280,7 @@ class SettingBlock(QFrame):
             browse.setFont(make_font(SIZES.S1))
             browse.setCursor(Qt.CursorShape.PointingHandCursor)
             browse.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-            browse.setStyleSheet(
-                f"QPushButton {{ background: {COLORS.DARK.BGLIGHT};"
-                f" color: {COLORS.DARK.TEXT.IMPORTANT};"
-                f" border: 1px solid {COLORS.DARK.BORDER.NORMAL};"
-                f" border-radius: 6px; }}"
-                f"QPushButton:hover {{ background: {COLORS.DARK.BG}; }}"
-            )
+            set_style(browse, "settings", "settings-browse-button")
             def _browse(checked=False, _s=setting, _f=field):
                 from PyQt6.QtWidgets import QFileDialog
                 current = str(_s["value"])
@@ -326,7 +293,7 @@ class SettingBlock(QFrame):
                             break
             browse.clicked.connect(_browse)
             path_row = QWidget()
-            path_row.setStyleSheet("background: transparent;")
+            set_style(path_row, "common", "transparent")
             path_hl = QHBoxLayout(path_row)
             path_hl.setContentsMargins(0,0,0,0)
             path_hl.setSpacing(6)
@@ -355,13 +322,7 @@ class SettingBlock(QFrame):
 class PluginGroup(QFrame):
     def __init__(self, plugin, key: str, blocks: list):
         super().__init__()
-        self.setStyleSheet(f"""
-            QFrame {{
-                background: rgba(255,255,255,6);
-                border: 1px solid rgba(255,255,255,12);
-                border-radius: 8px;
-            }}
-        """)
+        set_style(self, "settings", "plugin-group")
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
 
         layout = QVBoxLayout(self)
@@ -370,24 +331,18 @@ class PluginGroup(QFrame):
 
         # Group header
         hdr = QWidget()
-        hdr.setStyleSheet(f"""
-            QWidget {{
-                background: rgba(255,255,255,10);
-                border-radius: 8px 8px 0 0;
-                border-bottom: 1px solid rgba(255,255,255,10);
-            }}
-        """)
+        set_style(hdr, "settings", "plugin-group-header")
         hl = QVBoxLayout(hdr)
         hl.setContentsMargins(16, 12, 16, 12)
         hl.setSpacing(2)
 
         nl = QLabel(plugin.config.plugin.name)
         nl.setFont(make_font(SIZES.M1, bold=True))
-        nl.setStyleSheet(f"color: {COLORS.DARK.TEXT.IMPORTANT}; background: transparent;")
+        set_style(nl, "common", "text-strong")
 
         ml = QLabel(key)
         ml.setFont(make_font(SIZES.S1))
-        ml.setStyleSheet(f"color: {COLORS.DARK.TEXT.MUTED}; background: transparent;")
+        set_style(ml, "common", "text-muted")
 
         hl.addWidget(nl)
         hl.addWidget(ml)
@@ -395,7 +350,7 @@ class PluginGroup(QFrame):
 
         if blocks:
             body = QWidget()
-            body.setStyleSheet("background: transparent;")
+            set_style(body, "common", "transparent")
             bl = QVBoxLayout(body)
             bl.setContentsMargins(12, 12, 12, 12)
             bl.setSpacing(6)
@@ -410,10 +365,7 @@ class PluginGroup(QFrame):
 def _section_label(text: str) -> QLabel:
     lbl = QLabel(text.upper())
     lbl.setFont(make_font(SIZES.S1))
-    lbl.setStyleSheet(
-        f"color: {COLORS.DARK.TEXT.MUTED}; background: transparent;"
-        "letter-spacing: 2px; padding-top: 4px;"
-    )
+    set_style(lbl, "settings", "section-label")
     return lbl
 
 
@@ -421,7 +373,7 @@ def _divider() -> QFrame:
     d = QFrame()
     d.setFrameShape(QFrame.Shape.HLine)
     d.setFixedHeight(1)
-    d.setStyleSheet(f"background: {COLORS.DARK.BORDER.HIGHLIGHT};")
+    set_style(d, "settings", "divider")
     return d
 
 
@@ -456,13 +408,7 @@ def _build_info_page(client) -> list:
     for label, value in rows:
         card = QFrame()
         card.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
-        card.setStyleSheet(f"""
-            QFrame {{
-                background: rgba(255,255,255,12);
-                border-radius: 6px;
-                border: 1px solid rgba(255,255,255,8);
-            }}
-        """)
+        set_style(card, "settings", "setting-block")
         card.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         row = QHBoxLayout(card)
         row.setContentsMargins(14, 10, 14, 10)
@@ -470,12 +416,12 @@ def _build_info_page(client) -> list:
 
         lbl = QLabel(label)
         lbl.setFont(make_font(SIZES.S2, bold=True))
-        lbl.setStyleSheet(f"color: {COLORS.DARK.TEXT.MUTED}; background: transparent;")
+        set_style(lbl, "common", "text-muted")
         lbl.setFixedWidth(120)
 
         val = QLabel(str(value))
         val.setFont(make_font(SIZES.S2))
-        val.setStyleSheet(f"color: {COLORS.DARK.TEXT.IMPORTANT}; background: transparent;")
+        set_style(val, "common", "text-strong")
         val.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
         val.setWordWrap(True)
 
@@ -488,7 +434,7 @@ def _build_info_page(client) -> list:
         f"Client ID is required as ?id=CLIENT_ID on all control and asset API requests."
     )
     hint.setFont(make_font(SIZES.S1))
-    hint.setStyleSheet(f"color: {COLORS.DARK.TEXT.MUTED}; background: transparent; padding: 4px 0;")
+    set_style(hint, "settings", "settings-hint")
     hint.setWordWrap(True)
     widgets.append(hint)
 
@@ -505,7 +451,7 @@ class SettingsPage(PageFramework):
         w = int(client.SETTINGS.application.window.size.value[0])
         h = int(client.SETTINGS.application.window.size.value[1])
         self.setFixedSize(w, h)
-        self.setStyleSheet(f"background-color: {COLORS.DARK.BGDARK};")
+        set_style(self, "common", "page-background")
 
         self.categories: dict[str, list] = {}
 
@@ -520,7 +466,7 @@ class SettingsPage(PageFramework):
         # ── Top bar ───────────────────────────────────────────────────────────
         top_bar = QWidget(self)
         top_bar.setGeometry(0, 0, w, BAR_H)
-        top_bar.setStyleSheet(f"background: rgba(0,0,0,60);")
+        set_style(top_bar, "settings", "settings-top-bar")
         self._top_bar = top_bar
 
         tl = QHBoxLayout(top_bar)
@@ -531,17 +477,7 @@ class SettingsPage(PageFramework):
         back_btn.setFont(make_font(SIZES.S3, bold=True))
         back_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         back_btn.setFixedHeight(44)
-        back_btn.setStyleSheet(f"""
-            QPushButton {{
-                background: {COLORS.PRIMARY.DARK};
-                color: white;
-                border: none;
-                border-radius: 8px;
-                padding: 0 20px;
-            }}
-            QPushButton:hover  {{ background: {COLORS.PRIMARY.LIGHT}; }}
-            QPushButton:pressed{{ background: {COLORS.PRIMARY.DARK}; opacity: 0.8; }}
-        """)
+        set_style(back_btn, "settings", "settings-back-button")
         back_btn.clicked.connect(self.return_and_save)
 
         tl.addWidget(back_btn)
@@ -550,7 +486,7 @@ class SettingsPage(PageFramework):
         # ── Body ──────────────────────────────────────────────────────────────
         body = QWidget(self)
         body.setGeometry(0, BAR_H, w, h - BAR_H)
-        body.setStyleSheet("background: transparent;")
+        set_style(body, "common", "transparent")
         self._body = body
 
         bl = QHBoxLayout(body)
@@ -560,7 +496,7 @@ class SettingsPage(PageFramework):
         # Nav panel
         nav_panel = QWidget()
         nav_panel.setFixedWidth(NAV_W)
-        nav_panel.setStyleSheet(f"background: rgba(0,0,0,40);")
+        set_style(nav_panel, "settings", "settings-nav-panel")
         nl = QVBoxLayout(nav_panel)
         nl.setContentsMargins(PAD, PAD, PAD, PAD)
         nl.setSpacing(4)
@@ -574,18 +510,13 @@ class SettingsPage(PageFramework):
         # Content scroll
         self._content_scroll = QScrollArea()
         self._content_scroll.setWidgetResizable(True)
-        self._content_scroll.setStyleSheet("""
-            QScrollArea { border: none; background: transparent; }
-            QScrollBar:vertical { background: transparent; width: 6px; margin: 0; }
-            QScrollBar::handle:vertical { background: rgba(255,255,255,40); border-radius: 3px; }
-            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical { height: 0; }
-        """)
+        self._content_scroll.setStyleSheet(get_style_sheet("settings_scroll"))
         self._content_scroll.setHorizontalScrollBarPolicy(
             Qt.ScrollBarPolicy.ScrollBarAlwaysOff
         )
 
         self._content_widget = QWidget()
-        self._content_widget.setStyleSheet("background: transparent;")
+        set_style(self._content_widget, "common", "transparent")
         self._content_layout = QVBoxLayout(self._content_widget)
         self._content_layout.setContentsMargins(PAD, PAD, PAD, 100)
         self._content_layout.setSpacing(8)
@@ -663,7 +594,7 @@ class SettingsPage(PageFramework):
                     if len(path.split(".")) > 1:
                         gap = QWidget()
                         gap.setFixedHeight(6)
-                        gap.setStyleSheet("background: transparent;")
+                        set_style(gap, "common", "transparent")
                         group.append(gap)
                     group.append(_section_label(format_name(key)))
                     group.append(_divider())
@@ -696,36 +627,26 @@ class SettingsPage(PageFramework):
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
             btn.setFixedHeight(44)
             btn.setCheckable(True)
-            btn.setStyleSheet(self._nav_style(False))
+            self._apply_nav_style(btn, False)
             btn.clicked.connect(lambda _, k=key, b=btn: self._switch_tab(k, b))
             self._nav_list.addWidget(btn)
             if first:
                 btn.setChecked(True)
-                btn.setStyleSheet(self._nav_style(True))
+                self._apply_nav_style(btn, True)
                 self._active_nav_btn = btn
                 self._show_category(key)
                 first = False
 
-    def _nav_style(self, active: bool) -> str:
+    def _apply_nav_style(self, btn: QPushButton, active: bool) -> None:
         bg = "rgba(255,255,255,18)" if active else "transparent"
-        return f"""
-            QPushButton {{
-                background: {bg};
-                color: {COLORS.DARK.TEXT.IMPORTANT};
-                border: none;
-                border-radius: 6px;
-                padding: 0 12px;
-                text-align: left;
-            }}
-            QPushButton:hover {{ background: rgba(255,255,255,12); }}
-        """
+        set_style(btn, "settings", "settings-nav-button", override={"*": {"background": bg}})
 
     def _switch_tab(self, key: str, btn: QPushButton) -> None:
         if self._active_nav_btn:
             self._active_nav_btn.setChecked(False)
-            self._active_nav_btn.setStyleSheet(self._nav_style(False))
+            self._apply_nav_style(self._active_nav_btn, False)
         btn.setChecked(True)
-        btn.setStyleSheet(self._nav_style(True))
+        self._apply_nav_style(btn, True)
         self._active_nav_btn = btn
         self._show_category(key)
         self.client.TIMEOUTS.start(self._timeout_id)

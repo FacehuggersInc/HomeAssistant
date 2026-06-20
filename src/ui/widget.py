@@ -4,6 +4,8 @@ from typing import TYPE_CHECKING
 from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QSizePolicy
 from PyQt6.QtCore import Qt, QTimer, QPoint, QRect
 
+from src.styling import set_style
+
 if TYPE_CHECKING:
     from src.main import Client
 
@@ -60,7 +62,7 @@ class Widget(QWidget):
         self.float_y  = float_y
         self.tags: list[str] = []
 
-        self.setStyleSheet("background: transparent;")
+        set_style(self, "common", "transparent")
 
         if width  is not None: self.setFixedWidth(width)
         if height is not None: self.setFixedHeight(height)
@@ -106,7 +108,7 @@ class _AnchorZone(QWidget):
         self.padding        = padding
         self.widget_spacing = widget_spacing
 
-        self.setStyleSheet("background: transparent;")
+        set_style(self, "common", "transparent")
         self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
 
         # Outer column — top anchors grow downward, bottom anchors grow upward
@@ -126,7 +128,7 @@ class _AnchorZone(QWidget):
         """Insert widget into the given row, creating the row if needed."""
         if row_index not in self._rows:
             row_widget = QWidget()
-            row_widget.setStyleSheet("background: transparent;")
+            set_style(row_widget, "common", "transparent")
             # Fixed vertical size so row doesn't expand beyond its content
             row_widget.setSizePolicy(
                 QSizePolicy.Policy.Preferred,
@@ -186,7 +188,7 @@ class WidgetFramework(QWidget):
         self.padding        = padding
         self.widget_spacing = widget_spacing
 
-        self.setStyleSheet("background: transparent;")
+        set_style(self, "common", "transparent")
 
         self._zones:   dict[str, _AnchorZone] = {}
         self._widgets: list[Widget]            = []

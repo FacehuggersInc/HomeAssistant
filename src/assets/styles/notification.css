@@ -1,0 +1,60 @@
+/* src/assets/bundled/CoreWidgetsBundle/widgets/notification.py */
+
+.notification-history-item {
+    background: #333333;
+    border-radius: 6px;
+    border: 1px solid rgba(255,255,255,10);
+}
+
+.notification-dismiss {
+    color: rgba(255,255,255,120);
+    background: transparent;
+    border: none;
+    font-size: 14px;
+}
+
+.notification-dismiss:hover {
+    color: white;
+}
+
+.notification-dot {
+    background: #3b82f6;
+    border-radius: 6px;
+}
+
+.notification-panel {
+    background: #262626;
+    border-radius: 8px;
+    border: 1px solid rgba(255,255,255,12);
+}
+
+.notification-panel-close {
+    background: rgba(255,255,255,8);
+    color: rgba(255,255,255,140);
+    border: 1px solid rgba(255,255,255,12);
+    border-radius: 6px;
+    font-size: 13px;
+}
+
+.notification-panel-close:hover {
+    background: rgba(255,255,255,18);
+    color: white;
+}
+
+.notification-panel-clear {
+    background: rgba(0,0,0,50);
+    color: #b3b3b3;
+    border: none;
+    border-radius: 4px;
+    padding: 6px 10px;
+    font-size: 13px;
+}
+
+.notification-panel-clear:hover {
+    background: rgba(255,255,255,15);
+}
+
+.notification-scroll {
+    border: none;
+    background: transparent;
+}

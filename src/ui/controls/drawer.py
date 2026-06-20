@@ -6,7 +6,7 @@ from PyQt6.QtCore import Qt, QPropertyAnimation, QEasingCurve, QPoint
 from PyQt6.QtGui import QPainter, QColor, QBrush, QPen
 
 from src.ui.controls.handle import Handle
-from src.styling import COLORS
+from src.styling import COLORS, set_style
 
 if TYPE_CHECKING:
     from src.main import Client
@@ -52,7 +52,7 @@ class Drawer(QWidget):
         self._bar = QWidget(self)
         self._bar.setFixedHeight(self.BUTTON_BAR_HEIGHT)
 
-        self._bar.setStyleSheet("background: transparent;")
+        set_style(self._bar, "common", "transparent")
         self._btn_layout = QHBoxLayout(self._bar)
         self._btn_layout.setContentsMargins(16, 0, 16, 0)
         self._btn_layout.setSpacing(8)

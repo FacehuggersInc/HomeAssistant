@@ -6,7 +6,7 @@ from PyQt6.QtWidgets import QVBoxLayout, QHBoxLayout, QLabel
 from PyQt6.QtCore import Qt
 
 from src.ui.widget import Widget
-from src.styling import make_font, SIZES, COLORS, add_text_shadow
+from src.styling import make_font, SIZES, add_text_shadow, set_style
 
 if TYPE_CHECKING:
     from src.main import Client
@@ -46,16 +46,13 @@ class WeatherWidget(Widget):
 
         self._icon_lbl = QLabel(self)
         self._icon_lbl.setFixedSize(_icon_size, _icon_size)
-        self._icon_lbl.setStyleSheet("background: transparent;")
+        set_style(self._icon_lbl, "common", "transparent")
         self._icon_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         add_text_shadow(self._icon_lbl, blur=8)
 
         self._temp_lbl = QLabel("--°", self)
         self._temp_lbl.setFont(_font)
-        self._temp_lbl.setStyleSheet(
-            f"color: {COLORS.DARK.TEXT.IMPORTANT}; background: transparent; "
-            f"letter-spacing: 3px;"
-        )
+        set_style(self._temp_lbl, "widgets", "weather-temp")
         add_text_shadow(self._temp_lbl, blur=8)
 
         row.addWidget(self._icon_lbl)

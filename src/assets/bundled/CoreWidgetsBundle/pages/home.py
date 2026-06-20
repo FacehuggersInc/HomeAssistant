@@ -5,6 +5,7 @@ from PyQt6.QtWidgets import QWidget
 from PyQt6.QtCore import Qt, QPoint
 
 from src.mixins import mixin_target
+from src.styling import set_style
 from src.ui.page import PageFramework, SubPageFramework
 from .sub.sub_home import SubHomePage
 from .sub.sub_tiles import SubTilesPage
@@ -22,7 +23,7 @@ class HomePage(PageFramework):
         w = int(client.SETTINGS.application.window.size.value[0])
         h = int(client.SETTINGS.application.window.size.value[1])
         self.setFixedSize(w, h)
-        self.setStyleSheet("background-color: #0d0d0d;")
+        set_style(self, "common", "page-background")
 
         # Sub-page registry
         self.sub_page_dict: dict[str, SubPageFramework] = {}

@@ -1,0 +1,6 @@
+/* src/main.py — the QMainWindow background. configure() overrides
+   background-color at runtime for callers that pass a custom bgcolor. */
+
+.main-window {
+    background-color: #0d0d0d;
+}

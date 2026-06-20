@@ -8,7 +8,7 @@ from PyQt6.QtGui import QPainter, QColor, QBrush, QPen, QMouseEvent
 import qtawesome as qta
 
 from src.ui.widgets.tile import Tile
-from src.styling import COLORS, make_font, SIZES
+from src.styling import make_font, SIZES, set_style, get_style_sheet
 
 if TYPE_CHECKING:
     from src.main import Client
@@ -72,9 +72,7 @@ class TilePanelItem(QWidget):
         #drag handling — clicking/dragging the title does nothing
         title_lbl = QLabel(tile.NAME or tile.KEY)
         title_lbl.setFont(make_font(SIZES.S2, bold=True))
-        title_lbl.setStyleSheet(
-            f"color: {COLORS.DARK.TEXT.IMPORTANT}; background: transparent;"
-        )
+        set_style(title_lbl, "common", "text-strong")
         title_lbl.setAlignment(Qt.AlignmentFlag.AlignHCenter)
         outer.addWidget(title_lbl)
 
@@ -97,7 +95,7 @@ class TilePanelItem(QWidget):
         #outer's AlignHCenter
         self.preview_container = QWidget()
         self.preview_container.setFixedSize(preview_w, preview_h)
-        self.preview_container.setStyleSheet("background: transparent;")
+        set_style(self.preview_container, "common", "transparent")
         outer.addWidget(self.preview_container, alignment=Qt.AlignmentFlag.AlignHCenter)
 
         tile.setParent(self.preview_container)
@@ -345,12 +343,8 @@ class TilePanel(QWidget):
         ph = page.height()
         self.setGeometry(page.width(), 0, self.WIDTH, ph)
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
-        self.setStyleSheet(f"""
-            QWidget {{
-                background: {COLORS.DARK.BG};
-                border-left: 1px solid rgba(255,255,255,12);
-            }}
-        """)
+        self.setObjectName("tile_panel")
+        set_style(self, "tile_panel", "tile-panel", object_tag="QWidget#tile_panel")
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 24, 16, 24)
@@ -363,16 +357,12 @@ class TilePanel(QWidget):
 
         title = QLabel("Tiles")
         title.setFont(make_font(SIZES.M1, bold=True))
-        title.setStyleSheet(f"color: {COLORS.DARK.TEXT.IMPORTANT}; background: transparent;")
+        set_style(title, "common", "text-strong")
 
         close_btn = QPushButton("\u2715")
         close_btn.setFixedSize(32, 32)
         close_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        close_btn.setStyleSheet(
-            "QPushButton { background: rgba(255,255,255,8); color: rgba(255,255,255,120);"
-            " border: 1px solid rgba(255,255,255,12); border-radius: 6px; font-size: 14px; }"
-            "QPushButton:hover { background: rgba(255,255,255,18); color: white; }"
-        )
+        set_style(close_btn, "tile_panel", "tile-panel-close")
         close_btn.clicked.connect(self.toggle)   #same toggle used to open it
 
         header_row.addWidget(title, stretch=1)
@@ -381,20 +371,18 @@ class TilePanel(QWidget):
 
         sub = QLabel("Drag a tile onto the grid to place it.")
         sub.setFont(make_font(SIZES.S1))
-        sub.setStyleSheet(f"color: {COLORS.DARK.TEXT.MUTED}; background: transparent;")
+        set_style(sub, "common", "text-muted")
         sub.setWordWrap(True)
         layout.addWidget(sub)
 
         #scrollable list of TilePanelItem widgets
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
-        scroll.setStyleSheet("QScrollArea { border: none; background: transparent; }"
-                             "QScrollBar:vertical { width: 4px; background: transparent; }"
-                             "QScrollBar::handle:vertical { background: rgba(255,255,255,30); border-radius: 2px; }")
+        scroll.setStyleSheet(get_style_sheet("tile_panel_scroll"))
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
 
         self.list_widget = QWidget()
-        self.list_widget.setStyleSheet("background: transparent;")
+        set_style(self.list_widget, "common", "transparent")
         self.list_layout = QVBoxLayout(self.list_widget)
         self.list_layout.setContentsMargins(0, 0, 0, 0)
         self.list_layout.setSpacing(16)

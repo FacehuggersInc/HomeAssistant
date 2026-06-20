@@ -12,7 +12,7 @@ from PyQt6.QtGui import QColor, QPainter, QBrush, QPen
 from src.ui.widget import Widget
 from src.ui.controls.buttons import IconButton
 from src.ui.icons import Icons, icon as resolve_icon
-from src.styling import COLORS, make_font, make_background_qss
+from src.styling import make_font, set_style
 
 if TYPE_CHECKING:
     from src.main import Client
@@ -36,13 +36,7 @@ class NotificationHistoryItem(QFrame):
         #Using the same colour as the parent panel was the original bug
         #here: visually there was no contrast between "this is a
         #notification card" and "this is empty panel background".
-        self.setStyleSheet(f"""
-            QFrame {{
-                background: {COLORS.DARK.BGLIGHT};
-                border-radius: 6px;
-                border: 1px solid rgba(255,255,255,10);
-            }}
-        """)
+        set_style(self, "notification", "notification-history-item")
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
 
         layout = QHBoxLayout(self)
@@ -56,7 +50,7 @@ class NotificationHistoryItem(QFrame):
         # never an actual icon at all)
         icon_lbl = QLabel()
         icon_lbl.setFixedSize(36, 36)
-        icon_lbl.setStyleSheet("background: transparent;")
+        set_style(icon_lbl, "common", "transparent")
         icon_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         try:
             icon_lbl.setPixmap(resolve_icon(icon or "bell", color="white").pixmap(24, 24))
@@ -75,7 +69,7 @@ class NotificationHistoryItem(QFrame):
         title_row = QHBoxLayout()
         title_lbl = QLabel(title)
         title_lbl.setFont(make_font(14, bold=True))
-        title_lbl.setStyleSheet(f"color: {COLORS.DARK.TEXT.IMPORTANT}; background: transparent;")
+        set_style(title_lbl, "common", "text-strong")
 
         # Time ago
         diff     = datetime.now() - timestamp
@@ -88,7 +82,7 @@ class NotificationHistoryItem(QFrame):
 
         time_lbl = QLabel(time_str)
         time_lbl.setFont(make_font(12))
-        time_lbl.setStyleSheet(f"color: {COLORS.DARK.TEXT.MUTED}; background: transparent;")
+        set_style(time_lbl, "common", "text-muted")
         time_lbl.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
 
         title_row.addWidget(title_lbl)
@@ -97,7 +91,7 @@ class NotificationHistoryItem(QFrame):
 
         body_lbl = QLabel(body[:120] + ("…" if len(body) > 120 else ""))
         body_lbl.setFont(make_font(13))
-        body_lbl.setStyleSheet(f"color: {COLORS.DARK.TEXT.MUTED}; background: transparent;")
+        set_style(body_lbl, "common", "text-muted")
         body_lbl.setWordWrap(True)
 
         text_col.addLayout(title_row)
@@ -107,15 +101,7 @@ class NotificationHistoryItem(QFrame):
         # Dismiss button
         dismiss_btn = QPushButton("✕")
         dismiss_btn.setFixedSize(24, 24)
-        dismiss_btn.setStyleSheet("""
-            QPushButton {
-                color: rgba(255,255,255,120);
-                background: transparent;
-                border: none;
-                font-size: 14px;
-            }
-            QPushButton:hover { color: white; }
-        """)
+        set_style(dismiss_btn, "notification", "notification-dismiss")
         dismiss_btn.clicked.connect(self._remove)
         layout.addWidget(dismiss_btn)
 
@@ -204,7 +190,7 @@ class NotificationCenterWidget(Widget):
         # Blue dot
         self._dot = QWidget(self)
         self._dot.setGeometry(self.SIZE - 18, 5, 13, 13)
-        self._dot.setStyleSheet("background: #3b82f6; border-radius: 6px;")
+        set_style(self._dot, "notification", "notification-dot")
         self._dot.hide()
 
         self._panel: "NotificationPanel | None" = None
@@ -274,14 +260,8 @@ class NotificationPanel(QWidget):
 
         self.setFixedSize(self.WIDTH, win_h - (margin * 3) - 55)
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
-        self.setStyleSheet(f"""
-            QWidget#notif_panel {{
-                background: {COLORS.DARK.BG};
-                border-radius: 8px;
-                border: 1px solid rgba(255,255,255,12);
-            }}
-        """)
         self.setObjectName("notif_panel")
+        set_style(self, "notification", "notification-panel", object_tag="QWidget#notif_panel")
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(16, 12, 16, 12)
@@ -291,34 +271,18 @@ class NotificationPanel(QWidget):
         header = QHBoxLayout()
         title_lbl = QLabel("Notifications")
         title_lbl.setFont(make_font(20, bold=True))
-        title_lbl.setStyleSheet(
-            f"color: {COLORS.DARK.TEXT.IMPORTANT}; background: transparent;"
-        )
+        set_style(title_lbl, "common", "text-strong")
 
         close_btn = QPushButton("\u2715")
         close_btn.setFixedSize(28, 28)
         close_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        close_btn.setStyleSheet(
-            "QPushButton { background: rgba(255,255,255,8); color: rgba(255,255,255,140);"
-            " border: 1px solid rgba(255,255,255,12); border-radius: 6px; font-size: 13px; }"
-            "QPushButton:hover { background: rgba(255,255,255,18); color: white; }"
-        )
+        set_style(close_btn, "notification", "notification-panel-close")
         close_btn.clicked.connect(self.toggle)
 
         clear_btn = QPushButton("Clear history")
         clear_btn.setFixedWidth(120)
         clear_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        clear_btn.setStyleSheet(f"""
-            QPushButton {{
-                background: rgba(0,0,0,50);
-                color: {COLORS.DARK.TEXT.MUTED};
-                border: none;
-                border-radius: 4px;
-                padding: 6px 10px;
-                font-size: 13px;
-            }}
-            QPushButton:hover {{ background: rgba(255,255,255,15); }}
-        """)
+        set_style(clear_btn, "notification", "notification-panel-clear")
         clear_btn.clicked.connect(self.manager.history.clear)
 
         header.addWidget(title_lbl)
@@ -330,11 +294,11 @@ class NotificationPanel(QWidget):
         #scrollable list of history items
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
-        scroll.setStyleSheet("QScrollArea { border: none; background: transparent; }")
+        set_style(scroll, "notification", "notification-scroll", object_tag="QScrollArea")
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
 
         self._list_widget = QWidget()
-        self._list_widget.setStyleSheet("background: transparent;")
+        set_style(self._list_widget, "common", "transparent")
         self._list_layout = QVBoxLayout(self._list_widget)
         self._list_layout.setContentsMargins(0, 0, 0, 0)
         self._list_layout.setSpacing(4)

@@ -1,0 +1,111 @@
+/* src/pages/settings.py */
+
+.field-affix-prefix {
+    color: #f2f2f2;
+    background: transparent;
+    border: none;
+    padding: 0 10px;
+}
+
+.field-affix-suffix {
+    color: #b3b3b3;
+    background: transparent;
+    border: none;
+    padding: 0 10px;
+}
+
+.field-separator {
+    background: #4d4d4d;
+    border: none;
+}
+
+.field-input {
+    background: transparent;
+    color: #f2f2f2;
+    border: none;
+    padding: 0 10px;
+}
+
+.setting-block {
+    background: rgba(255,255,255,16);
+    border-radius: 8px;
+    border: 1px solid rgba(255,255,255,32);
+}
+
+.settings-browse-button {
+    background: #333333;
+    color: #f2f2f2;
+    border: 1px solid #4d4d4d;
+    border-radius: 6px;
+}
+
+.settings-browse-button:hover {
+    background: #262626;
+}
+
+.plugin-group {
+    background: rgba(255,255,255,5);
+    border: 1px solid rgba(255,255,255,16);
+    border-radius: 8px;
+}
+
+.plugin-group-header {
+    background: rgba(255,255,255,10);
+    border-radius: 8px 8px 0 0;
+    border-bottom: 1px solid rgba(255,255,255,16);
+}
+
+.section-label {
+    color: #b3b3b3;
+    background: transparent;
+    letter-spacing: 2px;
+    padding-top: 4px;
+}
+
+.divider {
+    background: #999999;
+}
+
+.settings-hint {
+    color: #b3b3b3;
+    background: transparent;
+    padding: 4px 0;
+}
+
+.settings-top-bar {
+    background: rgba(0,0,0,60);
+}
+
+.settings-back-button {
+    background: #0f3e27;
+    color: white;
+    border: none;
+    border-radius: 8px;
+    padding: 0 20px;
+}
+
+.settings-back-button:hover {
+    background: #2abb75;
+}
+
+.settings-back-button:pressed {
+    background: #0f3e27;
+    opacity: 0.8;
+}
+
+.settings-nav-panel {
+    background: rgba(0,0,0,40);
+}
+
+.settings-nav-button {
+    background: transparent;
+    color: #f2f2f2;
+    border: none;
+    border-radius: 6px;
+    padding: 0 12px;
+    text-align: left;
+}
+
+.settings-nav-button:hover {
+    background: rgba(255,255,255,12);
+}

@@ -9,7 +9,7 @@ from src.ui.page import PageFramework
 from src.ui.controls.drawer import Drawer
 from src.ui.controls.buttons import IconButton
 from src.ui.icons import Icons
-from src.styling import make_font, COLORS, add_text_shadow
+from src.styling import make_font, add_text_shadow, set_style
 
 if TYPE_CHECKING:
     from src.main import Client
@@ -53,7 +53,7 @@ class RootPage(PageFramework):
         w = int(client.SETTINGS.application.window.size.value[0])
         h = int(client.SETTINGS.application.window.size.value[1])
         self.setFixedSize(w, h)
-        self.setStyleSheet(f"background-color: {COLORS.DARK.BGDARK};")
+        set_style(self, "common", "page-background")
 
         # ── Grid background ───────────────────────────────────────────────────
         self._grid = _GridBackground(self)
@@ -61,7 +61,7 @@ class RootPage(PageFramework):
 
         # ── Centre message ────────────────────────────────────────────────────
         centre = QWidget(self)
-        centre.setStyleSheet("background: transparent;")
+        set_style(centre, "common", "transparent")
         centre.setFixedWidth(600)
 
         layout = QVBoxLayout(centre)
@@ -71,7 +71,7 @@ class RootPage(PageFramework):
 
         title = QLabel("No home page installed")
         title.setFont(make_font(28, bold=True))
-        title.setStyleSheet(f"color: {COLORS.DARK.TEXT.IMPORTANT}; background: transparent;")
+        set_style(title, "common", "text-strong")
         title.setAlignment(Qt.AlignmentFlag.AlignHCenter)
         add_text_shadow(title, blur=8)
 
@@ -80,18 +80,14 @@ class RootPage(PageFramework):
             "CoreWidgetsBundle for the default home experience."
         )
         body.setFont(make_font(16, bold=False))
-        body.setStyleSheet(f"color: {COLORS.DARK.TEXT.MUTED}; background: transparent;")
+        set_style(body, "common", "text-muted")
         body.setAlignment(Qt.AlignmentFlag.AlignHCenter)
         body.setWordWrap(True)
         add_text_shadow(body, blur=6)
 
         hint = QLabel("src/assets/bundled/CoreWidgetsBundle")
         hint.setFont(make_font(13, bold=False, family="monospace"))
-        hint.setStyleSheet(
-            f"color: {COLORS.PRIMARY.LIGHT}; background: rgba(255,255,255,8);"
-            f"border: 1px solid rgba(255,255,255,15); border-radius: 4px;"
-            f"padding: 6px 14px;"
-        )
+        set_style(hint, "root", "root-hint")
         hint.setAlignment(Qt.AlignmentFlag.AlignHCenter)
 
         layout.addWidget(title)

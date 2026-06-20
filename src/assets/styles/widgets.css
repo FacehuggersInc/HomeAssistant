@@ -1,0 +1,14 @@
+/* Shared by the small CoreWidgetsBundle home-screen widgets:
+   src/assets/bundled/CoreWidgetsBundle/widgets/datetime.py,
+   weather.py, and widgets/tiles/clock_tile.py. */
+
+.widget-label-light {
+    color: white;
+    background: transparent;
+}
+
+.weather-temp {
+    color: #f2f2f2;
+    background: transparent;
+    letter-spacing: 3px;
+}

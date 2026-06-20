@@ -15,7 +15,7 @@ from src.ui.widgets.tile_panel import TilePanel
 from src.ui.controls.drawer import Drawer
 from src.ui.controls.buttons import IconButton
 from src.ui.icons import Icons
-from src.styling import COLORS
+from src.styling import set_style
 
 if TYPE_CHECKING:
     from src.main import Client
@@ -154,7 +154,7 @@ class SubTilesPage(SubPageFramework):
         w = int(client.SETTINGS.application.window.size.value[0])
         h = int(client.SETTINGS.application.window.size.value[1])
         self.setFixedSize(w, h)
-        self.setStyleSheet(f"background-color: {COLORS.DARK.BGDARK};")
+        set_style(self, "common", "page-background")
 
         ## -- BACKGROUND
 
@@ -202,14 +202,7 @@ class SubTilesPage(SubPageFramework):
         self.panel_btn.setIcon(qta.icon("mdi.view-grid-plus", color="rgba(255,255,255,120)"))
         self.panel_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.panel_btn.setParent(self)
-        self.panel_btn.setStyleSheet("""
-            QPushButton {
-                background: rgba(255,255,255,10);
-                border: 1px solid rgba(255,255,255,15);
-                border-radius: 8px;
-            }
-            QPushButton:hover { background: rgba(255,255,255,18); }
-        """)
+        set_style(self.panel_btn, "sub_tiles", "tiles-panel-button")
         self.panel_btn.clicked.connect(self.tile_panel.toggle)
         self.panel_btn.move(w - 56, 16)
         self.panel_btn.show()

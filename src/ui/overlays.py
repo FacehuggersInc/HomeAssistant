@@ -8,6 +8,8 @@ from PyQt6.QtCore import (
 )
 from PyQt6.QtGui import QColor, QPainter, QBrush, QPen
 
+from src.styling import set_style
+
 if TYPE_CHECKING:
     from src.main import Client
 
@@ -46,7 +48,7 @@ class OverlayManager(QWidget):
         self.client = client
 
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
-        self.setStyleSheet("background: transparent;")
+        set_style(self, "common", "transparent")
 
         # Each layer is a list of QWidget references for tracking
         self._layers: dict[str, list[QWidget]] = {
@@ -166,7 +168,7 @@ class OverlayedWidget(QWidget):
                 icon_lbl = _QL()
                 icon_lbl.setFixedSize(32, 32)
                 icon_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-                icon_lbl.setStyleSheet("background: transparent;")
+                set_style(icon_lbl, "common", "transparent")
                 # Try to resolve as a registered icon name or mdi.* name
                 try:
                     from src.ui.icons import icon as _resolve_icon, resolve as _resolve_name
@@ -177,10 +179,10 @@ class OverlayedWidget(QWidget):
                     else:
                         # Plain text/emoji fallback
                         icon_lbl.setText(icon[:2])
-                        icon_lbl.setStyleSheet("color: white; background: transparent; font-size: 18px;")
+                        set_style(icon_lbl, "overlays", "toast-icon-fallback")
                 except Exception:
                     icon_lbl.setText("🔔")
-                    icon_lbl.setStyleSheet("color: white; background: transparent; font-size: 18px;")
+                    set_style(icon_lbl, "overlays", "toast-icon-fallback")
                 row.addWidget(icon_lbl)
 
             text_col = QVBoxLayout()
@@ -190,9 +192,7 @@ class OverlayedWidget(QWidget):
 
             if title:
                 title_lbl = QLabel(title)
-                title_lbl.setStyleSheet(
-                    "color: white; font-size: 15px; font-weight: bold; background: transparent;"
-                )
+                set_style(title_lbl, "overlays", "toast-title")
                 title_lbl.setWordWrap(False)
                 title_lbl.setContentsMargins(0, 0, 0, 0)
                 text_col.addWidget(title_lbl)
@@ -200,9 +200,7 @@ class OverlayedWidget(QWidget):
             if body:
                 body_text = body if len(body) <= 90 else body[:87] + "..."
                 body_lbl  = QLabel(body_text)
-                body_lbl.setStyleSheet(
-                    "color: rgba(255,255,255,170); font-size: 13px; background: transparent;"
-                )
+                set_style(body_lbl, "overlays", "toast-body")
                 body_lbl.setWordWrap(True)
                 body_lbl.setContentsMargins(0, 0, 0, 0)
                 text_col.addWidget(body_lbl)

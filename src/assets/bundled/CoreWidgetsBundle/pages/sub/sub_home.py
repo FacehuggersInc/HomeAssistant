@@ -5,6 +5,7 @@ from PyQt6.QtWidgets import QWidget
 from PyQt6.QtCore import Qt
 
 from src.mixins import mixin_target
+from src.styling import set_style
 from src.ui.page import SubPageFramework
 from src.ui.widget import WidgetFramework
 from src.ui.controls.drawer import Drawer
@@ -25,7 +26,7 @@ class SubHomePage(SubPageFramework):
         w = int(client.SETTINGS.application.window.size.value[0])
         h = int(client.SETTINGS.application.window.size.value[1])
         self.setFixedSize(w, h)
-        self.setStyleSheet("background-color: #0d0d0d;")
+        set_style(self, "common", "page-background")
 
         # Widget layer — empty space passes clicks through to the drawer
         # handle via WidgetFramework's own mouse event handling (it

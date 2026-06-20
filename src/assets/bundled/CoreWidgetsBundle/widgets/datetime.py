@@ -7,7 +7,7 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFontMetrics
 
 from src.ui.widget import Widget
-from src.styling import make_font, add_text_shadow
+from src.styling import make_font, add_text_shadow, set_style
 
 if TYPE_CHECKING:
     from src.main import Client
@@ -52,7 +52,7 @@ class DateTimeWidget(Widget):
             f = make_font(date_size, bold=False, family=date_font)
             self._date_lbl = QLabel(self)
             self._date_lbl.setFont(f)
-            self._date_lbl.setStyleSheet("color: white; background: transparent;")
+            set_style(self._date_lbl, "widgets", "widget-label-light")
             self._date_lbl.setContentsMargins(0, 0, 0, 0)
             self._date_lbl.setFixedHeight(QFontMetrics(f).height())
             add_text_shadow(self._date_lbl, blur=8, offset_x=1, offset_y=1)
@@ -62,7 +62,7 @@ class DateTimeWidget(Widget):
             f = make_font(time_size, bold=False, family=time_font)
             self._time_lbl = QLabel(self)
             self._time_lbl.setFont(f)
-            self._time_lbl.setStyleSheet("color: white; background: transparent;")
+            set_style(self._time_lbl, "widgets", "widget-label-light")
             self._time_lbl.setContentsMargins(0, 0, 0, 0)
             self._time_lbl.setFixedHeight(QFontMetrics(f).height())
             add_text_shadow(self._time_lbl, blur=8, offset_x=1, offset_y=1)

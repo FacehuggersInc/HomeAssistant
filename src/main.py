@@ -37,7 +37,7 @@ from src.assistant.skill import Skill, SkillIntentEngine
 from src.assistant.stt import STTProcessing
 from src.assistant.tts import TTSProcessing
 from src.ui.overlays import OverlayManager, NotificationManager, DialogManager
-from src.styling import COLORS, make_background_qss, THEME_GRADIENT_QSS
+from src.styling import COLORS, load_styles, set_style
 
 EVENT_LEVELS = Literal["debug", "info", "warning", "error", "critical"]
 EVENTS = Literal[
@@ -203,6 +203,13 @@ class Client:
         self.register_asset("plugins", Asset(cwd / "plugins"),                  "FOLDER")
         self.register_asset("fonts",   Asset(cwd / "src" / "assets" / "fonts"), "FOLDER")
         self.register_asset("icons",   Asset(cwd / "src" / "assets" / "icons"), "FOLDER")
+        self.register_asset("styles",  Asset(cwd / "src" / "assets" / "styles"), "FOLDER")
+
+        #parses every *.css class file into STYLES — must run before any
+        #widget that calls set_style()/get_style() gets constructed
+        self.log("info", "[Styling] Loading Styles")
+        load_styles()
+        
 
         self.DATAPATH = Asset(get_data_dir(APP_NAME))
         self.DATA     = Asset(self.DATAPATH / f"{APP_NAME.replace(' ', '')}.json")
@@ -476,9 +483,7 @@ class Client:
             Qt.WindowType.WindowStaysOnTopHint
         )
         self.window.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
-        self.window.setStyleSheet(
-            f"QMainWindow {{ background-color: {COLORS.DARK.BGDARK}; }}"
-        )
+        set_style(self.window, "main", "main-window", object_tag="QMainWindow")
 
         #register fonts
         fonts_dir = Path("src") / "assets" / "fonts"
@@ -530,9 +535,8 @@ class Client:
         if w is not None: self.window.resize(w, self.window.height())
         if h is not None: self.window.resize(self.window.width(), h)
         if bgcolor:
-            self.window.setStyleSheet(
-                f"QMainWindow {{ background-color: {bgcolor}; }}"
-            )
+            set_style(self.window, "main", "main-window", object_tag="QMainWindow",
+                      override={"*": {"background-color": bgcolor}})
         if re_center and not (x or y):
             screen = self.app.primaryScreen().size()
             self.window.move(

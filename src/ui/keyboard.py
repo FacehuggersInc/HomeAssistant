@@ -8,7 +8,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, QPropertyAnimation, QEasingCurve, QPoint, pyqtSignal
 from PyQt6.QtGui import QPainter, QColor, QBrush, QPen
 
-from src.styling import COLORS, make_font, SIZES
+from src.styling import make_font, SIZES, set_style
 
 
 # ── Key button ────────────────────────────────────────────────────────────────
@@ -22,17 +22,7 @@ class _Key(QPushButton):
         self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         w = 100 if wide else 52
         self.setFixedSize(w, 52)
-        self.setStyleSheet(f"""
-            QPushButton {{
-                background: {COLORS.DARK.BGLIGHT};
-                color: {COLORS.DARK.TEXT.IMPORTANT};
-                border: 1px solid {COLORS.DARK.BORDER.NORMAL};
-                border-radius: 6px;
-                font-size: {SIZES.S2}px;
-            }}
-            QPushButton:hover  {{ background: {COLORS.DARK.BG}; }}
-            QPushButton:pressed{{ background: rgba(255,255,255,8); }}
-        """)
+        set_style(self, "keyboard", "key-button")
 
 
 # ── Base keyboard ─────────────────────────────────────────────────────────────
@@ -52,14 +42,8 @@ class KeyboardPopup(QWidget):
         self._caps  = False
 
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
-        self.setStyleSheet(f"""
-            QWidget#kb_popup {{
-                background: {COLORS.DARK.BG};
-                border-top: 1px solid {COLORS.DARK.BORDER.NORMAL};
-                border-radius: 0px;
-            }}
-        """)
         self.setObjectName("kb_popup")
+        set_style(self, "keyboard", "keyboard-popup", object_tag="QWidget#kb_popup")
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(16, 12, 16, 12)
@@ -69,9 +53,7 @@ class KeyboardPopup(QWidget):
         preview_row = QHBoxLayout()
         self._preview = QLabel()
         self._preview.setFont(make_font(SIZES.S3))
-        self._preview.setStyleSheet(
-            f"color: {COLORS.DARK.TEXT.IMPORTANT}; background: transparent;"
-        )
+        set_style(self._preview, "common", "text-strong")
         self._refresh_preview()
 
         close_btn = _Key("✕", "close", wide=False)

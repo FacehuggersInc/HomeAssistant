@@ -1,0 +1,21 @@
+/* src/ui/overlays.py — the toast notification card built by
+   OverlayedWidget when it isn't handed a pre-built content widget. */
+
+.toast-icon-fallback {
+    color: white;
+    background: transparent;
+    font-size: 18px;
+}
+
+.toast-title {
+    color: white;
+    font-size: 15px;
+    font-weight: bold;
+    background: transparent;
+}
+
+.toast-body {
+    color: rgba(255,255,255,170);
+    font-size: 13px;
+    background: transparent;
+}
