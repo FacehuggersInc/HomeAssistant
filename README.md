@@ -466,7 +466,7 @@ if page.has_feature("add_widgets"):
 
 ## Example: `WidgetFramework`
 
-`WidgetFramework` is the system behind anchored widgets like `DateTimeWidget` or `WeatherWidget`. A page that wants widgets constructs one, parents it, and exposes a couple of its methods as Features — see `SubHomePage`:
+Widgets are reusable UI components — not intended to be directly inserted into layouts, but managed by a Page system like `WidgetFramework`. `WidgetFramework` is the system behind anchored widgets like `DateTimeWidget` or `WeatherWidget`. A page that wants widgets constructs one, parents it, and exposes a couple of its methods as Features — see `SubHomePage`:
 
 ```python
 self.widget_manager = WidgetFramework(
@@ -496,9 +496,17 @@ def _inject_widgets(self, sub_home, *args):
     ])
 ```
 
+Flow, end to end:
+
+```text
+Plugin → Page Feature → WidgetFramework → Widget
+```
+
+Examples from `CoreWidgetsBundle`: `WeatherWidget`, `DateTimeWidget`, `NotificationCenterWidget`, `CyclingBackground`.
+
 ## Example: `TileGrid`
 
-`TileGrid` is the system behind the tiles page. `SubTilesPage` constructs it the same way, but exposes a richer set of Features — several individual methods, **and** the raw `TileGrid` instance itself:
+Tiles are lightweight interactive UI components, managed the same way — a Page system (`TileGrid`) owns them, plugins never manipulate layouts directly. `SubTilesPage` constructs `TileGrid` the same way `SubHomePage` constructs `WidgetFramework`, but exposes a richer set of Features — several individual methods, **and** the raw `TileGrid` instance itself:
 
 ```python
 self.tile_grid = TileGrid(client, cols=16, rows=10)
@@ -527,6 +535,12 @@ def _inject_tile(self, sub_tiles, *args):
 
 Notice `register_tile` here is `SubTilesPage`'s **own** method, not `TileGrid`'s — the page wraps `TileGrid.add_tile` with extra logic (checking for a saved position, deciding panel vs. grid) before deciding what to call. This is the pattern to follow when a Feature needs to do more than just forward straight through to the underlying system: write the logic as a method on the Page itself, and expose *that* instead of the raw sub-system method.
 
+Flow, end to end:
+
+```text
+Plugin → Page Feature → TileGrid → Tile
+```
+
 ## General guidance
 
 * Expose the smallest, most specific set of methods a typical plugin actually needs.
@@ -536,80 +550,15 @@ Notice `register_tile` here is `SubTilesPage`'s **own** method, not `TileGrid`'s
 
 ---
 
-# Widgets
-
-Widgets are reusable UI components.
-
-Widgets are not intended to be directly inserted into layouts.
-
-Instead, they are managed by Page systems such as `WidgetFramework`.
-
-Examples from `CoreWidgetsBundle`:
-
-* WeatherWidget
-* DateTimeWidget
-* NotificationCenterWidget
-* CyclingBackground
-
-Flow:
-
-```text
-Plugin
-
-↓
-
-Page Feature
-
-↓
-
-WidgetFramework
-
-↓
-
-Widget
-```
-
----
-
-# Tiles
-
-Tiles are lightweight interactive UI components.
-
-Tiles are managed by Page systems such as `TileGrid`.
-
-Like Widgets, plugins should not directly manipulate layouts.
-
-Flow:
-
-```text
-Plugin
-
-↓
-
-Page Feature
-
-↓
-
-TileGrid
-
-↓
-
-Tile
-```
-
----
-
 # Registries
 
 Registries manage and store extendable, plugin-ownable objects — things like API endpoints or pages, that a plugin registers and expects to have cleaned up automatically when it's unloaded or reloaded.
 
-Three concrete registries currently exist:
+Three concrete registries currently exist. They are not all shaped the same way.
 
-* `PublicRegistry` — plugin-exposed variables and objects (`self.client.public`)
-* `APIRegistry` — backend API endpoints owned by a plugin (`self.client.API_REGISTRY`)
-* `PageRegistry` — pages owned by a plugin or the Client itself (`self.client.PAGES`)
+## `APIRegistry` and `PageRegistry`
 
-All three follow the same shape:
+These two share the same shape:
 
 ```python
 registry.register(owner, key, ...)
@@ -619,12 +568,33 @@ registry.unregister(owner, key="")
 `owner` is the plugin's key (or `"client"` for things the Client itself owns, like `#root` and `#settings`). Registering something under your plugin's key means `PluginManager.unload_plugin()` cleans it up automatically when your plugin is unloaded or reloaded — you should not need to manually remove anything you registered this way (see Plugin Lifecycle → `unload()`).
 
 ```python
-# APIRegistry
+# APIRegistry — self.client.API_REGISTRY
 self.client.API_REGISTRY.register("myplugin", "my_endpoint", self.my_callback, False, False)
+self.client.API_REGISTRY.unregister("myplugin", "my_endpoint")
 
-# PageRegistry
+# PageRegistry — self.client.PAGES (wrapped by add_page, see Pages below)
 self.client.add_page("#mypage", "My Page", MyPage, owner="myplugin")
+self.client.PAGES.unregister("myplugin", "#mypage")
 ```
+
+## `PublicRegistry`
+
+This one is shaped differently — `expose` / `unexpose` rather than `register` / `unregister`, since it's not registering a discrete thing with a lifecycle so much as just making a variable or object visible to everyone else:
+
+```python
+self.client.public.expose(owner, name, value, overwrite=False)
+self.client.public.unexpose(owner, name)
+```
+
+```python
+# PublicRegistry — self.client.public
+self.client.public.expose("myplugin", "my_shared_state", self.my_shared_state)
+
+# elsewhere, any other plugin can read it directly:
+self.client.public.my_shared_state
+```
+
+Like the other two, anything exposed under your plugin's key is cleared automatically on unload via `self.client.public.clear(owner)` — you don't need to call `unexpose` yourself during a normal teardown.
 
 ---
 
