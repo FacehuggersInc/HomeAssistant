@@ -337,8 +337,8 @@ class Client:
     def unsubscribe_from_event(self, on_call_type: EVENTS, callable_: Callable) -> None:
         try:
             self.EVENTS["on_call"][on_call_type].remove(callable_)
-        except Exception:
-            pass
+        except Exception as e:
+            self.log("error", f"Could not unsubscribe to {on_call_type} w/ {callable_}: {e}")
 
     def create_on_call_event(self, call_type: str) -> None:
         if call_type in EVENTS:

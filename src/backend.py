@@ -127,6 +127,7 @@ def FlaskApp(client):
 
 		except Exception as e:
 			client.simple_notify("error", "Update Failed", str(e))
+			client.log("error", f"[backend.update_client] Update Failed: {e}")
 			return {"request": "Failed", "reason": str(e)}, 500
 		finally:
 			shutil.rmtree(temp_dir, ignore_errors=True)
@@ -155,7 +156,9 @@ def FlaskApp(client):
 				if not body:  missing.append("body")
 				return {"request": "Failed", "reason": f"missing -> {missing}"}, 404
 		except Exception as e:
+			client.log("error", f"[backend.backend_notify] Notify Failed: {e}")
 			return {"request": "Failed", "reason": str(e)}, 500
+			
 	
 	@app.route("/process", methods=["GET"])
 	def start_intent():
@@ -197,8 +200,8 @@ def FlaskApp(client):
 						info["size"] = f"{total / (1024 * 1024):.1f} MB"
 					else:
 						info["size"] = f"{total / (1024 ** 3):.2f} GB"
-			except Exception:
-				pass
+			except Exception as e:
+				client.log("error", f"[backend.upload_index] Upload Failed: {e}")
 			uploadable.append(info)
 
 		id_param = request.args.get("id", "")
@@ -379,7 +382,9 @@ def FlaskApp(client):
 				try:
 					return end.call(**request.args)
 				except Exception as e:
+					client.log("error", f"[backend.registered_endpoint_routing] Endpoint Call Failed: {e}")
 					return {"request":"Failed", "reason":f"Public endpoint failed due to: {e}"}, 200
+					
 			
 			else:
 				log("warning", "Registry.None")
