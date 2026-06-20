@@ -127,23 +127,23 @@ Plugins provide functionality.
 
 ## Pages
 
-Pages own UI systems.
+Own UI systems.
 
 ## Features
 
-Features expose extensibility for Pages.
+Features expose extensibility for Pages and Sub-Systems.
 
 ## Mixins
 
-Mixins extend existing behavior.
+Mixins rigidly extend existing behavior.
 
 ## Widgets & Tiles
 
-Widgets and Tiles are reusable UI components.
+Widgets and Tiles are reusable UI components. Usually added via Pages and their Features
 
 ## Registries
 
-Registries expose globally accessible resources.
+Registries manage and store extendable objects. Like API Endpoints, Pages, Etc. These are meant to be easily registered and unloaded for plugin use.
 
 Understanding these concepts will make understanding the rest of the application much easier.
 
