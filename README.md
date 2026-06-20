@@ -190,9 +190,13 @@ At minimum it must contain:
 [plugin]
 name = "My Plugin"
 key = "myplugin"
+```
 
+And if you want editable settings that Users can interact with, in that same toml file:
+
+```toml
 [settings]
-path = "/path/to/.json
+path = "/path/to/.json"
 ```
 
 * `name` = Display name
