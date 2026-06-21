@@ -6,7 +6,7 @@ from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QPushButton, QScrollArea, QFrame, QSizePolicy,
 )
-from PyQt6.QtCore import Qt, QTimer, QPropertyAnimation, QEasingCurve, QPoint
+from PyQt6.QtCore import Qt, QTimer, QPropertyAnimation, QEasingCurve
 from PyQt6.QtGui import QColor, QPainter, QBrush, QPen
 
 from src.ui.widget import Widget
@@ -296,9 +296,12 @@ class NotificationCenterWidget(Widget):
 class NotificationPanel(Panel):
     """
     Slide-in panel listing notification history, anchored to the
-    right edge of the screen, sitting just below the bell icon rather
-    than filling the whole window height — see _sync_geometry() below,
-    which overrides Panel's usual full-height sizing for that reason.
+    right edge of the screen — same full-height treatment as
+    TilePanel (src/ui/widgets/tile_panel.py), since this just inherits
+    Panel's default _sync_geometry() unmodified rather than overriding
+    it. (An earlier version of this class sat shorter, just below the
+    bell icon, via its own _sync_geometry() override — removed in
+    favour of matching TilePanel's full height.)
 
     Inherits from Panel (src/ui/overlays.py) for its OVERLAYS-based
     parenting: parented to client.OVERLAYS up front, in __init__, and
@@ -312,16 +315,22 @@ class NotificationPanel(Panel):
     hand, just generically.
     """
 
-    WIDTH = 475
+    WIDTH = Panel.DEFAULT_WIDTH   #shared by every panel — see Panel.apply_frosted_style()
 
     def __init__(self, manager: NotificationCenterWidget):
         super().__init__(manager.client, width=self.WIDTH, edge="right")
         self.manager = manager
         self._anim.setEasingCurve(QEasingCurve.Type.OutCubic)
 
-        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        #give ourselves our own objectName so set_style() calls below
+        #(for the title/close/clear buttons) stay correctly scoped to
+        #us — then re-apply the frosted style, since Panel.__init__
+        #already applied it once using the objectName it had *before*
+        #this rename, and a stylesheet's ID selector won't follow a
+        #rename. Square, like TilePanel, since this is now a flush
+        #full-height panel rather than a floating one.
         self.setObjectName("notif_panel")
-        set_style(self, "notification", "notification-panel", object_tag="QWidget#notif_panel")
+        self.apply_frosted_style()
 
         outer = self.content_layout
         outer.setContentsMargins(16, 12, 16, 12)
@@ -356,6 +365,11 @@ class NotificationPanel(Panel):
         scroll.setWidgetResizable(True)
         set_style(scroll, "notification", "notification-scroll", object_tag="QScrollArea")
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        #see TilePanel's identical fix — the QSS rule above only styles
+        #the scroll area's outer frame, not this separate internal
+        #viewport widget, which otherwise paints opaque over the
+        #blurred backdrop for most of the panel
+        scroll.viewport().setAutoFillBackground(False)
 
         self._list_widget = QWidget()
         set_style(self._list_widget, "common", "transparent")
@@ -370,39 +384,8 @@ class NotificationPanel(Panel):
         self._populate()
 
         #Panel.__init__ (already ran via super().__init__() above) calls
-        #self._sync_geometry() + self.hide() for us, using the override
-        #below — no need to duplicate that positioning here.
-
-    def _sync_geometry(self) -> None:
-        """
-        Override Panel's default full-height anchoring: this panel
-        sits just below the bell icon in the top-right corner instead
-        of filling the whole window. Identical maths to the original
-        hand-rolled version — deliberately reading the configured
-        window size from SETTINGS rather than client.OVERLAYS' live
-        size, same as before, since this panel never tracked runtime
-        resizes either.
-        """
-        margin = int(self.client.SETTINGS.home.widget_margin.value)
-        win_w  = int(self.client.SETTINGS.application.window.size.value[0])
-        win_h  = int(self.client.SETTINGS.application.window.size.value[1])
-        y      = (margin * 2) + 55
-
-        self.setFixedSize(self.panel_width, win_h - (margin * 3) - 55)
-        self._hidden_pos = QPoint(win_w, y)
-        self._shown_pos  = QPoint(win_w - self.panel_width - margin, y)
-
-        if self.open:
-            self.move(self._shown_pos)
-        elif not self._closing:
-            self.move(self._hidden_pos)
-
-    def paintEvent(self, event) -> None:
-        #Bypass Panel's flat self._bgcolor fill — this panel paints its
-        #background through the "notification"/"notification-panel"
-        #stylesheet via WA_StyledBackground instead (same as before
-        #Panel existed).
-        QWidget.paintEvent(self, event)
+        #its own _sync_geometry() + self.hide() for us — full-height,
+        #right-edge anchored, same as TilePanel. No override needed.
 
     def toggle(self) -> None:
         """Slide the panel in if closed, or out if open."""
@@ -418,6 +401,7 @@ class NotificationPanel(Panel):
             self.open = False
         else:
             self.move(self._hidden_pos)
+            self.refresh_backdrop()
             self.show()
             self.raise_()
             self._populate()   #refresh contents each time it's opened

@@ -125,7 +125,7 @@ class CoreWidgetsBundle(Plugin):
         return {"request": "Success"}, 200
 
     def panel_callback(self, panel):
-        self.client.TIMEOUTS.add(5, panel.close_panel, "api_request_open_panel", True)
+        self.client.TIMEOUTS.add(15, panel.close_panel, "api_request_open_panel", True)
 
     ## MIXINS
     @mixin("home.__init__", "corewidgetsbundle", "after")

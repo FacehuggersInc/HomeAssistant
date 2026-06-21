@@ -1,0 +1,8 @@
+/* src/ui/overlays.py — shared frosted-glass background for every Panel
+   (the base class TilePanel/NotificationPanel/client.create_panel() all
+   build on). See Panel.apply_frosted_style() for how border-radius and
+   the inward-edge border are layered on top of this per instance. */
+
+.panel-base {
+    background: rgba(30,30,30,170);
+}

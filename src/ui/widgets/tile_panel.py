@@ -331,7 +331,7 @@ class TilePanel(Panel):
     support.
     """
 
-    WIDTH = 475
+    WIDTH = Panel.DEFAULT_WIDTH   #shared by every panel — see Panel.apply_frosted_style()
 
     def __init__(self, client: "Client", page: QWidget, grid: "TileGrid"):
         super().__init__(client, width=self.WIDTH, edge="right")
@@ -343,14 +343,17 @@ class TilePanel(Panel):
         #below and TilePanelItem.mouseMoveEvent for why this exists
         self.closing = False
 
-        #Panel already parented us to client.OVERLAYS and built
-        #self.content_layout for us — restore this panel's own themed
-        #stylesheet background (gradient/border-radius etc., defined
-        #under the "tile_panel" style key) instead of Panel's flat
-        #single-colour default. See paintEvent() below.
-        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        #Panel already parented us to client.OVERLAYS, built
+        #self.content_layout, and applied the shared frosted-glass
+        #"panel-base" style for us (translucent background + blurred
+        #backdrop — see Panel.paintEvent()/refresh_backdrop()). Just
+        #give ourselves our own objectName so set_style() calls below
+        #(for the title/close button) stay correctly scoped to us —
+        #then re-apply the frosted style, since Panel.__init__ already
+        #applied it once using the objectName it had *before* this
+        #rename, and a stylesheet's ID selector won't follow a rename.
         self.setObjectName("tile_panel")
-        set_style(self, "tile_panel", "tile-panel", object_tag="QWidget#tile_panel")
+        self.apply_frosted_style()   #square corners — flush full-height panel
 
         layout = self.content_layout
         layout.setContentsMargins(16, 24, 16, 24)
@@ -386,6 +389,12 @@ class TilePanel(Panel):
         scroll.setWidgetResizable(True)
         scroll.setStyleSheet(get_style_sheet("tile_panel_scroll"))
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        #the CSS above only styles the scroll area's outer frame —
+        #its internal viewport is a separate widget that otherwise
+        #auto-fills itself opaque, hiding the blurred backdrop behind
+        #it for almost the entire panel (the scroll area takes up
+        #most of our height)
+        scroll.viewport().setAutoFillBackground(False)
 
         self.list_widget = QWidget()
         set_style(self.list_widget, "common", "transparent")
@@ -404,12 +413,6 @@ class TilePanel(Panel):
         self.anim = QPropertyAnimation(self, b"pos")
         self.anim.setDuration(220)
         self.anim.setEasingCurve(QEasingCurve.Type.OutCubic)
-
-    def paintEvent(self, event) -> None:
-        #Bypass Panel's flat self._bgcolor fill — this panel paints its
-        #background through the "tile_panel"/"tile-panel" stylesheet via
-        #WA_StyledBackground instead (same as before Panel existed).
-        QWidget.paintEvent(self, event)
 
     def add_tile(self, tile: Tile) -> None:
         """
@@ -480,6 +483,8 @@ class TilePanel(Panel):
             #must be visible before/while animating in, and ticked once
             #so previews are current right as they become visible
             self.move(pw, 0)
+            self._shown_pos = QPoint(pw - self.WIDTH, 0)   #for refresh_backdrop()'s rect math
+            self.refresh_backdrop()
             self.show()
             self.raise_()
             self.tick_once()
@@ -517,3 +522,5 @@ class TilePanel(Panel):
         #only height needs to track the page — width is fixed
         super().resizeEvent(event)
         self.setFixedHeight(self.page.height())
+        if self.open:
+            self.refresh_backdrop()

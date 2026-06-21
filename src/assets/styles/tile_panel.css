@@ -1,9 +1,8 @@
 /* src/ui/widgets/tile_panel.py */
 
-.tile-panel {
-    background: #262626;
-    border-left: 1px solid rgba(255,255,255,12);
-}
+/* Panel background itself now comes from the shared "panel-base" class
+   — see src/assets/styles/panel.css and Panel.apply_frosted_style() in
+   src/ui/overlays.py. Only this panel's own close button stays here. */
 
 .tile-panel-close {
     background: rgba(255,255,255,8);

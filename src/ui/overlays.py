@@ -1,12 +1,15 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING, Literal, Optional
 
-from PyQt6.QtWidgets import QWidget, QLabel, QVBoxLayout, QHBoxLayout, QSizePolicy
+from PyQt6.QtWidgets import (
+    QWidget, QLabel, QVBoxLayout, QHBoxLayout, QSizePolicy,
+    QStyleOption, QStyle, QGraphicsScene, QGraphicsPixmapItem, QGraphicsBlurEffect,
+)
 from PyQt6.QtCore import (
     Qt, QEvent, QTimer, QPropertyAnimation, QEasingCurve,
-    QPoint, QRect, pyqtSignal,
+    QPoint, QRect, QRectF, pyqtSignal,
 )
-from PyQt6.QtGui import QColor, QPainter, QBrush, QPen, QRegion
+from PyQt6.QtGui import QColor, QPainter, QBrush, QPen, QRegion, QPixmap
 
 from src.styling import set_style
 
@@ -579,25 +582,35 @@ class Panel(QWidget):
     class is parented.
     """
 
+    DEFAULT_WIDTH = 680   #shared by TilePanel/NotificationPanel/create_panel() — see apply_frosted_style()
+    BLUR_RADIUS   = 28
+
     def __init__(
         self,
         client:          "Client",
-        width:           int  = 320,
+        width:           int  = None,
         edge:            str  = "right",   # "right" or "left"
-        bgcolor:         str  = "#1e1e1e",
+        bgcolor:         str  = "#1e1e1e", #fallback fill ONLY — used if a backdrop snapshot can't be captured
         animation_speed: int  = 220,
+        blur_radius:     int  = None,
+        radius:          str  = None,      #CSS border-radius, e.g. "8px" — None means square corners
         key:             str  = None,
     ):
         super().__init__(client.OVERLAYS)
         self.client       = client
         self.key          = key
         self.edge         = edge
-        self.panel_width  = width
-        self._bgcolor     = QColor(bgcolor)
+        self.panel_width  = width if width is not None else self.DEFAULT_WIDTH
+        self.blur_radius  = blur_radius if blur_radius is not None else self.BLUR_RADIUS
+        self._fallback_bg = QColor(bgcolor)
+        self._backdrop: Optional[QPixmap] = None
         self.open         = False
         self._closing     = False
 
-        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, False)
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        if not self.objectName():
+            self.setObjectName("overlay_panel")
+        self.apply_frosted_style(radius)
 
         # Blank by design — subclasses/callers add real content here via
         # add_content(), the same way OverlayedWidget's outer layout works.
@@ -630,11 +643,95 @@ class Panel(QWidget):
             if item.widget():
                 item.widget().deleteLater()
 
+    # ── Styling ───────────────────────────────────────────────────────────────
+
+    def apply_frosted_style(self, radius: str = None) -> None:
+        """
+        Apply the shared "panel-base" class (src/assets/styles/panel.css)
+        every Panel uses — a translucent background plus a thin border on
+        whichever side faces inward, away from the screen edge this panel
+        is anchored to. The translucency is what lets the real blurred
+        backdrop captured in refresh_backdrop() show through underneath —
+        see paintEvent() — QSS has no blur function of its own to do that
+        part. Call again (e.g. after changing self.objectName()) if a
+        subclass needs a different radius than it was constructed with.
+        """
+        inward_side = "border-left" if self.edge == "right" else "border-right"
+        override = {"*": {inward_side: "1px solid rgba(255,255,255,18)"}}
+        if radius:
+            override["*"]["border-radius"] = radius
+        set_style(self, "panel", "panel-base",
+                  object_tag=f"QWidget#{self.objectName()}", override=override)
+
     # ── Painting ──────────────────────────────────────────────────────────────
+
+    def refresh_backdrop(self) -> None:
+        """
+        Snapshot whatever's currently on the page where this panel is
+        about to sit, run it through a real QGraphicsBlurEffect, and
+        stash the result for paintEvent() to draw underneath the
+        stylesheet background. This is what actually produces the
+        "frosted glass" look — it's a one-shot snapshot taken right as
+        the panel opens (or the window resizes while it's open), not a
+        continuously-updating live blur, the same trade-off most OS
+        frosted-panel effects make for performance.
+        """
+        page = getattr(self.client, "PAGE", None)
+        if page is None or self.panel_width <= 0 or self.height() <= 0:
+            self._backdrop = None
+            return
+
+        rect = QRect(self._shown_pos, self.size()).intersected(page.rect())
+        if rect.isEmpty():
+            self._backdrop = None
+            return
+
+        snapshot = page.grab(rect)
+        if snapshot.isNull():
+            self._backdrop = None
+            return
+
+        scene = QGraphicsScene()
+        item  = QGraphicsPixmapItem(snapshot)
+        blur  = QGraphicsBlurEffect()
+        blur.setBlurRadius(self.blur_radius)
+        item.setGraphicsEffect(blur)
+        scene.addItem(item)
+
+        blurred = QPixmap(snapshot.size())
+        blurred.fill(Qt.GlobalColor.transparent)
+        painter = QPainter(blurred)
+        scene.render(painter, QRectF(blurred.rect()), QRectF(snapshot.rect()))
+        painter.end()
+
+        #pad out to our own full size if the snapshot got clipped against
+        #the page's edge, so paintEvent can always just drawPixmap(0, 0, …)
+        if blurred.size() != self.size():
+            padded = QPixmap(self.size())
+            padded.fill(Qt.GlobalColor.transparent)
+            p = QPainter(padded)
+            p.drawPixmap(0, 0, blurred)
+            p.end()
+            blurred = padded
+
+        self._backdrop = blurred
+        self.update()
 
     def paintEvent(self, event) -> None:  # type: ignore[override]
         painter = QPainter(self)
-        painter.fillRect(self.rect(), self._bgcolor)
+        if self._backdrop is not None and not self._backdrop.isNull():
+            painter.drawPixmap(0, 0, self._backdrop)
+        else:
+            painter.fillRect(self.rect(), self._fallback_bg)
+        painter.end()
+
+        #then let the "panel-base" stylesheet (translucent fill + inward
+        #border + radius) paint on top of the blurred pixmap, same trick
+        #any plain stylesheet-styled QWidget uses internally
+        opt = QStyleOption()
+        opt.initFrom(self)
+        painter = QPainter(self)
+        self.style().drawPrimitive(QStyle.PrimitiveElement.PE_Widget, opt, painter, self)
 
     # ── Geometry ──────────────────────────────────────────────────────────────
 
@@ -661,6 +758,7 @@ class Panel(QWidget):
 
         if self.open:
             self.move(self._shown_pos)
+            self.refresh_backdrop()   #keep the blur correct across a live resize
         elif not self._closing:
             self.move(self._hidden_pos)
 
@@ -675,6 +773,7 @@ class Panel(QWidget):
         self._closing = False
         self._sync_geometry()
         self.move(self._hidden_pos)
+        self.refresh_backdrop()
         self.show()
         self.raise_()
 

@@ -22,11 +22,9 @@
     border-radius: 6px;
 }
 
-.notification-panel {
-    background: #262626;
-    border-radius: 8px;
-    border: 1px solid rgba(255,255,255,12);
-}
+/* Panel background itself now comes from the shared "panel-base" class
+   — see src/assets/styles/panel.css and Panel.apply_frosted_style() in
+   src/ui/overlays.py. Only this panel's own buttons stay here. */
 
 .notification-panel-close {
     background: rgba(255,255,255,8);

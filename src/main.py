@@ -397,7 +397,7 @@ class Client:
 
     ##PANELS
 
-    def create_panel(self, content: QWidget = None, width: int = 320,
+    def create_panel(self, content: QWidget = None, width: int = None,
                       edge: str = "right", bgcolor: str = "#1e1e1e",
                       key: str = None,
                       on_created: Optional[Callable[[Panel], None]] = None
