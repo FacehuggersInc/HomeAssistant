@@ -103,6 +103,15 @@ class TilePanelItem(QWidget):
         tile.move(0, 0)
         tile.resize(preview_w, preview_h)
         tile.show()
+        #tiles coming back from the grid were just setParent(None)'d by
+        #TileGrid.remove_tile(), which briefly makes them a real
+        #top-level window — reparenting them again right after that
+        #doesn't always get Qt to repaint their own custom paintEvent()
+        #content (the rounded-rect background) on the next show(), even
+        #though simpler child widgets like the title QLabel above
+        #render fine through a different path. Forcing it explicitly
+        #here is the standard fix for that class of bug.
+        tile.update()
 
         #Tile defines its own mousePressEvent/mouseMoveEvent/
         #mouseReleaseEvent for dragging within a TileGrid. Since the
