@@ -121,7 +121,11 @@ class CoreWidgetsBundle(Plugin):
 
     ## CALLBACKS
     def api_endpoint_test(self, *args, **kwargs):
-        return {"request": "Success", "package": self.client.public.exposed["corewidgetsbundle"]}, 200
+        panel = self.client.create_panel(on_created=self.panel_callback)
+        return {"request": "Success"}, 200
+
+    def panel_callback(self, panel):
+        self.client.TIMEOUTS.add(5, panel.close_panel, "api_request_open_panel", True)
 
     ## MIXINS
     @mixin("home.__init__", "corewidgetsbundle", "after")

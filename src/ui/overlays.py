@@ -3,10 +3,10 @@ from typing import TYPE_CHECKING, Literal, Optional
 
 from PyQt6.QtWidgets import QWidget, QLabel, QVBoxLayout, QHBoxLayout, QSizePolicy
 from PyQt6.QtCore import (
-    Qt, QTimer, QPropertyAnimation, QEasingCurve,
+    Qt, QEvent, QTimer, QPropertyAnimation, QEasingCurve,
     QPoint, QRect, pyqtSignal,
 )
-from PyQt6.QtGui import QColor, QPainter, QBrush, QPen
+from PyQt6.QtGui import QColor, QPainter, QBrush, QPen, QRegion
 
 from src.styling import set_style
 
@@ -57,7 +57,29 @@ class OverlayManager(QWidget):
             "SYSTEM":      [],
             "TOPMOST":     [],
         }
-        # Empty mask — no children yet, all clicks pass through
+
+        # ── Mouse passthrough via mask, instead of WA_TransparentForMouseEvents ──
+        # NOTE: This widget intentionally never sets WA_TransparentForMouseEvents
+        # on itself. That attribute is checked by Qt's hit-testing *before* it
+        # even looks at children — so setting it on a full-window container
+        # makes every child inside it (dialogs, popups, the keyboard, etc.)
+        # unreachable for clicks too, not just the empty background. Toggling
+        # it back off to let one dialog receive clicks then makes the *entire*
+        # window-sized widget solid, swallowing clicks everywhere else.
+        #
+        # Instead we keep this widget normal (clickable) and continuously
+        # shrink its effective mouse/paint shape down to just the union of its
+        # visible children's rectangles via setMask(). Anywhere outside that
+        # union, clicks fall straight through to whatever is beneath the
+        # window (e.g. the page). Anywhere inside it, the relevant overlay
+        # widget gets normal mouse handling. An empty mask (no children) means
+        # the whole manager is fully transparent to input, which is the
+        # original intent of the old comment below.
+        self._mask_timer = QTimer(self)
+        self._mask_timer.setSingleShot(True)
+        self._mask_timer.setInterval(0)
+        self._mask_timer.timeout.connect(self._recompute_mask)
+        self._recompute_mask()  # Empty mask — no children yet, all clicks pass through
 
     # ── Layer API ─────────────────────────────────────────────────────────────
 
@@ -68,6 +90,7 @@ class OverlayManager(QWidget):
             self._layers[layer].append(widget)
             self._enforce_z_order()
             widget.show()
+            self._schedule_mask_update()
 
     def insert(self, layer: LAYERS, widget: QWidget,
                index: int = -1, update: bool = False) -> None:
@@ -80,12 +103,14 @@ class OverlayManager(QWidget):
                 self._layers[layer].insert(index, widget)
             self._enforce_z_order()
             widget.show()
+            self._schedule_mask_update()
 
     def remove(self, layer: LAYERS, widget: QWidget, update: bool = False) -> None:
         """Remove a widget from a layer."""
         if widget in self._layers[layer]:
             self._layers[layer].remove(widget)
             widget.setParent(None)   # type: ignore[arg-type]
+            self._schedule_mask_update()
 
     def get_layer(self, layer: LAYERS) -> list[QWidget]:
         return self._layers[layer]
@@ -102,6 +127,68 @@ class OverlayManager(QWidget):
 
     def update_geometry(self, w: int, h: int) -> None:
         self.setGeometry(0, 0, w, h)
+        self._schedule_mask_update()
+
+    # ── Mask maintenance ──────────────────────────────────────────────────────
+    # Any QWidget that becomes a direct child of this manager is tracked
+    # automatically — whether it arrived via add()/insert() or was simply
+    # parented straight to this widget elsewhere in the codebase (e.g. the
+    # on-screen keyboard popup). We don't need callers to opt in for the
+    # passthrough behaviour to work for them.
+
+    def childEvent(self, event) -> None:  # type: ignore[override]
+        super().childEvent(event)
+        child = event.child()
+        if isinstance(child, QWidget):
+            if event.type() == QEvent.Type.ChildAdded:
+                child.installEventFilter(self)
+                self._schedule_mask_update()
+            elif event.type() == QEvent.Type.ChildRemoved:
+                self._schedule_mask_update()
+
+    def eventFilter(self, obj, event) -> bool:  # type: ignore[override]
+        if event.type() in (
+            QEvent.Type.Move, QEvent.Type.Resize,
+            QEvent.Type.Show, QEvent.Type.Hide,
+        ):
+            self._schedule_mask_update()
+        return super().eventFilter(obj, event)
+
+    def _schedule_mask_update(self) -> None:
+        """Coalesce bursts of move/resize events (e.g. slide animations,
+        ticking every frame) into a single mask recompute per event-loop tick."""
+        if not self._mask_timer.isActive():
+            self._mask_timer.start()
+
+    def _recompute_mask(self) -> None:
+        """Shrink this widget's clickable/paintable shape down to exactly the
+        union of its visible direct children. Everything outside that region
+        passes mouse events straight through to whatever is beneath it."""
+        region = QRegion()
+        for child in self.findChildren(
+            QWidget, options=Qt.FindChildOption.FindDirectChildrenOnly
+        ):
+            if child.isVisible():
+                region += QRegion(child.geometry())
+
+        if region.isEmpty():
+            # IMPORTANT: Qt treats setMask(QRegion()) as identical to
+            # clearMask() — it does NOT mean "this widget is invisible to
+            # input everywhere," it means "remove the custom mask," which
+            # restores the widget's default *solid, full-rectangle* shape.
+            # Since OVERLAYS is raised above page content (PAGE/page_host —
+            # WidgetFramework, TileGrid, sub-page swipe navigation, etc.)
+            # and is window-sized, that default shape would silently start
+            # swallowing every click/drag across the whole app the instant
+            # no overlay widget happens to be active — which is most of the
+            # time. To get a genuinely empty (fully click-through) mask
+            # instead, we use a 1x1 region positioned entirely outside our
+            # own bounds: it has nonzero area, so Qt doesn't collapse it
+            # into "no mask," but it doesn't overlap any of our real
+            # on-screen area either, so the net effect is "nothing here."
+            region = QRegion(-1, -1, 1, 1)
+
+        self.setMask(region)
 
 
 # ── Overlayed notification widget ─────────────────────────────────────────────
@@ -406,10 +493,9 @@ class DialogManager:
         self.blocker.show()
         self.blocker.raise_()
         dialog.raise_()  # dialog above blocker
-        # Allow clicks on the blocker/dialog to register
-        self.client.OVERLAYS.setAttribute(
-            Qt.WidgetAttribute.WA_TransparentForMouseEvents, False
-        )
+        # No flag to flip here anymore — OVERLAYS' mask automatically grows
+        # to cover the blocker's (full-screen) geometry the moment it's
+        # shown, via the eventFilter/childEvent hooks in OverlayManager.
 
     def get(self) -> Optional[QWidget]:
         return self.dialog_stack[-1] if self.dialog_stack else None
@@ -427,10 +513,9 @@ class DialogManager:
             self.dialog_stack[-1].raise_()
         else:
             self.blocker.hide()
-            # Re-enable passthrough when no dialogs are open
-            self.client.OVERLAYS.setAttribute(
-                Qt.WidgetAttribute.WA_TransparentForMouseEvents, True
-            )
+            # No flag to re-enable here either — hiding the blocker fires a
+            # Hide event the OVERLAYS mask watches for, so it shrinks back
+            # down on its own and clicks pass through again immediately.
 
 
 class _ClickBlocker(QWidget):
@@ -458,3 +543,165 @@ class _ClickBlocker(QWidget):
 
     def mousePressEvent(self, event) -> None:  # type: ignore[override]
         self.clicked.emit()
+
+
+# ── Panel (generic full-height side panel) ────────────────────────────────────
+
+class Panel(QWidget):
+    """
+    Blank base class for full-height, fixed-width slide-in side panels —
+    e.g. a tile drawer or a notification history list. Subclasses (or
+    callers, via add_content()) drop their own content into
+    self.content_layout; this class only owns geometry, edge-anchoring,
+    slide animation, and parenting.
+
+    Lives directly on the overlay system (client.OVERLAYS) rather than a
+    page or the bare window, which gets you two things for free:
+
+      - It keeps working across page navigation, since it isn't a child
+        of whatever page happened to create it.
+      - OverlayManager's mask (see _recompute_mask above) means this
+        panel only blocks mouse input over its own rectangle. No
+        DialogManager blocker needed — everything else on screen keeps
+        working while the panel is open, unless you deliberately want a
+        modal panel, in which case open a _ClickBlocker-style widget of
+        your own alongside it.
+
+    IMPORTANT — parent first, geometry second, never reparent after:
+    this widget is parented to client.OVERLAYS in __init__, before any
+    geometry is set, and is never setParent()'d again afterwards.
+    Reparenting a QWidget resets its geometry relative to the new
+    parent — that was a real bug in an earlier version of
+    NotificationPanel (src/assets/bundled/CoreWidgetsBundle/widgets/
+    notification.py) when it went through DialogManager.open(), which
+    reparents onto the overlay manager *after* the dialog's position was
+    already set. Keep that lesson in mind if you ever change how this
+    class is parented.
+    """
+
+    def __init__(
+        self,
+        client:          "Client",
+        width:           int  = 320,
+        edge:            str  = "right",   # "right" or "left"
+        bgcolor:         str  = "#1e1e1e",
+        animation_speed: int  = 220,
+        key:             str  = None,
+    ):
+        super().__init__(client.OVERLAYS)
+        self.client       = client
+        self.key          = key
+        self.edge         = edge
+        self.panel_width  = width
+        self._bgcolor     = QColor(bgcolor)
+        self.open         = False
+        self._closing     = False
+
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, False)
+
+        # Blank by design — subclasses/callers add real content here via
+        # add_content(), the same way OverlayedWidget's outer layout works.
+        self.content_layout = QVBoxLayout(self)
+        self.content_layout.setContentsMargins(0, 0, 0, 0)
+        self.content_layout.setSpacing(0)
+
+        self._anim = QPropertyAnimation(self, b"pos")
+        self._anim.setDuration(animation_speed)
+
+        # Stay sized to the window even if it resizes later — OVERLAYS
+        # itself is kept in sync with the window by Client.on_window_resized,
+        # so watching it here is enough to stay correct without polling.
+        self.client.OVERLAYS.installEventFilter(self)
+
+        self._hidden_pos = QPoint(0, 0)
+        self._shown_pos  = QPoint(0, 0)
+        self._sync_geometry()
+        self.hide()
+
+    # ── Content ───────────────────────────────────────────────────────────────
+
+    def add_content(self, widget: QWidget) -> None:
+        """Drop a content widget into the panel."""
+        self.content_layout.addWidget(widget)
+
+    def clear_content(self) -> None:
+        while self.content_layout.count():
+            item = self.content_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
+    # ── Painting ──────────────────────────────────────────────────────────────
+
+    def paintEvent(self, event) -> None:  # type: ignore[override]
+        painter = QPainter(self)
+        painter.fillRect(self.rect(), self._bgcolor)
+
+    # ── Geometry ──────────────────────────────────────────────────────────────
+
+    def eventFilter(self, obj, event) -> bool:  # type: ignore[override]
+        if obj is self.client.OVERLAYS and event.type() == QEvent.Type.Resize:
+            self._sync_geometry()
+        return super().eventFilter(obj, event)
+
+    def _sync_geometry(self) -> None:
+        """Recompute full-height size and the hidden/shown edge positions
+        from OVERLAYS' current size. Safe to call any time — keeps a
+        closed panel's off-screen position correct too, not just an open
+        one, so the next open_panel() slides in from the right place."""
+        ov_w = self.client.OVERLAYS.width()
+        ov_h = self.client.OVERLAYS.height()
+        self.setFixedSize(self.panel_width, ov_h)
+
+        if self.edge == "left":
+            self._hidden_pos = QPoint(-self.panel_width, 0)
+            self._shown_pos  = QPoint(0, 0)
+        else:  # "right" (default)
+            self._hidden_pos = QPoint(ov_w, 0)
+            self._shown_pos  = QPoint(ov_w - self.panel_width, 0)
+
+        if self.open:
+            self.move(self._shown_pos)
+        elif not self._closing:
+            self.move(self._hidden_pos)
+
+    # ── Show / hide ───────────────────────────────────────────────────────────
+
+    def toggle(self) -> None:
+        self.close_panel() if self.open else self.open_panel()
+
+    def open_panel(self) -> None:
+        if self.open:
+            return
+        self._closing = False
+        self._sync_geometry()
+        self.move(self._hidden_pos)
+        self.show()
+        self.raise_()
+
+        self._anim.stop()
+        self._anim.setEasingCurve(QEasingCurve.Type.OutCubic)
+        self._anim.setStartValue(self._hidden_pos)
+        self._anim.setEndValue(self._shown_pos)
+        self._anim.start()
+        self.open = True
+
+    def close_panel(self) -> None:
+        if not self.open:
+            return
+        self.open     = False
+        self._closing = True
+
+        self._anim.stop()
+        self._anim.setEasingCurve(QEasingCurve.Type.InCubic)
+        self._anim.setStartValue(self.pos())
+        self._anim.setEndValue(self._hidden_pos)
+        self._anim.finished.connect(self._on_closed)
+        self._anim.start()
+
+    def _on_closed(self) -> None:
+        try:
+            self._anim.finished.disconnect(self._on_closed)
+        except TypeError:
+            pass
+        self.hide()
+        self._closing = False

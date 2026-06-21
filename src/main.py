@@ -20,7 +20,7 @@ from typing import Callable, Literal, Optional, TextIO
 from dynaconf import Dynaconf
 
 from PyQt6.QtWidgets import QApplication, QMainWindow, QWidget
-from PyQt6.QtCore import Qt, QTimer, pyqtSignal, QObject
+from PyQt6.QtCore import Qt, QTimer, QThread, pyqtSignal, QObject
 from PyQt6.QtGui import QFontDatabase, QColor
 
 import psutil
@@ -37,7 +37,7 @@ from src.backend import FlaskApp, FlaskService
 from src.assistant.skill import Skill, SkillIntentEngine
 from src.assistant.stt import STTProcessing
 from src.assistant.tts import TTSProcessing
-from src.ui.overlays import OverlayManager, NotificationManager, DialogManager
+from src.ui.overlays import OverlayManager, NotificationManager, DialogManager, Panel
 from src.styling import COLORS, load_styles, set_style
 
 EVENT_LEVELS = Literal["debug", "info", "warning", "error", "critical"]
@@ -395,6 +395,62 @@ class Client:
             "anchor":  self.SETTINGS.notifications.notification_position.value,
         })
 
+    ##PANELS
+
+    def create_panel(self, content: QWidget = None, width: int = 320,
+                      edge: str = "right", bgcolor: str = "#1e1e1e",
+                      key: str = None,
+                      on_created: Optional[Callable[[Panel], None]] = None
+                      ) -> Optional[Panel]:
+        """
+        Build a basic Panel on the overlay system, optionally drop a
+        content widget straight into it, and slide it into view
+        immediately. Returns the Panel instance so the caller can hang
+        onto it for a later .toggle()/.close_panel(), or just
+        fire-and-forget it for a one-off panel.
+
+        Thread-safe: Panel is a real QWidget, and QWidgets must be
+        built on the Qt main/UI thread. Calling this from a Qt slot
+        (a button click, etc.) already puts you there, so this
+        returns the Panel directly, same as always. Calling it from
+        anywhere else — a Flask backend route, a voice command
+        handler, a subscribed event callback, a background thread —
+        building the widget right there would leave it only
+        half-parented; Qt/your window manager would then place it
+        wherever they like (usually dead centre) instead of anchored
+        to the edge you asked for, since none of the geometry this
+        class sets actually "took". This method detects that case,
+        hops onto the UI thread for you via call_on_ui(), and returns
+        None immediately since the Panel can't exist synchronously
+        yet at that point — pass on_created if you need a reference to
+        the finished panel once it exists (e.g. to toggle/close it
+        later from that same background context).
+
+        See src/ui/overlays.py:Panel for the underlying class — this is
+        just the convenience entry point most plugins/pages should use
+        instead of constructing Panel directly.
+        """
+        def _build() -> Panel:
+            panel = Panel(self, width=width, edge=edge, bgcolor=bgcolor, key=key)
+            if content is not None:
+                panel.add_content(content)
+            panel.open_panel()
+            return panel
+
+        if QThread.currentThread() is self.app.thread():
+            panel = _build()
+            if on_created:
+                on_created(panel)
+            return panel
+
+        def _dispatched() -> None:
+            panel = _build()
+            if on_created:
+                on_created(panel)
+
+        self.call_on_ui(_dispatched)
+        return None
+
     ##PAGES
 
     def action(self, feature_path: str, *args, **kwargs):
@@ -536,7 +592,11 @@ class Client:
 
         self.OVERLAYS.setParent(self.window)
         self.OVERLAYS.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
-        self.OVERLAYS.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        # NOTE: deliberately NOT setting WA_TransparentForMouseEvents here.
+        # OverlayManager now manages its own click-passthrough via a mask
+        # that tracks its visible children (see src/ui/overlays.py). Setting
+        # this attribute on the manager itself would make Qt skip it — and
+        # everything inside it — during hit-testing, regardless of the mask.
         self.OVERLAYS.setGeometry(0, 0, w, h)
         self.OVERLAYS.show()
         self.OVERLAYS.raise_()

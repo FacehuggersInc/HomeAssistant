@@ -10,6 +10,7 @@ from PyQt6.QtCore import Qt, QTimer, QPropertyAnimation, QEasingCurve, QPoint
 from PyQt6.QtGui import QColor, QPainter, QBrush, QPen
 
 from src.ui.widget import Widget
+from src.ui.overlays import Panel
 from src.ui.controls.buttons import IconButton
 from src.ui.icons import Icons, icon as resolve_icon
 from src.styling import make_font, set_style
@@ -292,42 +293,37 @@ class NotificationCenterWidget(Widget):
 
 # ── Notification panel ──────────────────────────────────────────────────────
 
-class NotificationPanel(QWidget):
+class NotificationPanel(Panel):
     """
     Slide-in panel listing notification history, anchored to the
-    right edge of the screen — same approach as TilePanel
-    (src/ui/widgets/tile_panel.py), which is known to position and
-    animate correctly.
+    right edge of the screen, sitting just below the bell icon rather
+    than filling the whole window height — see _sync_geometry() below,
+    which overrides Panel's usual full-height sizing for that reason.
 
-    Why not DialogManager: NotificationDialog used to be parented and
-    shown via client.DIALOG.open(), which reparents the widget onto the
-    overlay manager AFTER its position was already set in __init__.
-    Reparenting a QWidget resets its geometry relative to the new
-    parent, which is what caused the dialog to always appear centred
-    instead of at the top-right corner. This panel sidesteps that
-    entirely by parenting itself directly to the overlay manager up
-    front, then sliding in/out via QPropertyAnimation the same way
-    TilePanel does — no DialogManager involved at all.
+    Inherits from Panel (src/ui/overlays.py) for its OVERLAYS-based
+    parenting: parented to client.OVERLAYS up front, in __init__, and
+    never reparented again afterwards. That specific ordering is what
+    actually matters here — this panel used to be shown via
+    client.DIALOG.open(), which reparents a widget onto the overlay
+    manager AFTER its position was already set, resetting its
+    geometry relative to the new parent. That's what caused the dialog
+    to always appear centred instead of at the top-right corner.
+    Panel solves that the same way this class used to solve it by
+    hand, just generically.
     """
 
     WIDTH = 475
 
     def __init__(self, manager: NotificationCenterWidget):
-        super().__init__(manager.client.window)
+        super().__init__(manager.client, width=self.WIDTH, edge="right")
         self.manager = manager
-        self.client  = manager.client
-        self.open    = False
+        self._anim.setEasingCurve(QEasingCurve.Type.OutCubic)
 
-        margin = int(self.client.SETTINGS.home.widget_margin.value)
-        win_w  = int(self.client.SETTINGS.application.window.size.value[0])
-        win_h  = int(self.client.SETTINGS.application.window.size.value[1])
-
-        self.setFixedSize(self.WIDTH, win_h - (margin * 3) - 55)
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.setObjectName("notif_panel")
         set_style(self, "notification", "notification-panel", object_tag="QWidget#notif_panel")
 
-        outer = QVBoxLayout(self)
+        outer = self.content_layout
         outer.setContentsMargins(16, 12, 16, 12)
         outer.setSpacing(8)
 
@@ -373,38 +369,63 @@ class NotificationPanel(QWidget):
 
         self._populate()
 
-        #start fully off-screen past the right edge — slid into view by toggle()
-        self.move(win_w, (margin * 2) + 55)
-        self.hide()
+        #Panel.__init__ (already ran via super().__init__() above) calls
+        #self._sync_geometry() + self.hide() for us, using the override
+        #below — no need to duplicate that positioning here.
 
-        self.anim = QPropertyAnimation(self, b"pos")
-        self.anim.setDuration(220)
-        self.anim.setEasingCurve(QEasingCurve.Type.OutCubic)
-
-    def toggle(self) -> None:
-        """Slide the panel in if closed, or out if open — same approach as TilePanel.toggle()."""
+    def _sync_geometry(self) -> None:
+        """
+        Override Panel's default full-height anchoring: this panel
+        sits just below the bell icon in the top-right corner instead
+        of filling the whole window. Identical maths to the original
+        hand-rolled version — deliberately reading the configured
+        window size from SETTINGS rather than client.OVERLAYS' live
+        size, same as before, since this panel never tracked runtime
+        resizes either.
+        """
         margin = int(self.client.SETTINGS.home.widget_margin.value)
         win_w  = int(self.client.SETTINGS.application.window.size.value[0])
+        win_h  = int(self.client.SETTINGS.application.window.size.value[1])
         y      = (margin * 2) + 55
 
-        self.anim.stop()
+        self.setFixedSize(self.panel_width, win_h - (margin * 3) - 55)
+        self._hidden_pos = QPoint(win_w, y)
+        self._shown_pos  = QPoint(win_w - self.panel_width - margin, y)
 
         if self.open:
-            self.anim.setStartValue(self.pos())
-            self.anim.setEndValue(QPoint(win_w, y))
-            self.anim.finished.connect(self.hide)
-            self.anim.finished.connect(lambda: self.anim.finished.disconnect())
+            self.move(self._shown_pos)
+        elif not self._closing:
+            self.move(self._hidden_pos)
+
+    def paintEvent(self, event) -> None:
+        #Bypass Panel's flat self._bgcolor fill — this panel paints its
+        #background through the "notification"/"notification-panel"
+        #stylesheet via WA_StyledBackground instead (same as before
+        #Panel existed).
+        QWidget.paintEvent(self, event)
+
+    def toggle(self) -> None:
+        """Slide the panel in if closed, or out if open."""
+        self._sync_geometry()   #account for any window resize since last toggle
+
+        self._anim.stop()
+
+        if self.open:
+            self._anim.setStartValue(self.pos())
+            self._anim.setEndValue(self._hidden_pos)
+            self._anim.finished.connect(self.hide)
+            self._anim.finished.connect(lambda: self._anim.finished.disconnect())
             self.open = False
         else:
-            self.move(win_w, y)
+            self.move(self._hidden_pos)
             self.show()
             self.raise_()
             self._populate()   #refresh contents each time it's opened
-            self.anim.setStartValue(QPoint(win_w, y))
-            self.anim.setEndValue(QPoint(win_w - self.WIDTH - margin, y))
+            self._anim.setStartValue(self._hidden_pos)
+            self._anim.setEndValue(self._shown_pos)
             self.open = True
 
-        self.anim.start()
+        self._anim.start()
 
     def _populate(self) -> None:
         while self._list_layout.count() > 1:

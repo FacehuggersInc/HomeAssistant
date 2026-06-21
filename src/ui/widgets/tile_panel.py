@@ -8,6 +8,7 @@ from PyQt6.QtGui import QPainter, QColor, QBrush, QPen, QMouseEvent
 import qtawesome as qta
 
 from src.ui.widgets.tile import Tile
+from src.ui.overlays import Panel
 from src.styling import make_font, SIZES, set_style, get_style_sheet
 
 if TYPE_CHECKING:
@@ -315,38 +316,43 @@ class TilePanelItem(QWidget):
 
 ##TILE PANEL
 
-class TilePanel(QWidget):
+class TilePanel(Panel):
     """
     Slide-in panel on the right side of the tiles page, listing every
     tile that's registered but not currently placed on the grid.
 
-    Lives as a child of SubTilesPage. Slides in/out via toggle(), driven
-    by the subtle button SubTilesPage adds in its top-right corner.
+    Inherits from Panel (src/ui/overlays.py), which handles parenting
+    onto client.OVERLAYS, full-height sizing, and edge anchoring. This
+    class keeps its own bespoke open/close animation rather than
+    Panel's generic toggle()/open_panel()/close_panel() — see
+    start_slide_out()/finish_slide_out() below for why a drag in
+    progress needs the slide-out and the actual hide() to happen at
+    different times, which Panel's simpler open/close pair doesn't
+    support.
     """
 
-    WIDTH = 280
+    WIDTH = 475
 
     def __init__(self, client: "Client", page: QWidget, grid: "TileGrid"):
-        super().__init__(page)
-        self.client = client
-        self.page   = page
-        self.grid   = grid
+        super().__init__(client, width=self.WIDTH, edge="right")
+        self.page  = page
+        self.grid  = grid
         self.items: dict[str, TilePanelItem] = {}   #tile.KEY -> its panel item
-        self.open   = False
         #True for the window between starting a visual slide-out and
         #actually finishing it — see start_slide_out()/finish_slide_out()
         #below and TilePanelItem.mouseMoveEvent for why this exists
         self.closing = False
 
-        #start fully off-screen to the right, same width as the panel —
-        #toggle() animates it sliding in from here
-        ph = page.height()
-        self.setGeometry(page.width(), 0, self.WIDTH, ph)
+        #Panel already parented us to client.OVERLAYS and built
+        #self.content_layout for us — restore this panel's own themed
+        #stylesheet background (gradient/border-radius etc., defined
+        #under the "tile_panel" style key) instead of Panel's flat
+        #single-colour default. See paintEvent() below.
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.setObjectName("tile_panel")
         set_style(self, "tile_panel", "tile-panel", object_tag="QWidget#tile_panel")
 
-        layout = QVBoxLayout(self)
+        layout = self.content_layout
         layout.setContentsMargins(16, 24, 16, 24)
         layout.setSpacing(12)
 
@@ -391,10 +397,19 @@ class TilePanel(QWidget):
         scroll.setWidget(self.list_widget)
         layout.addWidget(scroll, stretch=1)
 
-        #drives the slide in/out — see toggle()
+        #drives the slide in/out — see toggle(). Kept as its own
+        #animation distinct from Panel's self._anim, since this panel
+        #needs the start_slide_out()/finish_slide_out() split below
+        #rather than Panel's simpler open_panel()/close_panel() pair.
         self.anim = QPropertyAnimation(self, b"pos")
         self.anim.setDuration(220)
         self.anim.setEasingCurve(QEasingCurve.Type.OutCubic)
+
+    def paintEvent(self, event) -> None:
+        #Bypass Panel's flat self._bgcolor fill — this panel paints its
+        #background through the "tile_panel"/"tile-panel" stylesheet via
+        #WA_StyledBackground instead (same as before Panel existed).
+        QWidget.paintEvent(self, event)
 
     def add_tile(self, tile: Tile) -> None:
         """
