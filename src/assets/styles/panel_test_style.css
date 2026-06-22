@@ -1,0 +1,95 @@
+/* src/ui/widgets/panel_test.py — PanelTestContent.
+   Deliberately chaotic/clashing on purpose: this exists purely to
+   stress-test Panel (src/ui/overlays.py) with a wide variety of widget
+   types and set_style() calls in one place, not to look good. */
+
+.test-title {
+    color: #ffe14d;
+    background: transparent;
+    border-bottom: 2px dashed rgba(255,225,77,90);
+}
+
+.test-divider {
+    background: rgba(255,255,255,40);
+}
+
+.test-button-a {
+    background: #ff5d5d;
+    color: #1a0000;
+    border: none;
+    border-radius: 14px;
+    padding: 8px 16px;
+}
+.test-button-a:hover  { background: #ff8080; }
+.test-button-a:pressed{ background: #cc4a4a; }
+
+.test-button-b {
+    background: transparent;
+    color: #6df0ff;
+    border: 2px solid #6df0ff;
+    border-radius: 0px;
+    padding: 8px 16px;
+}
+.test-button-b:hover  { background: rgba(109,240,255,30); }
+.test-button-b:pressed{ background: rgba(109,240,255,60); }
+
+.test-swatch-a { background: #ff5d5d; border-radius: 4px; }
+.test-swatch-b { background: #ffd93d; border-radius: 50px; }
+.test-swatch-c { background: #6dff9c; border-radius: 0px; }
+.test-swatch-d { background: #6db8ff; border-radius: 4px 18px 4px 18px; }
+.test-swatch-e { background: #c46dff; border-radius: 18px 4px 18px 4px; }
+
+.test-checkbox {
+    color: #f2f2f2;
+    background: transparent;
+    spacing: 8px;
+}
+.test-checkbox::indicator {
+    width: 18px;
+    height: 18px;
+    border: 2px solid #6df0ff;
+    border-radius: 3px;
+    background: transparent;
+}
+.test-checkbox::indicator:checked {
+    background: #6df0ff;
+}
+
+.test-slider::groove:horizontal {
+    height: 6px;
+    background: rgba(255,255,255,30);
+    border-radius: 3px;
+}
+.test-slider::handle:horizontal {
+    width: 18px;
+    height: 18px;
+    margin: -7px 0;
+    border-radius: 9px;
+    background: #ffd93d;
+}
+
+.test-progress {
+    background: rgba(255,255,255,15);
+    border: none;
+    border-radius: 6px;
+    text-align: center;
+    color: #1a0d00;
+}
+.test-progress::chunk {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                                 stop:0 #ff5d5d, stop:0.5 #ffd93d, stop:1 #6dff9c);
+    border-radius: 6px;
+}
+
+.test-log {
+    background: #0d0d0d;
+    color: #6dff9c;
+    border: 1px solid rgba(255,255,255,20);
+    border-radius: 4px;
+}
+
+.test-footer {
+    color: #b3b3b3;
+    background: transparent;
+    border-top: 1px dotted rgba(255,255,255,40);
+}

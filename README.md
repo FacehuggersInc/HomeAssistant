@@ -672,6 +672,19 @@ def on_other_plugin_reloading(plugin_key: str):
 self.client.subscribe_to_event("on_plugin_reloading", on_other_plugin_reloading)
 ```
 
+### `on_plugin_unload`
+
+Fired before `PluginManager.unload()` does anything else. Useful for utill or lib plugins that might want to handle plugins under their management when they unload.
+
+This will also trigger when plugins reload because unload is triggered during a reload.
+
+```python
+def on_other_plugin_unloading(plugin_key: str):
+    del self.store[plugin_key]
+
+self.client.subscribe_to_event("on_plugin_unload", on_other_plugin_unloading)
+```
+
 ## Custom events
 
 Plugins can also define and fire their own event names — anything not in the built-in list above.

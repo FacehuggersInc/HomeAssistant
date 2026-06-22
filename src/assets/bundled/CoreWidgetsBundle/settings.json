@@ -25,7 +25,7 @@
         "positions": {
             "type": "string",
             "default": "{}",
-            "value": "{}",
+            "value": "{\"clock_tile\": {\"col\": 0, \"row\": 0}}",
             "description": "JSON map of tile key to {col, row} grid positions"
         }
     }

@@ -342,6 +342,8 @@ class PluginManager():
 			self.client.log("warning", f"[PluginManager] Plugin '{plugin_key}' not found when trying to unload it.")
 			return False
 
+		self.client.iterate_event_callables("on_plugin_unload", plugin_key, True)
+
 		# 2. Call shutdown/unload hook if available
 		# carryover is the PluginCarryover created by reload_plugin() for
 		# this one reload cycle, or None for a normal/shutdown unload

@@ -45,7 +45,7 @@ EVENTS = Literal[
     "initialized", "on_focus", "on_un_focus", "on_visit", "on_leave",
     "on_update", "on_minimize", "on_maximize", "on_fullscreen",
     "on_state_change", "on_close", "on_settings_saved",
-    "on_woke_assistant", "on_assistant_transcribed", "on_plugin_reloading",
+    "on_woke_assistant", "on_assistant_transcribed", "on_plugin_reloading", "on_plugin_unload"
 ]
 APP_NAME = "Desktop Home Assistant"
 
@@ -180,6 +180,7 @@ class Client:
                 "on_woke_assistant":        [],
                 "on_assistant_transcribed": [],
                 "on_plugin_reloading":      [],
+                "on_plugin_unload" :        []
             },
         }
 

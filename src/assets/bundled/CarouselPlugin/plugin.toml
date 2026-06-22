@@ -1,0 +1,8 @@
+[plugin]
+name = "Carousel Triggers Plugin"
+key = "carouseltriggers"
+order = 0
+dependencies = []
+
+[settings]
+path = "src/assets/bundled/CarouselPlugin/settings.json"
