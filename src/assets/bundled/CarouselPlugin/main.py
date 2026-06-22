@@ -80,31 +80,32 @@ class CarouselPlugin(Plugin):
                 self.invalid_pages.remove( group )
 
     def check_time_update(self, *args):
-        if self.client.PAGE and self.client.PAGE.name in [g[0] for g in self.invalid_pages]:
-            self.last_interaction_time = time.time()
-            if self.rotating_builders:
-                self.rotating_builders = False
-                self.already_called_ids = []
+        if self.builders:
+            if self.client.PAGE and self.client.PAGE.name in [g[0] for g in self.invalid_pages]:
+                self.last_interaction_time = time.time()
+                if self.rotating_builders:
+                    self.rotating_builders = False
+                    self.already_called_ids = []
 
-                #Dismiss
-                if isinstance(self.last_built[0], Panel) and self.last_built[3] == True:
-                    self.last_built[0].close_panel()
-                    #Cancel Timer
-                    if self.last_timeout_id:
-                        self.client.TIMEOUTS.cancel(self.last_timeout_id)
-            return
+                    #Dismiss
+                    if isinstance(self.last_built[0], Panel) and self.last_built[3] == True:
+                        self.last_built[0].close_panel()
+                        #Cancel Timer
+                        if self.last_timeout_id:
+                            self.client.TIMEOUTS.cancel(self.last_timeout_id)
+                return
 
-        if not self.rotating_builders:
-            time_ms = (time.time() - self.last_interaction_time)
-            if time_ms >= (self.settings.interaction_timeout.value / 1000):
-                self.rotating_builders = True
-        else:
-            if self.builder_used_timeslot == True:
-                self.builder_used_timeslot = False
-                self.client.call_on_ui( self.call_and_handle_random_builder )
+            if not self.rotating_builders:
+                time_ms = (time.time() - self.last_interaction_time)
+                if time_ms >= (self.settings.interaction_timeout.value / 1000):
+                    self.rotating_builders = True
             else:
-                if isinstance(self.last_built[0], bool) and self.last_built[0] == False:
-                    pass #! IDK WHAT TO DO HERE YET
+                if self.builder_used_timeslot == True:
+                    self.builder_used_timeslot = False
+                    self.client.call_on_ui( self.call_and_handle_random_builder )
+                else:
+                    if isinstance(self.last_built[0], bool) and self.last_built[0] == False:
+                        pass #! IDK WHAT TO DO HERE YET
     
     def built_panel_timeout(self):
         panel: Panel = self.last_built[0]
@@ -118,30 +119,34 @@ class CarouselPlugin(Plugin):
             builders += group
         return builders
 
-    def get_random_unused_builder(self) -> Callable:
+    def get_random_unused_builder(self) -> tuple:
         all_builders = self.get_builders()
         if len(self.already_called_ids) == len(all_builders):
             self.already_called_ids = []
         builders = [b for b in all_builders if b[1] not in self.already_called_ids and not b[1] == self.last_built[1]]
-        builder = random.choice( builders )
-        self.already_called_ids.append(builder[1])
-        return builder
+        if len(builders) > 0:
+            builder = random.choice( builders )
+            self.already_called_ids.append(builder[1])
+            return builder
+        
+        return (None, None, None, None)
 
     def call_and_handle_random_builder(self) -> None:
         callable, id, plugin, auto_dismiss = self.get_random_unused_builder()
-        self.last_built[0] = callable( self.settings.carousel_rotate_time.value / 1000 )
-        self.last_built[1] = id
-        self.last_built[2] = plugin
-        self.last_built[3] = auto_dismiss
-        if isinstance(self.last_built[0], bool) and self.last_built[0] == True:
-            self.builder_used_timeslot = True
-        elif isinstance(self.last_built[0], Panel):
-            self.last_timeout_id = self.client.TIMEOUTS.add(
-                self.settings.carousel_rotate_time.value / 1000,
-                self.built_panel_timeout,
-                f"builder_panel_timeout:{self.last_built[1]}",
-                True
-            )
+        if callable:
+            self.last_built[0] = callable( self.settings.carousel_rotate_time.value / 1000 )
+            self.last_built[1] = id
+            self.last_built[2] = plugin
+            self.last_built[3] = auto_dismiss
+            if isinstance(self.last_built[0], bool) and self.last_built[0] == True:
+                self.builder_used_timeslot = True
+            elif isinstance(self.last_built[0], Panel):
+                self.last_timeout_id = self.client.TIMEOUTS.add(
+                    self.settings.carousel_rotate_time.value / 1000,
+                    self.built_panel_timeout,
+                    f"builder_panel_timeout:{self.last_built[1]}",
+                    True
+                )
 
     def plugin_has_registered(self, plugin_key:str):
         if self.builders.get(plugin_key):
