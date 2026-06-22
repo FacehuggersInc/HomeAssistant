@@ -580,6 +580,21 @@ class Panel(QWidget):
     reparents onto the overlay manager *after* the dialog's position was
     already set. Keep that lesson in mind if you ever change how this
     class is parented.
+
+    IMPORTANT — destroy_on_close, and why this matters at all: a Panel
+    that's just hidden, never destroyed, doesn't actually go away.
+    Qt's C++ parent-child ownership keeps it alive as long as it's
+    still parented to OVERLAYS, regardless of whether anything in
+    Python still references it — so it keeps receiving events and
+    keeps getting counted in every OverlayManager mask recompute,
+    forever. For a *reusable* panel you build once and toggle
+    open/closed repeatedly (TilePanel, NotificationPanel), that's
+    exactly what you want, and the default here (destroy_on_close=
+    False) preserves it. For a one-off panel you build, show once, and
+    never touch again — e.g. anything from client.create_panel(),
+    which defaults destroy_on_close=True — set it, and close_panel()
+    will fully release the widget once its closing animation finishes
+    instead of leaving a dead one behind. See _destroy() below.
     """
 
     DEFAULT_WIDTH = 680   #shared by TilePanel/NotificationPanel/create_panel() — see apply_frosted_style()
@@ -587,21 +602,24 @@ class Panel(QWidget):
 
     def __init__(
         self,
-        client:          "Client",
-        width:           int  = None,
-        edge:            str  = "right",   # "right" or "left"
-        bgcolor:         str  = "#1e1e1e", #fallback fill ONLY — used if a backdrop snapshot can't be captured
-        animation_speed: int  = 220,
-        blur_radius:     int  = None,
-        radius:          str  = None,      #CSS border-radius, e.g. "8px" — None means square corners
-        key:             str  = None,
+        client:            "Client",
+        width:             int  = None,
+        edge:              str  = "right",   # "right" or "left"
+        bgcolor:           str  = "#1e1e1e", #fallback fill ONLY — used if a backdrop snapshot can't be captured
+        animation_speed:   int  = 220,
+        blur_radius:       int  = None,
+        radius:            str  = None,      #CSS border-radius, e.g. "8px" — None means square corners
+        key:               str  = None,
+        destroy_on_close:  bool = False,
     ):
         super().__init__(client.OVERLAYS)
-        self.client       = client
-        self.key          = key
-        self.edge         = edge
-        self.panel_width  = width if width is not None else self.DEFAULT_WIDTH
-        self.blur_radius  = blur_radius if blur_radius is not None else self.BLUR_RADIUS
+        self.client            = client
+        self.key               = key
+        self.edge              = edge
+        self.panel_width       = width if width is not None else self.DEFAULT_WIDTH
+        self.blur_radius       = blur_radius if blur_radius is not None else self.BLUR_RADIUS
+        self.destroy_on_close  = destroy_on_close   #see close_panel()/_destroy() below
+        self._destroyed        = False
         self._fallback_bg = QColor(bgcolor)
         self._backdrop: Optional[QPixmap] = None
         self.open         = False
@@ -768,6 +786,9 @@ class Panel(QWidget):
         self.close_panel() if self.open else self.open_panel()
 
     def open_panel(self) -> None:
+        if self._destroyed:
+            self.client.log("warning", f"[Panel] open_panel() called on an already-destroyed panel (key={self.key}) — ignored.")
+            return
         if self.open:
             return
         self._closing = False
@@ -784,11 +805,25 @@ class Panel(QWidget):
         self._anim.start()
         self.open = True
 
-    def close_panel(self) -> None:
+    def close_panel(self, destroy: bool = None) -> None:
+        """
+        destroy=None (default) falls back to whatever destroy_on_close
+        was set to at construction time. Pass True/False explicitly to
+        override that for just this one call — e.g. CarouselPlugin
+        always passes destroy=True here regardless of how its builder
+        built the panel, since it never reuses one once it's done
+        showing it.
+        """
+        should_destroy = self.destroy_on_close if destroy is None else destroy
+
         if not self.open:
+            if should_destroy:
+                self._destroy()
             return
-        self.open     = False
-        self._closing = True
+
+        self.open               = False
+        self._closing           = True
+        self._destroy_after_close = should_destroy
 
         self._anim.stop()
         self._anim.setEasingCurve(QEasingCurve.Type.InCubic)
@@ -804,3 +839,34 @@ class Panel(QWidget):
             pass
         self.hide()
         self._closing = False
+        if getattr(self, "_destroy_after_close", False):
+            self._destroy_after_close = False
+            self._destroy()
+
+    def _destroy(self) -> None:
+        """
+        Fully releases this panel: detaches it from OVERLAYS and
+        schedules the underlying Qt object for deletion. Qt cleans up
+        the event filters this panel installed on OVERLAYS (and that
+        OverlayManager installed on it) automatically once the object
+        is actually destroyed — the leak this fixes isn't "forgotten
+        filters", it's that nothing ever asked Qt to destroy the
+        widget at all. setParent(None) alone isn't enough either; it
+        detaches the widget but Python/PyQt won't actually free the
+        C++ object until deleteLater() (or the GC, which won't run for
+        a QObject with no Python references left if Qt still thinks
+        something might re-parent it) gets around to it.
+
+        Idempotent — safe to call more than once (e.g. once via a
+        close_panel(destroy=True) animation finishing, and again if
+        something else also tries to clean it up).
+        """
+        if self._destroyed:
+            return
+        self._destroyed = True
+        try:
+            self.client.OVERLAYS.removeEventFilter(self)
+        except Exception:
+            pass
+        self.setParent(None)
+        self.deleteLater()

@@ -3,6 +3,7 @@ from src.plugin.template import Plugin
 
 from src.ui.overlays import Panel
 
+
 class CarouselPlugin(Plugin):
     def __init__(self):
         self.builders = {}
@@ -16,6 +17,15 @@ class CarouselPlugin(Plugin):
 
     ## CORE
     def load(self, carryover=None):
+        # Interaction watching used to be this plugin's own job —
+        # InteractionEventWatcher, installed directly on client.app.
+        # That's a Client-level concern now (see InteractionWatcher/
+        # _on_global_interaction in src/main.py): on_fresh_interaction
+        # fires exactly on the edge this plugin cares about (the FIRST
+        # interaction after a period of idleness), and
+        # on_interaction_timeout fires exactly on the other edge (idle
+        # threshold first crossed) — both replace what this plugin used
+        # to detect by hand via its own last_interaction_time polling.
         self.client.subscribe_to_event(
             "on_fresh_interaction",
             self.on_fresh_interaction
@@ -49,9 +59,18 @@ class CarouselPlugin(Plugin):
         if self.rotating_builders:
             self.rotating_builders = False
             self.already_called_ids = []
-            #Dismiss
+            #Dismiss — destroy=True regardless of whether the builder
+            #used client.create_panel() (which already defaults to
+            #destroy_on_close=True) or built a Panel directly: this
+            #plugin never reuses a builder's panel once it's done
+            #showing it, so it should always be fully released here,
+            #not just hidden. See Panel.close_panel()/_destroy() in
+            #src/ui/overlays.py for what that actually does and why it
+            #matters — this used to be exactly the leak that made the
+            #app gradually slow down the longer it sat idle rotating
+            #through builders.
             if isinstance(self.last_built[0], Panel) and self.last_built[3]:
-                self.last_built[0].close_panel()
+                self.last_built[0].close_panel(destroy=True)
                 #Cancel Timer
                 if self.last_timeout_id:
                     self.client.TIMEOUTS.cancel(self.last_timeout_id)
@@ -74,7 +93,7 @@ class CarouselPlugin(Plugin):
 
                     #Dismiss
                     if isinstance(self.last_built[0], Panel) and self.last_built[3] == True:
-                        self.last_built[0].close_panel()
+                        self.last_built[0].close_panel(destroy=True)
                         #Cancel Timer
                         if self.last_timeout_id:
                             self.client.TIMEOUTS.cancel(self.last_timeout_id)
@@ -90,7 +109,7 @@ class CarouselPlugin(Plugin):
     
     def built_panel_timeout(self):
         panel: Panel = self.last_built[0]
-        panel.close_panel()
+        panel.close_panel(destroy=True)
         self.builder_used_timeslot = True
 
     ## FUNCTIONS
@@ -153,7 +172,7 @@ class CarouselPlugin(Plugin):
             if removal: self.builders[plugin_key].remove(removal)
             if self.last_built[1] == id:
                 if isinstance(self.last_built[0], Panel):
-                    self.last_built[0].close_panel()
+                    self.last_built[0].close_panel(destroy=True)
                 self.last_built = [None, None, None, False]
 
 

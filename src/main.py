@@ -47,6 +47,7 @@ EVENTS = Literal[
     "on_state_change", "on_close", "on_settings_saved",
     "on_woke_assistant", "on_assistant_transcribed", "on_plugin_reloading", "on_plugin_unload",
     "on_interaction", "on_fresh_interaction", "on_interaction_timeout",
+    "on_collection",
 ]
 APP_NAME = "Desktop Home Assistant"
 
@@ -196,6 +197,7 @@ class Client:
         self.UPDATE  = False
 
         self.LAST_COLLECTION = time.time()
+        self._process        = psutil.Process()   #for the memory diagnostics in update_thread()'s hourly collection
 
         self.STATES = {
             "home_page_setup": False
@@ -227,6 +229,7 @@ class Client:
                 "on_interaction":           [],
                 "on_fresh_interaction":     [],
                 "on_interaction_timeout":   [],
+                "on_collection":            [],
             },
         }
 
@@ -491,7 +494,7 @@ class Client:
 
     def create_panel(self, content: QWidget = None, width: int = None,
                       edge: str = "right", bgcolor: str = "#1e1e1e",
-                      key: str = None,
+                      key: str = None, destroy_on_close: bool = True,
                       on_created: Optional[Callable[[Panel], None]] = None
                       ) -> Optional[Panel]:
         """
@@ -500,6 +503,23 @@ class Client:
         immediately. Returns the Panel instance so the caller can hang
         onto it for a later .toggle()/.close_panel(), or just
         fire-and-forget it for a one-off panel.
+
+        destroy_on_close defaults to True here (unlike Panel's own
+        default of False): once this panel's close_panel() animation
+        finishes, the widget is fully released — detached from
+        OVERLAYS and deleted — rather than just hidden. A hidden-but-
+        never-destroyed Panel still gets counted in every
+        OverlayManager mask recompute and still receives events
+        forever, since Qt's C++ parent-child ownership keeps it alive
+        regardless of whether anything in Python still references it.
+        That's exactly the leak this method used to have: build a new
+        one-off Panel here every time (e.g. each Carousel rotation, or
+        each API request), and they'd pile up indefinitely, getting
+        slower the longer the app ran. Pass destroy_on_close=False if
+        you genuinely want to build a *reusable* panel this way and
+        toggle the same instance open/closed repeatedly — most callers
+        don't, but if you do, that's the same pattern TilePanel/
+        NotificationPanel use building Panel directly.
 
         Thread-safe: Panel is a real QWidget, and QWidgets must be
         built on the Qt main/UI thread. Calling this from a Qt slot
@@ -523,7 +543,8 @@ class Client:
         instead of constructing Panel directly.
         """
         def _build() -> Panel:
-            panel = Panel(self, width=width, edge=edge, bgcolor=bgcolor, key=key)
+            panel = Panel(self, width=width, edge=edge, bgcolor=bgcolor, key=key,
+                           destroy_on_close=destroy_on_close)
             if content is not None:
                 panel.add_content(content)
             panel.open_panel()
@@ -811,7 +832,44 @@ class Client:
                 #hourly GC and time resync
                 if time.time() - self.LAST_COLLECTION >= 3600:
                     self.LAST_COLLECTION = time.time()
-                    gc.collect()
+
+                    before_mb       = self._process.memory_info().rss / (1024 * 1024)
+                    overlays_before = len(self.OVERLAYS.children())
+
+                    # Gives plugins a chance to drop their own dead
+                    # references — cached widgets, stale Panel
+                    # instances, anything sitting in a dict/list that's
+                    # outlived its usefulness — BEFORE the actual
+                    # collection pass below, so that pass has something
+                    # real to reclaim. Runs on this thread, same as
+                    # on_update — if a handler touches a widget, it
+                    # needs to hop onto call_on_ui() itself.
+                    #
+                    # IMPORTANT: this only ever helps with Python-level
+                    # reference cycles. It does nothing for a QWidget
+                    # that's still alive because it's still parented to
+                    # something — gc.collect() has no visibility into
+                    # (or power over) Qt's C++ ownership. That kind of
+                    # leak needs an actual setParent(None)/deleteLater()
+                    # somewhere (see Panel._destroy() in
+                    # src/ui/overlays.py for the pattern), not a GC pass.
+                    # on_collection is for the former; don't expect it
+                    # to fix the latter on its own.
+                    self.iterate_event_callables("on_collection", None, True)
+                    collected = gc.collect()
+
+                    after_mb       = self._process.memory_info().rss / (1024 * 1024)
+                    overlays_after = len(self.OVERLAYS.children())
+
+                    self.log(
+                        "info",
+                        f"[Collection] gc freed {collected} objects — "
+                        f"RSS {before_mb:.1f}MB -> {after_mb:.1f}MB ({after_mb - before_mb:+.1f}MB), "
+                        f"OVERLAYS children {overlays_before} -> {overlays_after}"
+                        + (f" (+{overlays_after - overlays_before}, worth investigating if this keeps climbing)"
+                           if overlays_after > overlays_before else ""),
+                    )
+
                     self.resync_time()
 
                 #fire initialized callables once
