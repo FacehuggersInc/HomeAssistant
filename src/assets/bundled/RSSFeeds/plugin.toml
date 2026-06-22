@@ -1,5 +1,5 @@
 [plugin]
-name = "Idle Random Triggers"
-key = "idletriggers"
+name = "RSS Feeds Plugin"
+key = "rssfeeds"
 order = 0 
 dependencies = ["idletriggers"]
