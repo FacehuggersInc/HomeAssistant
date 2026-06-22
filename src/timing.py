@@ -39,6 +39,13 @@ class TimeoutScheduler:
 			deadline = t[-1] + t[0]
 			self.active.pop(deadline, None)
 
+	def prune(self) -> int:
+		pending = {id(t) for t in self.active.values()}
+		stale = [tid for tid, t in self.timeouts.items() if id(t) not in pending]
+		for tid in stale:
+			del self.timeouts[tid]
+		return len(stale)
+
 	def __scheduler_thread(self, stop_event: Event) -> None:
 		while not stop_event.is_set():
 			time.sleep(0.1)

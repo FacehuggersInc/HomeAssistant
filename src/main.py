@@ -427,29 +427,41 @@ class Client:
 
     ##LOGGING
 
+    def _open_log_file(self) -> None:
+        """
+        Opens logs/latest.log for this run, archiving whatever a
+        previous run left behind under its own start-timestamp first.
+        Called once, lazily, on the first log() call.
+        """
+        if self.LOG:
+            self.LOG.close()
+
+        now     = datetime.now()
+        logdir  = Path("logs")
+        logpath = logdir / "latest.log"
+        ts      = f"{now.year}-{now.month}-{now.day}-{now.hour:02}-{now.minute:02}"
+        logdir.mkdir(exist_ok=True)
+
+        if logpath.exists():
+            with open(logpath, "r") as lf:
+                lines = lf.readlines()
+            lasttimeof = lines[0].strip() if lines else ts
+            renamed = logdir / f"{lasttimeof}.log"
+            if renamed.exists():
+                renamed.unlink()
+            logpath.rename(renamed)
+
+        self.LOG = open(logpath, "a")
+        self.LOG.write(f"{ts}\n")
+        self.LOGGING_FILE_CREATED = True
+
     def log(self, level: EVENT_LEVELS, message: str,
             pointer=None, include_traceback: bool = False) -> None:
         now    = datetime.now()
         timeof = f"{now.year}/{now.month}/{now.day} {now.hour:02}:{now.minute:02}:{now.second:02}"
 
         if self.LOGGING and not self.LOGGING_FILE_CREATED:
-            logdir  = Path("logs")
-            logpath = logdir / "latest.log"
-            ts      = f"{now.year}-{now.month}-{now.day}-{now.hour:02}-{now.minute:02}"
-            logdir.mkdir(exist_ok=True)
-
-            self.LOGGING_FILE_CREATED = True
-            if logpath.exists():
-                with open(logpath, "r") as lf:
-                    lines = lf.readlines()
-                lasttimeof = lines[0].strip() if lines else ts
-                renamed = logdir / f"{lasttimeof}.log"
-                if renamed.exists():
-                    renamed.unlink()
-                logpath.rename(renamed)
-
-            self.LOG = open(logpath, "a")
-            self.LOG.write(f"{ts}\n")
+            self._open_log_file()
 
         alt_msg = f" {message}"
         message = message if message.startswith(" ") else alt_msg
@@ -836,34 +848,17 @@ class Client:
                     before_mb       = self._process.memory_info().rss / (1024 * 1024)
                     overlays_before = len(self.OVERLAYS.children())
 
-                    # Gives plugins a chance to drop their own dead
-                    # references — cached widgets, stale Panel
-                    # instances, anything sitting in a dict/list that's
-                    # outlived its usefulness — BEFORE the actual
-                    # collection pass below, so that pass has something
-                    # real to reclaim. Runs on this thread, same as
-                    # on_update — if a handler touches a widget, it
-                    # needs to hop onto call_on_ui() itself.
-                    #
-                    # IMPORTANT: this only ever helps with Python-level
-                    # reference cycles. It does nothing for a QWidget
-                    # that's still alive because it's still parented to
-                    # something — gc.collect() has no visibility into
-                    # (or power over) Qt's C++ ownership. That kind of
-                    # leak needs an actual setParent(None)/deleteLater()
-                    # somewhere (see Panel._destroy() in
-                    # src/ui/overlays.py for the pattern), not a GC pass.
-                    # on_collection is for the former; don't expect it
-                    # to fix the latter on its own.
+                    #see "on_collection" in the README for what plugins should do with this
                     self.iterate_event_callables("on_collection", None, True)
                     collected = gc.collect()
+                    pruned    = self.TIMEOUTS.prune()
 
                     after_mb       = self._process.memory_info().rss / (1024 * 1024)
                     overlays_after = len(self.OVERLAYS.children())
 
                     self.log(
                         "info",
-                        f"[Collection] gc freed {collected} objects — "
+                        f"[Collection] gc freed {collected} objects, pruned {pruned} stale timeouts — "
                         f"RSS {before_mb:.1f}MB -> {after_mb:.1f}MB ({after_mb - before_mb:+.1f}MB), "
                         f"OVERLAYS children {overlays_before} -> {overlays_after}"
                         + (f" (+{overlays_after - overlays_before}, worth investigating if this keeps climbing)"
