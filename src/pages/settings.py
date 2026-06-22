@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 from PyQt6.QtWidgets import (
     QWidget, QHBoxLayout, QVBoxLayout, QLabel, QPushButton,
     QScrollArea, QLineEdit, QComboBox, QFrame, QSizePolicy, QFileDialog,
+    QScroller,
 )
 from PyQt6.QtCore import Qt, QPropertyAnimation, QEasingCurve, pyqtProperty
 from PyQt6.QtGui import QPainter, QColor, QBrush, QPen
@@ -319,45 +320,7 @@ class SettingBlock(QFrame):
 
 
 
-class PluginGroup(QFrame):
-    def __init__(self, plugin, key: str, blocks: list):
-        super().__init__()
-        set_style(self, "settings", "plugin-group")
-        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
 
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(0)
-
-        # Group header
-        hdr = QWidget()
-        set_style(hdr, "settings", "plugin-group-header")
-        hl = QVBoxLayout(hdr)
-        hl.setContentsMargins(16, 12, 16, 12)
-        hl.setSpacing(2)
-
-        nl = QLabel(plugin.config.plugin.name)
-        nl.setFont(make_font(SIZES.M1, bold=True))
-        set_style(nl, "common", "text-strong")
-
-        ml = QLabel(key)
-        ml.setFont(make_font(SIZES.S1))
-        set_style(ml, "common", "text-muted")
-
-        hl.addWidget(nl)
-        hl.addWidget(ml)
-        layout.addWidget(hdr)
-
-        if blocks:
-            body = QWidget()
-            set_style(body, "common", "transparent")
-            bl = QVBoxLayout(body)
-            bl.setContentsMargins(12, 12, 12, 12)
-            bl.setSpacing(6)
-            for block in blocks:
-                if isinstance(block, QWidget):
-                    bl.addWidget(block)
-            layout.addWidget(body)
 
 
 # ── Section label ─────────────────────────────────────────────────────────────
@@ -453,13 +416,13 @@ class SettingsPage(PageFramework):
         self.setFixedSize(w, h)
         set_style(self, "common", "page-background")
 
-        self.categories: dict[str, list] = {}
+        self.categories: dict[str, dict] = {}   #see new_category()/new_subcategory() for the entry shape
 
         # Dot grid background
         self._grid = GridBackground(self)
         self._grid.setGeometry(0, 0, w, h)
 
-        NAV_W   = 280
+        NAV_W   = 360
         BAR_H   = 70
         PAD     = 24
 
@@ -514,6 +477,13 @@ class SettingsPage(PageFramework):
         self._content_scroll.setHorizontalScrollBarPolicy(
             Qt.ScrollBarPolicy.ScrollBarAlwaysOff
         )
+        # Lets a finger-drag scroll this like a phone, with inertia —
+        # a plain QScrollArea only reacts to the scrollbar handle or a
+        # mouse wheel, neither usable here since the scrollbar's
+        # hidden (ScrollBarAlwaysOff above). Works for a real mouse
+        # drag too, so there's no downside to leaving this always on.
+        QScroller.grabGesture(self._content_scroll.viewport(),
+                               QScroller.ScrollerGestureType.LeftMouseButtonGesture)
 
         self._content_widget = QWidget()
         set_style(self._content_widget, "common", "transparent")
@@ -549,6 +519,7 @@ class SettingsPage(PageFramework):
             "add_drawer_controls":    self.drawer.insert_controls,
             "remove_drawer_controls": self.drawer.remove_controls,
             "new_category":           self.new_category,
+            "new_subcategory":        self.new_subcategory,
             "insert_block":           self.insert_block,
             "new_settings_list":      self.builder,
         })
@@ -556,18 +527,50 @@ class SettingsPage(PageFramework):
         self._generate_settings(client.SETTINGS, client.SETTINGS.as_dict())
         self._page_additions()
         self._build_nav()
-        self._active_nav_btn: QPushButton | None = None
 
     # ── Builder ───────────────────────────────────────────────────────────────
 
-    def new_category(self, name: str, controls: list) -> None:
-        self.categories[name] = controls
+    def new_category(self, name: str, controls: list, label: str = None) -> None:
+        """Register (or replace) a top-level category. `controls` is this
+        category's own content, shown below its title-card header."""
+        self.categories[name] = {
+            "label":      label or format_name(name),
+            "content":    controls,
+            "subs":       {},
+            "plugin":     None,
+            "plugin_key": None,
+        }
+
+    def new_subcategory(self, parent: str, name: str, controls: list,
+                         label: str = None, plugin=None, plugin_key: str = None) -> None:
+        """
+        Register a sub-category nested under an existing top-level
+        category — rendered indented beneath it in the nav (connected by
+        a small rail, see _build_nav()), with its own title-card header
+        and content, same as a top-level category gets.
+
+        Currently used purely to give every plugin its own page under
+        "plugins" (see _page_additions()) — pass plugin/plugin_key for
+        that case and the header gets the Copy Key / Reload / Unload
+        buttons automatically (see _build_category_header()). Neither
+        is plugin-specific otherwise; this mechanism works for any
+        category. Only one level of nesting is supported.
+        """
+        if parent not in self.categories:
+            self.client.log("warning", f"[SettingsPage.new_subcategory] parent category '{parent}' does not exist — call new_category() first")
+            return
+        self.categories[parent]["subs"][name] = {
+            "label":      label or format_name(name),
+            "content":    controls,
+            "subs":       {},
+            "plugin":     plugin,
+            "plugin_key": plugin_key,
+        }
 
     def insert_block(self, category: str, index: int, content: QWidget) -> None:
-        if self.categories.get(category):
-            self.categories[category].insert(
-                index, SettingBlock(self.client, content=content)
-            )
+        entry = self.categories.get(category)
+        if entry:
+            entry["content"].insert(index, SettingBlock(self.client, content=content))
 
     def builder(self, pointer, data: dict, filter_key: str = "", path: str = "") -> list:
         group = []
@@ -609,58 +612,274 @@ class SettingsPage(PageFramework):
         self.new_category("info", _build_info_page(self.client))
 
     def _page_additions(self) -> None:
-        groups = []
         plugins = self.client.PLUGIN.get_plugins()
+
+        intro = []
+        if plugins:
+            hint = QLabel("Select a plugin from the list on the left to view and manage it.")
+            hint.setFont(make_font(SIZES.S1))
+            set_style(hint, "settings", "settings-hint")
+            hint.setWordWrap(True)
+            intro = [hint]
+        self.new_category("plugins", intro, label="Plugins")
+
         for plugin, key in plugins:
-            if not hasattr(plugin, "settings"):
-                continue
-            blocks = self.builder(plugin.settings, plugin.settings.to_dict(), "", "")
-            groups.append(PluginGroup(plugin, key, blocks))
-        self.new_category("plugins", groups)
+            blocks = []
+            if hasattr(plugin, "settings"):
+                blocks = self.builder(plugin.settings, plugin.settings.to_dict(), "", "")
+            self.new_subcategory(
+                "plugins", key, blocks,
+                label=plugin.config.plugin.name,
+                plugin=plugin, plugin_key=key,
+            )
+
+    # ── Category header (title card) ────────────────────────────────────────
+
+    def _build_category_header(self, label: str, plugin=None, plugin_key: str = None,
+                                has_content: bool = True) -> QFrame:
+        """The title card shown at the top of every category's and every
+        sub-category's content. Plugin sub-categories additionally get
+        the Copy Key / Reload / Unload management buttons in the top
+        row — see _build_plugin_actions()."""
+        card = QFrame()
+        set_style(card, "settings", "category-header" if has_content else "category-header-standalone")
+
+        layout = QVBoxLayout(card)
+        layout.setContentsMargins(16, 14, 16, 14)
+        layout.setSpacing(4)
+
+        top_row = QHBoxLayout()
+        top_row.setContentsMargins(0, 0, 0, 0)
+        top_row.setSpacing(10)
+
+        title = QLabel(label)
+        title.setFont(make_font(SIZES.M1, bold=True))
+        set_style(title, "common", "text-strong")
+        top_row.addWidget(title)
+        top_row.addStretch()
+
+        if plugin_key:
+            for btn in self._build_plugin_actions(plugin, plugin_key):
+                top_row.addWidget(btn)
+
+        layout.addLayout(top_row)
+
+        if plugin_key:
+            sub = QLabel(plugin_key)
+            sub.setFont(make_font(SIZES.S1))
+            set_style(sub, "common", "text-muted")
+            layout.addWidget(sub)
+
+            deps_line = self._build_dependency_line(plugin_key)
+            if deps_line:
+                layout.addWidget(deps_line)
+
+        return card
+
+    def _build_dependency_line(self, plugin_key: str) -> QLabel | None:
+        """
+        "Depends on: ..." / "Required by: ..." line for a plugin's
+        header — this plugin's own declared dependencies (whether or
+        not they're currently loaded) and the currently-loaded plugins
+        that depend on IT (the same live set unload_plugin() checks
+        before refusing to unload). Returns None when there's nothing
+        to show, so the header doesn't grow for a plugin with no
+        dependency relationships either way.
+        """
+        own_deps  = self.client.PLUGIN.get_dependencies(plugin_key)
+        dependants = self.client.PLUGIN.get_dependants(plugin_key)
+        if not own_deps and not dependants:
+            return None
+
+        parts = []
+        if own_deps:
+            annotated = [
+                key if self.client.PLUGIN.has_plugin(key) else f"{key} (not loaded)"
+                for key in own_deps
+            ]
+            parts.append("Depends on: " + ", ".join(annotated))
+        if dependants:
+            parts.append("Required by: " + ", ".join(dependants))
+
+        line = QLabel("   •   ".join(parts))
+        line.setFont(make_font(SIZES.S1))
+        line.setWordWrap(True)
+        set_style(line, "common", "text-muted")
+        return line
+
+    def _build_plugin_actions(self, plugin, plugin_key: str) -> list[QPushButton]:
+        """Copy Key / Reload / Unload buttons for a plugin's settings
+        header — color-coded by how destructive the action is (see
+        settings.css) and 44px tall to stay comfortably touch-sized,
+        same as every other primary control on this page."""
+        copy_btn = QPushButton("Copy Key")
+        copy_btn.setFont(make_font(SIZES.S2, bold=True))
+        copy_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        copy_btn.setFixedHeight(44)
+        copy_btn.setMinimumWidth(100)
+        set_style(copy_btn, "settings", "plugin-action-copy")
+        copy_btn.clicked.connect(lambda: self._copy_plugin_key(plugin_key))
+
+        reload_btn = QPushButton("Reload")
+        reload_btn.setFont(make_font(SIZES.S2, bold=True))
+        reload_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        reload_btn.setFixedHeight(44)
+        reload_btn.setMinimumWidth(90)
+        set_style(reload_btn, "settings", "plugin-action-reload")
+        reload_btn.clicked.connect(lambda: self._reload_plugin(plugin_key))
+
+        unload_btn = QPushButton("Unload")
+        unload_btn.setFont(make_font(SIZES.S2, bold=True))
+        unload_btn.setFixedHeight(44)
+        unload_btn.setMinimumWidth(90)
+
+        dependants = self.client.PLUGIN.get_dependants(plugin_key)
+        if dependants:
+            # Reload stays available on purpose — only a plain unload
+            # is blocked, since unload_plugin() itself refuses it while
+            # any of these is still loaded (see PluginManager.unload_plugin).
+            # Disabling the button here just means there's nothing to
+            # click instead of a click that's silently refused.
+            unload_btn.setEnabled(False)
+            unload_btn.setCursor(Qt.CursorShape.ForbiddenCursor)
+            unload_btn.setToolTip(
+                "Can't unload — required by currently loaded plugin(s): "
+                + ", ".join(dependants)
+            )
+            set_style(unload_btn, "settings", "plugin-action-unload-disabled")
+        else:
+            unload_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            set_style(unload_btn, "settings", "plugin-action-unload")
+            unload_btn.clicked.connect(lambda: self._unload_plugin(plugin_key))
+
+        return [copy_btn, reload_btn, unload_btn]
+
+    def _copy_plugin_key(self, plugin_key: str) -> None:
+        self.client.app.clipboard().setText(plugin_key)
+        self.client.simple_notify(Icons.COPY, "Settings", f"Copied '{plugin_key}' to clipboard.")
+
+    def _reload_plugin(self, plugin_key: str) -> None:
+        # reload_plugin() does its own client.goto() (with override=True)
+        # once finished, including the brief "Reloading…" detour and a
+        # success notification — nothing else needed here. Deferred via
+        # call_on_ui so it runs after this click handler returns rather
+        # than nested inside it, same pattern src/backend.py uses for
+        # the same call.
+        self.client.call_on_ui(lambda: self.client.PLUGIN.reload_plugin(plugin_key))
+
+    def _unload_plugin(self, plugin_key: str) -> None:
+        def _do():
+            if not self.client.PLUGIN.unload_plugin(plugin_key):
+                # Refused — most likely a dependant loaded in the brief
+                # window between this button being built and clicked.
+                # unload_plugin() already logged why; just surface it.
+                dependants = self.client.PLUGIN.get_dependants(plugin_key)
+                detail = (f" — required by: {', '.join(dependants)}" if dependants else "")
+                self.client.simple_notify(Icons.WARNING, "Settings",
+                                           f"Couldn't unload '{plugin_key}'{detail}.")
+                return
+            self.client.simple_notify(Icons.DELETE, "Settings", f"'{plugin_key}' was unloaded.")
+            # Force the settings page to rebuild from scratch — its nav
+            # and the now-gone plugin's sub-category would otherwise
+            # keep referencing an instance that no longer exists.
+            self.client.goto("#settings", override=True)
+        self.client.call_on_ui(_do)
+
+    # ── Navigation ───────────────────────────────────────────────────────────
+
+    def _make_nav_button(self, label: str, indent: bool) -> QPushButton:
+        btn = QPushButton(label)
+        btn.setFont(make_font(SIZES.S1 if indent else SIZES.S2))
+        btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        btn.setFixedHeight(40 if indent else 44)
+        btn.setCheckable(True)
+        self._apply_nav_style(btn, "inactive", indent)
+        return btn
 
     @mixin_target("settings.setup.tab.generation")
     def _build_nav(self) -> None:
-        first = True
-        for key in self.categories:
-            btn = QPushButton(format_name(key))
-            btn.setFont(make_font(SIZES.S2))
-            btn.setCursor(Qt.CursorShape.PointingHandCursor)
-            btn.setFixedHeight(44)
-            btn.setCheckable(True)
-            self._apply_nav_style(btn, False)
-            btn.clicked.connect(lambda _, k=key, b=btn: self._switch_tab(k, b))
+        self._nav_buttons: dict[tuple, QPushButton] = {}
+        first_path = None
+
+        for cat_key, entry in self.categories.items():
+            path = (cat_key, None)
+            btn = self._make_nav_button(entry["label"], indent=False)
+            btn.clicked.connect(lambda _, p=path: self._switch_tab(p))
             self._nav_list.addWidget(btn)
-            if first:
-                btn.setChecked(True)
-                self._apply_nav_style(btn, True)
-                self._active_nav_btn = btn
-                self._show_category(key)
-                first = False
+            self._nav_buttons[path] = btn
+            if first_path is None:
+                first_path = path
 
-    def _apply_nav_style(self, btn: QPushButton, active: bool) -> None:
-        bg = "rgba(255,255,255,18)" if active else "transparent"
-        set_style(btn, "settings", "settings-nav-button", override={"*": {"background": bg}})
+            subs = entry.get("subs") or {}
+            if subs:
+                rail = QFrame()
+                set_style(rail, "settings", "settings-nav-rail")
+                rail_layout = QVBoxLayout(rail)
+                rail_layout.setContentsMargins(14, 4, 0, 4)
+                rail_layout.setSpacing(4)
+                for sub_key, sub_entry in subs.items():
+                    sub_path = (cat_key, sub_key)
+                    sub_btn = self._make_nav_button(sub_entry["label"], indent=True)
+                    sub_btn.clicked.connect(lambda _, p=sub_path: self._switch_tab(p))
+                    rail_layout.addWidget(sub_btn)
+                    self._nav_buttons[sub_path] = sub_btn
+                self._nav_list.addWidget(rail)
 
-    def _switch_tab(self, key: str, btn: QPushButton) -> None:
-        if self._active_nav_btn:
-            self._active_nav_btn.setChecked(False)
-            self._apply_nav_style(self._active_nav_btn, False)
-        btn.setChecked(True)
-        self._apply_nav_style(btn, True)
-        self._active_nav_btn = btn
-        self._show_category(key)
+        if first_path:
+            self._select_path(first_path)
+
+    def _apply_nav_style(self, btn: QPushButton, state: str, indent: bool = False) -> None:
+        # state: "active" (this exact button is selected), "parent" (a
+        # child of this category is selected), or "inactive"
+        bg = {"active": "rgba(255,255,255,18)",
+              "parent": "rgba(255,255,255,8)",
+              "inactive": "transparent"}[state]
+        clazz = "settings-nav-subbutton" if indent else "settings-nav-button"
+        set_style(btn, "settings", clazz, override={"*": {"background": bg}})
+
+    def _switch_tab(self, path: tuple) -> None:
+        self._select_path(path)
         self.client.TIMEOUTS.start(self._timeout_id)
 
-    def _show_category(self, key: str) -> None:
+    def _select_path(self, path: tuple) -> None:
+        cat_key, sub_key = path
+        for p, btn in self._nav_buttons.items():
+            is_active = (p == path)
+            is_parent = (not is_active and sub_key is not None and p == (cat_key, None))
+            btn.setChecked(is_active)
+            self._apply_nav_style(
+                btn, "active" if is_active else ("parent" if is_parent else "inactive"),
+                indent=(p[1] is not None),
+            )
+        self._active_path = path
+        self._show_category(path)
+
+    def _show_category(self, path: tuple) -> None:
+        cat_key, sub_key = path
+        entry = self.categories.get(cat_key)
+        if not entry:
+            return
+        target = entry if sub_key is None else entry["subs"].get(sub_key)
+        if not target:
+            return
+
         while self._content_layout.count() > 1:
             item = self._content_layout.takeAt(0)
             if item.widget():
                 item.widget().setParent(None)
-        for block in self.categories.get(key, []):
+
+        header = self._build_category_header(
+            target["label"],
+            plugin=target.get("plugin"),
+            plugin_key=target.get("plugin_key"),
+            has_content=bool(target["content"]),
+        )
+        self._content_layout.insertWidget(self._content_layout.count() - 1, header)
+
+        for block in target["content"]:
             if isinstance(block, QWidget):
-                self._content_layout.insertWidget(
-                    self._content_layout.count() - 1, block
-                )
+                self._content_layout.insertWidget(self._content_layout.count() - 1, block)
+
         self._content_scroll.verticalScrollBar().setValue(0)
 
     # ── Lifecycle ─────────────────────────────────────────────────────────────

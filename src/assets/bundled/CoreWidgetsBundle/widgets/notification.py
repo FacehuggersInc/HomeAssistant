@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
-    QPushButton, QScrollArea, QFrame, QSizePolicy,
+    QPushButton, QScrollArea, QFrame, QSizePolicy, QScroller,
 )
 from PyQt6.QtCore import Qt, QTimer, QPropertyAnimation, QEasingCurve
 from PyQt6.QtGui import QColor, QPainter, QBrush, QPen
@@ -370,6 +370,12 @@ class NotificationPanel(Panel):
         #viewport widget, which otherwise paints opaque over the
         #blurred backdrop for most of the panel
         scroll.viewport().setAutoFillBackground(False)
+        # Finger-drag scrolling with inertia — same reasoning as
+        # SettingsPage (src/pages/settings.py): a plain QScrollArea
+        # only reacts to the scrollbar handle or a mouse wheel, and
+        # ours is hidden via ScrollBarAlwaysOff above.
+        QScroller.grabGesture(scroll.viewport(),
+                               QScroller.ScrollerGestureType.LeftMouseButtonGesture)
 
         self._list_widget = QWidget()
         set_style(self._list_widget, "common", "transparent")

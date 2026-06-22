@@ -38,6 +38,15 @@ class Drawer(QWidget):
             self._close,
             f"__timeout_drawer_{position}:{self.client.uuid()}",
         )
+        # If this Drawer gets destroyed before that timeout fires —
+        # e.g. its page is torn down via goto(override=True) while the
+        # drawer was recently opened/closed — the scheduled call would
+        # otherwise run _close() on an already-deleted C++ object and
+        # crash with "wrapped C/C++ object ... has been deleted".
+        # destroyed fires no matter who/what destroys this widget, so
+        # this is the one place that reliably catches every case rather
+        # than relying on every caller to remember to cancel it.
+        self.destroyed.connect(lambda: self.client.TIMEOUTS.cancel(self._timeout_id))
 
         # Handle
         self.handle = Handle(

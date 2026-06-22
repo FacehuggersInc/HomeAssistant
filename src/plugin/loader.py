@@ -342,6 +342,20 @@ class PluginManager():
 			self.client.log("warning", f"[PluginManager] Plugin '{plugin_key}' not found when trying to unload it.")
 			return False
 
+		# A plain unload — not part of a reload_plugin() cycle (which
+		# always passes a real carryover) and not the app's own
+		# shutdown path (which always passes quick=True) — is refused
+		# while another currently-loaded plugin still depends on this
+		# one. Unloading it out from under a live dependant would leave
+		# that dependant broken with no warning. Reloading is
+		# unaffected on purpose: the plugin comes back, dependants
+		# never actually lose it.
+		if not quick and carryover is None:
+			dependants = self.get_dependants(plugin_key)
+			if dependants:
+				self.client.log("warning", f"[PluginManager] Refused to unload '{plugin_key}' — still required by currently loaded plugin(s): {dependants}")
+				return False
+
 		self.client.iterate_event_callables("on_plugin_unload", plugin_key, True)
 
 		# 2. Call shutdown/unload hook if available
@@ -506,6 +520,37 @@ class PluginManager():
 			return True
 		
 		return False
+
+	def get_dependencies(self, plugin_key: str) -> list[str]:
+		"""Plugin keys this plugin's own plugin.toml declares as
+		dependencies — regardless of whether those plugins are
+		currently loaded (see get_dependants() for the reverse, live-only
+		direction)."""
+		plugin = self.plugins.get(plugin_key)
+		if not plugin:
+			return []
+		return list(plugin.config.get_path("plugin.dependencies", []) or [])
+
+	def get_dependants(self, plugin_key: str) -> list[str]:
+		"""Keys of every CURRENTLY LOADED plugin that declares
+		plugin_key as one of its own dependencies — i.e. plugins that
+		would be left depending on something missing if plugin_key were
+		unloaded right now. This is what unload_plugin() checks before
+		refusing a plain unload."""
+		dependants = []
+		for other_key, other_plugin in self.plugins.items():
+			if other_key == plugin_key:
+				continue
+			deps = other_plugin.config.get_path("plugin.dependencies", []) or []
+			if plugin_key in deps:
+				dependants.append(other_key)
+		return dependants
+
+	def can_unload(self, plugin_key: str) -> bool:
+		"""False if a plain unload of this plugin would currently be
+		refused by unload_plugin() — i.e. some other loaded plugin still
+		depends on it. Reload is never affected by this."""
+		return len(self.get_dependants(plugin_key)) == 0
 
 	def get_plugins(self) -> list[tuple[Plugin, str]]:
 		return [(self.plugins[key], key) for key in self.plugins.keys()]

@@ -81,7 +81,17 @@ class CoreWidgetsBundle(Plugin):
         # next load/reload, and the "go back to where I was" behaviour
         # never fired — with no visible symptom other than a quiet log
         # line saying unload() errored.
-        if current_page and current_page.name == "#cwb_home_page":
+        # carryover is only ever a real PluginCarryover during a RELOAD
+        # cycle (reload_plugin() always builds one before calling
+        # unload()) — a plain unload_plugin() call passes None here,
+        # which happens both from the settings page's Unload button and
+        # from the app's own shutdown path (unload_plugins()). Skipping
+        # this when there's nothing to carry anything over TO is correct,
+        # not just defensive — without this guard it crashed with
+        # AttributeError on 'NoneType' has no attribute 'set' any time
+        # the app closed (or this plugin was unloaded outright) while
+        # sitting on its own home page.
+        if carryover and current_page and current_page.name == "#cwb_home_page":
             carryover.set("was_on_plugin_page", (True, "#cwb_home_page"))
             carryover.set("handled_navigation", True)
 

@@ -43,16 +43,24 @@
     background: #262626;
 }
 
-.plugin-group {
+.category-card {
     background: rgba(255,255,255,5);
     border: 1px solid rgba(255,255,255,16);
     border-radius: 8px;
 }
 
-.plugin-group-header {
+.category-header {
     background: rgba(255,255,255,10);
     border-radius: 8px 8px 0 0;
     border-bottom: 1px solid rgba(255,255,255,16);
+}
+
+.category-header-standalone {
+    /* same header look, but used when a category has no content blocks
+       below it (e.g. a plugin with zero exposed settings) — full
+       radius all the way around instead of a flat bottom edge */
+    background: rgba(255,255,255,10);
+    border-radius: 8px;
 }
 
 .section-label {
@@ -108,4 +116,66 @@
 
 .settings-nav-button:hover {
     background: rgba(255,255,255,12);
+}
+
+.settings-nav-subbutton {
+    background: transparent;
+    color: #d9d9d9;
+    border: none;
+    border-radius: 6px;
+    padding: 0 12px;
+    text-align: left;
+}
+
+.settings-nav-subbutton:hover {
+    background: rgba(255,255,255,12);
+}
+
+.settings-nav-rail {
+    /* wraps a category's indented sub-category buttons — the left
+       border is the "this branches off the category above it" guideline */
+    background: transparent;
+    border-left: 2px solid rgba(255,255,255,30);
+}
+
+/* ── Plugin management buttons (settings page category header) ──────────
+   Color-coded by how destructive the action is: copy is neutral,
+   reload is an assertive-but-safe blue, unload is a clear red warning. */
+
+.plugin-action-copy {
+    background: rgba(255,255,255,18);
+    color: #f2f2f2;
+    border: 1px solid rgba(255,255,255,40);
+    border-radius: 8px;
+    padding: 0 14px;
+}
+.plugin-action-copy:hover    { background: rgba(255,255,255,32); }
+.plugin-action-copy:pressed  { background: rgba(255,255,255,48); }
+
+.plugin-action-reload {
+    background: #1f4f8f;
+    color: white;
+    border: none;
+    border-radius: 8px;
+    padding: 0 14px;
+}
+.plugin-action-reload:hover    { background: #2d6cc0; }
+.plugin-action-reload:pressed  { background: #163a69; }
+
+.plugin-action-unload {
+    background: #6e1f1f;
+    color: white;
+    border: none;
+    border-radius: 8px;
+    padding: 0 14px;
+}
+.plugin-action-unload:hover    { background: #9c2c2c; }
+.plugin-action-unload:pressed  { background: #531616; }
+
+.plugin-action-unload-disabled {
+    background: rgba(110,31,31,90);
+    color: rgba(255,255,255,110);
+    border: none;
+    border-radius: 8px;
+    padding: 0 14px;
 }
