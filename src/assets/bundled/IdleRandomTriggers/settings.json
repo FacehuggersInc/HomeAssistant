@@ -1,5 +1,5 @@
 {
-    "carousel_rotate_time": {
+    "rotate_time": {
         "type": "int",
         "default": 10000,
         "value": 10000,

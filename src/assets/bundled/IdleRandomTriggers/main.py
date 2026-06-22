@@ -134,7 +134,7 @@ class CarouselPlugin(Plugin):
     def call_and_handle_random_builder(self) -> None:
         callable, id, plugin, auto_dismiss = self.get_random_unused_builder()
         if callable:
-            self.last_built[0] = callable( self.settings.carousel_rotate_time.value / 1000 )
+            self.last_built[0] = callable( self.settings.rotate_time.value / 1000 )
             self.last_built[1] = id
             self.last_built[2] = plugin
             self.last_built[3] = auto_dismiss
@@ -142,7 +142,7 @@ class CarouselPlugin(Plugin):
                 self.builder_used_timeslot = True
             elif isinstance(self.last_built[0], Panel):
                 self.last_timeout_id = self.client.TIMEOUTS.add(
-                    self.settings.carousel_rotate_time.value / 1000,
+                    self.settings.rotate_time.value / 1000,
                     self.built_panel_timeout,
                     f"builder_panel_timeout:{self.last_built[1]}",
                     True

@@ -1,0 +1,5 @@
+[plugin]
+name = "Idle Random Triggers"
+key = "idletriggers"
+order = 0 
+dependencies = ["idletriggers"]

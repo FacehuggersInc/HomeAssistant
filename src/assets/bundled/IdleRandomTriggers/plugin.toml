@@ -1,0 +1,8 @@
+[plugin]
+name = "Idle Random Triggers"
+key = "idlerandom"
+order = 0
+dependencies = []
+
+[settings]
+path = "src/assets/bundled/IdleRandomTriggers/settings.json"
