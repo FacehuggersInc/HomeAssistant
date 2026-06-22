@@ -3,29 +3,8 @@ from src.plugin.template import Plugin
 
 from src.ui.overlays import Panel
 
-
-INTERACTION_EVENTS = [
-    QEvent.Type.MouseButtonPress,
-    QEvent.Type.MouseMove,
-    QEvent.Type.TouchBegin,
-    QEvent.Type.TouchUpdate,
-    QEvent.Type.TouchEnd
-]
-
-class InteractionEventWatcher(QObject):
-    def __init__(self, interaction_callback:Callable):
-        super().__init__()
-        self.interaction_callback: Callable = interaction_callback
-
-    def eventFilter(self, obj, event):
-        if event.type() in INTERACTION_EVENTS:
-            self.interaction_callback(event)
-        return False  #don't consume
-
 class CarouselPlugin(Plugin):
     def __init__(self):
-        self.watcher : InteractionEventWatcher = None
-        self.last_interaction_time = time.time()
         self.builders = {}
         self.invalid_pages = []
 
@@ -37,9 +16,15 @@ class CarouselPlugin(Plugin):
 
     ## CORE
     def load(self, carryover=None):
-        #Event Watcher
-        self.watcher = InteractionEventWatcher(self.on_interaction)
-        self.client.app.installEventFilter( self.watcher )
+        self.client.subscribe_to_event(
+            "on_fresh_interaction",
+            self.on_fresh_interaction
+        )
+
+        self.client.subscribe_to_event(
+            "on_interaction_timeout",
+            self.on_interaction_timeout
+        )
 
         self.client.subscribe_to_event(
             "on_plugin_unload",
@@ -57,12 +42,10 @@ class CarouselPlugin(Plugin):
     def unload(self, carryover=None):
         if self.last_timeout_id:
             self.client.TIMEOUTS.cancel( self.last_timeout_id )
-        self.client.app.removeEventFilter( self.watcher )
 
 
     ## EVENT
-    def on_interaction(self, event):
-        self.last_interaction_time = time.time()
+    def on_fresh_interaction(self, event) -> None:
         if self.rotating_builders:
             self.rotating_builders = False
             self.already_called_ids = []
@@ -73,6 +56,9 @@ class CarouselPlugin(Plugin):
                 if self.last_timeout_id:
                     self.client.TIMEOUTS.cancel(self.last_timeout_id)
 
+    def on_interaction_timeout(self, event=None) -> None:
+        self.rotating_builders = True
+
     def on_plugin_unload(self, plugin_key):
         if plugin_key in self.builders:
             del self.builders[plugin_key]
@@ -82,7 +68,6 @@ class CarouselPlugin(Plugin):
     def check_time_update(self, *args):
         if self.builders:
             if self.client.PAGE and self.client.PAGE.name in [g[0] for g in self.invalid_pages]:
-                self.last_interaction_time = time.time()
                 if self.rotating_builders:
                     self.rotating_builders = False
                     self.already_called_ids = []
@@ -95,11 +80,7 @@ class CarouselPlugin(Plugin):
                             self.client.TIMEOUTS.cancel(self.last_timeout_id)
                 return
 
-            if not self.rotating_builders:
-                time_ms = (time.time() - self.last_interaction_time)
-                if time_ms >= (self.settings.interaction_timeout.value / 1000):
-                    self.rotating_builders = True
-            else:
+            if self.rotating_builders:
                 if self.builder_used_timeslot == True:
                     self.builder_used_timeslot = False
                     self.client.call_on_ui( self.call_and_handle_random_builder )

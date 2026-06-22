@@ -20,7 +20,7 @@ from typing import Callable, Literal, Optional, TextIO
 from dynaconf import Dynaconf
 
 from PyQt6.QtWidgets import QApplication, QMainWindow, QWidget
-from PyQt6.QtCore import Qt, QTimer, QThread, pyqtSignal, QObject
+from PyQt6.QtCore import Qt, QTimer, QThread, pyqtSignal, QObject, QEvent
 from PyQt6.QtGui import QFontDatabase, QColor
 
 import psutil
@@ -45,7 +45,8 @@ EVENTS = Literal[
     "initialized", "on_focus", "on_un_focus", "on_visit", "on_leave",
     "on_update", "on_minimize", "on_maximize", "on_fullscreen",
     "on_state_change", "on_close", "on_settings_saved",
-    "on_woke_assistant", "on_assistant_transcribed", "on_plugin_reloading", "on_plugin_unload"
+    "on_woke_assistant", "on_assistant_transcribed", "on_plugin_reloading", "on_plugin_unload",
+    "on_interaction", "on_fresh_interaction", "on_interaction_timeout",
 ]
 APP_NAME = "Desktop Home Assistant"
 
@@ -124,6 +125,38 @@ class AppWindow(QMainWindow):
             self.client.on_window_resized(event.size().width(), event.size().height())
 
 
+##INTERACTION WATCHER
+
+class InteractionWatcher(QObject):
+    """
+    Installed app-wide on Client.app — watches for any mouse/touch
+    interaction anywhere in the app and forwards it back to
+    Client._on_global_interaction(). This used to live inside
+    CarouselPlugin as its own InteractionEventWatcher, installed by
+    that one plugin for its own use; it's a Client-level concern now,
+    so every plugin gets on_interaction/on_fresh_interaction/
+    on_interaction_timeout for free via subscribe_to_event() instead
+    of installing its own event filter.
+    """
+
+    INTERACTION_EVENT_TYPES = (
+        QEvent.Type.MouseButtonPress,
+        QEvent.Type.MouseMove,
+        QEvent.Type.TouchBegin,
+        QEvent.Type.TouchUpdate,
+        QEvent.Type.TouchEnd,
+    )
+
+    def __init__(self, client: "Client"):
+        super().__init__()
+        self.client = client
+
+    def eventFilter(self, obj, event) -> bool:
+        if event.type() in self.INTERACTION_EVENT_TYPES:
+            self.client._on_global_interaction(event)
+        return False   #never consume — this only observes
+
+
 ##CLIENT
 
 class Client:
@@ -147,6 +180,16 @@ class Client:
         self.app    = QApplication.instance() or QApplication(sys.argv)
         self.window = AppWindow(self)
         self.bridge = UIBridge()
+
+        # See InteractionWatcher above and _on_global_interaction()/
+        # _check_interaction_timeout() below — drives the
+        # on_interaction/on_fresh_interaction/on_interaction_timeout
+        # events any plugin can subscribe to instead of installing its
+        # own event filter the way CarouselPlugin used to.
+        self._last_interaction_time = time.time()
+        self._interaction_idle      = False
+        self._interaction_watcher   = InteractionWatcher(self)
+        self.app.installEventFilter(self._interaction_watcher)
 
         self.BUILT   = False
         self.RESTART = False
@@ -180,7 +223,10 @@ class Client:
                 "on_woke_assistant":        [],
                 "on_assistant_transcribed": [],
                 "on_plugin_reloading":      [],
-                "on_plugin_unload" :        []
+                "on_plugin_unload" :        [],
+                "on_interaction":           [],
+                "on_fresh_interaction":     [],
+                "on_interaction_timeout":   [],
             },
         }
 
@@ -330,6 +376,51 @@ class Client:
                 to_be_removed.append((on_call_type, callable_))
         for type_, callable_ in to_be_removed:
             self.unsubscribe_from_event(type_, callable_)
+
+    ##INTERACTION
+
+    def _on_global_interaction(self, event) -> None:
+        """
+        Called by InteractionWatcher for every qualifying mouse/touch
+        event anywhere in the app. Fires on_interaction every time, and
+        on_fresh_interaction additionally on the specific edge where
+        this is the first interaction after a period of idleness (i.e.
+        right as on_interaction_timeout's effect should end). Runs on
+        the Qt UI thread, same as the event itself.
+        """
+        was_idle = self._interaction_idle
+        self._interaction_idle      = False
+        self._last_interaction_time = time.time()
+
+        self.iterate_event_callables("on_interaction", event, True)
+        if was_idle:
+            self.iterate_event_callables("on_fresh_interaction", event, True)
+
+    def _check_interaction_timeout(self) -> None:
+        """
+        Polled from update_thread() at the same cadence as on_update.
+        Fires on_interaction_timeout exactly once per idle period, the
+        moment application.interaction_timeout is first crossed with no
+        interaction — not on every tick afterwards, and not at all
+        while sitting on the Settings page, since that page already
+        manages its own separate idle/return-home timeout and plugins
+        like the Carousel shouldn't be popping anything up over it.
+        """
+        if self._interaction_idle:
+            return
+        if self.PAGE and self.PAGE.name == "#settings":
+            return
+
+        # .get() with a default rather than direct attribute access:
+        # this setting is new (added under "application" alongside the
+        # window settings) — an existing data.json from before it
+        # existed won't have the key yet, and this shouldn't crash
+        # just because someone hasn't re-saved their settings since
+        # upgrading.
+        timeout_ms = self.SETTINGS.get("application.interaction_timeout.value", 5000)
+        if time.time() - self._last_interaction_time >= (timeout_ms / 1000):
+            self._interaction_idle = True
+            self.iterate_event_callables("on_interaction_timeout", None, True)
 
     ##LOGGING
 
@@ -762,6 +853,7 @@ class Client:
                 self.call_on_ui(self.NOTIFICATION_MANAGER.update)
 
                 self.iterate_event_callables("on_update", None, True)
+                self._check_interaction_timeout()
 
                 #auto fullscreen lock
                 if self.SETTINGS.application.window.auto_lock and \

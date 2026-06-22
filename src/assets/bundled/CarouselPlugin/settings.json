@@ -1,10 +1,4 @@
 {
-    "interaction_timeout": {
-        "type": "int",
-        "default": 5000,
-        "value": 5000,
-        "description": "Time in ms before the Carousel starts triggering registered builder functions"
-    },
     "carousel_rotate_time": {
         "type": "int",
         "default": 10000,

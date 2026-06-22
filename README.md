@@ -643,6 +643,10 @@ on_settings_saved
 on_woke_assistant
 on_assistant_transcribed
 on_plugin_reloading
+on_plugin_unload
+on_interaction
+on_fresh_interaction
+on_interaction_timeout
 ```
 
 Subscribe with `subscribe_to_event` / unsubscribe with `unsubscribe_from_event`:
@@ -683,6 +687,50 @@ def on_other_plugin_unloading(plugin_key: str):
     del self.store[plugin_key]
 
 self.client.subscribe_to_event("on_plugin_unload", on_other_plugin_unloading)
+```
+
+### `on_interaction`
+
+Fired on every mouse/touch interaction anywhere in the app — a mouse press, a mouse move, or a touch begin/update/end. `event` is the raw Qt event.
+
+This replaces installing your own `QObject` event filter on `client.app` just to watch for activity — that used to be something each plugin had to set up for itself (e.g. the Carousel plugin's old `InteractionEventWatcher`); now it's a Client-level concern any plugin can subscribe to directly.
+
+Fires constantly while the user is active — if you only care about activity *resuming* after a period of idleness, use `on_fresh_interaction` instead.
+
+```python
+def on_any_interaction(event):
+    ...
+
+self.client.subscribe_to_event("on_interaction", on_any_interaction)
+```
+
+### `on_fresh_interaction`
+
+Fired on the same interactions as `on_interaction`, but **only** for the first one after a period of idleness — i.e. exactly the moment activity resumes following an `on_interaction_timeout`. Every subsequent interaction during that same active stretch fires `on_interaction` only, not this.
+
+This is what the Carousel plugin subscribes to in order to dismiss whatever it's currently showing the instant the user touches the screen again.
+
+```python
+def on_resumed(event):
+    # something to do right as the user comes back
+    ...
+
+self.client.subscribe_to_event("on_fresh_interaction", on_resumed)
+```
+
+### `on_interaction_timeout`
+
+Fired once per idle period, the moment `application.interaction_timeout` (milliseconds, under Application in Settings) is crossed with no interaction anywhere in the app. Fires exactly once — it won't fire again on every subsequent tick while still idle, only on the edge where idleness was first reached. `event` is always `None`.
+
+Does **not** fire while the Settings page is active — that page manages its own separate idle/return-home timeout, and a plugin like the Carousel popping something up over Settings would be unwelcome.
+
+Runs on the same background thread as `on_update`, not the Qt UI thread — if your handler touches any widgets, dispatch through `client.call_on_ui(...)` the same way you would in an `on_update` handler.
+
+```python
+def on_gone_idle(event):
+    self.client.call_on_ui(self.show_something)
+
+self.client.subscribe_to_event("on_interaction_timeout", on_gone_idle)
 ```
 
 ## Custom events
