@@ -1192,6 +1192,18 @@ class SettingsPage(PageFramework):
 
     @mixin_target("settings.timeout")
     def interaction_timeout(self, event=None) -> None:
+        # on_interaction_timeout fires from update_thread(), not the Qt
+        # UI thread — return_and_save() below calls client.goto(),
+        # which creates and destroys real QWidgets. Doing that off the
+        # UI thread is undefined behaviour in Qt and was crashing the
+        # app the moment this actually fired. self.interaction_timeout
+        # itself stays a plain bound method (so subscribe_to_event/
+        # unsubscribe_from_event in start()/stop() keep working via the
+        # usual bound-method equality), it just immediately hands the
+        # real work to the UI thread instead of doing it right here.
+        self.client.call_on_ui(self._do_interaction_timeout)
+
+    def _do_interaction_timeout(self) -> None:
         self.client.simple_notify(
             Icons.TIMER, "Settings: Timeout",
             "No interaction — returning to home screen."

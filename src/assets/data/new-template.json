@@ -169,7 +169,7 @@
             "default": 60000,
             "value": 60000,
             "suffix": "ms",
-            "description": "Time of inactivity (no clicks/touches anywhere) before Client fires on_interaction_timeout \u2014 used by plugins like the Carousel to know when to start showing something. Does not apply while on the Settings page."
+            "description": "Time of inactivity (no clicks/touches anywhere) before Client fires on_interaction_timeout. Used in the settings page to go home when no interaction has happened for a while."
         }
 	}
 }
