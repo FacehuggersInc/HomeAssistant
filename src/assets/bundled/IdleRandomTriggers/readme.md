@@ -1,0 +1,1 @@
+### Allows for random triggers/callbacks after the Application goes idle, then will rotate though randomly everything registered to it. Can auto handle panels passed into it and will auto close them.

@@ -1,6 +1,8 @@
 from __future__ import annotations
 import socket
 import platform
+import copy
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from PyQt6.QtWidgets import (
@@ -8,15 +10,15 @@ from PyQt6.QtWidgets import (
     QScrollArea, QLineEdit, QComboBox, QFrame, QSizePolicy, QFileDialog,
     QScroller,
 )
-from PyQt6.QtCore import Qt, QPropertyAnimation, QEasingCurve, pyqtProperty
-from PyQt6.QtGui import QPainter, QColor, QBrush, QPen
+from PyQt6.QtCore import Qt, QSize, QPropertyAnimation, QEasingCurve, pyqtProperty
+from PyQt6.QtGui import QPainter, QColor, QBrush, QPen, QPixmap, QIcon
 
 from src.mixins import mixin_target
 from src.ui.page import PageFramework
 from src.ui.widget import WidgetFramework
 from src.ui.controls.drawer import Drawer
 from src.ui.controls.buttons import IconButton
-from src.ui.icons import Icons
+from src.ui.icons import Icons, icon, resolve_plugin_icon
 from src.styling import COLORS, SIZES, make_font, set_style, get_style_sheet
 from src.ui.keyboard import make_keyboard
 
@@ -116,7 +118,7 @@ class Field(QWidget):
     stylesheet cascades cannot override it.
     """
 
-    def __init__(self, setting, index=None, is_numeric=False, prefix="", suffix=""):
+    def __init__(self, setting, index=None, is_numeric=False, prefix="", suffix="", on_change=None):
         super().__init__()
         self.setFixedHeight(44)
         self._bg     = QColor(FIELD_BG)
@@ -183,6 +185,8 @@ class Field(QWidget):
             else:
                 if index is None: setting["value"] = text
                 else: setting["value"][index] = text
+            if on_change:
+                on_change()
 
         le.textChanged.connect(_changed)
         row.addWidget(le, stretch=1)
@@ -207,8 +211,25 @@ class Field(QWidget):
         p.drawRoundedRect(self.rect().adjusted(0, 0, -1, -1), self._radius, self._radius)
 
 
+def normalize_setting_type(raw_t: str) -> str:
+    """
+    Collapses a raw setting "type" string down to the same category
+    SettingBlock actually dispatches on when building a control for it
+    — "list[float]"/"list[int]" both become "list", "double" becomes
+    "float". Used both there and by the sort toolbar's "type" axis, so
+    sorting by type groups things exactly the same way they're already
+    grouped by which control renders for them, rather than treating
+    e.g. "list[float]" and "list[int]" as two different types just
+    because the raw strings differ.
+    """
+    t = "list" if raw_t.startswith("list") else raw_t
+    if t in ("double",):
+        t = "float"
+    return t
+
+
 class EnumComponent(QComboBox):
-    def __init__(self, setting):
+    def __init__(self, setting, on_change=None):
         super().__init__()
         self._setting = setting
         self._filler  = "-" if setting.options and "-" in setting.options[0] else "_"
@@ -219,16 +240,50 @@ class EnumComponent(QComboBox):
             self.addItem(format_name(option.strip()), userData=option)
             if option == setting.value:
                 self.setCurrentIndex(self.count() - 1)
-        self.currentIndexChanged.connect(
-            lambda: self._setting.__setitem__("value", self.currentData())
-        )
+
+        def _changed():
+            self._setting.__setitem__("value", self.currentData())
+            if on_change:
+                on_change()
+        self.currentIndexChanged.connect(_changed)
 
 class SettingBlock(QFrame):
     def __init__(self, client, setting=None, key="", content: QWidget = None):
         super().__init__()
-        self.client = client
+        self.client  = client
+        self._setting = setting
+        # Snapshot of the value as it was when this block was first
+        # built — what _refresh_modified_badge() actually compares
+        # against, NOT the template's "default" field. "Modified" means
+        # "you've changed this since opening the page", not "differs
+        # from the factory default forever" — comparing against the
+        # template default would show the badge on startup for any
+        # setting you'd legitimately customized in a previous session
+        # and saved, which isn't useful information; comparing against
+        # this snapshot means it's trivially equal (badge hidden) right
+        # when the page loads, and only shows once you actually change
+        # something. deepcopy matters here specifically for list-type
+        # settings — their Field widgets mutate setting["value"] in
+        # place, so a shallow reference here would silently track the
+        # live list itself instead of a real snapshot.
+        self._initial_value = copy.deepcopy(setting.get("value")) if setting else None
         set_style(self, "settings", "setting-block")
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+
+        # Read by the sort toolbar (see _sorted_content()) — A-Z/Z-A
+        # sorts by this. Not a dependency-having thing, so it just
+        # doesn't move under the "dependants" sort mode (sort_dependants
+        # is read via getattr(..., 0) there, defaulting everything
+        # without it to 0 and leaving relative order stable).
+        self.sort_label = (setting.get("name") if setting else None) or format_name(key) or ""
+        # Read by the sort toolbar's "type" axis — normalized the same
+        # way the widget-dispatch logic below groups things (list[float]
+        # and list[int] both count as "list", etc.), so sorting by type
+        # groups things exactly the same way they're already grouped by
+        # which control renders for them. Doesn't mean anything for
+        # plugin-supplied raw content (no real setting dict), so it
+        # just defaults to "no type", which sorts as a no-op.
+        self.sort_type = normalize_setting_type(setting.get("type", "")) if setting else ""
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(14, 12, 14, 12)
@@ -247,6 +302,20 @@ class SettingBlock(QFrame):
         name_lbl.setFont(make_font(SIZES.S2, bold=True))
         set_style(name_lbl, "common", "text-strong")
         header.addWidget(name_lbl)
+
+        # Live "Modified" badge — shown directly on the block rather
+        # than as a sort option, since a sort computed once when the
+        # page is built can't reflect an edit you make without leaving
+        # and coming back. _refresh_modified_badge() gets called by
+        # every control below on every change, live, so this actually
+        # tracks the current in-memory value against its declared
+        # default in real time.
+        self._modified_badge = QLabel("Modified")
+        self._modified_badge.setFont(make_font(SIZES.S1, bold=True))
+        set_style(self._modified_badge, "settings", "modified-badge")
+        header.addWidget(self._modified_badge)
+        self._refresh_modified_badge()
+
         header.addStretch()
         outer.addLayout(header)
 
@@ -259,23 +328,23 @@ class SettingBlock(QFrame):
             outer.addWidget(dl)
 
         raw_t  = setting.get("type", "string")
-        # Normalise: "list[float]" → "list", "list[int]" → "list" etc.
-        t      = "list" if raw_t.startswith("list") else raw_t
-        # Normalise: "float" and "double" → "float", keep "int"
-        if t in ("double",): t = "float"
+        t      = normalize_setting_type(raw_t)
         prefix = setting.get("prefix", "") or ""
         suffix = setting.get("suffix", "") or ""
 
         if t == "bool":
             toggle = ToggleSwitch(bool(setting["value"]))
-            toggle.connect(lambda val: setting.__setitem__("value", val))
+            def _bool_changed(val):
+                setting.__setitem__("value", val)
+                self._refresh_modified_badge()
+            toggle.connect(_bool_changed)
             header.addWidget(toggle)
 
         elif t == "string":
-            outer.addWidget(Field(setting, prefix=prefix, suffix=suffix))
+            outer.addWidget(Field(setting, prefix=prefix, suffix=suffix, on_change=self._refresh_modified_badge))
 
         elif t == "path":
-            field = Field(setting, prefix=prefix, suffix=suffix)
+            field = Field(setting, prefix=prefix, suffix=suffix, on_change=self._refresh_modified_badge)
             browse = QPushButton("Browse")
             browse.setFixedSize(80, 44)
             browse.setFont(make_font(SIZES.S1))
@@ -292,6 +361,7 @@ class SettingBlock(QFrame):
                         if isinstance(child, QLineEdit):
                             child.setText(chosen)
                             break
+                    self._refresh_modified_badge()
             browse.clicked.connect(_browse)
             path_row = QWidget()
             set_style(path_row, "common", "transparent")
@@ -303,10 +373,11 @@ class SettingBlock(QFrame):
             outer.addWidget(path_row)
 
         elif t in ("int", "float", "numeric"):
-            outer.addWidget(Field(setting, is_numeric=True, prefix=prefix, suffix=suffix))
+            outer.addWidget(Field(setting, is_numeric=True, prefix=prefix, suffix=suffix,
+                                   on_change=self._refresh_modified_badge))
 
         elif t == "enum":
-            outer.addWidget(EnumComponent(setting))
+            outer.addWidget(EnumComponent(setting, on_change=self._refresh_modified_badge))
 
         elif t == "list":
             # is_numeric from raw type or from value content
@@ -316,7 +387,12 @@ class SettingBlock(QFrame):
                 sfx = suffix[i] if isinstance(suffix, list) and i < len(suffix) else (suffix or "")
                 is_num = list_numeric or not isinstance(val, str)
                 outer.addWidget(Field(setting, index=i, is_numeric=is_num,
-                                       prefix=str(pfx), suffix=str(sfx)))
+                                       prefix=str(pfx), suffix=str(sfx),
+                                       on_change=self._refresh_modified_badge))
+
+    def _refresh_modified_badge(self) -> None:
+        is_modified = bool(self._setting and self._setting.get("value") != self._initial_value)
+        self._modified_badge.setVisible(is_modified)
 
 
 
@@ -417,6 +493,12 @@ class SettingsPage(PageFramework):
         set_style(self, "common", "page-background")
 
         self.categories: dict[str, dict] = {}   #see new_category()/new_subcategory() for the entry shape
+        self._active_sort_mode: str | None = None   #see _build_sort_toolbar()/_sorted_content()
+        self._sort_direction: dict[str, str] = {
+            "alpha":      "asc",
+            "dependants": "asc",
+            "type":       "asc",
+        }   #every axis always starts a fresh cycle at "asc" — see _click_sort_axis()
 
         # Dot grid background
         self._grid = GridBackground(self)
@@ -508,12 +590,6 @@ class SettingsPage(PageFramework):
         self._grid.lower()
         self.drawer.raise_()
 
-        # ── Timeout ───────────────────────────────────────────────────────────
-        self._timeout_id = client.TIMEOUTS.add(
-            60 * 5, self.interaction_timeout,
-            "settings_interaction:timeout", autostart=True
-        )
-
         # ── Features ─────────────────────────────────────────────────────────
         self.add_features({
             "add_drawer_controls":    self.drawer.insert_controls,
@@ -524,7 +600,7 @@ class SettingsPage(PageFramework):
             "new_settings_list":      self.builder,
         })
 
-        self._generate_settings(client.SETTINGS, client.SETTINGS.as_dict())
+        self._generate_settings(client.SETTINGS, client.settings_dict())
         self._page_additions()
         self._build_nav()
 
@@ -539,10 +615,13 @@ class SettingsPage(PageFramework):
             "subs":       {},
             "plugin":     None,
             "plugin_key": None,
+            "icon":       None,
+            "readme":     None,
         }
 
     def new_subcategory(self, parent: str, name: str, controls: list,
-                         label: str = None, plugin=None, plugin_key: str = None) -> None:
+                         label: str = None, plugin=None, plugin_key: str = None,
+                         icon: str = None, readme: str = None) -> None:
         """
         Register a sub-category nested under an existing top-level
         category — rendered indented beneath it in the nav (connected by
@@ -552,8 +631,11 @@ class SettingsPage(PageFramework):
         Currently used purely to give every plugin its own page under
         "plugins" (see _page_additions()) — pass plugin/plugin_key for
         that case and the header gets the Copy Key / Reload / Unload
-        buttons automatically (see _build_category_header()). Neither
-        is plugin-specific otherwise; this mechanism works for any
+        buttons automatically (see _build_category_header()). icon/
+        readme come from that same plugin's optional plugin.toml
+        fields — see _build_nav()/_build_category_header() for where
+        they actually render. Neither plugin/plugin_key/icon/readme is
+        plugin-specific otherwise; this mechanism works for any
         category. Only one level of nesting is supported.
         """
         if parent not in self.categories:
@@ -565,6 +647,8 @@ class SettingsPage(PageFramework):
             "subs":       {},
             "plugin":     plugin,
             "plugin_key": plugin_key,
+            "icon":       icon,
+            "readme":     readme,
         }
 
     def insert_block(self, category: str, index: int, content: QWidget) -> None:
@@ -614,14 +698,22 @@ class SettingsPage(PageFramework):
     def _page_additions(self) -> None:
         plugins = self.client.PLUGIN.get_plugins()
 
-        intro = []
-        if plugins:
-            hint = QLabel("Select a plugin from the list on the left to view and manage it.")
-            hint.setFont(make_font(SIZES.S1))
-            set_style(hint, "settings", "settings-hint")
-            hint.setWordWrap(True)
-            intro = [hint]
-        self.new_category("plugins", intro, label="Plugins")
+        overview = []
+        for plugin, key in plugins:
+            icon_value = plugin.config.get_path("plugin.icon", None)
+            # The overview page is a stacked summary of every plugin at
+            # once — each plugin's own dedicated subpage already shows
+            # its readme, so repeating potentially-long markdown content
+            # N times over here would make this page unreasonably tall.
+            # readme=None keeps everything else (icon, title, action
+            # buttons, dependency line) identical to that subpage's
+            # header.
+            overview.append(self._build_category_header(
+                plugin.config.plugin.name,
+                plugin=plugin, plugin_key=key,
+                has_content=True, icon=icon_value, readme=None,
+            ))
+        self.new_category("plugins", overview, label="Plugins")
 
         for plugin, key in plugins:
             blocks = []
@@ -631,18 +723,31 @@ class SettingsPage(PageFramework):
                 "plugins", key, blocks,
                 label=plugin.config.plugin.name,
                 plugin=plugin, plugin_key=key,
+                icon=plugin.config.get_path("plugin.icon", None),
+                readme=plugin.config.get_path("plugin.readme", None),
             )
 
     # ── Category header (title card) ────────────────────────────────────────
 
     def _build_category_header(self, label: str, plugin=None, plugin_key: str = None,
-                                has_content: bool = True) -> QFrame:
+                                has_content: bool = True, icon: str = None,
+                                readme: str = None) -> QFrame:
         """The title card shown at the top of every category's and every
         sub-category's content. Plugin sub-categories additionally get
         the Copy Key / Reload / Unload management buttons in the top
-        row — see _build_plugin_actions()."""
+        row (see _build_plugin_actions()), an icon next to the title if
+        plugin.toml declared one, and its README rendered as markdown
+        at the very bottom if it declared that too (see
+        _build_readme_block())."""
         card = QFrame()
         set_style(card, "settings", "category-header" if has_content else "category-header-standalone")
+
+        # Read by the sort toolbar (see _sorted_content()) when this
+        # header is one entry among several sortable ones — currently
+        # only the Plugins overview page (_page_additions()) stacks
+        # multiple of these together.
+        card.sort_label = label
+        card.sort_dependants = len(self.client.PLUGIN.get_dependants(plugin_key)) if plugin_key else 0
 
         layout = QVBoxLayout(card)
         layout.setContentsMargins(16, 14, 16, 14)
@@ -651,6 +756,14 @@ class SettingsPage(PageFramework):
         top_row = QHBoxLayout()
         top_row.setContentsMargins(0, 0, 0, 0)
         top_row.setSpacing(10)
+
+        if icon:
+            q_icon = resolve_plugin_icon(icon, size=28)
+            if q_icon:
+                icon_lbl = QLabel()
+                icon_lbl.setPixmap(q_icon.pixmap(QSize(28, 28)))
+                set_style(icon_lbl, "common", "transparent")
+                top_row.addWidget(icon_lbl)
 
         title = QLabel(label)
         title.setFont(make_font(SIZES.M1, bold=True))
@@ -674,7 +787,191 @@ class SettingsPage(PageFramework):
             if deps_line:
                 layout.addWidget(deps_line)
 
+        readme_block = self._build_readme_block(readme)
+        if readme_block:
+            layout.addWidget(_divider())
+            layout.addWidget(readme_block)
+
         return card
+
+    def _build_readme_block(self, readme_path: str) -> QLabel | None:
+        """Renders a plugin's optional plugin.toml `readme` file (a
+        path, resolved relative to the plugin's own directory by
+        PluginManager at load time) as markdown. Returns None if
+        there's no path, the file's missing, or it's empty — same
+        "just don't show it" approach as _build_dependency_line()."""
+        if not readme_path:
+            return None
+        path = Path(readme_path)
+        if not path.exists():
+            return None
+        try:
+            text = path.read_text(encoding="utf-8").strip()
+        except Exception as e:
+            self.client.log("warning", f"[SettingsPage] couldn't read readme '{readme_path}': {e}")
+            return None
+        if not text:
+            return None
+
+        label = QLabel()
+        label.setTextFormat(Qt.TextFormat.MarkdownText)
+        label.setText(text)
+        label.setFont(make_font(SIZES.S1))
+        label.setWordWrap(True)
+        label.setTextInteractionFlags(Qt.TextInteractionFlag.TextBrowserInteraction)
+        label.setOpenExternalLinks(True)
+        set_style(label, "common", "text-muted")
+        return label
+
+    # ── Sort toolbar ─────────────────────────────────────────────────────────
+    # Shown at the top of every category/sub-category's content (built
+    # fresh each time _show_category() renders), sorting whatever's in
+    # target["content"] — SettingBlocks normally, or the stacked plugin
+    # headers on the Plugins overview page (see _page_additions()).
+    #
+    # One button per axis (alphabetical, dependants), not one per
+    # direction — clicking a button that isn't active yet turns sorting
+    # on for that axis at its default direction; clicking the axis
+    # that's ALREADY active flips its direction in place instead of
+    # turning anything off. The icon shown on each button always
+    # reflects its OWN current direction (which way clicking it again
+    # would go), regardless of whether that axis is the active one.
+
+    SORT_AXES = ("alpha", "dependants", "type")
+
+    def _compose_dual_icon(self, name1: str, name2: str, size: int = 20,
+                            gap: int = 4, color: str = "white") -> QIcon:
+        """
+        Renders two icon-system glyphs side by side into one QIcon —
+        used for the sort buttons below so each one visually shows
+        *both ends* of what it sorts (e.g. an A and a Z) instead of
+        relying on a text label to explain itself.
+        """
+        i1 = icon(name1, color=color).pixmap(QSize(size, size))
+        i2 = icon(name2, color=color).pixmap(QSize(size, size))
+        canvas = QPixmap(size * 2 + gap, size)
+        canvas.fill(Qt.GlobalColor.transparent)
+        painter = QPainter(canvas)
+        painter.drawPixmap(0, 0, i1)
+        painter.drawPixmap(size + gap, 0, i2)
+        painter.end()
+        return QIcon(canvas)
+
+    def _icon_for_axis(self, axis: str) -> QIcon:
+        direction = self._sort_direction.get(axis, "asc")
+        if axis == "alpha":
+            return (self._compose_dual_icon("mdi.alpha-a-box", "mdi.alpha-z-box") if direction == "asc"
+                    else self._compose_dual_icon("mdi.alpha-z-box", "mdi.alpha-a-box"))
+        # Every other axis uses the same visual language: a glyph for
+        # the concept being sorted, plus a direction arrow.
+        concept = {
+            "dependants": "mdi.sitemap",
+            "type":       "mdi.shape-outline",
+        }[axis]
+        arrow = "mdi.arrow-down-bold" if direction == "desc" else "mdi.arrow-up-bold"
+        return self._compose_dual_icon(concept, arrow)
+
+    def _build_sort_toolbar(self, in_plugins_category: bool = False) -> QWidget:
+        bar = QWidget()
+        set_style(bar, "common", "transparent")
+        layout = QHBoxLayout(bar)
+        layout.setContentsMargins(0, 0, 0, 4)
+        layout.setSpacing(18)
+        layout.addStretch()   #everything added after this gets pushed to the right edge
+
+        captions = {
+            "alpha":      "Alphabetical",
+            "dependants": "Dependants",
+            "type":       "Type",
+        }
+        # dependants only means anything for plugin headers (which have
+        # a dependency relationship); type only means anything for real
+        # SettingBlocks (which have an actual setting type). Plugin
+        # headers aren't settings and don't have one, so the two axes
+        # are mutually exclusive based on whether we're in the Plugins
+        # category at all — never both shown, never both hidden.
+        axes = [a for a in self.SORT_AXES
+                if (a != "dependants" or in_plugins_category)
+                and (a != "type" or not in_plugins_category)]
+        for axis in axes:
+            is_active = self._active_sort_mode == axis
+
+            btn = QPushButton()
+            btn.setIcon(self._icon_for_axis(axis))
+            btn.setIconSize(QSize(44, 20))
+            btn.setFixedSize(64, 44)
+            btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            set_style(btn, "settings", "sort-button-active" if is_active else "sort-button")
+            btn.clicked.connect(lambda _, a=axis: self._click_sort_axis(a))
+
+            # A label, not a tooltip — there's no hover state on a
+            # touchscreen, so a tooltip would never actually be seen.
+            cap_lbl = QLabel(captions[axis])
+            cap_lbl.setFont(make_font(SIZES.S1))
+            set_style(cap_lbl, "common", "text-muted")
+
+            pair = QWidget()
+            set_style(pair, "common", "transparent")
+            pair_layout = QHBoxLayout(pair)
+            pair_layout.setContentsMargins(0, 0, 0, 0)
+            pair_layout.setSpacing(6)
+            pair_layout.addWidget(btn)
+            pair_layout.addWidget(cap_lbl)
+
+            layout.addWidget(pair)
+
+        return bar
+
+    def _click_sort_axis(self, axis: str) -> None:
+        """
+        Each axis cycles through 3 states with repeated clicks:
+        ascending -> descending -> off (back to the page's normal
+        declared order) -> ascending -> ... Switching to a DIFFERENT
+        axis always starts that axis fresh at ascending, discarding
+        whatever direction it was left on last time, so the cycle is
+        always predictable from a cold start regardless of history.
+        """
+        if self._active_sort_mode != axis:
+            self._active_sort_mode = axis
+            self._sort_direction[axis] = "asc"
+        elif self._sort_direction[axis] == "asc":
+            self._sort_direction[axis] = "desc"
+        else:
+            # last step of the cycle -> off, reset so the next time
+            # this axis is picked it starts at the beginning again
+            self._active_sort_mode = None
+            self._sort_direction[axis] = "asc"
+        self._show_category(self._active_path)
+
+    def _sorted_content(self, content: list) -> list:
+        """
+        Default (no active sort) returns content completely unchanged —
+        including structural widgets like section labels/dividers that
+        nested settings groups use, since those need to stay anchored
+        to their original position relative to the blocks they
+        introduce. An active sort instead keeps only the genuinely
+        sortable items (anything with a sort_label — see SettingBlock
+        and _build_category_header) and drops the structural ones,
+        since "sort everything alphabetically" and "preserve these
+        section groupings" can't both be true at once. Picking a sort
+        axis is an explicit choice to flatten the page in exchange for
+        that ordering.
+        """
+        if not self._active_sort_mode:
+            return content
+
+        sortable  = [w for w in content if hasattr(w, "sort_label")]
+        direction = self._sort_direction.get(self._active_sort_mode, "asc")
+        reverse   = (direction == "desc")
+
+        if self._active_sort_mode == "alpha":
+            sortable.sort(key=lambda w: w.sort_label.lower(), reverse=reverse)
+        elif self._active_sort_mode == "dependants":
+            sortable.sort(key=lambda w: getattr(w, "sort_dependants", 0), reverse=reverse)
+        elif self._active_sort_mode == "type":
+            sortable.sort(key=lambda w: getattr(w, "sort_type", ""), reverse=reverse)
+        return sortable
+
 
     def _build_dependency_line(self, plugin_key: str) -> QLabel | None:
         """
@@ -787,12 +1084,17 @@ class SettingsPage(PageFramework):
 
     # ── Navigation ───────────────────────────────────────────────────────────
 
-    def _make_nav_button(self, label: str, indent: bool) -> QPushButton:
+    def _make_nav_button(self, label: str, indent: bool, icon: str = None) -> QPushButton:
         btn = QPushButton(label)
         btn.setFont(make_font(SIZES.S1 if indent else SIZES.S2))
         btn.setCursor(Qt.CursorShape.PointingHandCursor)
         btn.setFixedHeight(40 if indent else 44)
         btn.setCheckable(True)
+        if icon:
+            q_icon = resolve_plugin_icon(icon)
+            if q_icon:
+                btn.setIcon(q_icon)
+                btn.setIconSize(QSize(18, 18))
         self._apply_nav_style(btn, "inactive", indent)
         return btn
 
@@ -819,7 +1121,7 @@ class SettingsPage(PageFramework):
                 rail_layout.setSpacing(4)
                 for sub_key, sub_entry in subs.items():
                     sub_path = (cat_key, sub_key)
-                    sub_btn = self._make_nav_button(sub_entry["label"], indent=True)
+                    sub_btn = self._make_nav_button(sub_entry["label"], indent=True, icon=sub_entry.get("icon"))
                     sub_btn.clicked.connect(lambda _, p=sub_path: self._switch_tab(p))
                     rail_layout.addWidget(sub_btn)
                     self._nav_buttons[sub_path] = sub_btn
@@ -839,7 +1141,6 @@ class SettingsPage(PageFramework):
 
     def _switch_tab(self, path: tuple) -> None:
         self._select_path(path)
-        self.client.TIMEOUTS.start(self._timeout_id)
 
     def _select_path(self, path: tuple) -> None:
         cat_key, sub_key = path
@@ -873,10 +1174,15 @@ class SettingsPage(PageFramework):
             plugin=target.get("plugin"),
             plugin_key=target.get("plugin_key"),
             has_content=bool(target["content"]),
+            icon=target.get("icon"),
+            readme=target.get("readme"),
         )
         self._content_layout.insertWidget(self._content_layout.count() - 1, header)
 
-        for block in target["content"]:
+        toolbar = self._build_sort_toolbar(in_plugins_category=(cat_key == "plugins"))
+        self._content_layout.insertWidget(self._content_layout.count() - 1, toolbar)
+
+        for block in self._sorted_content(target["content"]):
             if isinstance(block, QWidget):
                 self._content_layout.insertWidget(self._content_layout.count() - 1, block)
 
@@ -894,7 +1200,13 @@ class SettingsPage(PageFramework):
 
     @mixin_target("settings.save")
     def return_and_save(self, event=None, notify: bool = True) -> None:
-        self.client.TIMEOUTS.cancel(self._timeout_id)
+        # This used to be missing entirely — the page navigated away and
+        # claimed "Settings saved!" without ever writing anything to
+        # disk. Every change up to this point only ever lived in the
+        # in-memory client.SETTINGS object; it would have been silently
+        # lost on the next restart unless the app happened to reach a
+        # clean Client.stop() first.
+        self.client.dump(self.client.settings_dict(), self.client.DATA)
         self.client.iterate_event_callables("on_settings_saved", self.client.SETTINGS)
         if notify:
             self.client.simple_notify(Icons.SAVE, "Settings", "Settings saved!")
@@ -905,11 +1217,18 @@ class SettingsPage(PageFramework):
 
     def start(self) -> None:
         super().start()
-        self.client.TIMEOUTS.start(self._timeout_id)
+        self.client.subscribe_to_event("on_interaction_timeout", self.interaction_timeout)
 
     def stop(self) -> None:
         super().stop()
-        self.client.TIMEOUTS.cancel(self._timeout_id)
+        # Essential, not just tidy — without this, this page instance
+        # stays subscribed even after goto() destroys it (e.g. via Save,
+        # or navigating away some other way), and the next idle timeout
+        # anywhere in the app would call interaction_timeout() on a
+        # deleted widget. Same class of bug as Drawer's own auto-close
+        # timer outliving the Drawer itself — see Drawer.__init__ in
+        # src/ui/controls/drawer.py for the other place this was fixed.
+        self.client.unsubscribe_from_event("on_interaction_timeout", self.interaction_timeout)
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)

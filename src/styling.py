@@ -1,3 +1,5 @@
+import itertools
+
 from PyQt6.QtGui import QColor, QFont, QLinearGradient, QGradient
 from PyQt6.QtCore import Qt
 
@@ -294,11 +296,31 @@ def get_style(id: str, clazz: str, object_tag: str = None, override: dict = None
 
     return style_str
 
+_anon_style_counter = itertools.count()
+
 def set_style(style_able: object, id: str, clazz: str,
              object_tag: str = None, override: dict = None) -> None:
     """Resolve a CSS class via get_style() and apply it straight onto a widget."""
     try:
-        tag = object_tag or style_able.__class__.__name__
+        if object_tag:
+            tag = object_tag
+        else:
+            # IMPORTANT: never fall back to a bare type name like "QFrame"
+            # or "QLabel" here (that used to be the default — class_name
+            # with no ID). Qt stylesheets cascade to descendants, so a
+            # bare-type selector set on one widget leaks every property it
+            # doesn't itself override onto every OTHER same-typed widget
+            # nested anywhere underneath it — borders, backgrounds, and
+            # radii showing up on things that never asked for them, purely
+            # because they happen to be the same Qt class as something
+            # higher up the tree that got styled. Auto-assigning a unique
+            # objectName and using an ID-qualified selector (Type#name)
+            # keeps every call scoped to just the one widget it's actually
+            # for, the same as if the caller had passed object_tag itself.
+            class_name = style_able.__class__.__name__
+            if not style_able.objectName():
+                style_able.setObjectName(f"_anon_{class_name}_{next(_anon_style_counter)}")
+            tag = f"{class_name}#{style_able.objectName()}"
         style_able.setStyleSheet(get_style(id, clazz, tag, override))
     except Exception as e:
         print(f"Failed to set style on '{style_able.__class__.__name__}' with {id}:{clazz} ? {e}")

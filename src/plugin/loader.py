@@ -8,6 +8,7 @@ from src.settings import Settings
 
 from src.plugin.template import Plugin
 from src.plugin.carryover import PluginCarryover
+from src.ui.icons import is_icon_path
 
 class PluginManager():
 	def __init__(self, client, dirs:list[Asset]):
@@ -291,6 +292,35 @@ class PluginManager():
 					config = self.load_toml(plugin_path, plugin_name)
 					config['path'] = plugin_path / "plugin.toml"
 					if not config: return
+
+					#Resolve optional readme/icon — both relative to the
+					#plugin's own directory, same convention settings.path
+					#below uses. readme is always treated as a path; icon
+					#is only resolved as one if it looks like one (a bare
+					#icon-system name like "extension" or "mdi.rocket"
+					#should pass through untouched for src.ui.icons to
+					#resolve later). Neither has to be declared at all —
+					#readme falls back to auto-detecting a README file
+					#sitting right there in the plugin's own folder, and
+					#icon falls back to a generic "extension" (puzzle
+					#piece) icon so every plugin's settings page still
+					#gets one.
+					if config.get("plugin"):
+						readme = config["plugin"].get("readme")
+						if readme:
+							config["plugin"]["readme"] = self.combine_paths(plugin_path.as_posix(), readme)
+						else:
+							for candidate in ("README.md", "readme.md", "Readme.md", "README.MD"):
+								found = plugin_path / candidate
+								if found.exists():
+									config["plugin"]["readme"] = str(found)
+									break
+
+						icon_value = config["plugin"].get("icon")
+						if icon_value and is_icon_path(icon_value):
+							config["plugin"]["icon"] = self.combine_paths(plugin_path.as_posix(), icon_value)
+						elif not icon_value:
+							config["plugin"]["icon"] = "extension"
 
 					#Get / Load Settings Template 
 					if config.get("settings") and config["settings"].get("path"):

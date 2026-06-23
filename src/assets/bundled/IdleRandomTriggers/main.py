@@ -17,10 +17,35 @@ class IdleTriggersPlugin(Plugin):
 
     ## CORE
     def load(self, carryover=None):
-        self.client.subscribe_to_event("on_fresh_interaction", self.on_fresh_interaction)
-        self.client.subscribe_to_event("on_interaction_timeout", self.on_interaction_timeout)
-        self.client.subscribe_to_event("on_plugin_unload", self.on_plugin_unload)
-        self.client.subscribe_to_event("on_update", self.check_time_update)
+        # Interaction watching used to be this plugin's own job —
+        # InteractionEventWatcher, installed directly on client.app.
+        # That's a Client-level concern now (see InteractionWatcher/
+        # _on_global_interaction in src/main.py): on_fresh_interaction
+        # fires exactly on the edge this plugin cares about (the FIRST
+        # interaction after a period of idleness), and
+        # on_interaction_timeout fires exactly on the other edge (idle
+        # threshold first crossed) — both replace what this plugin used
+        # to detect by hand via its own last_interaction_time polling.
+        self.client.subscribe_to_event(
+            "on_fresh_interaction",
+            self.on_fresh_interaction
+        )
+
+        self.client.subscribe_to_event(
+            "on_interaction_timeout",
+            self.on_interaction_timeout
+        )
+
+        self.client.subscribe_to_event(
+            "on_plugin_unload",
+            self.on_plugin_unload
+        )
+
+        self.client.subscribe_to_event(
+            "on_update",
+            self.check_time_update
+        )
+
         self.client.public.expose("carouseltriggers", "add_carousel", self.add, True)
         self.client.public.expose("carouseltriggers", "remove_carousel", self.remove, True)
 
@@ -34,6 +59,16 @@ class IdleTriggersPlugin(Plugin):
         if self.rotating_builders:
             self.rotating_builders = False
             self.already_called_ids = []
+            #Dismiss — destroy=True regardless of whether the builder
+            #used client.create_panel() (which already defaults to
+            #destroy_on_close=True) or built a Panel directly: this
+            #plugin never reuses a builder's panel once it's done
+            #showing it, so it should always be fully released here,
+            #not just hidden. See Panel.close_panel()/_destroy() in
+            #src/ui/overlays.py for what that actually does and why it
+            #matters — this used to be exactly the leak that made the
+            #app gradually slow down the longer it sat idle rotating
+            #through builders.
             if isinstance(self.last_built[0], Panel) and self.last_built[3]:
                 self.last_built[0].close_panel(destroy=True)
                 #Cancel Timer
@@ -41,6 +76,13 @@ class IdleTriggersPlugin(Plugin):
                     self.client.TIMEOUTS.cancel(self.last_timeout_id)
 
     def on_interaction_timeout(self, event=None) -> None:
+        # Settings subscribes to this same event for its own
+        # auto-return-home-when-idle behaviour, so it has to actually
+        # fire while Settings is the active page — this plugin just
+        # shouldn't act on it there, the same way it already stays out
+        # of any other page registered via add_invalid_pages().
+        if self.client.PAGE and self.client.PAGE.name == "#settings":
+            return
         self.rotating_builders = True
 
     def on_plugin_unload(self, plugin_key):
@@ -99,7 +141,7 @@ class IdleTriggersPlugin(Plugin):
     def call_and_handle_random_builder(self) -> None:
         callable, id, plugin, auto_dismiss = self.get_random_unused_builder()
         if callable:
-            self.last_built[0] = callable( self.settings.rotate_time.value / 1000 )
+            self.last_built[0] = callable( self.settings.carousel_rotate_time.value / 1000 )
             self.last_built[1] = id
             self.last_built[2] = plugin
             self.last_built[3] = auto_dismiss
@@ -107,7 +149,7 @@ class IdleTriggersPlugin(Plugin):
                 self.builder_used_timeslot = True
             elif isinstance(self.last_built[0], Panel):
                 self.last_timeout_id = self.client.TIMEOUTS.add(
-                    self.settings.rotate_time.value / 1000,
+                    self.settings.carousel_rotate_time.value / 1000,
                     self.built_panel_timeout,
                     f"builder_panel_timeout:{self.last_built[1]}",
                     True

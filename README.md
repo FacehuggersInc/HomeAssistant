@@ -209,6 +209,23 @@ dependencies = ["corewidgetsbundle"]
 
 You don't need to declare `order` or `dependencies` at all unless load order actually matters for your plugin — most plugins can omit both fields entirely.
 
+### Settings page presence: readme and icon
+
+Two more optional fields under `[plugin]` control how your plugin shows up on its own page in Settings (every plugin gets one, nested under "Plugins" in the sidebar):
+
+```toml
+[plugin]
+name = "My Addon"
+key  = "myaddon"
+icon = "extension"
+readme = "README.md"
+```
+
+* `icon` — either a name from the icon system (`src/ui/icons.py` — a registered name like `"extension"`, or a raw `mdi.*` name) **or** a path to your own image file. Shown next to your plugin's nav button in the Settings sidebar, and next to its title in its own page's header. A path is resolved relative to your plugin's own directory, same as `settings.path` above — `"assets/icon.png"` means `assets/icon.png` inside your plugin's folder, not the app's root. If you give a path and the file doesn't exist, the icon just doesn't render rather than showing something broken. Omit this entirely and it defaults to `"extension"` (a generic puzzle-piece icon) — every plugin gets *some* icon either way.
+* `readme` — a path to a markdown file, resolved the same way. Rendered as actual markdown (headers, bold/italic, lists, links) at the very bottom of your plugin's settings header, underneath everything else there (title, key, dependency info). Omit this and a `README.md` (or `readme.md`/`Readme.md`/`README.MD`) sitting in your plugin's own folder gets picked up automatically if one exists. Missing/empty file either way → nothing renders, no error.
+
+Neither field is required — a plugin with neither still gets its own settings page, just without an icon or the extra markdown section.
+
 ## main.py
 
 `main.py` is the required entrypoint.

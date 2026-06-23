@@ -179,3 +179,31 @@
     border-radius: 8px;
     padding: 0 14px;
 }
+
+/* ── Sort toolbar (every category/sub-category page) ─────────────────────
+   Visible border even when inactive — these need to read as clickable
+   controls at a glance, not blend into the background until pressed. */
+
+.sort-button {
+    background: rgba(255,255,255,8);
+    border: 1px solid rgba(255,255,255,45);
+    border-radius: 8px;
+}
+.sort-button:hover    { background: rgba(255,255,255,18); }
+.sort-button:pressed  { background: rgba(255,255,255,28); }
+
+.sort-button-active {
+    background: #2d6cc0;
+    border: 1px solid #6fa8e0;
+    border-radius: 8px;
+}
+.sort-button-active:hover    { background: #3a7cd1; }
+.sort-button-active:pressed  { background: #2560ad; }
+
+.modified-badge {
+    background: rgba(255,193,7,30);
+    color: #ffc107;
+    border: 1px solid rgba(255,193,7,90);
+    border-radius: 6px;
+    padding: 2px 8px;
+}

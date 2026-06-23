@@ -404,14 +404,18 @@ class Client:
         Polled from update_thread() at the same cadence as on_update.
         Fires on_interaction_timeout exactly once per idle period, the
         moment application.interaction_timeout is first crossed with no
-        interaction — not on every tick afterwards, and not at all
-        while sitting on the Settings page, since that page already
-        manages its own separate idle/return-home timeout and plugins
-        like the Carousel shouldn't be popping anything up over it.
+        interaction.
+
+        This fires regardless of which page is active, including
+        Settings — it subscribes to this event itself (see
+        SettingsPage.start()/stop()) to auto-return-home when idle,
+        rather than running its own separate timer. Anything that
+        shouldn't act on this while Settings (or any other particular
+        page) is active is responsible for checking that itself — see
+        CarouselPlugin.on_interaction_timeout() for an example, which
+        deliberately stays out of the way of the Settings page.
         """
         if self._interaction_idle:
-            return
-        if self.PAGE and self.PAGE.name == "#settings":
             return
 
         # .get() with a default rather than direct attribute access:
@@ -918,7 +922,7 @@ class Client:
                         w = self.window.width()
                         h = self.window.height()
                         self.SETTINGS.application.window.size.value = [w, h]
-                        self.dump(self.SETTINGS.as_dict(), self.DATA)
+                        self.dump(self.settings_dict(), self.DATA)
 
                     self.call_on_ui(go_fullscreen)
 
@@ -984,6 +988,22 @@ class Client:
         with open(path, "w") as f:
             json.dump(obj, f, indent=4)
 
+    def settings_dict(self) -> dict:
+        """
+        self.SETTINGS.as_dict() — but with top-level keys lowercased
+        back to match new-template.json's own casing. Dynaconf
+        uppercases every top-level section key internally (APPLICATION,
+        NOTIFICATIONS, etc.) — reading still works fine regardless of
+        case since attribute/item access on it is case-insensitive, but
+        writing that straight to disk via dump() produces a file in
+        ALL-CAPS section names, which is needlessly confusing to read
+        by hand and inconsistent with the template it started from.
+        Every place that calls SETTINGS.as_dict() — _generate_settings()
+        building the Settings page, and every dump() of it — should go
+        through this instead so the casing stays consistent everywhere.
+        """
+        return {k.lower(): v for k, v in self.SETTINGS.as_dict().items()}
+
     def load_or_create_client_id(self) -> str:
         id_path = self.DATAPATH / "client.id"
         if id_path.exists():
@@ -1011,7 +1031,7 @@ class Client:
         self.log("info", "Closing Client ...")
         self.iterate_event_callables("on_close", event)
         self.PLUGIN.unload_plugins()
-        self.dump(self.SETTINGS.as_dict(), self.DATA)
+        self.dump(self.settings_dict(), self.DATA)
         self.cleanup()
         self.window.hide()
         self.app.quit()
