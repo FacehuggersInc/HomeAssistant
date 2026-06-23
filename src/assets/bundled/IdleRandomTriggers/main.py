@@ -46,8 +46,8 @@ class IdleTriggersPlugin(Plugin):
             self.check_time_update
         )
 
-        self.client.public.expose("carouseltriggers", "add_carousel", self.add, True)
-        self.client.public.expose("carouseltriggers", "remove_carousel", self.remove, True)
+        self.client.public.expose("carouseltriggers", "add_trigger", self.add, True)
+        self.client.public.expose("carouseltriggers", "remove_trigger", self.remove, True)
 
     def unload(self, carryover=None):
         if self.last_timeout_id:

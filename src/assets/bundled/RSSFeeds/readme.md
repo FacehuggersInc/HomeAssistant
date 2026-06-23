@@ -1,4 +1,4 @@
-### RSS Feeds API and Idle Panels
+# RSS Feeds API and Idle Panels
 - REQUIRES: "IdleRandomTriggers" Plugin (bundled)
-- Gives ability to get RSS feeds data
-- Can auto handle showing these feeds with minimal setup w/ a idle panel
+- add_feed is the entry point
+- expects the transformer dict to get an title, items. each item expects an id, title, published, summary
