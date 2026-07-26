@@ -1,6 +1,13 @@
-from src import os, time, json, ILUtil, Path, sys, ModuleType, tomllib
+import os
+import sys
 import gc
+import time
+import json
 import inspect
+import tomllib
+import importlib.util as ILUtil
+from pathlib import Path
+from types import ModuleType
 
 from src.enums import Asset
 

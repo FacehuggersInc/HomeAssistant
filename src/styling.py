@@ -1,9 +1,11 @@
+import os
+import json
 import itertools
+from pathlib import Path
 
 from PyQt6.QtGui import QColor, QFont, QLinearGradient, QGradient
 from PyQt6.QtCore import Qt
 
-from src import *
 from src.settings import Settings
 
 # ── Colour helpers ──────────────────────────────────────────────────────────

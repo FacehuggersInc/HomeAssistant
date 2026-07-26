@@ -1,12 +1,21 @@
-from src import *
+from __future__ import annotations
 
 import io
-from typing import Iterator
+import os
+import time
+from io import BytesIO
+from threading import Thread
+from typing import TYPE_CHECKING, Iterator
+
+from dotenv import load_dotenv
 
 from elevenlabs import stream as elevenstream
 from elevenlabs import play as elevenplay
 from elevenlabs.client import ElevenLabs
 from elevenlabs.types import Voice
+
+if TYPE_CHECKING:
+	from src.main import Client
 
 class TTSProcessing():
 	def __init__(self, client):

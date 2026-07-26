@@ -1,88 +1,111 @@
+#!/usr/bin/env python3
+"""
+Entry point.
+
+Normally started by launcher.py, which supervises restarts and applies staged
+updates while this process is stopped. Running it directly still works -- see
+the LAUNCHER_ENV_FLAG check in main().
+
+Usage:
+    python app.py                 launch
+    python app.py force           launch (explicit; what the launcher passes)
+    python app.py update          stage an update and exit
+    python app.py apply-update    apply a staged update in place, then exit
+"""
+
 import os
 import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from src.constants import (
+    EXIT_OK,
+    EXIT_UPDATE,
+    EXIT_RESTART,
+    LAUNCHER_ENV_FLAG,
+)
 
 
-def do_update():
-    """
-    Download and install the latest version from GitHub, then exit with
-    code 42 so startup.sh knows to relaunch.
-    Runs in the same process/environment so display vars are preserved.
-    """
-    import shutil, zipfile, tempfile, urllib.request
+def _log(msg: str) -> None:
+    print(f"[APP] {msg}", flush=True)
 
-    here         = os.path.abspath(os.path.dirname(sys.argv[0]))
-    repo_zip     = "https://github.com/FacehuggersInc/HomeAssistant/archive/refs/heads/main.zip"
-    preserve     = {"startup.sh", "update.sh", ".env", ".venv", "plugins"}
-    ignore_exts  = {"sh"}
 
-    def log(msg): print(f"[UPDATE] {msg}", flush=True)
-    def should_preserve(rel):
-        rel = rel.replace("\\", "/")
-        return any(rel == p or rel.startswith(p + "/") for p in preserve)
-
-    temp_dir = tempfile.mkdtemp()
-    zip_path = os.path.join(temp_dir, "update.zip")
-
+def stage_update() -> int:
+    """Download and stage an update, then exit 42 so the launcher applies it."""
+    from src import updater
     try:
-        log("Downloading latest version...")
-        with urllib.request.urlopen(repo_zip) as r, open(zip_path, "wb") as f:
-            shutil.copyfileobj(r, f)
+        updater.stage(log=_log)
+    except updater.UpdateError as e:
+        _log(f"Update failed: {e}")
+        return 1
+    return EXIT_UPDATE
 
-        log("Extracting...")
-        with zipfile.ZipFile(zip_path, "r") as z:
-            z.extractall(temp_dir)
 
-        folders = [d for d in os.listdir(temp_dir)
-                   if os.path.isdir(os.path.join(temp_dir, d)) and d != "__MACOSX"]
-        if not folders:
-            raise RuntimeError("No repo folder found in zip")
+def apply_update() -> int:
+    """
+    Apply a staged update from this process.
 
-        repo_root = os.path.join(temp_dir, folders[0])
-        log(f"Installing to {here}...")
+    Only for running without the launcher. The launcher path is preferred --
+    it keeps the rollback armed until the new version proves it can start.
+    """
+    from src import updater
+    if not updater.has_staged_update():
+        _log("No staged update to apply.")
+        return 1
+    try:
+        result = updater.apply(log=_log)
+    except updater.UpdateError as e:
+        _log(f"Apply failed: {e}")
+        return 1
+    _log(f"Applied {result['copied']} files.")
+    return EXIT_OK
 
-        copied = skipped = 0
-        for root, dirs, files in os.walk(repo_root):
-            dirs[:] = [d for d in dirs if not d.startswith(".")]
-            rel_dir  = os.path.relpath(root, repo_root)
-            dest_dir = os.path.join(here, rel_dir)
-            os.makedirs(dest_dir, exist_ok=True)
-            for filename in files:
-                ext     = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
-                rel_file = os.path.normpath(os.path.join(rel_dir, filename))
-                if ext in ignore_exts or should_preserve(rel_file):
-                    skipped += 1
-                    continue
-                shutil.copy2(os.path.join(root, filename), os.path.join(dest_dir, filename))
-                copied += 1
 
-        log(f"Done. {copied} files updated, {skipped} skipped.")
+def launch() -> int:
+    from src.main import Client
 
-    except Exception as e:
-        log(f"Update failed: {e}")
-        import traceback
-        traceback.print_exc()
-        sys.exit(1)
+    client = Client()
+    try:
+        client.run()
+    except SystemExit as e:
+        code = e.code if isinstance(e.code, int) else EXIT_OK
+    else:
+        code = EXIT_OK
 
-    finally:
-        shutil.rmtree(temp_dir, ignore_errors=True)
+    # Under the launcher, exit codes are the whole protocol -- just return.
+    if os.environ.get(LAUNCHER_ENV_FLAG):
+        return code
 
-    log("Exiting with code 42 so startup.sh will relaunch...")
-    sys.exit(42)
+    # Unsupervised. Nothing is watching for 42/43, so honour them here rather
+    # than exiting with a code that silently does nothing. This is what the
+    # old Client.run() tried to do with subprocess.Popen([sys.executable]),
+    # which launched a bare REPL instead of the app.
+    if code in (EXIT_UPDATE, EXIT_RESTART):
+        if code == EXIT_UPDATE:
+            rc = apply_update()
+            if rc not in (EXIT_OK,):
+                return rc
+        _log("Relaunching...")
+        os.execv(sys.executable, [sys.executable, str(Path(__file__).resolve()), "force"])
+
+    return code
+
+
+def main() -> int:
+    args = [a.lower() for a in sys.argv[1:]]
+
+    if not args or "force" in args:
+        return launch()
+    if "update" in args:
+        return stage_update()
+    if "apply-update" in args:
+        return apply_update()
+
+    print(f"Unknown arguments: {sys.argv[1:]}")
+    print(__doc__)
+    return 1
 
 
 if __name__ == "__main__":
-    args = sys.argv[1:]
-
-    if "update" in args:
-        # Update then relaunch via startup.sh loop
-        do_update()
-
-    elif "force" in args or not args:
-        # Normal launch
-        from src import Client
-        CLIENT = Client()
-        CLIENT.run()
-
-    else:
-        print(f"Unknown arguments: {args}")
-        sys.exit(1)
+    sys.exit(main())

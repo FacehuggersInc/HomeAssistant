@@ -1,4 +1,5 @@
-from src import time, Thread, Lock, ThreadEvent as Event
+import time
+from threading import Thread, Lock, Event
 from typing import Callable, Optional
 
 

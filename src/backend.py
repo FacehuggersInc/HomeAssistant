@@ -1,4 +1,10 @@
-from src import *
+import os
+import time
+import shutil
+from threading import Thread
+
+from src.constants import APP_NAME
+
 from flask import Flask, jsonify, redirect, send_from_directory, request, render_template
 
 ADDRESS = "0.0.0.0"
@@ -76,65 +82,37 @@ def FlaskApp(client):
 		if not client.BUILT:
 			return {"request": "Failed", "reason": "Wait until the Program has started fully."}
 
-		import shutil, zipfile, tempfile, urllib.request, os, sys
+		# Staging only. This used to download and overwrite the installed tree
+		# in place while the Qt app was still running, then sleep 2s and quit --
+		# which races every lazy import still to come, cannot replace a file
+		# Windows has open, and had no way back if it failed halfway through.
+		#
+		# Now the payload lands in .update-staging/ and the launcher applies it
+		# with the app stopped, keeping a backup until the new build proves it
+		# can start. See src/updater.py.
+		from src import updater
 
-		here    = os.path.abspath(os.path.dirname(sys.argv[0]))
-		zip_url = "https://github.com/FacehuggersInc/HomeAssistant/archive/refs/heads/main.zip"
-		preserve    = {"startup.sh", "update.sh", ".env", ".venv", "plugins"}
-		ignore_exts = {"sh"}
-
-		def should_preserve(rel):
-			rel = rel.replace("\\", "/")
-			return any(rel == p or rel.startswith(p + "/") for p in preserve)
-
-		client.simple_notify("download", "Update", "Downloading update...")
-
-		temp_dir = tempfile.mkdtemp()
-		zip_path = os.path.join(temp_dir, "update.zip")
-		try:
-			with urllib.request.urlopen(zip_url) as r, open(zip_path, "wb") as f:
-				shutil.copyfileobj(r, f)
-
-			with zipfile.ZipFile(zip_path, "r") as z:
-				z.extractall(temp_dir)
-
-			folders = [d for d in os.listdir(temp_dir)
-					   if os.path.isdir(os.path.join(temp_dir, d)) and d != "__MACOSX"]
-			if not folders:
-				raise RuntimeError("No repo folder found in zip")
-
-			repo_root = os.path.join(temp_dir, folders[0])
-			copied = skipped = 0
-			for root, dirs, files in os.walk(repo_root):
-				dirs[:] = [d for d in dirs if not d.startswith(".")]
-				rel_dir  = os.path.relpath(root, repo_root)
-				dest_dir = os.path.join(here, rel_dir)
-				os.makedirs(dest_dir, exist_ok=True)
-				for filename in files:
-					ext      = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
-					rel_file = os.path.normpath(os.path.join(rel_dir, filename))
-					if ext in ignore_exts or should_preserve(rel_file):
-						skipped += 1
-						continue
-					shutil.copy2(os.path.join(root, filename), os.path.join(dest_dir, filename))
-					copied += 1
-
-			client.simple_notify("check", "Update", f"Done. {copied} files updated. Restarting...")
+		def staging_thread():
+			client.simple_notify("download", "Update", "Downloading update...")
+			try:
+				manifest = updater.stage(log=lambda m: client.log("info", f"[Update] {m}"))
+			except updater.UpdateError as e:
+				client.simple_notify("error", "Update Failed", str(e))
+				client.log("error", f"[backend.update_client] {e}")
+				return
+			client.simple_notify(
+				"check", "Update",
+				f"{manifest['file_count']} files staged. Restarting..."
+			)
 			time.sleep(2)
 			client.UPDATE = True
 			client.call_on_ui(client.stop)
-			return {"request": "Success", "message": f"{copied} files updated, restarting."}
 
-		except Exception as e:
-			client.simple_notify("error", "Update Failed", str(e))
-			client.log("error", f"[backend.update_client] Update Failed: {e}")
-			return {"request": "Failed", "reason": str(e)}, 500
-		finally:
-			shutil.rmtree(temp_dir, ignore_errors=True)
+		# Download off the request thread so the endpoint answers immediately
+		# instead of holding the connection open for the whole transfer.
+		Thread(target=staging_thread, name="__update_staging", daemon=True).start()
+		return {"request": "Success", "message": "Update staging started."}
 
-
-
-	## TASKS ENDPOINTS
 	@app.route("/notify/", methods=["GET"])
 	def redirects_bad_endpoint():
 		return redirect(f"{request.base_url.rstrip('/')}?{request.query_string.decode()}")

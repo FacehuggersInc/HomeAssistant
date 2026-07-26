@@ -1,4 +1,14 @@
-from src import *
+from __future__ import annotations
+
+import os
+import json
+from typing import TYPE_CHECKING
+
+import requests
+from dotenv import load_dotenv, find_dotenv
+
+if TYPE_CHECKING:
+	from src.main import Client
 
 class WordnikAPI():
 	def __init__(self, app):

@@ -1,4 +1,12 @@
-from src import *
+from __future__ import annotations
+
+import os
+import json
+import random
+from pathlib import Path
+
+from PyQt6.QtCore import Qt
+
 from src.plugin.template import Plugin
 from src.enums import Asset
 from src.ui.overlays import Panel

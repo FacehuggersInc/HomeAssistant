@@ -1,20 +1,38 @@
-from src import *
+from __future__ import annotations
 
+import re
+import sys
+import time
 import queue
-from spacy.matcher import Matcher
+import string
+import socket
+import subprocess
+from pathlib import Path
+from threading import Thread
+from typing import TYPE_CHECKING
+
 from word2number import w2n
+
+from src.assistant import nlp
+
+if TYPE_CHECKING:
+	from src.main import Client
 
 SENTENCE_END_TOKENS = {'.', '!', '?', ';'}
 
-PROCESS_REALTIMESTT = "src\\assistant\\realtimestt-process.py"
-PROCESS_VOSK = "src\\assistant\\vosk-process.py"
-PROCESS_WHISPER = "src\\assistant\\whisper-process.py"
+# Sibling scripts, launched as subprocesses. Built from this file's own
+# location rather than hardcoded separators so they resolve on any platform
+# and regardless of the process working directory.
+_HERE = Path(__file__).resolve().parent
+PROCESS_REALTIMESTT = str(_HERE / "realtimestt-process.py")
+PROCESS_VOSK        = str(_HERE / "vosk-process.py")
+PROCESS_WHISPER     = str(_HERE / "whisper-process.py")
 
 class Session():
 	def __init__(self, client):
 		self.__client = client
 		self.__queued = queue.Queue()
-		self.matcher = Matcher(NLP_MODEL.vocab)
+		self.matcher = nlp.new_matcher()
 		self.is_open = False
 		self.__id = f"session:{self.__client.uuid()}"
 
@@ -269,7 +287,7 @@ class STTProcessing():
 		if self.process is None or self.process.poll() is not None:
 			
 			wake_word_str = ", ".join(w[0] for w in self.client.SKILLS.wake_args)
-			self.process = subprocess.Popen(["python", self.__process_path, wake_word_str])
+			self.process = subprocess.Popen([sys.executable, self.__process_path, wake_word_str])
 
 			self.listening = True
 

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import gc
 import json
 import multiprocessing
@@ -39,29 +38,18 @@ from src.assistant.stt import STTProcessing
 from src.assistant.tts import TTSProcessing
 from src.ui.overlays import OverlayManager, NotificationManager, DialogManager, Panel
 from src.styling import COLORS, load_styles, set_style
+from src.constants import (
+    APP_NAME, EVENTS, EVENT_LEVELS, CLIENT_EVENT_NAMES,
+    EXIT_OK, EXIT_UPDATE, EXIT_RESTART,
+    get_data_dir,
+)
 
-EVENT_LEVELS = Literal["debug", "info", "warning", "error", "critical"]
-EVENTS = Literal[
-    "initialized", "on_focus", "on_un_focus", "on_visit", "on_leave",
-    "on_update", "on_minimize", "on_maximize", "on_fullscreen",
-    "on_state_change", "on_close", "on_settings_saved",
-    "on_woke_assistant", "on_assistant_transcribed", "on_plugin_reloading", "on_plugin_unload",
-    "on_interaction", "on_fresh_interaction", "on_interaction_timeout",
-    "on_collection",
-]
-APP_NAME = "Desktop Home Assistant"
+# Qt platform theming. Must be set before QApplication is constructed, which
+# Client.__init__ does — module scope here is the last guaranteed-earlier
+# point. Previously lived in src/__init__.py's platform-guard block.
+if _platform.system() != "Windows":
+    os.environ["QT_STYLE_OVERRIDE"] = ""
 
-
-##DATA DIR
-
-def get_data_dir(app_name: str) -> Path:
-    system = _platform.system()
-    if system == "Windows":
-        base = Path(os.getenv("LOCALAPPDATA") or Path.home() / "AppData" / "Local")
-    else:
-        #XDG compliant - works on Arch, Mint, Ubuntu etc.
-        base = Path(os.getenv("XDG_DATA_HOME") or Path.home() / ".local" / "share")
-    return base / app_name.replace(" ", "")
 
 
 ##UI BRIDGE
@@ -362,12 +350,12 @@ class Client:
             self.log("error", f"Could not unsubscribe to {on_call_type} w/ {callable_}: {e}")
 
     def create_on_call_event(self, call_type: str) -> None:
-        if call_type in EVENTS:
+        if call_type in CLIENT_EVENT_NAMES:
             raise Exception(f"on_call type '{call_type}' is a App ONLY event")
         self.EVENTS["on_call"][call_type] = []
 
     def trigger_on_call_event_iteration(self, on_call_type: str, event) -> None:
-        if on_call_type in EVENTS:
+        if on_call_type in CLIENT_EVENT_NAMES:
             raise Exception(f"on_call type '{on_call_type}' is a Client ONLY event")
         self.iterate_event_callables(on_call_type, event)
 
@@ -1081,13 +1069,25 @@ class Client:
         self.build()
         exit_code = self.app.exec()
 
+        # Relaunching is the launcher's job now. This used to try to do it
+        # itself with subprocess.Popen([sys.executable]) -- which starts a
+        # bare interpreter, not the app -- and Popen([sys.executable,
+        # "force"]), which asks python to run a file called "force". Neither
+        # ever worked, and both bypassed startup.sh's relaunch loop.
+        #
+        # UPDATE takes precedence over RESTART: applying a staged update
+        # restarts anyway, and the two used to be able to fire together and
+        # spawn two processes.
         if self.UPDATE:
-            subprocess.Popen([sys.executable])
+            code = EXIT_UPDATE
+        elif self.RESTART:
+            code = EXIT_RESTART
+        else:
+            code = exit_code if exit_code else EXIT_OK
 
-        if self.RESTART:
-            subprocess.Popen([sys.executable] + ["force"])
+        self.log("info", f"Exiting with code {code}")
 
         if self.LOG:
             self.LOG.close()
 
-        sys.exit(exit_code)
+        sys.exit(code)

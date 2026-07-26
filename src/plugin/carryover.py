@@ -1,6 +1,3 @@
-from src import *
-
-
 class PluginCarryover:
 	"""
 	A persistence container created fresh for ONE reload cycle.

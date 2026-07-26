@@ -1,4 +1,21 @@
-from src import *
+from __future__ import annotations
+
+import os
+import json
+import time
+import socket
+import signal
+import base64
+import webbrowser
+from threading import Thread
+from urllib.parse import urlencode
+from typing import TYPE_CHECKING, Literal
+
+import requests
+from dotenv import load_dotenv, find_dotenv, set_key as set_env_key
+
+if TYPE_CHECKING:
+	from src.main import Client
 
 REPEAT_STATES = Literal["track", "context", "off"]
 

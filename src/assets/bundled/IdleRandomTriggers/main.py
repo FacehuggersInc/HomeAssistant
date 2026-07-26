@@ -1,4 +1,8 @@
-from src import *
+from __future__ import annotations
+
+import random
+from typing import Callable
+
 from src.plugin.template import Plugin
 
 from src.ui.overlays import Panel

@@ -1,11 +1,16 @@
-from src import *
+from __future__ import annotations
 
 import re
-from typing import Callable, Optional, List
-from spacy.matcher import Matcher
-from spacy.matcher import PhraseMatcher
+import time
+import traceback
+from threading import Thread
+from typing import TYPE_CHECKING, Callable, Optional, List
 
-MATCHER = Matcher(NLP_MODEL.vocab)
+from src.assistant import nlp
+
+if TYPE_CHECKING:
+	from src.main import Client
+
 PRIMARY_THRESHOLD = 0.70
 FALLBACK_DEFAULT_RULE_SCORE = 0.66
 
@@ -91,14 +96,14 @@ class Skill:
 		words_leeway : int, default=5
 			Extra allowance added to the maximum word count of example phrases for flexible pattern matching.
 		"""
-		self.nlp = NLP_MODEL
+		self.nlp = nlp.model()
 		
 		self.wake = wake_word
 		self.key = skill_key
 		self.plugin = plugin_key
 
 		# Phrase Pattern Matching
-		self.matcher = MATCHER
+		self.matcher = nlp.shared_matcher()
 		self.examples = examples
 		self.patterns = self.generate_patterns(self.examples)
 		if patterns: self.patterns += patterns
@@ -109,7 +114,7 @@ class Skill:
 		self.lemmas = [{t.lemma_.lower() for t in doc if t.is_alpha} for doc in self.docs]
 
 		#Argument Pattern Matching
-		self.arg_matcher = Matcher(NLP_MODEL.vocab)
+		self.arg_matcher = nlp.new_matcher()
 		self.arguments = arguments
 		if arguments:
 			for arg_pattern_key, patterns in arguments.items():
@@ -155,10 +160,13 @@ class Skill:
 
 
 class SkillIntentEngine:
+	# Client.__init__ constructs one of these unconditionally, whether or not
+	# the voice assistant is ever used. Resolving the model here would defeat
+	# the lazy load entirely, so nlp/matcher are properties that only touch
+	# spaCy when something actually parses a phrase.
+
 	def __init__(self, client):
 		self.client = client
-		self.nlp = NLP_MODEL
-		self.matcher = MATCHER
 
 		self.phases = ["matcher", "rule"]
 
@@ -166,6 +174,14 @@ class SkillIntentEngine:
 		self.skill_lib = {}
 		self.id2skill = {}
 		self.wake_args = []
+
+	@property
+	def nlp(self):
+		return nlp.model()
+
+	@property
+	def matcher(self):
+		return nlp.shared_matcher()
 
 	def registered_count(self, plugin_key:str):
 		return 0 if not self.registered.get(plugin_key) else len( self.registered[plugin_key] )
@@ -216,7 +232,7 @@ class SkillIntentEngine:
 		if plugin_key in self.registered:
 			self.registered[plugin_key] = [s for s in self.registered[plugin_key] if s.key != skill_key]
 			# Rebuild PhraseMatcher for that plugin to keep it consistent
-			pm = PhraseMatcher(NLP_MODEL.vocab, attr="LEMMA")
+			pm = nlp.new_phrase_matcher(attr="LEMMA")
 			for s in self.registered[plugin_key]:
 				docs = s.get_patterns()
 				if docs:

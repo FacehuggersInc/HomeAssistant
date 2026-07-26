@@ -1,4 +1,8 @@
-from src import *
+from __future__ import annotations
+from typing import TYPE_CHECKING, Callable
+
+if TYPE_CHECKING:
+    from src.main import Client
 
 class APIEndpoint():
     def __init__(self, owner:str, key:str, authed:bool, cached:bool, callback:Callable):
