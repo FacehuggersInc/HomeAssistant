@@ -29,6 +29,7 @@ from __future__ import annotations
 import io
 import os
 import json
+import fnmatch
 import shutil
 import zipfile
 import tempfile
@@ -76,9 +77,26 @@ def is_preserved(rel_path: str) -> bool:
     return False
 
 
+def _glob_match(rel_path: str, pattern: str) -> bool:
+    """
+    Segment-wise glob. `*` matches within one path segment and never across
+    a separator.
+
+    Deliberately not Path.match(): its anchoring and wildcard semantics have
+    moved across 3.12 -> 3.14 (full_match() was split out in 3.13), and this
+    decides whether a user's settings get merged or overwritten. Not a good
+    place for a version-dependent surprise.
+    """
+    parts = rel_path.split("/")
+    pat = pattern.split("/")
+    if len(parts) != len(pat):
+        return False
+    return all(fnmatch.fnmatchcase(a, b) for a, b in zip(parts, pat))
+
+
 def is_merged(rel_path: str) -> bool:
     rel_path = rel_path.replace("\\", "/")
-    return any(Path(rel_path).match(g) for g in UPDATE_MERGE_GLOBS)
+    return any(_glob_match(rel_path, g) for g in UPDATE_MERGE_GLOBS)
 
 
 def merge_settings_json(shipped: str, installed: str) -> str:
