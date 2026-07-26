@@ -128,20 +128,39 @@ class IdleTriggersPlugin(Plugin):
 
     def get_random_unused_builder(self) -> tuple:
         all_builders = self.get_builders()
-        if len(self.already_called_ids) == len(all_builders):
+        if not all_builders:
+            return (None, None, None, None)
+
+        if len(self.already_called_ids) >= len(all_builders):
             self.already_called_ids = []
-        builders = [b for b in all_builders if b[1] not in self.already_called_ids and not b[1] == self.last_built[1]]
-        if len(builders) > 0:
-            builder = random.choice( builders )
+
+        builders = [b for b in all_builders if b[1] not in self.already_called_ids]
+
+        # Only exclude the immediately-previous builder if there's an
+        # actual alternative left to fall back on. With exactly one
+        # builder registered (the common case for a plugin like
+        # RSSFeeds, which registers a single builder total regardless
+        # of how many feeds it has), this exclusion would otherwise
+        # filter out the only candidate every single time after its
+        # first use — already_called_ids resets back to [] each cycle,
+        # but last_built[1] never does, so a lone builder gets
+        # permanently blacklisted by its own anti-repeat check, and
+        # nothing afterwards ever resets builder_used_timeslot back to
+        # True. The whole rotation just silently stops forever.
+        if len(builders) > 1:
+            builders = [b for b in builders if b[1] != self.last_built[1]]
+
+        if builders:
+            builder = random.choice(builders)
             self.already_called_ids.append(builder[1])
             return builder
-        
+
         return (None, None, None, None)
 
     def call_and_handle_random_builder(self) -> None:
         callable, id, plugin, auto_dismiss = self.get_random_unused_builder()
         if callable:
-            self.last_built[0] = callable( self.settings.carousel_rotate_time.value / 1000 )
+            self.last_built[0] = callable( self.settings.rotate_time.value / 1000 )
             self.last_built[1] = id
             self.last_built[2] = plugin
             self.last_built[3] = auto_dismiss
@@ -149,7 +168,7 @@ class IdleTriggersPlugin(Plugin):
                 self.builder_used_timeslot = True
             elif isinstance(self.last_built[0], Panel):
                 self.last_timeout_id = self.client.TIMEOUTS.add(
-                    self.settings.carousel_rotate_time.value / 1000,
+                    self.settings.rotate_time.value / 1000,
                     self.built_panel_timeout,
                     f"builder_panel_timeout:{self.last_built[1]}",
                     True

@@ -5,14 +5,15 @@ from src.ui.overlays import Panel
 from src.styling import set_style, make_font
 
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel,QScrollArea, QScroller,
+    QWidget, QHBoxLayout, QLabel, QScroller,
+    QTextBrowser, QFrame,
 )
 
 from .api.rss import RSSFeedAPI
 
 class RSSFeedsPlugin(Plugin):
     def __init__(self):
-        self.feeds_path : Asset = Asset(Path(os.getcwd() / "RSSFeeds"))
+        self.feeds_path : Asset = Asset(Path(os.getcwd()) / "RSSFeeds")
         self.feeds = {}
         self.__builder_idletriggers_id = None
 
@@ -30,6 +31,8 @@ class RSSFeedsPlugin(Plugin):
         self.client.API['RSS'] = RSSFeedAPI()
         self.client.public.expose("rssfeeds", "add_rss_feed", self.add_feed, True)
 
+        self._load_feed_files()
+
         if self.client.PLUGIN.has_plugin("idletriggers"):
             if self.client.public.has( "add_trigger" ):
                 id = self.client.public.add_trigger(
@@ -42,13 +45,58 @@ class RSSFeedsPlugin(Plugin):
     def unload(self):
         del self.client.API['RSS']
 
+    ## FEED FILES
+    def _load_feed_files(self):
+        """
+        Scan self.feeds_path for individual *.json feed definitions and
+        register each one via add_feed(), the same entry point any other
+        plugin uses — these just get registered under this plugin's own
+        key ("rssfeeds") rather than a caller's, since nothing external
+        is the owner.
+
+        Each file is expected to contain:
+            {
+                "url": "https://example.com/feed.xml",
+                "transformer": { ... }
+            }
+
+        Missing/unreadable/malformed files are logged and skipped rather
+        than blocking the rest from loading.
+        """
+        if not self.feeds_path.exists():
+            try:
+                self.feeds_path.mkdir(parents=True, exist_ok=True)
+            except Exception as e:
+                self.client.log("warning", f"[RSSFeedsPlugin] couldn't create feeds folder '{self.feeds_path}': {e}")
+            return
+
+        for file in sorted(self.feeds_path.glob("*.json")):
+            try:
+                definition = json.loads(file.read_text(encoding="utf-8"))
+            except Exception as e:
+                self.client.log("warning", f"[RSSFeedsPlugin] couldn't read feed file '{file.name}': {e}")
+                continue
+
+            url = definition.get("url") if isinstance(definition, dict) else None
+            transformer = definition.get("transformer") if isinstance(definition, dict) else None
+
+            if not url:
+                self.client.log("warning", f"[RSSFeedsPlugin] feed file '{file.name}' is missing a 'url' string — skipped.")
+                continue
+
+            if transformer is not None and not isinstance(transformer, dict):
+                self.client.log("warning", f"[RSSFeedsPlugin] feed file '{file.name}' has a non-object 'transformer' — ignoring it, will auto-infer one instead.")
+                transformer = None
+
+            self.add_feed("rssfeeds", url, transformer)
+
     ## FUNCTIONS
     def plugin_has_registered(self, plugin_key:str):
-        if self.builders.get(plugin_key):
+        if self.feeds.get(plugin_key):
             return True
         return False
 
-    def add_feed(self, plugin_key:str, url:str, transformer:dict):
+    def add_feed(self, plugin_key:str, url:str, transformer:dict = None):
         if not self.plugin_has_registered(plugin_key):
             self.feeds.setdefault(plugin_key, [])
         id = self.client.uuid()
@@ -56,72 +104,138 @@ class RSSFeedsPlugin(Plugin):
         
         return id
 
-    def get_feeds(self) -> list[tuple[Callable, str, str]]:
-        builders = []
-        for group in self.builders.values():
-            builders += group
-        return builders
+    def _set_feed_transformer(self, plugin_key:str, feed_id:str, transformer:dict):
+        """Persist a (now-inferred) transformer back onto its stored feed
+        entry so every future pick of this feed reuses it instead of
+        re-inferring one from scratch each time."""
+        group = self.feeds.get(plugin_key, [])
+        for i, feed in enumerate(group):
+            if feed[1] == feed_id:
+                group[i] = (feed[0], feed[1], feed[2], transformer)
+                break
+
+    def get_feeds(self) -> list[tuple[str, str, str, dict]]:
+        feeds = []
+        for group in self.feeds.values():
+            feeds += group
+        return feeds
 
     def get_random_unused_feed(self) -> tuple:
         all_feeds = self.get_feeds()
-        if len(self.used_feed_ids) == len(self.used_feed_ids):
+        if not all_feeds:
+            return (None, None, None, None)
+        if len(self.used_feed_ids) >= len(all_feeds):
             self.used_feed_ids = []
-        feeds = [b for b in all_feeds if b[1] not in self.used_feed_ids and not b[1] == self.last_feed[1]]
-        if len(feeds) > 0:
-            feed = random.choice( feeds )
+        feeds = [f for f in all_feeds if f[1] not in self.used_feed_ids]
+        if len(feeds) > 1:
+            feeds = [f for f in feeds if f[1] != self.last_feed[1]]
+        if feeds:
+            feed = random.choice(feeds)
             self.used_feed_ids.append(feed[1])
             return feed
-        
+
         return (None, None, None, None)
 
     ## UI
 
+    def _make_tag(self, text:str, color:str) -> QLabel:
+        """Small colored metadata pill used in the tags row (feed name, published date, author)."""
+        tag = QLabel(text)
+        tag.setFont(make_font(12, bold=True))
+        tag.setWordWrap(False)
+        tag.setStyleSheet(
+            "QLabel {"
+            f"background-color: {color};"
+            "color: white;"
+            "border-radius: 8px;"
+            "padding: 3px 9px;"
+            "}"
+        )
+        return tag
 
     def build_new_feed_panel(self, time_ms:int):
-        if not self.current_feed_data or len(self.current_feed_data['items']) == len(self.used_item_ids):
-            if len(self.current_feed_data['items']) == len(self.used_item_ids):
-                self.used_item_ids = []
+        items = (self.current_feed_data or {}).get('items') or []
+        if not self.current_feed_data or len(items) <= len(self.used_item_ids):
+            self.used_item_ids = []
 
             self.last_feed = self.get_random_unused_feed()
+            if not self.last_feed[0]:
+                return True  # no feeds registered yet — nothing to show this round
 
             api: RSSFeedAPI = self.client.API.get('RSS')
             if not api: return True
-            self.current_feed_data = api.parse(
-                self.last_feed[0],
-                transformer = self.last_feed[-1]
-            )
-        
+
+            url, feed_id, owner_key, transformer = self.last_feed
+
+            if not transformer:
+                raw, _ = api.parse(url)
+                transformer = api.infer_transformer(raw)
+                self._set_feed_transformer(owner_key, feed_id, transformer)
+                self.last_feed = (url, feed_id, owner_key, transformer)
+
+            transformed, _ = api.parse(url, transformer=transformer)
+            self.current_feed_data = transformed or {"title": "None", "items": []}
+            items = self.current_feed_data.get('items') or []
+
+        # Pull exactly one not-yet-shown item out of the current feed.
         data = None
-        for item in self.current_feed_data['items']:
-            if not item['id'] in self.used_item_ids:
-                self.used_item_ids.append(item['id'])
-                data = item
+        for item in items:
+            item_id = item.get('id')
+            if item_id is None or item_id in self.used_item_ids:
+                continue
+            self.used_item_ids.append(item_id)
+            data = item
+            break
+
+        if data is None:
+            return True
 
         panel : Panel = self.client.create_panel()
-        
-        header = QHBoxLayout()
-        title_lbl = QLabel("Notifications")
-        title_lbl.setFont(make_font(20, bold=True))
-        set_style(title_lbl, "common", "text-strong")
-        header.addWidget(title_lbl)
-        panel.add_content( header )
 
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        set_style(scroll, "notification", "notification-scroll", object_tag="QScrollArea")
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        scroll.viewport().setAutoFillBackground(False)
+        panel.content_layout.setContentsMargins(20, 24, 20, 20)
+        panel.content_layout.setSpacing(12)
+
+        header_widget = QWidget()
+        set_style(header_widget, "common", "transparent")
+        header = QHBoxLayout(header_widget)
+        header.setContentsMargins(0, 0, 0, 0)
+        
+        item_title_lbl = QLabel(data.get('title') or "Untitled")
+        item_title_lbl.setFont(make_font(17, bold=True))
+        item_title_lbl.setWordWrap(True)
+        set_style(item_title_lbl, "common", "text-strong")
+        header.addWidget(item_title_lbl)
+        panel.add_content(header_widget)
+
+        tag_specs = [
+            (self.current_feed_data.get('title'), "#3b82f6"),  # feed name
+            (data.get('published'),               "#8b5cf6"), # published date
+            (data.get('author'),                  "#10b981"), # author
+        ]
+        tags = [(str(value), color) for value, color in tag_specs if value]
+        if tags:
+            tags_widget = QWidget()
+            set_style(tags_widget, "common", "transparent")
+            tags_row = QHBoxLayout(tags_widget)
+            tags_row.setContentsMargins(0, 0, 0, 0)
+            tags_row.setSpacing(6)
+            for text, color in tags:
+                tags_row.addWidget(self._make_tag(text, color))
+            tags_row.addStretch()
+            panel.add_content(tags_widget)
+
+        body = QTextBrowser()
+        body.setFrameShape(QFrame.Shape.NoFrame)
+        body.setOpenExternalLinks(True)
+        body.setFont(make_font(14))
+        body.setMarkdown(data.get('summary') or "*No summary provided.*")
+        body.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        body.viewport().setAutoFillBackground(False)
+        set_style(body, "common", "text-muted")
         QScroller.grabGesture(
-            scroll.viewport(), 
+            body.viewport(),
             QScroller.ScrollerGestureType.LeftMouseButtonGesture
         )
+        panel.add_content(body)
 
-        self._list_widget = QWidget()
-        set_style(self._list_widget, "common", "transparent")
-        self._list_layout = QVBoxLayout(self._list_widget)
-        self._list_layout.setContentsMargins(0, 0, 0, 0)
-        self._list_layout.setSpacing(4)
-        self._list_layout.addStretch()
-
-        scroll.setWidget(self._list_widget)
-        panel.add_content(scroll)
+        return panel

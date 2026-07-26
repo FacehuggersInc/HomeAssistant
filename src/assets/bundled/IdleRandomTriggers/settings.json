@@ -2,7 +2,7 @@
     "rotate_time": {
         "type": "int",
         "default": 10000,
-        "value": 10000,
+        "value": 60000,
         "description": "Time in ms before the Carousel rotates to the next builder"
     }
 }

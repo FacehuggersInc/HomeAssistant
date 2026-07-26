@@ -171,6 +171,11 @@ class Client:
     client.run()
     """
 
+    # Hard floor (ms) applied when checking application.interaction_timeout
+    # in _check_interaction_timeout() — see the comment there. Doesn't
+    # affect what's stored or shown in Settings, only what's enforced.
+    MIN_INTERACTION_TIMEOUT_MS = 1000
+
     @mixin_target("client.__init__")
     def __init__(self):
         self.START_TIME  = time.time()
@@ -425,8 +430,27 @@ class Client:
         # just because someone hasn't re-saved their settings since
         # upgrading.
         timeout_ms = self.SETTINGS.get("application.interaction_timeout.value", 5000)
+
+        # Floor against a live-editing feedback loop: Field commits its
+        # setting's value on every keystroke, not just on blur/save (see
+        # Field._changed() in src/pages/settings.py) — so someone
+        # retyping this exact setting on the Settings page passes
+        # through tiny intermediate values (e.g. backspacing "60000"
+        # down to "6") for a moment, live, before they finish typing.
+        # Without a floor, the very next poll of this function reads
+        # that momentary value back out, sees any real elapsed time at
+        # all already exceeds a near-zero timeout, and fires
+        # on_interaction_timeout immediately — which Settings' own
+        # handler responds to by auto-saving and leaving the page,
+        # permanently persisting whatever half-typed digit happened to
+        # be sitting in the field at that instant. This only clamps the
+        # value used for this check; it never touches the stored
+        # setting or what's shown in the field itself.
+        timeout_ms = max(timeout_ms, self.MIN_INTERACTION_TIMEOUT_MS)
+
         if time.time() - self._last_interaction_time >= (timeout_ms / 1000):
             self._interaction_idle = True
+            self.log("info", f"[Client] on_interaction_timeout fired (idle >= {timeout_ms}ms)")
             self.iterate_event_callables("on_interaction_timeout", None, True)
 
     ##LOGGING

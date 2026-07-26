@@ -14,6 +14,7 @@ from PyQt6.QtCore import Qt, QSize, QPropertyAnimation, QEasingCurve, pyqtProper
 from PyQt6.QtGui import QPainter, QColor, QBrush, QPen, QPixmap, QIcon
 
 from src.mixins import mixin_target
+from src.settings import Settings
 from src.ui.page import PageFramework
 from src.ui.widget import WidgetFramework
 from src.ui.controls.drawer import Drawer
@@ -600,7 +601,22 @@ class SettingsPage(PageFramework):
             "new_settings_list":      self.builder,
         })
 
-        self._generate_settings(client.SETTINGS, client.settings_dict())
+        # Edits build up against a working copy, not the live
+        # client.SETTINGS — nothing here takes effect anywhere else in
+        # the app until Save and Return is actually pressed (see
+        # return_and_save() below). Previously every Field wrote
+        # straight into client.SETTINGS on every keystroke, live —
+        # mostly just "early" for most settings, but actively dangerous
+        # for application.interaction_timeout specifically: that's the
+        # exact value _check_interaction_timeout() (src/main.py) reads
+        # to decide when to fire the idle event THIS PAGE reacts to by
+        # auto-saving and leaving — so retyping it could self-trigger
+        # an immediate save of whatever half-typed digit was sitting in
+        # the field a moment before you finished. See
+        # _check_interaction_timeout()'s own floor for the other half
+        # of that fix.
+        self._working_settings = Settings(copy.deepcopy(client.settings_dict()))
+        self._generate_settings(self._working_settings, self._working_settings.to_dict())
         self._page_additions()
         self._build_nav()
 
@@ -1218,7 +1234,18 @@ class SettingsPage(PageFramework):
         # in-memory client.SETTINGS object; it would have been silently
         # lost on the next restart unless the app happened to reach a
         # clean Client.stop() first.
-        self.client.dump(self.client.settings_dict(), self.client.DATA)
+        #
+        # __init__ now builds this page against self._working_settings
+        # (a deep copy) rather than the live client.SETTINGS, so
+        # nothing committed until exactly here: dump the working copy,
+        # then client.SETTINGS.reload() re-reads that same file
+        # (client.DATA) right back in. Reload refreshes the *existing*
+        # Dynaconf object in place rather than replacing it, so
+        # anything elsewhere already holding a reference to
+        # client.SETTINGS keeps working unchanged — it just sees the
+        # new values.
+        self.client.dump(self._working_settings.to_dict(), self.client.DATA)
+        self.client.SETTINGS.reload()
         self.client.iterate_event_callables("on_settings_saved", self.client.SETTINGS)
         if notify:
             self.client.simple_notify(Icons.SAVE, "Settings", "Settings saved!")

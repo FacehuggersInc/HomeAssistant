@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING
 from PyQt6.QtWidgets import QWidget, QVBoxLayout, QLabel, QHBoxLayout, QScrollArea, QPushButton
 from PyQt6.QtCore import Qt, QPropertyAnimation, QEasingCurve, QPoint, QSize, QEvent
 from PyQt6.QtGui import QPainter, QColor, QBrush, QPen, QMouseEvent
+from PyQt6 import sip
 
 import qtawesome as qta
 
@@ -352,6 +353,24 @@ class TilePanel(Panel):
         #below and TilePanelItem.mouseMoveEvent for why this exists
         self.closing = False
 
+        # Panel.__init__ above parents this onto client.OVERLAYS, not
+        # onto `page` — this panel is logically owned by SubTilesPage
+        # but actually lives in a completely separate part of the
+        # widget tree. That means Qt's normal parent-child cascade
+        # never destroys this panel when its page does (e.g.
+        # on_interaction_timeout navigating away while this page is
+        # active) — it just keeps existing as an orphaned overlay
+        # holding a now-dead reference to `page`, and the next
+        # resizeEvent it receives crashes trying to read
+        # self.page.height() off a deleted C/C++ object. Same class of
+        # bug as Drawer's own auto-close timer outliving the Drawer
+        # itself (see Drawer.__init__) — clean this up the moment its
+        # owning page actually goes away instead of waiting to crash.
+        # _page_alive() below is the belt-and-suspenders half of this
+        # fix, for any event already in flight before deleteLater
+        # actually takes effect.
+        self.page.destroyed.connect(self.deleteLater)
+
         #Panel already parented us to client.OVERLAYS, built
         #self.content_layout, and applied the shared frosted-glass
         #"panel-base" style for us (translucent background + blurred
@@ -475,8 +494,21 @@ class TilePanel(Panel):
                 #whole panel from opening
                 pass
 
+    def _page_alive(self) -> bool:
+        """
+        True unless self.page's underlying C/C++ object has already
+        been destroyed. self.page.destroyed (connected in __init__)
+        only schedules this panel's own deleteLater on the *next*
+        event-loop pass — it doesn't retroactively stop an event
+        that's already in flight right now, so every read of
+        self.page.width()/height() below still needs this guard too.
+        """
+        return not sip.isdeleted(self.page)
+
     def toggle(self) -> None:
         """Slide the panel in if closed, or out if open."""
+        if not self._page_alive():
+            return
         if self.open:
             #normal close (e.g. the X button) — slide out AND hide once
             #the animation finishes, immediately. There's no in-progress
@@ -514,6 +546,11 @@ class TilePanel(Panel):
         finish_slide_out() is deferred until the drag's
         mouseReleaseEvent actually fires.
         """
+        if not self._page_alive():
+            #nothing sensible to animate towards anymore — just finish
+            #immediately rather than reach for a dead page's geometry
+            self.finish_slide_out()
+            return
         pw = self.page.width()
         self.closing = True
         self.anim.stop()
@@ -530,6 +567,8 @@ class TilePanel(Panel):
     def resizeEvent(self, event) -> None:
         #only height needs to track the page — width is fixed
         super().resizeEvent(event)
+        if not self._page_alive():
+            return
         self.setFixedHeight(self.page.height())
         if self.open:
             self.refresh_backdrop()
