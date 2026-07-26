@@ -846,8 +846,6 @@ class SettingsPage(PageFramework):
         return card
 
     def _install_pending_plugin(self, item) -> None:
-        from src.ui.dialogs import ConfirmDialog
-
         def _go() -> None:
             def worker() -> None:
                 ok, message = self.client.PLUGIN.install_pending(item.key)
@@ -857,17 +855,13 @@ class SettingsPage(PageFramework):
             Thread(target=worker, name="__plugin_pip_install", daemon=True).start()
             self.client.simple_notify("download", "Plugins", f"Installing packages for '{item.name}'...")
 
-        dialog = ConfirmDialog(
-            self.client,
+        self.client.confirm(
             title=f"Install packages for '{item.name}'?",
             body=f"These will be installed into {deps_venv_path()} and the plugin will be loaded.",
             detail="\n  ".join(["Packages:"] + item.missing),
             confirm_text="Install",
             on_confirm=_go,
-            confirm_style="plugin-action-install",
         )
-        self.client.DIALOG.open(dialog)
-        dialog.center_on(self.client.OVERLAYS)
 
     def _refresh_if_on_settings(self) -> None:
         if self.client.PAGE is self:
@@ -1242,8 +1236,6 @@ class SettingsPage(PageFramework):
 
     def _uninstall_plugin_packages(self, plugin_key: str,
                                     removable: list, kept: dict) -> None:
-        from src.ui.dialogs import ConfirmDialog
-
         name = self.client.PLUGIN.plugin_name(plugin_key) or plugin_key
         detail = "Will be removed:\n  " + "\n  ".join(removable)
         if kept:
@@ -1258,8 +1250,7 @@ class SettingsPage(PageFramework):
                     self.client.simple_notify("error", "Plugins", message[:160])
             Thread(target=worker, name="__plugin_pip_uninstall", daemon=True).start()
 
-        dialog = ConfirmDialog(
-            self.client,
+        self.client.confirm(
             title=f"Uninstall packages for '{name}'?",
             body=("This removes the packages from the virtualenv and unloads "
                   "the plugin. The plugin's files are left alone — it will "
@@ -1267,10 +1258,8 @@ class SettingsPage(PageFramework):
             detail=detail,
             confirm_text="Uninstall",
             on_confirm=_go,
-            confirm_style="plugin-action-uninstall",
+            destructive=True,
         )
-        self.client.DIALOG.open(dialog)
-        dialog.center_on(self.client.OVERLAYS)
 
     def _copy_plugin_key(self, plugin_key: str) -> None:
         self.client.app.clipboard().setText(plugin_key)

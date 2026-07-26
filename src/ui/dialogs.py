@@ -1,188 +1,307 @@
 """
-Modal dialogs for plugin pip dependencies.
+Concrete modal dialogs.
 
-Two of them:
+All of these derive from BaseDialog (src/ui/overlays.py) and are reachable
+through convenience methods on Client, which is what most callers should use:
 
-  DependencyDialog  -- shown once after startup when plugins were held back
-                       for missing packages. Lists exactly what would be
-                       installed and where, before anything runs.
+    client.alert("Done", "Backup finished.")
+    client.confirm("Delete?", "This cannot be undone.", on_confirm=do_it,
+                   destructive=True)
+    client.prompt("Rename", "New name:", on_submit=rename, default="untitled")
+    client.choose("Theme", "Pick one", ["Dark", "Light"], on_choose=set_theme)
 
-  ConfirmDialog     -- generic yes/no, used by the Uninstall button.
+Constructing one directly and passing it to client.dialog() is also fine, and
+is how DependencyDialog is used.
 
-Both are plain QWidgets handed to client.DIALOG.open(), which reparents them
-onto the SYSTEM overlay layer and puts a click blocker underneath.
-
-pip runs on a worker thread -- it is slow enough to freeze the UI for tens of
-seconds otherwise -- and every widget touch from that thread goes back
-through client.call_on_ui().
+pip work runs on a worker thread -- it blocks for tens of seconds -- and every
+widget touch from that thread goes back through client.call_on_ui().
 """
 
 from __future__ import annotations
 
 from threading import Thread
-from typing import TYPE_CHECKING, Callable, Optional
+from typing import TYPE_CHECKING, Callable, Iterable, Optional
 
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QFrame, QScrollArea, QSizePolicy,
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFrame, QLineEdit,
+    QButtonGroup, QRadioButton,
 )
 from PyQt6.QtCore import Qt
 
 from src.styling import make_font, SIZES, set_style
-from src.plugin import dependencies as deps
+from src.ui.overlays import BaseDialog
+from src.plugin import dependencies as pipdeps
 
 if TYPE_CHECKING:
     from src.main import Client
 
 
-DIALOG_WIDTH = 640
-DIALOG_MAX_HEIGHT = 620
+## -- GENERIC ----------------------------------------------------------------
+
+class AlertDialog(BaseDialog):
+    """Message plus a single dismiss button."""
+
+    def __init__(self, client: "Client", title: str, body: str = "",
+                 ok_text: str = "OK", on_close: Callable = None,
+                 detail: str = None):
+        super().__init__(client, title, body, detail=detail)
+        self._on_close = on_close
+        self.add_button(ok_text, self._dismiss, "primary")
+
+    def _dismiss(self) -> None:
+        self.close()
+        if self._on_close:
+            self._on_close()
 
 
-def _title(text: str) -> QLabel:
-    lbl = QLabel(text)
-    lbl.setFont(make_font(SIZES.M2, bold=True))
-    set_style(lbl, "common", "text-strong")
-    lbl.setWordWrap(True)
-    return lbl
+class ConfirmDialog(BaseDialog):
+    """Yes/no. `destructive` colours the confirm button as a warning."""
+
+    def __init__(self, client: "Client", title: str, body: str = "",
+                 on_confirm: Callable = None, on_cancel: Callable = None,
+                 confirm_text: str = "Confirm", cancel_text: str = "Cancel",
+                 destructive: bool = False, detail: str = None):
+        super().__init__(client, title, body, detail=detail)
+        self._on_confirm = on_confirm
+        self._on_cancel = on_cancel
+
+        self.add_button(cancel_text, self._cancel, "secondary")
+        self.add_button(confirm_text, self._confirm,
+                        "destructive" if destructive else "primary")
+
+    def _confirm(self) -> None:
+        self.close()
+        if self._on_confirm:
+            self._on_confirm()
+
+    def _cancel(self) -> None:
+        self.close()
+        if self._on_cancel:
+            self._on_cancel()
 
 
-def _body(text: str, muted: bool = False) -> QLabel:
-    lbl = QLabel(text)
-    lbl.setFont(make_font(SIZES.S2))
-    set_style(lbl, "common", "text-muted" if muted else "text-strong")
-    lbl.setWordWrap(True)
-    return lbl
-
-
-def _button(text: str, style: str, on_click: Callable) -> QPushButton:
-    btn = QPushButton(text)
-    btn.setFont(make_font(SIZES.S2, bold=True))
-    btn.setCursor(Qt.CursorShape.PointingHandCursor)
-    btn.setFixedHeight(44)
-    btn.setMinimumWidth(120)
-    set_style(btn, "settings", style)
-    btn.clicked.connect(on_click)
-    return btn
-
-
-class _DialogShell(QWidget):
-    """Card, fixed width, vertical content, button row pinned at the bottom."""
-
-    def __init__(self, client: "Client"):
-        super().__init__()
-        self.client = client
-        self.setFixedWidth(DIALOG_WIDTH)
-        self.setMaximumHeight(DIALOG_MAX_HEIGHT)
-        set_style(self, "settings", "dialog-card")
-
-        self._outer = QVBoxLayout(self)
-        self._outer.setContentsMargins(24, 22, 24, 20)
-        self._outer.setSpacing(14)
-
-        self.content = QVBoxLayout()
-        self.content.setSpacing(10)
-        self._outer.addLayout(self.content)
-
-        self._outer.addStretch()
-
-        self.buttons = QHBoxLayout()
-        self.buttons.setSpacing(10)
-        self.buttons.addStretch()
-        self._outer.addLayout(self.buttons)
-
-    def clear_content(self) -> None:
-        while self.content.count():
-            item = self.content.takeAt(0)
-            w = item.widget()
-            if w is not None:
-                w.setParent(None)
-                w.deleteLater()
-
-    def clear_buttons(self) -> None:
-        while self.buttons.count():
-            item = self.buttons.takeAt(0)
-            w = item.widget()
-            if w is not None:
-                w.setParent(None)
-                w.deleteLater()
-        self.buttons.addStretch()
-
-    def center_on(self, host: QWidget) -> None:
-        self.adjustSize()
-        x = max(0, (host.width() - self.width()) // 2)
-        y = max(0, (host.height() - self.height()) // 2)
-        self.move(x, y)
-
-
-class DependencyDialog(_DialogShell):
+class InputDialog(BaseDialog):
     """
-    'These plugins need packages installed' -> Install All / Not Now.
+    Single-line text entry.
 
-    Declining does not discard anything: the plugins stay in
-    PluginManager.pending, marked declined, and Settings keeps showing them
-    greyed out with their own Install button.
+    The on-screen keyboard is raised on focus, since the target hardware is a
+    touch panel with no physical keyboard -- same treatment settings fields
+    get (see src/ui/keyboard.py). `numeric=True` gets the numpad instead.
     """
 
-    def __init__(self, client: "Client", pending: list):
-        super().__init__(client)
-        self.pending = pending
-        self._installing = False
-        self._build_prompt()
+    def __init__(self, client: "Client", title: str, body: str = "",
+                 on_submit: Callable = None, on_cancel: Callable = None,
+                 default: str = "", placeholder: str = "",
+                 submit_text: str = "OK", cancel_text: str = "Cancel",
+                 numeric: bool = False, password: bool = False,
+                 allow_empty: bool = False, detail: str = None):
+        super().__init__(client, title, body, detail=detail)
+        self._on_submit = on_submit
+        self._on_cancel = on_cancel
+        self._allow_empty = allow_empty
+        self._keyboard = None
 
-    ## -- prompt state
+        wrapper = QFrame()
+        wrapper.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        set_style(wrapper, "overlays", "dialog-input-wrapper")
+        wrap_layout = QVBoxLayout(wrapper)
+        wrap_layout.setContentsMargins(2, 2, 2, 2)
 
-    def _build_prompt(self) -> None:
-        self.clear_content()
-        self.clear_buttons()
+        self.field = QLineEdit(default)
+        self.field.setFont(make_font(SIZES.S3))
+        self.field.setFixedHeight(48)
+        self.field.setPlaceholderText(placeholder)
+        if password:
+            self.field.setEchoMode(QLineEdit.EchoMode.Password)
+        set_style(self.field, "overlays", "dialog-input")
+        wrap_layout.addWidget(self.field)
+        self.content.addWidget(wrapper)
 
-        count = len(self.pending)
-        self.content.addWidget(_title(
-            f"{count} plugin{'s' if count != 1 else ''} need"
-            f"{'' if count != 1 else 's'} additional packages"
-        ))
-        self.content.addWidget(_body(
-            "These plugins were not loaded because packages they declare are "
-            "not installed. Review what would be installed before continuing.",
-            muted=True,
-        ))
+        self._numeric = numeric
+        original_focus_in = self.field.focusInEvent
 
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QFrame.Shape.NoFrame)
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        set_style(scroll, "common", "transparent")
+        def _focus_in(event):
+            original_focus_in(event)
+            self._show_keyboard()
+
+        self.field.focusInEvent = _focus_in
+        self.field.returnPressed.connect(self._submit)
+
+        self.add_button(cancel_text, self._cancel, "secondary")
+        self._submit_btn = self.add_button(submit_text, self._submit, "primary")
+
+        self.field.textChanged.connect(self._sync_submit)
+        self._sync_submit(self.field.text())
+
+    def _sync_submit(self, text: str) -> None:
+        self._submit_btn.setEnabled(self._allow_empty or bool(text.strip()))
+
+    def _show_keyboard(self) -> None:
+        try:
+            from src.ui.keyboard import make_keyboard
+            self._keyboard = make_keyboard(
+                self.client, self.field,
+                "int" if self._numeric else "string",
+                self.client.OVERLAYS,
+            )
+            self._keyboard.show_keyboard()
+        except Exception as e:
+            self.client.log("debug", f"[InputDialog] no on-screen keyboard: {e}")
+
+    def _hide_keyboard(self) -> None:
+        if self._keyboard is None:
+            return
+        try:
+            self._keyboard.hide()
+            self._keyboard.setParent(None)
+            self._keyboard.deleteLater()
+        except Exception:
+            pass
+        self._keyboard = None
+
+    def _submit(self) -> None:
+        value = self.field.text()
+        if not self._allow_empty and not value.strip():
+            return
+        self._hide_keyboard()
+        self.close()
+        if self._on_submit:
+            self._on_submit(value)
+
+    def _cancel(self) -> None:
+        self._hide_keyboard()
+        self.close()
+        if self._on_cancel:
+            self._on_cancel()
+
+
+class ChoiceDialog(BaseDialog):
+    """Pick one from a list. Options are strings or (value, label) pairs."""
+
+    def __init__(self, client: "Client", title: str, body: str = "",
+                 options: Iterable = (), on_choose: Callable = None,
+                 on_cancel: Callable = None, default=None,
+                 choose_text: str = "Select", cancel_text: str = "Cancel",
+                 detail: str = None):
+        super().__init__(client, title, body, detail=detail)
+        self._on_choose = on_choose
+        self._on_cancel = on_cancel
+        self._values = []
 
         inner = QWidget()
         set_style(inner, "common", "transparent")
         v = QVBoxLayout(inner)
         v.setContentsMargins(0, 0, 0, 0)
-        v.setSpacing(8)
+        v.setSpacing(6)
 
+        self._group = QButtonGroup(self)
+        self._group.setExclusive(True)
+
+        for index, option in enumerate(options):
+            if isinstance(option, (tuple, list)) and len(option) == 2:
+                value, label = option
+            else:
+                value = label = option
+            self._values.append(value)
+
+            radio = QRadioButton(str(label))
+            radio.setFont(make_font(SIZES.S2))
+            radio.setCursor(Qt.CursorShape.PointingHandCursor)
+            radio.setMinimumHeight(40)
+            set_style(radio, "overlays", "dialog-choice")
+            self._group.addButton(radio, index)
+            v.addWidget(radio)
+
+            if (default is not None and value == default) or (default is None and index == 0):
+                radio.setChecked(True)
+
+        v.addStretch()
+        self.add_scroll(inner, min_height=min(260, max(60, 46 * max(1, len(self._values)))))
+
+        self.add_button(cancel_text, self._cancel, "secondary")
+        self.add_button(choose_text, self._choose, "primary")
+
+    def _choose(self) -> None:
+        index = self._group.checkedId()
+        self.close()
+        if self._on_choose and 0 <= index < len(self._values):
+            self._on_choose(self._values[index])
+
+    def _cancel(self) -> None:
+        self.close()
+        if self._on_cancel:
+            self._on_cancel()
+
+
+class ProgressDialog(BaseDialog):
+    """
+    Status line with no buttons, for work the user must wait on.
+
+    Update it from any thread with set_status(); it marshals onto the UI
+    thread itself.
+    """
+
+    def __init__(self, client: "Client", title: str, body: str = ""):
+        super().__init__(client, title, body)
+        self.status = self.make_body("Working...", muted=True)
+        self.content.addWidget(self.status)
+
+    def set_status(self, text: str) -> None:
+        line = " ".join(str(text).split())
+        if len(line) > 90:
+            line = line[:87] + "..."
+        self.client.call_on_ui(lambda: self.status.setText(line))
+
+
+## -- PLUGIN DEPENDENCIES ----------------------------------------------------
+
+class DependencyDialog(BaseDialog):
+    """
+    'These plugins need packages installed' -> Install All / Not Now.
+
+    Declining discards nothing: the plugins stay in PluginManager.pending,
+    marked declined, and Settings keeps showing them greyed out with their
+    own Install button.
+    """
+
+    def __init__(self, client: "Client", pending: list):
+        count = len(pending)
+        super().__init__(
+            client,
+            title=(f"{count} plugin{'s' if count != 1 else ''} need"
+                   f"{'' if count != 1 else 's'} additional packages"),
+            body=("These plugins were not loaded because packages they declare "
+                  "are not installed. Review what would be installed before "
+                  "continuing."),
+        )
+        self.pending = pending
+        self._installing = False
+        self._build_prompt()
+
+    def _build_prompt(self) -> None:
+        inner = QWidget()
+        set_style(inner, "common", "transparent")
+        v = QVBoxLayout(inner)
+        v.setContentsMargins(0, 0, 0, 0)
+        v.setSpacing(8)
         for item in self.pending:
             v.addWidget(self._plugin_row(item))
         v.addStretch()
+        self.add_scroll(inner, min_height=min(240, 78 * max(1, len(self.pending))))
 
-        scroll.setWidget(inner)
-        scroll.setMinimumHeight(min(260, 76 * max(1, len(self.pending))))
-        self.content.addWidget(scroll)
-
-        self.content.addWidget(_body(
-            f"Installing into: {deps.venv_path()}",
-            muted=True,
-        ))
-        self.content.addWidget(_body(
+        self.content.addWidget(self.make_body(
+            f"Installing into: {pipdeps.venv_path()}", muted=True))
+        self.content.addWidget(self.make_body(
             "Only install packages from plugins you trust. Package names come "
-            "from the plugin's own plugin.toml.",
-            muted=True,
-        ))
+            "from the plugin's own plugin.toml.", muted=True))
 
-        self.buttons.addWidget(_button("Not Now", "plugin-action-unload", self._decline))
-        self.buttons.addWidget(_button("Install All", "plugin-action-reload", self._install))
+        self.add_button("Not Now", self._decline, "secondary")
+        self.add_button("Install All", self._install, "primary")
 
     def _plugin_row(self, item) -> QFrame:
         row = QFrame()
-        set_style(row, "settings", "setting-block")
+        row.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        set_style(row, "overlays", "dialog-detail")
         v = QVBoxLayout(row)
         v.setContentsMargins(14, 10, 14, 10)
         v.setSpacing(2)
@@ -199,13 +318,11 @@ class DependencyDialog(_DialogShell):
         v.addWidget(pkgs)
         return row
 
-    ## -- actions
-
     def _decline(self) -> None:
         for item in self.pending:
             item.declined = True
         self.client.log("info", "[Dependencies] Install declined by user.")
-        self.client.DIALOG.close()
+        self.close()
         self.client.simple_notify(
             "extension", "Plugins",
             f"{len(self.pending)} plugin(s) not loaded. Install from Settings when ready.",
@@ -215,20 +332,15 @@ class DependencyDialog(_DialogShell):
         if self._installing:
             return
         self._installing = True
-        self._build_progress()
-        Thread(target=self._worker, name="__plugin_pip_install", daemon=True).start()
-
-    def _build_progress(self) -> None:
         self.clear_content()
         self.clear_buttons()
-        self.content.addWidget(_title("Installing packages"))
-        self.status = _body("Starting pip...", muted=True)
+        self.status = self.make_body("Starting pip...", muted=True)
         self.content.addWidget(self.status)
-        self.center_on(self.client.OVERLAYS)
+        self.center()
+        Thread(target=self._worker, name="__plugin_pip_install", daemon=True).start()
 
     def _set_status(self, text: str) -> None:
-        # pip output is verbose; one trimmed line is enough for a wall display
-        line = text.strip()
+        line = " ".join(str(text).split())
         if len(line) > 90:
             line = line[:87] + "..."
         self.client.call_on_ui(lambda: self.status.setText(line))
@@ -243,53 +355,13 @@ class DependencyDialog(_DialogShell):
 
     def _finish(self, succeeded: list, failed: list) -> None:
         self._installing = False
-        self.client.DIALOG.close()
-
+        self.close()
         if succeeded and not failed:
-            self.client.simple_notify(
-                "check", "Plugins",
-                f"Installed and loaded {len(succeeded)} plugin(s).",
-            )
+            self.client.simple_notify("check", "Plugins",
+                                      f"Installed and loaded {len(succeeded)} plugin(s).")
         elif succeeded and failed:
-            self.client.simple_notify(
-                "error", "Plugins",
-                f"{len(succeeded)} installed, {len(failed)} failed. See the log.",
-            )
+            self.client.simple_notify("error", "Plugins",
+                                      f"{len(succeeded)} installed, {len(failed)} failed. See the log.")
         else:
-            self.client.simple_notify(
-                "error", "Plugins",
-                f"Could not install packages for {len(failed)} plugin(s). See the log.",
-            )
-
-
-class ConfirmDialog(_DialogShell):
-    """Generic confirm. `detail` renders as a muted block under the body."""
-
-    def __init__(self, client: "Client", title: str, body: str,
-                 confirm_text: str, on_confirm: Callable,
-                 detail: Optional[str] = None,
-                 confirm_style: str = "plugin-action-unload"):
-        super().__init__(client)
-        self._on_confirm = on_confirm
-
-        self.content.addWidget(_title(title))
-        self.content.addWidget(_body(body, muted=True))
-
-        if detail:
-            block = QFrame()
-            set_style(block, "settings", "setting-block")
-            v = QVBoxLayout(block)
-            v.setContentsMargins(14, 10, 14, 10)
-            lbl = QLabel(detail)
-            lbl.setFont(make_font(SIZES.S1))
-            lbl.setWordWrap(True)
-            set_style(lbl, "common", "text-muted")
-            v.addWidget(lbl)
-            self.content.addWidget(block)
-
-        self.buttons.addWidget(_button("Cancel", "plugin-action-copy", self.client.DIALOG.close))
-        self.buttons.addWidget(_button(confirm_text, confirm_style, self._confirm))
-
-    def _confirm(self) -> None:
-        self.client.DIALOG.close()
-        self._on_confirm()
+            self.client.simple_notify("error", "Plugins",
+                                      f"Could not install packages for {len(failed)} plugin(s). See the log.")

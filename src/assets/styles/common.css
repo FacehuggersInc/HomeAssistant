@@ -20,3 +20,10 @@
 .page-background {
     background-color: #0d0d0d;
 }
+
+/* Dimmed text for a plugin that is present but not active -- held back
+   for missing pip packages. Referenced from src/pages/settings.py. */
+.text-pending {
+    color: #8a8a8a;
+    background: transparent;
+}

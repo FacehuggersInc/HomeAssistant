@@ -783,9 +783,7 @@ class Client:
             return
 
         from src.ui.dialogs import DependencyDialog
-        dialog = DependencyDialog(self, pending)
-        self.DIALOG.open(dialog)
-        dialog.center_on(self.OVERLAYS)
+        self.dialog(DependencyDialog(self, pending))
 
     ##WINDOW
 
@@ -983,6 +981,130 @@ class Client:
 
     def close(self, event=None, dialog=None) -> None:
         self.DIALOG.close()
+
+    ##DIALOGS
+
+    def dialog(self, dialog) -> None:
+        """
+        Show any BaseDialog (or plain QWidget) as a modal.
+
+        Thread-safe, same contract as create_panel(): QWidgets have to be
+        touched from the Qt thread, so calling this from a Flask route, a
+        voice handler, an event callback or any background thread hops onto
+        the UI thread instead of half-building a widget off it.
+        """
+        if QThread.currentThread() is self.app.thread():
+            self.DIALOG.open(dialog)
+        else:
+            self.call_on_ui(lambda: self.DIALOG.open(dialog))
+
+    def close_dialog(self) -> None:
+        """Close the topmost open dialog."""
+        if QThread.currentThread() is self.app.thread():
+            self.DIALOG.close()
+        else:
+            self.call_on_ui(self.DIALOG.close)
+
+    def alert(self, title: str, body: str = "", ok_text: str = "OK",
+              on_close: Optional[Callable] = None,
+              detail: str = None) -> None:
+        """Message with a single dismiss button.
+
+            client.alert("Backup complete", "Wrote 412 files.")
+        """
+        def _build():
+            from src.ui.dialogs import AlertDialog
+            self.DIALOG.open(AlertDialog(self, title, body, ok_text=ok_text,
+                                         on_close=on_close, detail=detail))
+        self.call_on_ui(_build)
+
+    def confirm(self, title: str, body: str = "",
+                on_confirm: Optional[Callable] = None,
+                on_cancel: Optional[Callable] = None,
+                confirm_text: str = "Confirm", cancel_text: str = "Cancel",
+                destructive: bool = False, detail: str = None) -> None:
+        """
+        Yes/no. Callbacks fire AFTER the dialog closes, so a callback is free
+        to open another dialog without fighting the one it came from.
+
+            client.confirm("Delete backup?", "This cannot be undone.",
+                           on_confirm=wipe, destructive=True)
+        """
+        def _build():
+            from src.ui.dialogs import ConfirmDialog
+            self.DIALOG.open(ConfirmDialog(
+                self, title, body, on_confirm=on_confirm, on_cancel=on_cancel,
+                confirm_text=confirm_text, cancel_text=cancel_text,
+                destructive=destructive, detail=detail,
+            ))
+        self.call_on_ui(_build)
+
+    def prompt(self, title: str, body: str = "",
+               on_submit: Optional[Callable] = None,
+               on_cancel: Optional[Callable] = None,
+               default: str = "", placeholder: str = "",
+               submit_text: str = "OK", cancel_text: str = "Cancel",
+               numeric: bool = False, password: bool = False,
+               allow_empty: bool = False, detail: str = None) -> None:
+        """
+        Single-line text entry. on_submit receives the string.
+
+        Raises the on-screen keyboard on focus (numpad when numeric=True),
+        since the target hardware has no physical one.
+
+            client.prompt("Rename plugin", "New name:",
+                          on_submit=lambda text: rename(text),
+                          default="untitled")
+        """
+        def _build():
+            from src.ui.dialogs import InputDialog
+            self.DIALOG.open(InputDialog(
+                self, title, body, on_submit=on_submit, on_cancel=on_cancel,
+                default=default, placeholder=placeholder,
+                submit_text=submit_text, cancel_text=cancel_text,
+                numeric=numeric, password=password,
+                allow_empty=allow_empty, detail=detail,
+            ))
+        self.call_on_ui(_build)
+
+    def choose(self, title: str, body: str = "", options: list = None,
+               on_choose: Optional[Callable] = None,
+               on_cancel: Optional[Callable] = None,
+               default=None, choose_text: str = "Select",
+               cancel_text: str = "Cancel", detail: str = None) -> None:
+        """
+        Pick one from a list. Options are plain strings, or (value, label)
+        pairs when the value shown differs from the value returned.
+
+            client.choose("Theme", "Pick one", ["Dark", "Light"],
+                          on_choose=lambda v: set_theme(v))
+        """
+        def _build():
+            from src.ui.dialogs import ChoiceDialog
+            self.DIALOG.open(ChoiceDialog(
+                self, title, body, options=options or [],
+                on_choose=on_choose, on_cancel=on_cancel, default=default,
+                choose_text=choose_text, cancel_text=cancel_text, detail=detail,
+            ))
+        self.call_on_ui(_build)
+
+    def progress(self, title: str, body: str = ""):
+        """
+        Modal status line with no buttons, for work that has to be waited on.
+        Returns the dialog so a worker thread can call set_status() on it and
+        close_dialog() when finished. Returns None if called off the UI
+        thread, since the widget cannot exist synchronously in that case.
+
+            dlg = client.progress("Syncing", "Talking to the server...")
+            dlg.set_status("42 of 300")
+        """
+        from src.ui.dialogs import ProgressDialog
+        if QThread.currentThread() is self.app.thread():
+            dialog = ProgressDialog(self, title, body)
+            self.DIALOG.open(dialog)
+            return dialog
+        self.call_on_ui(lambda: self.dialog(ProgressDialog(self, title, body)))
+        return None
 
     def register_asset(self, key: str, asset: Asset, forced_type: str) -> None:
         if not forced_type and not asset.is_dir():

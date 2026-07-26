@@ -208,16 +208,7 @@
     padding: 2px 8px;
 }
 
-/* ── Plugin dependency dialogs (src/ui/dialogs.py) ───────────────────────
-   The card itself sits on the SYSTEM overlay layer above the click
-   blocker, so it needs its own opaque background rather than inheriting
-   the page behind it. */
-
-.dialog-card {
-    background: #1a1a1a;
-    border: 1px solid rgba(255,255,255,45);
-    border-radius: 14px;
-}
+/* Dialog styling lives in overlays.css, next to BaseDialog. */
 
 /* Install: same visual weight as Reload — a constructive action. */
 .plugin-action-install {
@@ -264,9 +255,4 @@
     border: 1px solid rgba(255,193,7,90);
     border-radius: 6px;
     padding: 2px 8px;
-}
-
-.text-pending {
-    color: #8a8a8a;
-    background: transparent;
 }

@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING, Literal, Optional
 from PyQt6.QtWidgets import (
     QWidget, QLabel, QVBoxLayout, QHBoxLayout, QSizePolicy,
     QStyleOption, QStyle, QGraphicsScene, QGraphicsPixmapItem, QGraphicsBlurEffect,
+    QFrame, QPushButton, QScrollArea,
 )
 from PyQt6.QtCore import (
     Qt, QEvent, QTimer, QPropertyAnimation, QEasingCurve,
@@ -11,7 +12,7 @@ from PyQt6.QtCore import (
 )
 from PyQt6.QtGui import QColor, QPainter, QBrush, QPen, QRegion, QPixmap
 
-from src.styling import set_style
+from src.styling import set_style, make_font, SIZES
 
 if TYPE_CHECKING:
     from src.main import Client
@@ -492,6 +493,14 @@ class DialogManager:
         dialog.raise_()
         self.dialog_stack.append(dialog)
 
+        # Anything deriving from BaseDialog knows how to centre itself, so
+        # callers no longer have to remember to do it after open().
+        if hasattr(dialog, "center"):
+            try:
+                dialog.center()
+            except Exception:
+                pass
+
         self.blocker.update_geometry()
         self.blocker.show()
         self.blocker.raise_()
@@ -521,6 +530,170 @@ class DialogManager:
             # down on its own and clicks pass through again immediately.
 
 
+class BaseDialog(QFrame):
+    """
+    Base class for every modal dialog shown through DialogManager.
+
+    QFrame rather than QWidget, and WA_StyledBackground on top of that: a
+    plain QWidget does NOT paint a stylesheet `background` unless that
+    attribute is set, so a dialog built on QWidget renders as a transparent
+    card with floating text on top of whatever page is behind it. Panel,
+    PageFramework, Tile and KeyboardPopup all set the same attribute for the
+    same reason.
+
+    Layout is fixed: title, optional body, subclass content, optional detail
+    block, then a right-aligned button row.
+
+        class MyDialog(BaseDialog):
+            def __init__(self, client):
+                super().__init__(client, "Title", "Body text")
+                self.content.addWidget(my_widget)
+                self.add_button("Go", self._go, "primary")
+
+    Subclasses that want the standard buttons can call add_button(); the
+    generic dialogs in src/ui/dialogs.py are all thin wrappers over this.
+    """
+
+    WIDTH = 620
+    MAX_HEIGHT = 640
+
+    def __init__(self, client: "Client", title: str = "", body: str = "",
+                 width: int = None, detail: str = None):
+        super().__init__()
+        self.client = client
+
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        self.setFixedWidth(width or self.WIDTH)
+        self.setMaximumHeight(self.MAX_HEIGHT)
+        set_style(self, "overlays", "dialog-card")
+
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(24, 22, 24, 20)
+        outer.setSpacing(12)
+
+        if title:
+            outer.addWidget(self.make_title(title))
+        if body:
+            outer.addWidget(self.make_body(body, muted=True))
+
+        self.content = QVBoxLayout()
+        self.content.setSpacing(10)
+        outer.addLayout(self.content)
+
+        if detail:
+            outer.addWidget(self.make_detail(detail))
+
+        outer.addStretch()
+
+        self.buttons = QHBoxLayout()
+        self.buttons.setSpacing(10)
+        self.buttons.addStretch()
+        outer.addLayout(self.buttons)
+
+        self._outer = outer
+
+    ## -- content helpers
+
+    @staticmethod
+    def make_title(text: str) -> QLabel:
+        lbl = QLabel(text)
+        lbl.setFont(make_font(SIZES.M2, bold=True))
+        set_style(lbl, "common", "text-strong")
+        lbl.setWordWrap(True)
+        return lbl
+
+    @staticmethod
+    def make_body(text: str, muted: bool = False) -> QLabel:
+        lbl = QLabel(text)
+        lbl.setFont(make_font(SIZES.S2))
+        set_style(lbl, "common", "text-muted" if muted else "text-strong")
+        lbl.setWordWrap(True)
+        return lbl
+
+    @staticmethod
+    def make_detail(text: str) -> QFrame:
+        """Monospace-ish muted block for lists, paths, package names."""
+        block = QFrame()
+        block.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        set_style(block, "overlays", "dialog-detail")
+        v = QVBoxLayout(block)
+        v.setContentsMargins(14, 10, 14, 10)
+        lbl = QLabel(text)
+        lbl.setFont(make_font(SIZES.S1))
+        lbl.setWordWrap(True)
+        set_style(lbl, "common", "text-muted")
+        v.addWidget(lbl)
+        return block
+
+    def add_scroll(self, inner: QWidget, min_height: int = 200) -> QScrollArea:
+        """Drop a widget into the content area inside a scroll view."""
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        set_style(scroll, "common", "transparent")
+        scroll.setWidget(inner)
+        scroll.setMinimumHeight(min_height)
+        self.content.addWidget(scroll)
+        return scroll
+
+    ## -- buttons
+
+    STYLES = {
+        "primary":     "dialog-button-primary",
+        "secondary":   "dialog-button-secondary",
+        "destructive": "dialog-button-destructive",
+        "disabled":    "dialog-button-disabled",
+    }
+
+    def add_button(self, text: str, on_click, kind: str = "secondary",
+                   enabled: bool = True) -> QPushButton:
+        btn = QPushButton(text)
+        btn.setFont(make_font(SIZES.S2, bold=True))
+        btn.setFixedHeight(44)
+        btn.setMinimumWidth(120)
+        if enabled:
+            btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            set_style(btn, "overlays", self.STYLES.get(kind, self.STYLES["secondary"]))
+            if on_click:
+                btn.clicked.connect(lambda: on_click())
+        else:
+            btn.setEnabled(False)
+            btn.setCursor(Qt.CursorShape.ForbiddenCursor)
+            set_style(btn, "overlays", self.STYLES["disabled"])
+        self.buttons.addWidget(btn)
+        return btn
+
+    def clear_content(self) -> None:
+        while self.content.count():
+            item = self.content.takeAt(0)
+            w = item.widget()
+            if w is not None:
+                w.setParent(None)
+                w.deleteLater()
+
+    def clear_buttons(self) -> None:
+        while self.buttons.count():
+            item = self.buttons.takeAt(0)
+            w = item.widget()
+            if w is not None:
+                w.setParent(None)
+                w.deleteLater()
+        self.buttons.addStretch()
+
+    ## -- lifecycle
+
+    def close(self) -> None:
+        self.client.DIALOG.close()
+
+    def center(self) -> None:
+        """Centre on the overlay layer. Called by DialogManager.open()."""
+        host = self.client.OVERLAYS
+        self.adjustSize()
+        self.move(max(0, (host.width() - self.width()) // 2),
+                  max(0, (host.height() - self.height()) // 2))
+
+
 class _ClickBlocker(QWidget):
     """Semi-transparent overlay that emits `clicked` when tapped."""
 
@@ -542,7 +715,11 @@ class _ClickBlocker(QWidget):
 
     def paintEvent(self, event) -> None:  # type: ignore[override]
         painter = QPainter(self)
-        painter.fillRect(self.rect(), QColor(0, 0, 0, 26))  # ~10 % black
+        # Was 26 (~10%), which left the page behind a modal almost fully
+        # legible and made the dialog hard to pick out. 140 is a normal
+        # modal scrim -- still clearly see-through, but the dialog now
+        # reads as the foreground.
+        painter.fillRect(self.rect(), QColor(0, 0, 0, 140))
 
     def mousePressEvent(self, event) -> None:  # type: ignore[override]
         self.clicked.emit()
