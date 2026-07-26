@@ -13,7 +13,7 @@ import traceback
 import uuid as _uuid
 from datetime import datetime
 from pathlib import Path
-from threading import Thread, enumerate as thread_enum
+from threading import Thread, RLock, enumerate as thread_enum
 from typing import Callable, Literal, Optional, TextIO
 
 from dynaconf import Dynaconf
@@ -184,6 +184,7 @@ class Client:
                 "on_settings_saved":        [],
                 "on_woke_assistant":        [],
                 "on_assistant_transcribed": [],
+                "on_assistant_cancelled":   [],
                 "on_plugin_reloading":      [],
                 "on_plugin_unload" :        [],
                 "on_interaction":           [],
@@ -233,6 +234,10 @@ class Client:
         ## -- SETTINGS
 
         self.SETTINGS = Dynaconf(settings_files=[str(self.DATA)])
+        # Dynaconf's reload() empties its store before repopulating, so a read
+        # from another thread landing in that window raises AttributeError.
+        # apply_settings()/setting() serialise against that.
+        self.SETTINGS_LOCK = RLock()
         bg_asset = Asset(self.SETTINGS.home.images.value)
         bg_asset.mark_uploadable()
         self.register_asset("background_images", bg_asset, "FOLDER")
@@ -244,6 +249,7 @@ class Client:
         self.SKILLS = SkillIntentEngine(self)
         self.STT    = None
         self.TTS    = None
+        self._assistant_config: tuple = ()
 
         ## -- APIS
         self.API_REGISTRY = APIRegistry(self)
@@ -599,6 +605,194 @@ class Client:
         self.log("info", f"Startup Time: {round(time.time() - self.START_TIME, 3)}s")
 
         QTimer.singleShot(1200, self.prompt_for_plugin_dependencies)
+        QTimer.singleShot(1600, self.start_assistant)
+        self.subscribe_to_event("on_settings_saved", self.on_assistant_settings_saved)
+
+    ##ASSISTANT
+
+    @property
+    def wake_word(self) -> str:
+        """Default wake word for skills. Plugins should read this rather than
+        hardcoding one."""
+        try:
+            return str(self.SETTINGS.assistant.wake_word.value).strip().lower() or "alexa"
+        except Exception:
+            return "alexa"
+
+    def assistant_enabled(self) -> bool:
+        try:
+            return bool(self.SETTINGS.assistant.enabled.value)
+        except Exception:
+            return False
+
+    def cancel_assistant(self, reason: str = "") -> bool:
+        """Stop listening and return to the wake word. No-op when idle."""
+        if self.STT is None:
+            return False
+        self.STT.cancel(reason)
+        return True
+
+    def say(self, text: str, thread: bool = True) -> bool:
+        """
+        Speak, if speech is available. Returns whether anything was said.
+
+        Skills call this instead of client.TTS.play() so a missing
+        ELEVENLABS_KEY degrades to silence rather than an AttributeError on
+        None.
+        """
+        if not text or self.TTS is None or not getattr(self.TTS, "available", False):
+            return False
+        try:
+            self.TTS.play(text, thread=thread)
+            return True
+        except Exception as e:
+            self.log("warning", f"[Assistant] TTS failed: {e}")
+            return False
+
+    def assistant_config(self) -> tuple:
+        """The settings the running assistant depends on. Compared on save to
+        decide whether it needs restarting."""
+        return (
+            self.assistant_enabled(),
+            str(self.setting("assistant.input_device.value", "") or "").strip(),
+            str(self.setting("assistant.model.value", "tiny.en") or "tiny.en"),
+            self.wake_word,
+            bool(self.setting("assistant.tts_enabled.value", True)),
+        )
+
+    def stop_assistant(self) -> None:
+        if self.STT is not None:
+            try:
+                self.STT.stop()
+            except Exception as e:
+                self.log("warning", f"[Assistant] Error stopping STT: {e}")
+            self.STT = None
+        self.TTS = None
+        self.ASSIST_STATUS = "DORMANT"
+        self.ASSIST_VOICE_ACTIVITY_LEVEL = 0.0
+
+    def on_assistant_settings_saved(self, event=None) -> None:
+        """
+        Restart the assistant when one of its settings changes.
+
+        Without this, switching the model or microphone in Settings did
+        nothing until the next launch - and switching to a model that is not
+        downloaded yet never prompted, since the prompt lives in
+        start_assistant().
+        """
+        current = self.assistant_config()
+        if current == self._assistant_config:
+            return
+
+        was_enabled = self._assistant_config[0] if self._assistant_config else False
+        self._assistant_config = current
+
+        self.log("info", "[Assistant] Settings changed, restarting.")
+        self.stop_assistant()
+
+        if not current[0]:
+            if was_enabled:
+                self.simple_notify("assistant", "Assistant", "Voice assistant turned off.")
+            return
+
+        # Deferred: this fires from inside return_and_save(), which then shows
+        # a notification and navigates away. Opening the model-download prompt
+        # in the middle of that put it underneath the page switch.
+        QTimer.singleShot(600, self.start_assistant)
+
+    def start_assistant(self) -> None:
+        from src.assistant import audio
+
+        self._assistant_config = self.assistant_config()
+
+        if not self.assistant_enabled():
+            self.log("info", "[Assistant] Disabled in settings.")
+            return
+
+        device_name = str(getattr(self.SETTINGS.assistant.input_device, "value", "") or "").strip()
+        model = str(getattr(self.SETTINGS.assistant.model, "value", "tiny.en") or "tiny.en")
+
+        ok, reason = audio.available()
+        if not ok:
+            self.log("warning", f"[Assistant] Audio unavailable: {reason}")
+            self.simple_notify("error", "Assistant", "Voice assistant unavailable.")
+            self.alert("Voice assistant unavailable",
+                       "Speech-to-text could not start. Everything else works normally.",
+                       detail=reason)
+            return
+
+        for d in audio.input_devices():
+            self.log("info", f"[Assistant] Input device {d['index']}: {d['name']}"
+                             f"{' (default)' if d['is_default'] else ''}")
+
+        device, note = audio.resolve(device_name)
+        if note:
+            self.log("warning", f"[Assistant] {note}")
+            self.simple_notify("assistant", "Assistant", note)
+
+        ok, reason = audio.probe(device)
+        if not ok:
+            self.log("warning", f"[Assistant] Microphone probe failed: {reason}")
+            self.simple_notify("error", "Assistant", "Microphone unavailable.")
+            self.alert("Microphone unavailable",
+                       "Speech-to-text could not open the microphone.",
+                       detail=reason)
+            return
+
+        if not audio.model_is_cached(model):
+            size = audio.model_size_hint(model)
+            self.confirm(
+                "Download speech model?",
+                f"The voice assistant needs the '{model}' Whisper model, which "
+                f"is not on this machine yet. It downloads once and is reused "
+                f"afterwards.",
+                detail=f"Model: {model}\nApproximate size: {size}",
+                confirm_text="Download",
+                cancel_text="Not Now",
+                on_confirm=lambda: self._launch_assistant(device, model),
+                on_cancel=lambda: self.log("info", "[Assistant] Model download declined."),
+            )
+            return
+
+        self._launch_assistant(device, model)
+
+    def _start_tts(self) -> None:
+        if not self.setting("assistant.tts_enabled.value", True):
+            self.TTS = None
+            self.log("info", "[Assistant] Spoken replies are disabled in settings.")
+            return
+        try:
+            self.TTS = TTSProcessing(self)
+        except Exception as e:
+            self.TTS = None
+            self.log("warning", f"[Assistant] TTS failed to initialise: {e}")
+            return
+        if not self.TTS.available:
+            self.log("warning", f"[Assistant] TTS unavailable: {self.TTS.error}")
+            self.simple_notify("assistant", "Assistant",
+                               "Voice replies are off (no ElevenLabs key).")
+
+    def _launch_assistant(self, device, model: str) -> None:
+        from src.assistant import audio
+
+        self._start_tts()
+
+        try:
+            self.STT = STTProcessing(
+                self,
+                input_device = device,
+                model        = model,
+                wake_words   = [self.wake_word],
+            )
+            self.STT.start()
+            self.log("info", f"[Assistant] Listening on {audio.describe(device)} "
+                             f"for '{self.wake_word}'.")
+        except Exception as e:
+            self.STT = None
+            self.log("error", f"[Assistant] Failed to start: {e}")
+            self.simple_notify("error", "Assistant", "Speech-to-text failed to start.")
+            self.alert("Voice assistant failed to start",
+                       "Everything else works normally.", detail=str(e))
 
     def prompt_for_plugin_dependencies(self) -> None:
         pending = self.PLUGIN.pending_plugins(include_declined=False)
@@ -700,8 +894,8 @@ class Client:
     def start_all_backend_services(self) -> None:
         self.start_api_service()
         self.start_update()
-        if self.STT:
-            self.STT.start()
+        # STT is started by start_assistant(), after build(), so it can probe
+        # the microphone and prompt before touching anything.
 
     ##UPDATE THREAD
 
@@ -776,8 +970,8 @@ class Client:
                         return
                     w      = self.window.width()
                     h      = self.window.height()
-                    stored = self.SETTINGS.application.window.size.value
-                    if w > stored[0]:
+                    stored = self.setting("application.window.size.value")
+                    if stored and w > stored[0]:
                         self.SETTINGS.application.window.size.value = [w, h]
 
                 self.call_on_ui(check_size)
@@ -788,8 +982,10 @@ class Client:
                 self._check_interaction_timeout()
 
                 #auto fullscreen lock
-                if self.SETTINGS.application.window.auto_lock and \
-                        not self.window_locked and self.window_should_lock:
+                auto_lock = self.setting("application.window.auto_lock")
+                if isinstance(auto_lock, dict):
+                    auto_lock = auto_lock.get("value")
+                if auto_lock and not self.window_locked and self.window_should_lock:
                     self.window_locked = True
 
                     def go_fullscreen():
@@ -941,8 +1137,38 @@ class Client:
         with open(path, "w") as f:
             json.dump(obj, f, indent=4)
 
+    def setting(self, path: str, default=None):
+        """
+        Read a setting by dotted path, safely from any thread.
+
+        Background threads should use this rather than touching SETTINGS
+        directly: a save on the UI thread can otherwise be mid-flight when the
+        read happens.
+        """
+        with self.SETTINGS_LOCK:
+            node = self.SETTINGS
+            try:
+                for part in path.split("."):
+                    node = node[part] if isinstance(node, dict) else getattr(node, part)
+                return node
+            except (AttributeError, KeyError, TypeError):
+                return default
+
+    def apply_settings(self, values: dict) -> None:
+        """
+        Push saved settings into the live object.
+
+        Deliberately not SETTINGS.reload(): reload drops every key and reads
+        the files again, and anything reading from another thread during that
+        gap gets an AttributeError. update() only adds and overwrites, so
+        there is never a moment where a section is missing.
+        """
+        with self.SETTINGS_LOCK:
+            self.SETTINGS.update(values)
+
     def settings_dict(self) -> dict:
-        return {k.lower(): v for k, v in self.SETTINGS.as_dict().items()}
+        with self.SETTINGS_LOCK:
+            return {k.lower(): v for k, v in self.SETTINGS.as_dict().items()}
 
     def load_or_create_client_id(self) -> str:
         id_path = self.DATAPATH / "client.id"
@@ -955,15 +1181,63 @@ class Client:
         return client_id
 
     def create_user_data_files(self) -> None:
+        template = Path("src") / "assets" / "data" / "new-template.json"
+
         if not self.DATAPATH.exists():
             self.log("info", f"Creating DATA Folder @ {self.DATAPATH}")
             self.DATAPATH.mkdir(parents=True, exist_ok=True)
+
         if not self.DATA.exists():
             self.log("info", f"Creating DATA file @ {self.DATA}")
-            shutil.copy(
-                Path("src") / "assets" / "data" / "new-template.json",
-                self.DATA,
-            )
+            shutil.copy(template, self.DATA)
+            return
+
+        self.migrate_user_data(template)
+
+    def migrate_user_data(self, template: Path) -> None:
+        """
+        Fold settings new to the template into the existing data file.
+
+        This used to be skipped entirely once the file existed, which meant a
+        setting added by an update never appeared: not in the file, not in
+        Settings (the page generates its categories from this data), and not
+        readable by the code that added it. The symptom was a feature that
+        silently did nothing, since every read was guarded and fell back to a
+        default.
+        """
+        from src.updater import merge_values, added_paths
+
+        try:
+            shipped = json.loads(template.read_text(encoding="utf-8"))
+            installed = json.loads(self.DATA.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as e:
+            self.log("warning", f"[Settings] Could not migrate data file: {e}")
+            return
+
+        added = added_paths(shipped, installed)
+        removed = added_paths(installed, shipped)
+        if not added and not removed:
+            return
+
+        backup = self.DATA.with_suffix(".json.bak")
+        try:
+            shutil.copy(self.DATA, backup)
+        except OSError as e:
+            self.log("warning", f"[Settings] Could not back up data file: {e}")
+            return
+
+        merged = merge_values(shipped, installed)
+        try:
+            self.DATA.write_text(json.dumps(merged, indent=1) + "\n", encoding="utf-8")
+        except OSError as e:
+            self.log("warning", f"[Settings] Could not write migrated data file: {e}")
+            return
+
+        for path in added:
+            self.log("info", f"[Settings] Added new setting '{path}'")
+        for path in removed:
+            self.log("info", f"[Settings] Removed obsolete setting '{path}'")
+        self.log("info", f"[Settings] Migrated data file (backup at {backup.name})")
 
     ##LIFECYCLE
 

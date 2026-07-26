@@ -62,27 +62,54 @@ def is_merged(rel_path: str) -> bool:
     return any(_glob_match(rel_path, g) for g in UPDATE_MERGE_GLOBS)
 
 
+def merge_values(shipped, installed):
+    """
+    Structure and new keys from `shipped`, user values from `installed`.
+
+    A settings leaf is {"type":..., "default":..., "value":...} and only
+    "value" is user-owned. Keys the shipped version added arrive at their
+    default; keys it dropped go away; anything the user changed survives.
+
+    Lives here rather than in settings.py so the launcher's dependency
+    surface stays constants + updater. The rollback path has to keep working
+    when an update has broken the app, which it cannot do if it imports app
+    code to get there.
+    """
+    if not isinstance(shipped, dict) or not isinstance(installed, dict):
+        return shipped
+    if "value" in shipped and "value" in installed:
+        if type(shipped["value"]) is type(installed["value"]):
+            shipped["value"] = installed["value"]
+        return shipped
+    for key, value in shipped.items():
+        if key in installed:
+            shipped[key] = merge_values(value, installed[key])
+    return shipped
+
+
+def added_paths(shipped, installed, prefix=""):
+    """Dotted paths present in `shipped` but not `installed`. For logging."""
+    out = []
+    if not isinstance(shipped, dict):
+        return out
+    if "value" in shipped:
+        return out
+    for key, value in shipped.items():
+        path = f"{prefix}.{key}" if prefix else key
+        if not isinstance(installed, dict) or key not in installed:
+            out.append(path)
+        else:
+            out.extend(added_paths(value, installed[key], path))
+    return out
+
+
 def merge_settings_json(shipped: str, installed: str) -> str:
     try:
         new = json.loads(shipped)
         old = json.loads(installed)
     except (json.JSONDecodeError, TypeError):
         return shipped   # unparseable either side -> ship the new file as-is
-
-    def walk(n, o):
-        if not isinstance(n, dict) or not isinstance(o, dict):
-            return n
-        if "value" in n and "value" in o:
-            # a leaf: adopt the user's value if the type still lines up
-            if type(n["value"]) is type(o["value"]):
-                n["value"] = o["value"]
-            return n
-        for k, v in n.items():
-            if k in o:
-                n[k] = walk(v, o[k])
-        return n
-
-    return json.dumps(walk(new, old), indent=4)
+    return json.dumps(merge_values(new, old), indent=4)
 
 
 ## -- STAGE ------------------------------------------------------------------

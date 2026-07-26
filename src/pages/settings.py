@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from PyQt6.QtWidgets import (
+    QGridLayout,
     QWidget, QHBoxLayout, QVBoxLayout, QLabel, QPushButton,
     QScrollArea, QLineEdit, QComboBox, QFrame, QSizePolicy, QFileDialog,
     QScroller,
@@ -815,6 +816,113 @@ class SettingsPage(PageFramework):
 
         return card
 
+    def _plugin_settings_blocks(self, plugin) -> list:
+        """
+        Optional widgets a plugin supplies for its own settings page.
+
+        A plugin defines:
+
+            def settings_blocks(self) -> list[QWidget]:
+                return [my_card]
+
+        A plugin raising here must not blank its whole settings page, so
+        failures are logged and skipped.
+        """
+        if plugin is None or not hasattr(plugin, "settings_blocks"):
+            return []
+        try:
+            blocks = plugin.settings_blocks() or []
+        except Exception as e:
+            self.client.log("warning",
+                            f"[SettingsPage] settings_blocks() failed for "
+                            f"'{getattr(plugin, 'config', {})}': {e}")
+            return []
+        return [b for b in blocks if isinstance(b, QWidget)]
+
+    def _build_registrations_block(self, plugin_key: str) -> QWidget | None:
+        """Cards showing what this plugin owns across every registry."""
+        groups = self.client.PLUGIN.registrations(plugin_key)
+
+        container = QWidget()
+        set_style(container, "common", "transparent")
+        outer = QVBoxLayout(container)
+        outer.setContentsMargins(0, 0, 0, 8)
+        outer.setSpacing(10)
+
+        total = sum(len(entries) for _, entries in groups)
+        heading = QLabel(
+            f"Registered  ·  {total} item{'s' if total != 1 else ''} "
+            f"across {len(groups)} registr{'ies' if len(groups) != 1 else 'y'}"
+            if groups else "Registered  ·  nothing yet"
+        )
+        heading.setFont(make_font(SIZES.S2, bold=True))
+        set_style(heading, "common", "text-muted")
+        outer.addWidget(heading)
+
+        if not groups:
+            note = QLabel(
+                "This plugin has not registered any pages, endpoints, public "
+                "values, skills or mixins."
+            )
+            note.setFont(make_font(SIZES.S1))
+            note.setWordWrap(True)
+            set_style(note, "common", "text-muted")
+            outer.addWidget(note)
+            return container
+
+        # Two columns on anything wide enough; the panel is narrow enough on
+        # small screens that one column reads better.
+        columns = 2 if self.width() > 900 else 1
+        grid = QGridLayout()
+        grid.setContentsMargins(0, 0, 0, 0)
+        grid.setHorizontalSpacing(10)
+        grid.setVerticalSpacing(10)
+        for index, (name, entries) in enumerate(groups):
+            grid.addWidget(self._registry_card(name, entries),
+                           index // columns, index % columns)
+        for column in range(columns):
+            grid.setColumnStretch(column, 1)
+        outer.addLayout(grid)
+
+        return container
+
+    def _registry_card(self, name: str, entries: list) -> QFrame:
+        card = QFrame()
+        card.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        set_style(card, "settings", "registry-card")
+
+        layout = QVBoxLayout(card)
+        layout.setContentsMargins(14, 12, 14, 12)
+        layout.setSpacing(6)
+
+        top = QHBoxLayout()
+        top.setContentsMargins(0, 0, 0, 0)
+        top.setSpacing(8)
+
+        title = QLabel(name)
+        title.setFont(make_font(SIZES.S3, bold=True))
+        set_style(title, "common", "text-strong")
+        top.addWidget(title)
+
+        count = QLabel(str(len(entries)))
+        count.setFont(make_font(SIZES.S1, bold=True))
+        count.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        count.setMinimumWidth(26)
+        set_style(count, "settings", "registry-count")
+        top.addWidget(count)
+        top.addStretch()
+        layout.addLayout(top)
+
+        for entry in entries:
+            row = QLabel(str(entry))
+            row.setFont(make_font(SIZES.S1))
+            row.setWordWrap(True)
+            row.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+            set_style(row, "settings", "registry-entry")
+            layout.addWidget(row)
+
+        return card
+
     def _build_readme_block(self, readme_path: str) -> QLabel | None:
         if not readme_path:
             return None
@@ -1171,6 +1279,22 @@ class SettingsPage(PageFramework):
         )
         self._content_layout.insertWidget(self._content_layout.count() - 1, header)
 
+        # Registrations sit between the plugin's description and its settings,
+        # and only on a plugin's own page - a top-level category has no owner
+        # key to look anything up with.
+        owner = target.get("plugin_key")
+        if owner and sub_key is not None:
+            block = self._build_registrations_block(owner)
+            if block is not None:
+                self._content_layout.insertWidget(self._content_layout.count() - 1, block)
+
+            # A plugin may contribute its own cards here, between the registry
+            # summary and its settings, by defining settings_blocks(). Kept
+            # outside the sort toolbar below since these are static content,
+            # not sortable setting blocks.
+            for extra in self._plugin_settings_blocks(target.get("plugin")):
+                self._content_layout.insertWidget(self._content_layout.count() - 1, extra)
+
         toolbar = self._build_sort_toolbar(in_plugins_category=(cat_key == "plugins"))
         self._content_layout.insertWidget(self._content_layout.count() - 1, toolbar)
 
@@ -1195,8 +1319,9 @@ class SettingsPage(PageFramework):
 
     @mixin_target("settings.save")
     def return_and_save(self, event=None, notify: bool = True) -> None:
-        self.client.dump(self._working_settings.to_dict(), self.client.DATA)
-        self.client.SETTINGS.reload()
+        saved = self._working_settings.to_dict()
+        self.client.dump(saved, self.client.DATA)
+        self.client.apply_settings(saved)
         self.client.iterate_event_callables("on_settings_saved", self.client.SETTINGS)
         if notify:
             self.client.simple_notify(Icons.SAVE, "Settings", "Settings saved!")

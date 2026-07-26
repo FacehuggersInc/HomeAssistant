@@ -22,6 +22,7 @@ EVENTS = Literal[
     "on_settings_saved",
     "on_woke_assistant",
     "on_assistant_transcribed",
+    "on_assistant_cancelled",
     "on_plugin_reloading",
     "on_plugin_unload",
     "on_interaction",

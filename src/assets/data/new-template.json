@@ -223,5 +223,58 @@
     "description": "If a freshly-applied update crashes within this window, the launcher rolls back to the previous version and relaunches it."
    }
   }
+ },
+ "assistant": {
+  "enabled": {
+   "type": "bool",
+   "default": true,
+   "value": true,
+   "description": "Whether the voice assistant runs at all. Turn this off to stop the speech-to-text process entirely."
+  },
+  "wake_word": {
+   "type": "string",
+   "default": "alexa",
+   "value": "alexa",
+   "description": "The word that wakes the assistant. Plugins use this as the default wake word for their skills. Requires a restart of the assistant."
+  },
+  "input_device": {
+   "type": "string",
+   "default": "",
+   "value": "",
+   "description": "Name of the microphone to listen on. Leave empty to use the system default. Available devices are listed in the Assistant section of the log at startup."
+  },
+  "model": {
+   "type": "enum",
+   "default": "tiny.en",
+   "value": "tiny.en",
+   "options": [
+    "tiny.en",
+    "tiny",
+    "base.en",
+    "base",
+    "small.en",
+    "small"
+   ],
+   "description": "Whisper model used for transcription. Larger is more accurate and slower; the '.en' variants are English-only and faster. Downloaded on first use."
+  },
+  "voice_bar": {
+   "type": "bool",
+   "default": true,
+   "value": true,
+   "description": "Show the thin activity bar along the bottom of the screen while the assistant is listening."
+  },
+  "tts_enabled": {
+   "type": "bool",
+   "default": true,
+   "value": true,
+   "description": "Whether the assistant speaks its replies. Requires ELEVENLABS_KEY in your .env file; skills stay usable without it, they just do not talk back."
+  },
+  "voice_bar_hold": {
+   "type": "int",
+   "default": 6,
+   "value": 6,
+   "suffix": "sec",
+   "description": "Minimum time the activity bar keeps a transcript on screen. Longer transcripts are held longer than this automatically."
+  }
  }
 }

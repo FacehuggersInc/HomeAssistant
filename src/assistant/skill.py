@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import re
 import time
+import math
+from difflib import SequenceMatcher
 import traceback
 from threading import Thread
 from typing import TYPE_CHECKING, Callable, Optional, List
@@ -12,7 +14,42 @@ if TYPE_CHECKING:
 	from src.main import Client
 
 PRIMARY_THRESHOLD = 0.70
-FALLBACK_DEFAULT_RULE_SCORE = 0.66
+# Tuned by sweeping a 52-phrase corpus (see the eval harness in the repo
+# history): 0.50 scores higher overall but lets "tell me a joke" answer with
+# the weather. A miss costs the user a repeat; a misfire makes the assistant
+# do the wrong thing, so the highest threshold with zero misfires wins.
+FALLBACK_DEFAULT_RULE_SCORE = 0.55
+
+# Words that carry no intent and vary freely between speakers. Made optional
+# in generated patterns so their presence or absence never decides a match.
+# Rule-phase tuning. FUZZY_MIN_RATIO is deliberately generous: the phase only
+# runs when the Matcher found nothing, and it is thresholded afterwards.
+FUZZY_MIN_RATIO = 0.78
+FUZZY_MIN_LENGTH = 4
+
+OPTIONAL_LEMMAS = {
+	"please", "can", "could", "would", "will", "just", "kindly",
+	"for", "to", "new", "some", "of", "up", "now", "then", "and",
+}
+
+def fuzzy_equal(a: str, b: str) -> float:
+	"""
+	How alike two lemmas are, 0..1.
+
+	Whisper substitutes acoustically similar words - "whether" for "weather",
+	"notifcations", "aplication" - and no amount of extra example phrasings
+	recovers those. Short tokens are compared exactly, since at three or four
+	characters almost everything is close to everything.
+	"""
+	if a == b:
+		return 1.0
+	if len(a) < FUZZY_MIN_LENGTH or len(b) < FUZZY_MIN_LENGTH:
+		return 0.0
+	if abs(len(a) - len(b)) > 3:
+		return 0.0
+	ratio = SequenceMatcher(None, a, b).ratio()
+	return ratio if ratio >= FUZZY_MIN_RATIO else 0.0
+
 
 class Intent:
 	def __init__(self, phrase: str, accuracy: float, arguments: dict, source: str):
@@ -85,6 +122,13 @@ class Skill:
 		self.id = self.nlp.vocab.strings[self.intent_name]
 		self.lemmas = [{t.lemma_.lower() for t in doc if t.is_alpha} for doc in self.docs]
 
+		# Stopwords stripped: "the"/"a"/"for" appear in nearly every phrase and
+		# would let unrelated skills score against each other.
+		self.content_lemmas = [
+			{t.lemma_.lower() for t in doc if t.is_alpha and not t.is_stop}
+			for doc in self.docs
+		]
+
 		#Argument Pattern Matching
 		self.arg_matcher = nlp.new_matcher()
 		self.arguments = arguments
@@ -105,20 +149,87 @@ class Skill:
 		self.word_min = max(2, self.word_min - 2)
 
 	def generate_patterns(self, phrases:list[str]):
+		"""
+		Turn each example into a pattern that tolerates ordinary variation.
+
+		This used to emit a literal lemma per token, so a pattern built from
+		"set a timer for 10 minutes" only ever matched that exact sequence -
+		"set the timer for 1 minute" failed on both the determiner and the
+		number, and even "set a timer for 1 minute" failed, because the 10 was
+		compiled in. In practice only the verbatim examples matched.
+
+		Three relaxations, all of which preserve the content words that
+		actually identify the intent:
+
+		  numbers      -> any number, since the value is an argument
+		  determiners  -> optional and interchangeable (a / the / my / this)
+		  politeness   -> optional ("can you", "please", "just")
+		"""
 		patterns = []
 		for phrase in phrases:
-			doc = self.nlp(phrase)
-			pattern = [{"LEMMA": token.lemma_.lower()} for token in doc]
-			patterns.append(pattern)
+			pattern = []
+			for token in self.nlp(phrase):
+				lemma = token.lemma_.lower()
+				# spaCy's LEMMA matching is case sensitive and it capitalises
+				# some lemmas ("i" -> "I"), so a lowercased pattern could never
+				# match them. Accept either form.
+				lemma_match = ({"IN": sorted({lemma, token.lemma_})}
+							   if lemma != token.lemma_ else lemma)
+				if token.like_num:
+					pattern.append({"LIKE_NUM": True})
+				elif token.pos_ == "DET":
+					# The one place a bare POS is right: a/the/my/this really
+					# are interchangeable in front of a noun.
+					pattern.append({"POS": "DET", "OP": "?"})
+				elif lemma in OPTIONAL_LEMMAS or token.pos_ == "PRON":
+					# Optional, but still itself. Generalising a pronoun to
+					# {"POS": "PRON"} threw away its identity - "nothing"
+					# became "any pronoun" and matched the "me" in "tell me a
+					# joke", so its skill swallowed unrelated phrases.
+					pattern.append({"LEMMA": lemma_match, "OP": "?"})
+				else:
+					pattern.append({"LEMMA": lemma_match})
+
+			# Every pattern needs at least one token that both identifies a
+			# word and is required. All-optional patterns match at every
+			# position in every document.
+			if pattern and not any("OP" not in token for token in pattern):
+				pattern = [{k: v for k, v in token.items() if k != "OP"}
+						   for token in pattern]
+
+			if not any("LEMMA" in token or "LIKE_NUM" in token for token in pattern):
+				continue
+
+			if pattern:
+				patterns.append(pattern)
 		return patterns
 	
 	def extract_args(self, doc):
+		"""
+		Pull argument values out of a matched phrase.
+
+		The matched span includes whatever tokens the pattern needed to anchor
+		on, which are not part of the value: "call it Eggs" matched the name
+		pattern and was handed to the skill verbatim, so the timer was named
+		"call it Eggs". Leading anchor tokens are stripped, as long as
+		something is left - a value that is entirely stopwords stays as it is
+		rather than becoming empty.
+		"""
 		args = {}
-		matches = self.arg_matcher(doc)
-		for match_id, start, end in matches:
+		for match_id, start, end in self.arg_matcher(doc):
 			arg_label = doc.vocab.strings[match_id]
 			span = doc[start:end]
-			args[arg_label] = span.text
+
+			trimmed = start
+			while trimmed < end - 1:
+				token = doc[trimmed]
+				if token.pos_ in ("VERB", "AUX", "PRON", "DET", "ADP", "PART") or token.is_stop:
+					trimmed += 1
+				else:
+					break
+
+			value = doc[trimmed:end].text.strip()
+			args[arg_label] = value or span.text
 		return args
 
 	def get_patterns(self):
@@ -185,6 +296,7 @@ class SkillIntentEngine:
 		existing = self.registered.get(plugin_key, [])
 		skills = existing + all_skills
 		self.registered[plugin_key] = skills
+		self.rebuild_idf()
 		self.client.log("info", f"[SkillIntentEngine] {plugin_key} added {len(all_skills)} Skills")
 
 		for skill in skills:
@@ -233,39 +345,6 @@ class SkillIntentEngine:
 		s = re.sub(r"\s+", " ", s)
 		return s
 	
-	def multi_phase(self, phase):
-		start = time.time()
-		phase_results = {}
-		phase_threads = {}
-
-		original_text = phase
-
-		for name, t in phase_threads.items():
-			if name in self.phases:
-				t.start()
-
-		#Process Results as they Come In
-		best_skill = None
-		best_score = 0.0
-		processed = []
-		best_early = False
-		while True:
-			capture = phase_results.items()
-			for source, (skill, score) in capture:
-				if source in processed: continue
-				if score > 0: self.client.log("info", f"[SkillIntentEngine] Phase '{source}' found '{skill.key}' @ {score} : {round(time.time() - start, 3)}s")
-				if skill and score > best_score:
-					best_skill = skill
-					best_score = score
-					if not best_early and best_skill and best_score >= (best_skill.accuracy or 0.6):
-						Thread(target = best_skill.call, args=[best_skill, original_text]).start()
-						best_early = True
-						break
-
-				processed.append(source)
-
-			if best_early or len(processed) == len(self.phases) or best_score >= 1.0: break
-
 	def __skill_call_with_status_update(self, best_skill:Skill, match):
 		args = best_skill.extract_args(match)
 		self.client.log("info", f"Intent Args: {args}")
@@ -282,6 +361,90 @@ class SkillIntentEngine:
 			
 		self.client.ASSIST_STATUS = "LIVE"
 
+	def rebuild_idf(self) -> None:
+		"""
+		How discriminating each lemma is, from how many skills use it.
+
+		Without this every shared word counts the same, so "clear all
+		notifications" scored identically against notifications-open and
+		notifications-empty - both contain "notification", and the word that
+		actually decides it ("clear") was worth no more than the noise.
+		"""
+		skills = self.skills()
+		total = max(1, len(skills))
+		document_frequency = {}
+		for skill in skills:
+			seen = set()
+			for example in skill.content_lemmas:
+				seen |= example
+			for lemma in seen:
+				document_frequency[lemma] = document_frequency.get(lemma, 0) + 1
+
+		self.idf = {
+			lemma: math.log(1 + total / count)
+			for lemma, count in document_frequency.items()
+		}
+
+	def lemma_weight(self, lemma: str) -> float:
+		return getattr(self, "idf", {}).get(lemma, math.log(1 + len(self.skills()) or 1))
+
+	def rule_match(self, input_content: set) -> tuple:
+		"""
+		Fallback for phrases the Matcher missed: how much of a skill's example
+		does this utterance cover?
+
+		Scored against the example rather than the input, so a long rambling
+		request still matches a short skill. Thresholded, since scoring every
+		skill against every phrase will always produce a nearest match -
+		"nothing matched" has to remain a possible answer.
+		"""
+		best_skill, best_score = None, 0.0
+		if not input_content:
+			return None, 0.0
+
+		if not hasattr(self, "idf"):
+			self.rebuild_idf()
+
+		for skill in self.skills():
+			for example in skill.content_lemmas:
+				if not example:
+					continue
+
+				matched = 0.0
+				total = 0.0
+				used = set()
+				for lemma in example:
+					weight = self.lemma_weight(lemma)
+					total += weight
+					best_token = 0.0
+					for candidate in input_content:
+						similarity = fuzzy_equal(lemma, candidate)
+						if similarity > best_token:
+							best_token, best_match = similarity, candidate
+					if best_token:
+						matched += weight * best_token
+						used.add(best_match)
+
+				if not total:
+					continue
+
+				recall = matched / total
+				# Precision keeps a long rambling phrase from matching a tiny
+				# example on one shared word. Harmonic mean, so both have to
+				# hold up.
+				precision = len(used) / max(1, len(input_content))
+				score = (2 * recall * precision / (recall + precision)) if (recall + precision) else 0.0
+
+				if score > best_score:
+					best_score, best_skill = score, skill
+
+		if best_score < FALLBACK_DEFAULT_RULE_SCORE:
+			return None, 0.0
+
+		self.client.log("info",
+			f"[SkillIntentEngine] Rule phase matched '{best_skill.key}' @ {round(best_score, 2)}")
+		return best_skill, best_score
+
 	def parse(self, phrase: str, use_skill: bool = True) -> Intent | None:
 		start = time.time()
 
@@ -294,14 +457,31 @@ class SkillIntentEngine:
 		best_score = -1
 
 		input_lemmas = {t.lemma_.lower() for t in match_doc if t.is_alpha}
+		input_content = {t.lemma_.lower() for t in match_doc if t.is_alpha and not t.is_stop}
+		if not input_content:
+			# A mishearing can land on a stopword - "weather" becomes
+			# "whether", which spaCy treats as one - leaving nothing to score
+			# against at all. Fall back to every alphabetic lemma so the fuzzy
+			# comparison still has something to work with.
+			input_content = {t.lemma_.lower() for t in match_doc if t.is_alpha}
 		candidates = [self.id2skill[m[0]] for m in results]
 
 		for skill in candidates:
 			for example_lemmas in skill.lemmas:
-				score = len(input_lemmas & example_lemmas)
+				# Normalised by example length: raw overlap favoured skills
+				# with the wordiest examples regardless of how well they fit.
+				overlap = len(input_lemmas & example_lemmas)
+				score = overlap / max(1, len(example_lemmas))
 				if score > best_score:
 					best_score = score
 					best_skill = skill
+
+		if not best_skill:
+			# The rule phase. self.phases has listed "rule" since the engine was
+			# written but nothing ever ran it, so a phrase the matcher missed
+			# was simply dropped - which is most phrasings, given how literal
+			# the old patterns were.
+			best_skill, best_score = self.rule_match(input_content)
 
 		if not best_skill:
 			self.client.log("info", f"[SkillIntentEngine] Matcher found Nothing : {round(time.time() - start, 3)}s")

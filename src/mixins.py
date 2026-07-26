@@ -114,6 +114,16 @@ class MixinManager:
 			total += len(before) + len(after)
 		return total
 
+	def mixins_for(self, plugin_key: str) -> list[tuple[str, str]]:
+		"""(target_key, when) pairs a plugin has attached, sorted."""
+		out = []
+		for target, hooks in _registry.items():
+			for when in ("before", "after"):
+				for _, p in hooks[when]:
+					if p == plugin_key:
+						out.append((target, when))
+		return sorted(out)
+
 	def remove_plugin_mixins(self, plugin_key: str):
 		for target, hooks in _registry.items():
 			hooks["before"] = [(f, p) for f, p in hooks["before"] if p != plugin_key]

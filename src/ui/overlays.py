@@ -23,13 +23,14 @@ POSITIONS = Literal[
     "right-center", "left-center",
 ]
 
-LAYERS = Literal["BACKGROUND", "FOREGROUND", "SYSTEM", "TOPMOST"]
+LAYERS = Literal["BACKGROUND", "FOREGROUND", "SYSTEM", "TOPMOST", "DIALOG"]
 
 _LAYER_Z = {
     "BACKGROUND": 0,
     "FOREGROUND":  1,
     "SYSTEM":      2,
     "TOPMOST":     3,
+    "DIALOG":      4,
 }
 
 
@@ -50,6 +51,9 @@ class OverlayManager(QWidget):
             "FOREGROUND":  [],
             "SYSTEM":      [],
             "TOPMOST":     [],
+            # Modals and their click blocker. Above TOPMOST so a notification
+            # toast or the voice bar cannot end up covering a dialog.
+            "DIALOG":      [],
         }
 
         self._mask_timer = QTimer(self)
@@ -92,7 +96,7 @@ class OverlayManager(QWidget):
     # ── Z-order enforcement ───────────────────────────────────────────────────
 
     def _enforce_z_order(self) -> None:
-        for layer_name in ("BACKGROUND", "FOREGROUND", "SYSTEM", "TOPMOST"):
+        for layer_name in ("BACKGROUND", "FOREGROUND", "SYSTEM", "TOPMOST", "DIALOG"):
             for widget in self._layers[layer_name]:
                 widget.raise_()
 
@@ -404,7 +408,7 @@ class DialogManager:
         # Blocker — transparent dark overlay that catches clicks outside dialogs
         self.blocker = _ClickBlocker(client)
         self.blocker.clicked.connect(self.close)
-        self.client.OVERLAYS.add("SYSTEM", self.blocker)
+        self.client.OVERLAYS.add("DIALOG", self.blocker)
         self.blocker.hide()
 
     # ── Public API ────────────────────────────────────────────────────────────
@@ -413,7 +417,12 @@ class DialogManager:
         if self.dialog_stack:
             self.dialog_stack[-1].hide()
 
-        dialog.setParent(self.client.OVERLAYS)
+        # Registered in the DIALOG layer, not merely reparented. A widget that
+        # is only a child of OVERLAYS is invisible to _enforce_z_order(), so
+        # anything added to a layer afterwards - a notification toast, the
+        # voice bar - got raised above it, covering the dialog and handing
+        # taps to the click blocker underneath, which closed it.
+        self.client.OVERLAYS.add("DIALOG", dialog)
         dialog.show()
         dialog.raise_()
         self.dialog_stack.append(dialog)
@@ -437,6 +446,7 @@ class DialogManager:
             return
         top = self.dialog_stack.pop()
         top.hide()
+        self.client.OVERLAYS.remove("DIALOG", top)
         top.setParent(None)  # type: ignore[arg-type]
 
         if self.dialog_stack:

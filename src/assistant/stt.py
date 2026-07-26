@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 import sys
+import json
 import time
 import queue
 import string
@@ -11,9 +12,8 @@ from pathlib import Path
 from threading import Thread
 from typing import TYPE_CHECKING
 
-from word2number import w2n
 
-from src.assistant import nlp
+from src.assistant import nlp, normalize
 
 if TYPE_CHECKING:
 	from src.main import Client
@@ -25,27 +25,51 @@ PROCESS_REALTIMESTT = str(_HERE / "realtimestt-process.py")
 PROCESS_VOSK        = str(_HERE / "vosk-process.py")
 PROCESS_WHISPER     = str(_HERE / "whisper-process.py")
 
+_CANCELLED = object()
+
+
 class Session():
 	def __init__(self, client):
 		self.__client = client
 		self.__queued = queue.Queue()
 		self.matcher = nlp.new_matcher()
 		self.is_open = False
+		self.cancelled = False
 		self.__id = f"session:{self.__client.uuid()}"
 
 	def __enter__(self):
 		self.is_open = True
+		self.cancelled = False
 		self.__client.STT.open_session()
-		self.__client.TIMEOUTS.add(60 * 5, self.__client.STT.close_session, self.__id)
+		self.__client.TIMEOUTS.add(60 * 5, self.timed_out, self.__id)
 		self.__client.TIMEOUTS.start(self.__id)
+		return self
 
 	def __exit__(self, exc_type, exc_val, exc_tb):
 		self.is_open = False
-		self.__client.STT.close_session()  
+		self.__client.STT.close_session()
 		self.__client.TIMEOUTS.cancel(self.__id)
+		# Release anyone still blocked in wait_for_phrase().
+		self.__queued.put(_CANCELLED)
 
 	def id(self) -> str:
-		return self.__timeout_id
+		return self.__id
+
+	def timed_out(self):
+		# Used to call close_session() directly, which reset the STT but left
+		# wait_for_phrase() blocked on an empty queue forever - the skill
+		# thread never returned.
+		self.__client.log("info", "[Session] Timed out.")
+		self.cancel()
+
+	def cancel(self):
+		"""End the session and release the waiter. Safe from any thread."""
+		if self.cancelled:
+			return
+		self.cancelled = True
+		self.__queued.put(_CANCELLED)
+		if self.is_open:
+			self.close()
 
 	def close(self):
 		self.__exit__(None, None, None)
@@ -53,16 +77,38 @@ class Session():
 	def put(self, next_transcribed:str):
 		self.__queued.put(next_transcribed)
 
-	def wait_for_phrase(self) -> str | None:
-		return self.__queued.get()
+	def wait_for_phrase(self, timeout: float = None) -> str | None:
+		"""
+		Next phrase, or None when the user backed out.
+
+		None means cancelled, timed out or closed - callers should break out
+		of their prompt loop rather than asking again.
+		"""
+		try:
+			phrase = self.__queued.get(timeout=timeout) if timeout else self.__queued.get()
+		except queue.Empty:
+			return None
+
+		if phrase is _CANCELLED or not self.is_open:
+			return None
+		if normalize.is_cancel(phrase):
+			self.__client.log("info", f"[Session] Cancelled by '{phrase}'.")
+			self.cancel()
+			return None
+		return phrase
 	
 	def push(self):
 		self.__client.STT.processing = False
 
 
 class STTProcessing():
-	def __init__(self, client, process:str = "whisper"):
+	def __init__(self, client, process:str = "whisper",
+				 input_device=None, model:str = "tiny.en", wake_words=None):
 		self.client = client
+		self.input_device = input_device
+		self.model = model
+		self.wake_words = list(wake_words or [])
+		self.last_error : str = ""
 		self.process_type = process
 		self.__process_path = None
 		match self.process_type:
@@ -86,6 +132,33 @@ class STTProcessing():
 		self.route = "wake"
 
 
+	## WAKE WORD
+
+	@staticmethod
+	def find_wake(text: str, wake: str):
+		"""
+		Last occurrence of a wake word, case-insensitively and on word
+		boundaries. Returns the match or None.
+
+		Whisper capitalises the first word of every transcript, so the old
+		`wake in processed` test was False for essentially every real
+		utterance - "alexa" is not in "Alexa, set a timer for 1 minute." Word
+		boundaries matter too: a short wake word otherwise fires inside
+		ordinary words.
+		"""
+		if not text or not wake:
+			return None
+		found = None
+		for match in re.finditer(rf"\b{re.escape(wake)}\b", text, re.IGNORECASE):
+			found = match
+		return found
+
+	@classmethod
+	def strip_wake(cls, text: str, wake: str) -> str:
+		"""Everything after the wake word, or the whole phrase if absent."""
+		match = cls.find_wake(text, wake)
+		return text[match.end():].strip() if match else text.strip()
+
 	## PROCESSING
 	def limit_words( self, limit:int, phrase:str ):
 		" ".join( phrase.split(" ")[:limit] )
@@ -104,8 +177,8 @@ class STTProcessing():
 	def detect_wake_words_full(self, processed:str):
 		found_skill = False
 		for wake, max_words, min_words in self.client.SKILLS.wake_args:
-			if wake in processed and not found_skill:
-				phrase = processed.rsplit(wake, 1)[-1]
+			if not found_skill and self.find_wake(processed, wake):
+				phrase = self.strip_wake(processed, wake)
 				words = phrase.split(" ")
 				if phrase and len(words) >= min_words:
 					found_skill = True
@@ -118,7 +191,14 @@ class STTProcessing():
 			self.client.ASSIST_STATUS = "LIVE"
 
 	def start_skill_parse(self, wake:str, processed:str):
-		phrase = processed.rsplit(wake, 1)[-1]
+		phrase = self.strip_wake(processed, wake)
+
+		# Handled before intent matching so backing out works even when no
+		# plugin has registered a cancel skill.
+		if normalize.is_cancel(phrase):
+			self.cancel("user said cancel")
+			return
+
 		if wake and phrase:
 			self.client.log("info", f"[STTProcessing] Routing -> '{processed}' to {self.route}")
 			Thread(target = self.process_phrase, args = [self.clean_text( phrase.strip() ), ] ).start()
@@ -148,28 +228,43 @@ class STTProcessing():
 		self.client.iterate_event_callables("on_assistant_transcribed", processed, True)
 
 	def words_to_numbers(self, text):
-		# matches sequences of alphabetic words (e.g., "twenty one")
-		pattern = re.compile(
-			r'\b(?:zero|one|two|three|four|five|six|seven|eight|nine|ten|'
-			r'eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|'
-			r'eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|'
-			r'eighty|ninety|hundred|thousand|million|and|\s)+\b', re.I
-		)
-		def replacer(match):
-			try:
-				return str(w2n.word_to_num(match.group()))
-			except ValueError:
-				return match.group()
-		return pattern.sub(replacer, text)
+		# Kept as a method because plugins and mixins may target it. The old
+		# implementation had \s inside its alternation, so " one " matched whole
+		# and collapsed to "1" - "for one minute" became "for1minute", a single
+		# token no skill pattern could match.
+		return normalize.words_to_numbers(text)
 
 	def pre_processing(self, transcribed:str):
 		if not self.client.TTS.is_speaking():
 			if not self.processing:
 				self.processing = True
 				self.client.ASSIST_STATUS = "THINKING"
-				processed = self.words_to_numbers(transcribed)
+				processed = normalize.normalize(transcribed)
+				if processed != transcribed:
+					self.client.log("debug",
+						f"[STTProcessing] Normalised '{transcribed}' -> '{processed}'")
 				self.routing( processed )
 
+
+	def cancel(self, reason: str = "") -> None:
+		"""
+		Abandon whatever the assistant is doing and go back to waiting for the
+		wake word. Safe to call from any state, including when nothing is
+		happening.
+		"""
+		self.client.log("info", f"[STTProcessing] Cancelled{f' ({reason})' if reason else ''}.")
+
+		if self.is_session():
+			self.session.cancel()
+		else:
+			self.close_session()
+
+		self.woke_with = None
+		self.processing = False
+		self.route = "wake"
+		self.client.ASSIST_STATUS = "LIVE"
+		self.client.ASSIST_VOICE_ACTIVITY_LEVEL = 0.0
+		self.client.iterate_event_callables("on_assistant_cancelled", reason)
 
 	## SESSIONS
 	def is_session(self) -> bool:
@@ -263,6 +358,9 @@ class STTProcessing():
 									self.processing = False
 									if self.woke_with: self.woke_with = None
 
+								case "audio_error":
+									self.handle_audio_error(data)
+
 									
 						except: pass
 			
@@ -275,12 +373,55 @@ class STTProcessing():
 				time.sleep(1)  # avoid busy loop
 
 
+	def handle_audio_error(self, message:str):
+		"""
+		Microphone trouble reported by the STT process.
+
+		An empty message means it recovered. Repeats are swallowed: the process
+		retries every 5s, and notifying on each retry would bury the screen.
+		"""
+		message = (message or "").strip()
+		if not message:
+			if self.last_error:
+				self.last_error = ""
+				self.client.ASSIST_STATUS = "LIVE"
+				self.client.simple_notify("assistant", "Assistant", "Microphone reconnected.")
+			return
+
+		if message == self.last_error:
+			return
+		self.last_error = message
+
+		self.client.ASSIST_STATUS = "DORMANT"
+		self.client.log("error", f"[STTProcessing] Audio error: {message}")
+		self.client.simple_notify("error", "Assistant", "Microphone unavailable. Tap for details.")
+		self.client.alert(
+			"Microphone unavailable",
+			"The voice assistant cannot record audio. It will keep retrying in "
+			"the background.",
+			detail=message,
+		)
+
 	## PROCESS
 	def start(self):
 		if self.process is None or self.process.poll() is not None:
 			
-			wake_word_str = ", ".join(w[0] for w in self.client.SKILLS.wake_args)
-			self.process = subprocess.Popen([sys.executable, self.__process_path, wake_word_str])
+			# Every registered skill carries the same wake word, so this is one
+			# entry per skill before de-duplication. Deduped once here so the
+			# log shows what is actually sent rather than the raw list.
+			words = [w[0] for w in self.client.SKILLS.wake_args] or list(self.wake_words)
+			words = sorted({w.strip().lower() for w in words if w and w.strip()})
+			if not words:
+				words = [self.client.wake_word]
+
+			config = json.dumps({
+				"wake_words":   words,
+				"input_device": self.input_device,
+				"model":        self.model,
+			})
+			self.client.log("info", f"[STTProcessing] Starting STT: model={self.model} "
+									f"device={self.input_device} wake={words}")
+			self.process = subprocess.Popen([sys.executable, self.__process_path, config])
 
 			self.listening = True
 

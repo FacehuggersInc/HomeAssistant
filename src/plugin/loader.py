@@ -450,6 +450,67 @@ class PluginManager():
 
 
 	
+	## REGISTRATIONS
+
+	def registrations(self, plugin_key: str) -> list[tuple[str, list[str]]]:
+		"""
+		Everything a plugin currently owns, as (registry name, entries).
+
+		Only non-empty registries are returned, in a fixed order. Each list is
+		already formatted for display - the settings page renders it verbatim.
+		"""
+		client = self.client
+		groups: list[tuple[str, list[str]]] = []
+
+		def add(name: str, entries):
+			entries = [e for e in entries if e]
+			if entries:
+				groups.append((name, entries))
+
+		try:
+			add("Pages", [
+				f"{entry.key}   {entry.display}" if entry.display and entry.display != entry.key
+				else entry.key
+				for entry in client.PAGES.entries_for(plugin_key)
+			])
+		except Exception:
+			pass
+
+		try:
+			add("API Endpoints", [f"/public/{name}" for name in
+								  client.API_REGISTRY.endpoints_for(plugin_key)])
+		except Exception:
+			pass
+
+		try:
+			add("Public Registry", client.public.names_for(plugin_key))
+		except Exception:
+			pass
+
+		try:
+			add("Skills", sorted(
+				getattr(skill, "key", str(skill))
+				for skill in client.SKILLS.registered.get(plugin_key, [])
+			))
+		except Exception:
+			pass
+
+		try:
+			add("Mixins", [f"{target}   ({when})" for target, when in
+						   client.MIXINS.mixins_for(plugin_key)])
+		except Exception:
+			pass
+
+		try:
+			add("Pip Packages", self.plugin_requirements(plugin_key))
+		except Exception:
+			pass
+
+		return groups
+
+	def registration_count(self, plugin_key: str) -> int:
+		return sum(len(entries) for _, entries in self.registrations(plugin_key))
+
 	## DEPENDENCIES
 
 	def pending_plugins(self, include_declined: bool = True) -> list[PendingPlugin]:

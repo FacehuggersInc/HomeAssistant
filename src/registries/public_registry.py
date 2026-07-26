@@ -27,6 +27,10 @@ class PublicRegistry:
                 delattr(self, key)
         del self.exposed[plugin]
 
+    def names_for(self, plugin: str) -> list[str]:
+        """Names a plugin has exposed, sorted."""
+        return sorted(self.exposed.get(plugin, []))
+
     def list(self, plugin: str = None) -> dict:
         if plugin:
             return {name: getattr(self, name) for name in self.exposed.get(plugin, [])}

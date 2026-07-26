@@ -1,0 +1,8 @@
+[plugin]
+name = "Core Skills"
+key = "coreskillsbundle"
+order = 5
+icon = "microphone"
+
+[settings]
+path = "src/assets/bundled/CoreSkillsBundle/settings.json"

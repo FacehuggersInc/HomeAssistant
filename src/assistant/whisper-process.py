@@ -1,22 +1,55 @@
-from threading import Thread, Event as ThreadEvent
+from threading import Thread, Lock, Event as ThreadEvent
 import re
 import queue
 import collections
 import time
 import string
+import json
 import numpy as np
-import sounddevice as sd
-import webrtcvad
-import torch
-from faster_whisper import WhisperModel
 from socket import socket, AF_INET, SOCK_STREAM, SOL_SOCKET, SO_REUSEADDR
 import sys, traceback
+
+# Imported defensively so a missing audio stack produces a reportable message
+# instead of a traceback into a log file. sounddevice raises OSError (not
+# ImportError) when PortAudio is absent, so this catches Exception.
+_IMPORT_ERROR = None
+try:
+    import sounddevice as sd
+    import webrtcvad
+    import torch
+    from faster_whisper import WhisperModel
+except Exception as _e:
+    sd = webrtcvad = torch = WhisperModel = None
+    _IMPORT_ERROR = f"{type(_e).__name__}: {_e}"
 
 try:
     import noisereduce as nr
     _HAS_NOISEREDUCE = True
 except Exception:
     _HAS_NOISEREDUCE = False
+
+
+# Whisper emits these on silence or noise with high confidence. They are not
+# transcription errors that better audio would fix - the model produces them
+# from nothing, and they otherwise register as a command.
+HALLUCINATIONS = {
+	"", "you", "thank you", "thank you.", "thanks for watching",
+	"thanks for watching!", "thank you for watching", "bye", "bye.",
+	"subscribe", "please subscribe", ".", "..", "...", "?", "!",
+	"[blank_audio]", "[silence]", "(silence)", "[music]", "(music)",
+	"transcription by castingwords", "www.mooji.org",
+}
+
+
+def is_hallucination(text: str) -> bool:
+	stripped = text.strip().lower().strip(".,!?\u2026 ")
+	if not stripped:
+		return True
+	if stripped in {h.strip(".,!? ") for h in HALLUCINATIONS}:
+		return True
+	# A single repeated word ("you you you you") is the other common failure.
+	words = stripped.split()
+	return len(words) > 3 and len(set(words)) == 1
 
 
 class WakeWhisper:
@@ -40,10 +73,12 @@ class WakeWhisper:
 		use_noise_reduction:bool=True,
 		max_queue_size:int=8,
 		wake_words:list[str]=[],
+		input_device=None,
 		override_limits:bool = False,
 		initial_mode : str = "wake" # "wake" or "passthrough"
 	):
-		torch.set_num_threads(5)
+		if torch is not None:
+			torch.set_num_threads(5)
 
 		#Threading
 		self.running = False
@@ -51,12 +86,18 @@ class WakeWhisper:
 		self._process_thread = None
 		self.stop_event = ThreadEvent()
 		self.sample_check_thread = None
+		self._overflows = 0
 
 		#Callbacks
 		self.on_wake = None
 		self.on_final = None
 		self.on_timeout = None
 		self.on_voice_activity = None
+		self.on_audio_error = None
+
+		# None means "let PortAudio pick the default" - deliberately not the same
+		# as pinning an index, since indices shift as devices come and go.
+		self.input_device = input_device
 
 		self.switching = False
 		self.mode = initial_mode  # "wake" or "session"
@@ -89,7 +130,30 @@ class WakeWhisper:
 		self.device = device
 		self.compute_type = compute_type
 		self.model = WhisperModel(self.model_name, device=self.device, compute_type=self.compute_type)
-		self.transcribe_settings = {"language": "en", "temperature": 0, "best_of": 5}
+		self.transcribe_settings = {
+			"language": "en",
+			"temperature": 0,
+
+			# best_of only applies when sampling (temperature > 0). At
+			# temperature 0 faster-whisper uses beam search, so the old
+			# "best_of": 5 was inert - beam_size is the knob that was wanted.
+			"beam_size": 5,
+
+			# Whisper carries previous text into the next window by default,
+			# which makes it loop and hallucinate on short isolated commands.
+			"condition_on_previous_text": False,
+
+			# Drop windows the model itself thinks are silence, which is where
+			# the phantom "Thank you." / "Thanks for watching!" outputs come
+			# from.
+			"no_speech_threshold": 0.6,
+			"log_prob_threshold": -1.0,
+		}
+
+		# faster-whisper's WhisperModel is not documented as thread-safe, and
+		# the wake-word check runs on its own thread alongside the processing
+		# loop.
+		self._model_lock = Lock()
 
 
 	## CORE
@@ -112,11 +176,12 @@ class WakeWhisper:
 		if self._process_thread:
 			self._process_thread.join(timeout=2.0)
 
-	def set_callbacks(self, on_wake=None, on_final=None, on_timeout = None, on_voice_activity=None):
+	def set_callbacks(self, on_wake=None, on_final=None, on_timeout = None, on_voice_activity=None, on_audio_error=None):
 		self.on_wake = on_wake
 		self.on_final = on_final
 		self.on_timeout = on_timeout
 		self.on_voice_activity = on_voice_activity
+		self.on_audio_error = on_audio_error
 
 	## UTIL
 	def clean_text(self, text: str) -> str:
@@ -141,6 +206,13 @@ class WakeWhisper:
 		self.mode = mode
 		self.switching = True
 
+	def transcribe(self, audio):
+		"""Locked transcribe, returning cleaned text or ''."""
+		with self._model_lock:
+			segments, _ = self.model.transcribe(audio, **self.transcribe_settings)
+			text = " ".join(seg.text.strip() for seg in segments).strip()
+		return "" if is_hallucination(text) else text
+
 	## RECORDING
 	def __listen_loop(self):
 		connection = True
@@ -149,24 +221,34 @@ class WakeWhisper:
 				with sd.InputStream(
 					samplerate=self.sample_rate,
 					channels=self.channels,
-					dtype="int16"
+					dtype="int16",
+					device=self.input_device
 				) as stream:
 					print("[Whisper]: Microphone opened.")
+					if not connection and callable(self.on_audio_error):
+						self.on_audio_error("")   # recovered
 					connection = True
 					self.__stream_loop(stream)
 			except Exception as exc:
 				if connection:
 					connection = False
-					print(f"[Whisper]: Microphone Error (likely no mic connected): \n---start---\n{traceback.format_exc()}\n---end--- ")
+					print(f"[Whisper]: Microphone Error: {exc}")
+					# Reported to the client so it can tell the user, instead of
+					# retrying silently every 5s into a log nobody reads.
+					if callable(self.on_audio_error):
+						self.on_audio_error(str(exc))
 				time.sleep(5)
 
 	def __wake_word_check(self, sample:bytes):
 		converted = np.frombuffer(sample, dtype=np.int16).astype(np.float32) / self.__PCM_NORM_FACTOR
-		segments, info = self.model.transcribe(converted, **self.transcribe_settings)
-		text = " ".join(seg.text.strip() for seg in segments).strip()
+		text = self.transcribe(converted)
 		if text:
+			lowered = text.lower()
 			for word in self.wake_words:  # e.g., ["clyde", "jarvis"]
-				if word in text.lower():
+				# Word boundaries, not substring: "alexa" should not fire on
+				# "alexander", and a short wake word matches inside all sorts
+				# of ordinary speech.
+				if re.search(rf"\b{re.escape(word)}\b", lowered):
 					print(f"[Whisper]: Wake word '{word}' detected.")
 					self.woke = True
 					if callable(self.on_wake):
@@ -236,7 +318,15 @@ class WakeWhisper:
 
 			try:
 				#Get Audio Window
-				audio_window, _ = stream.read( self.window_size_hz )
+				audio_window, overflowed = stream.read( self.window_size_hz )
+				if overflowed:
+					# The loop fell behind realtime and the driver dropped
+					# samples. Silently discarded before, which made the
+					# resulting truncated phrases look like model errors.
+					self._overflows += 1
+					if self._overflows in (1, 10, 100) or self._overflows % 500 == 0:
+						print(f"[Whisper]: Audio overflow x{self._overflows} "
+							  f"- input dropped, processing is behind realtime.")
 				audio_window = audio_window[:, 0].tobytes()
 
 				#If Switching Modes, Reset Everything | This allows clean transitions between modes
@@ -248,20 +338,22 @@ class WakeWhisper:
 				#Add Context
 				pre_context.append(audio_window)
 
-				#De-Noise The Current Frame for VAD
-				if self.use_noise_reduction:
-					# Convert prebuffer to float32 array
-					pb_bytes = b"".join(pre_context)
-					pb_np = np.frombuffer(pb_bytes, dtype=np.int16).astype(np.float32) / self.__PCM_NORM_FACTOR
-					try:
-						denoised = nr.reduce_noise(y=pb_np, sr=self.sample_rate)
-					except Exception:
-						denoised = pb_np
-					denoised_last = denoised[-self.window_size_hz:]
-					vad_window = (denoised_last * self.__PCM_NORM_FACTOR).astype(np.int16).tobytes()
-
-				else:
-					vad_window = audio_window
+				# VAD runs on the RAW window.
+				#
+				# This used to spectral-gate the whole 420ms pre_context buffer
+				# on every 30ms frame and then keep only the last 30ms of it -
+				# roughly 23ms of work per 30ms of audio, about 76% of a core
+				# continuously, 5000x more expensive than the VAD call it was
+				# feeding. On slower hardware the loop cannot keep up at that
+				# cost and starts dropping audio, which truncates speech
+				# windows and produces exactly the unreliable transcripts it
+				# was meant to improve.
+				#
+				# webrtcvad is built for noisy audio and is already running at
+				# aggressiveness 3. Noise reduction still happens where it
+				# actually helps: once, on the complete utterance, before
+				# transcription.
+				vad_window = audio_window
 
 				#Detect Speech (per window)
 				is_speech_in_window = False
@@ -575,7 +667,11 @@ class WakeWhisper:
 
 			#Transcribe Audio
 			try:
-				segments, info = self.model.transcribe(speech, **self.transcribe_settings)
+				# Locked: the wake-word check transcribes on its own thread and
+				# WhisperModel is not documented as thread-safe.
+				with self._model_lock:
+					segments, info = self.model.transcribe(speech, **self.transcribe_settings)
+					segments = list(segments)
 			except Exception as exc:
 				print("[Whisper]: Transcription error:", exc)
 				continue
@@ -595,6 +691,11 @@ class WakeWhisper:
 
 			#Build Text and Send
 			final_text = " ".join(p.strip() for p in final_text_pieces).strip()
+
+			if is_hallucination(final_text):
+				print(f"[Whisper]: Discarded hallucination: {final_text!r}")
+				final_text = ""
+
 			if final_text and self.clean_text(final_text) and len(final_text.split()) <= 20:
 				
 				if self.multi_phrase_check(final_text):
@@ -615,12 +716,28 @@ class STTServer:
 		self.running = True
 		self.connections: dict[str, socket] = {"command": None, "data": None}
 
-		wake_words = []
+		# argv[1] is a JSON blob from STTProcessing. The old positional
+		# comma-joined wake-word string is still accepted so an out-of-date
+		# caller keeps working.
+		config = {}
 		if len(sys.argv) > 1:
-			wake_words = [w.strip() for w in sys.argv[1].split(",")]
-		if not wake_words: wake_words = ["alexa"]
+			try:
+				config = json.loads(sys.argv[1])
+			except (ValueError, TypeError):
+				config = {"wake_words": [w.strip() for w in sys.argv[1].split(",") if w.strip()]}
+
+		wake_words = config.get("wake_words") or ["alexa"]
+		self.input_device = config.get("input_device")
+		self.model_name = config.get("model", "tiny.en")
+		self.import_error = _IMPORT_ERROR
+
+		if self.import_error:
+			print(f"[STTServer]: Audio stack unavailable -> {self.import_error}")
+			self.whisper = None
+			return
 
 		self.whisper = WakeWhisper(
+			model_name = self.model_name,
 			vad_aggressiveness=3,
 			window_duration_ms=30,
 			context_audio_windows_start = 14,
@@ -628,13 +745,15 @@ class STTServer:
 			minimum_speech_windows = 20,
 			wake_timeout_seconds = 3.5,
 			use_noise_reduction=True,
-			wake_words = wake_words
+			wake_words = wake_words,
+			input_device = self.input_device
 		)
 		self.whisper.set_callbacks(
 			on_final=self.process_transcribed,
 			on_wake = self.trigger_wake,
 			on_timeout = self.trigger_wait,
-			on_voice_activity = self.send_voice_activity
+			on_voice_activity = self.send_voice_activity,
+			on_audio_error = self.send_audio_error
 		)
 	
 
@@ -647,6 +766,16 @@ class STTServer:
 				)
 			except Exception:
 				print("[STTServer]: Lost transcript connection.")
+				self.__close_connection("data")
+
+	def send_audio_error(self, message:str):
+		"""Forward a microphone problem to the client so it can surface it."""
+		if self.connections["data"]:
+			try:
+				self.connections["data"].sendall(
+					f"host:audio_error:{message}".encode("utf-8")
+				)
+			except Exception:
 				self.__close_connection("data")
 
 	def trigger_wake(self, wake_word:str):
@@ -748,7 +877,24 @@ class STTServer:
 	def run(self):
 		Thread(target=self.__listen_for_commands, daemon=True).start()
 		Thread(target=self.__send_and_recv_data, daemon=True).start()
-		self.whisper.start()
+
+		if self.whisper is None:
+			# Stay alive briefly so the client can connect and receive the
+			# reason, rather than seeing the process vanish with no explanation.
+			time.sleep(2)
+			self.send_audio_error(self.import_error or "audio stack unavailable")
+			time.sleep(2)
+			self.running = False
+			return
+
+		try:
+			self.whisper.start()
+		except Exception as e:
+			print(f"[STTServer]: Failed to start Whisper: {e}")
+			time.sleep(2)
+			self.send_audio_error(f"Could not load the '{self.model_name}' model: {e}")
+			self.running = False
+			return
 
 		print("[STTServer]: Listening ...")
 		while self.running:

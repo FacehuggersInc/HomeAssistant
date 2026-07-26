@@ -31,7 +31,15 @@
   "application.updates.restart_on_crash": "Whether the launcher automatically restarts the app if it crashes",
   "application.updates.max_restart_attempts": "How many consecutive crash restarts before the launcher gives up",
   "application.updates.crash_window": "Running longer than this before a crash resets the restart counter",
-  "application.updates.update_grace_period": "A new update crashing inside this window triggers an automatic rollback"
+  "application.updates.update_grace_period": "A new update crashing inside this window triggers an automatic rollback",
+  "assistant": "Voice assistant: speech-to-text, wake word and spoken replies",
+  "assistant.enabled": "Whether the voice assistant runs at all",
+  "assistant.wake_word": "The word that wakes the assistant",
+  "assistant.input_device": "Microphone to listen on; empty means system default",
+  "assistant.model": "Whisper model used for transcription",
+  "assistant.voice_bar": "Show the activity bar along the bottom while listening",
+  "assistant.tts_enabled": "Whether the assistant speaks its replies",
+  "assistant.voice_bar_hold": "Minimum time a transcript stays on the activity bar"
  },
  "prefix": {
   "application.window.size": [
@@ -59,6 +67,7 @@
   "plugins.weather.latitude": "deg.",
   "plugins.weather.longitude": "deg.",
   "application.updates.crash_window": "sec",
-  "application.updates.update_grace_period": "sec"
+  "application.updates.update_grace_period": "sec",
+  "assistant.voice_bar_hold": "sec"
  }
 }

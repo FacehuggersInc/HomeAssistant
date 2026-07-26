@@ -18,17 +18,47 @@ if TYPE_CHECKING:
 	from src.main import Client
 
 class TTSProcessing():
+	DEFAULT_VOICE_NAME = "Mark - Natural Conversations"
+
 	def __init__(self, client):
 		load_dotenv()
 		self.client = client
+		self.speaking = False
+		self.available = False
+		self.error = ""
 
 		self.KEY = os.getenv("ELEVENLABS_KEY")
-		self.elevenlabs = ElevenLabs(api_key = self.KEY)
-		self.voices, self.voice_ids = self.get_voices()
-		self.names = list(self.voices.keys())
-		self.default_voice = self.voices[ "Mark - Natural Conversations" ]
+		if not self.KEY:
+			self.error = "ELEVENLABS_KEY is not set in .env - the assistant will not speak."
+			self.elevenlabs = None
+			self.voices, self.voice_ids, self.names = {}, {}, []
+			self.default_voice = None
+			return
 
-		self.speaking = False
+		try:
+			self.elevenlabs = ElevenLabs(api_key = self.KEY)
+			self.voices, self.voice_ids = self.get_voices()
+		except Exception as e:
+			self.error = f"Could not reach ElevenLabs: {e}"
+			self.elevenlabs = None
+			self.voices, self.voice_ids, self.names = {}, {}, []
+			self.default_voice = None
+			return
+
+		self.names = list(self.voices.keys())
+
+		# This used to index the dict directly and raise KeyError when the
+		# account did not have that specific voice, taking the whole app down
+		# during Client startup.
+		self.default_voice = self.voices.get(self.DEFAULT_VOICE_NAME)
+		if self.default_voice is None and self.names:
+			self.default_voice = self.voices[self.names[0]]
+
+		if self.default_voice is None:
+			self.error = "The ElevenLabs account has no voices available."
+			return
+
+		self.available = True
 
 
 	## AUDIO
@@ -96,6 +126,8 @@ class TTSProcessing():
 
 	## INTERFACE
 	def play(self, text:str = None, audio:list[bytes] = None, thread:bool = True):
+		if not self.available:
+			return
 		if text:
 			if thread:
 				Thread(target = self.__play_tts, name=f"__tts_thread({text[:10]})" , args = [text, ]).start()
@@ -108,6 +140,8 @@ class TTSProcessing():
 				self.__play_audio(audio)
 
 	def stream(self, text:str, thread:bool = True):
+		if not self.available:
+			return
 		if thread: 
 			Thread(target = self.stream_audio, args = [text, ]).start()
 		else: 

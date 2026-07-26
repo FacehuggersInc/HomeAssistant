@@ -749,6 +749,59 @@ Plugin → Page Feature → TileGrid → Tile
 
 ---
 
+# Adding your own cards to a settings page
+
+A plugin can contribute widgets to its own page in Settings, between the
+registry summary and its settings, by defining `settings_blocks()`:
+
+```python
+def settings_blocks(self) -> list[QWidget]:
+    return [my_card]
+```
+
+Return any widgets you like; they render in order and are not affected by the
+sort toolbar, since they are static content rather than sortable settings. A
+plugin raising here is logged and skipped rather than blanking its own page.
+
+`CoreSkillsBundle` uses this to list its voice skills - each with its trigger
+phrases, argument names and word-count range - which is a better fit there
+than in a generic registry card.
+
+# What a plugin has registered
+
+Every plugin's own page in Settings shows what it currently owns, between its
+description and its settings. One card per registry, each with a count and
+the entries themselves:
+
+```text
+Registered  ·  9 items across 6 registries
+
+  Pages            2      API Endpoints    2
+    #weather  Weather Page   /public/forecast
+    #radar                   /public/alerts
+
+  Public Registry  1      Skills           2
+    weather_state           weather-forecast
+                            weather-update
+
+  Mixins           1      Pip Packages     1
+    sub.home.__init__ (after)   requests>=2.28
+```
+
+Empty registries are omitted rather than shown as zero. A plugin that has
+registered nothing says so.
+
+The data comes from `PluginManager.registrations(plugin_key)`, which returns
+`[(registry_name, [entries])]` already formatted for display. Each registry is
+read independently and a failing one is skipped, so a registry raising cannot
+take the whole page down.
+
+Adding a new registry to this view means adding one `add(...)` call there. If
+your registry does not already expose a per-owner listing, give it one -
+`APIRegistry.endpoints_for()`, `PublicRegistry.names_for()` and
+`MixinManager.mixins_for()` were added for exactly this.
+
+
 # Registries
 
 Registries manage and store extendable, plugin-ownable objects — things like API endpoints or pages, that a plugin registers and expects to have cleaned up automatically when it's unloaded or reloaded.
@@ -796,6 +849,29 @@ self.client.public.my_shared_state
 Like the other two, anything exposed under your plugin's key is cleared automatically on unload via `self.client.public.clear(owner)` — you don't need to call `unexpose` yourself during a normal teardown.
 
 ---
+
+# Reading settings from a thread
+
+`client.SETTINGS` is a Dynaconf object, and Dynaconf's `reload()` empties its
+store before repopulating it. A read from another thread landing in that gap
+raises `AttributeError: 'Settings' object has no attribute 'APPLICATION'` --
+intermittent, and only when a save happens to coincide with a background read.
+
+Saving therefore goes through `client.apply_settings(values)`, which uses
+`update()` instead: it only adds and overwrites, so no section is ever
+momentarily absent.
+
+From a background thread -- `on_update`, `on_collection`, a worker of your own
+-- read through the accessor rather than touching `SETTINGS` directly:
+
+```python
+margin = self.client.setting("home.widget_margin.value", 28)
+```
+
+`setting()` takes a dotted path and a default, holds the settings lock, and
+returns the default rather than raising if anything on the path is missing.
+Direct `client.SETTINGS.x.y` access is still fine on the UI thread.
+
 
 # Events
 
@@ -947,6 +1023,337 @@ Other plugins subscribe to a custom event exactly the same way as a built-in one
 
 ---
 
+# Voice assistant
+
+Speech-to-text runs in a separate process (`src/assistant/whisper-process.py`)
+talking to the client over a local socket. The client half is
+`STTProcessing`; device handling is `src/assistant/audio.py`.
+
+Settings live under **Assistant**:
+
+| Setting | Meaning |
+|---------|---------|
+| `enabled` | Whether the assistant runs at all |
+| `wake_word` | App-wide wake word; plugins read `client.wake_word` |
+| `input_device` | Microphone name, or empty for the system default |
+| `model` | Whisper model, default `tiny.en`. Downloaded on first use |
+| `voice_bar` | The activity bar along the bottom of the screen |
+| `tts_enabled` | Whether replies are spoken |
+
+## The activity bar
+
+A floating pill above the bottom edge, centred, sized to its content between
+240 and 560px. It rises into place and fades out rather than blinking, and
+carries a live level meter plus a line of text.
+
+| State | Accent | Shows |
+|-------|--------|-------|
+| Listening | red | meter tracking voice level, "Listening…" or the wake word |
+| Thinking | blue | meter sweeping on its own, "Thinking…" |
+| Acting | green | whatever the skill is doing |
+| Heard | grey | the transcript, quoted, held long enough to read |
+
+Whisper only emits **finished** transcripts - it transcribes a completed
+speech window, so there is no partial stream to show mid-sentence. The meter
+covers "hearing something right now"; the text covers "heard this". If live
+partial text is ever wanted, it needs a streaming model in
+`whisper-process.py`, not a change here.
+
+The bar is `WA_TransparentForMouseEvents`, so it never eats a tap, and its
+shadow is painted by hand - a `QGraphicsEffect` cannot coexist with painting
+custom alpha, and only one effect can be set on a widget at a time.
+
+How long a transcript stays up scales with its length rather than being
+fixed: `assistant.voice_bar_hold` (default 6s) is a floor, and anything
+longer than that reads-in-six-seconds is held proportionally, capped at 20s.
+There is also a minimum visible time, so a wake word that gets rejected a few
+hundred ms later cannot flash a pill for one frame.
+
+Turn it off with `assistant.voice_bar`.
+
+## Settings migration
+
+Settings added by an update are folded into your existing data file at
+startup. `create_user_data_files()` used to copy the template only when the
+file did not exist, so a new setting never reached an existing install: not
+in the file, not in Settings (the page builds its categories from that data),
+and not readable by the code that added it. Because every read is guarded
+with a default, the symptom was a feature that silently did nothing.
+
+On startup the template and the data file are compared. New keys arrive at
+their defaults, values you have changed are kept, and keys the template no
+longer has are dropped. The old file is copied to `<name>.json.bak` first,
+and every added or removed path is logged.
+
+## Startup
+
+`Client.start_assistant()` runs shortly after `build()` -- not during plugin
+load, since it needs the UI to be able to ask anything. It:
+
+1. checks the audio stack is usable at all
+2. logs every input device it can see
+3. resolves the configured device name to an index, falling back to the
+   default if it has gone away
+4. opens the stream briefly to confirm it actually works
+5. asks before downloading a Whisper model that is not already cached
+6. starts the STT process
+
+Any failure surfaces as a notification plus a dialog carrying the real
+reason, and the rest of the app carries on. The assistant never takes the
+app down with it.
+
+## How skills match
+
+A skill's `examples` are compiled into spaCy Matcher patterns. Those patterns
+are **generalised**, not literal:
+
+| In the example | In the pattern |
+|----------------|----------------|
+| a number (`10`) | any number |
+| a determiner (`a`, `the`, `my`) | optional, interchangeable |
+| politeness (`please`, `can you`, `just`) | optional |
+| a pronoun (`me`, `us`) | optional |
+| everything else | its lemma |
+
+This matters more than it sounds. Patterns used to be one literal lemma per
+token, so `"set a timer for 10 minutes"` matched only that exact sequence -
+`"set the timer for 1 minute"` failed on both the determiner and the number,
+and `"set a timer for 1 minute"` failed too, because the `10` was compiled in.
+Effectively only the verbatim examples ever matched.
+
+When the Matcher finds nothing, a **rule phase** scores the utterance's
+content lemmas against every skill's examples and takes the best, provided it
+clears `FALLBACK_DEFAULT_RULE_SCORE`. `phases` had listed `"rule"` since the
+engine was written but nothing ever ran it. The threshold matters: scoring
+every skill against every phrase will always produce a nearest match, and
+"nothing matched" has to stay a possible answer.
+
+You still want several examples per skill - they define the vocabulary the
+rule phase scores against - but they no longer need to enumerate every
+determiner and number.
+
+### Scoring
+
+The rule phase weights words by how discriminating they are. A lemma used by
+one skill counts for more than one every skill shares - without that, "clear
+all notifications" scored identically against `notifications-open` and
+`notifications-empty`, since both contain "notification" and the word that
+actually decides it was worth no more than the noise.
+
+Score is the harmonic mean of two coverages: how much of the example the
+utterance covers, and how much of the utterance the example accounts for.
+Recall alone let a long rambling phrase match a tiny example on one shared
+word.
+
+Token comparison is fuzzy above four characters, which absorbs the
+mishearings a better phrase list cannot: "notifcations", "aplication",
+"minuets" for "minutes". Short tokens are compared exactly, since at three or
+four characters nearly everything is close to everything.
+
+`FALLBACK_DEFAULT_RULE_SCORE` was tuned by sweeping a labelled corpus rather
+than picked. Lower thresholds score better overall but start letting
+out-of-domain phrases through - at 0.50, "tell me a joke" answers with the
+weather. A miss costs the user a repeat; a misfire makes the assistant do
+something it was never asked to do, so the highest threshold with **zero**
+misfires wins.
+
+### Writing good examples
+
+The engine now handles determiners, numbers, politeness, plurals,
+capitalisation and small mishearings. What it cannot invent is vocabulary:
+"close the app" will not match a skill whose examples only ever say
+"application". Cover the *words* people use, not their grammar - one example
+per distinct phrasing, not per determiner.
+
+### Wake words in a transcript
+
+Whisper capitalises the first word of every transcript, so wake matching is
+case-insensitive and anchored on word boundaries
+(`STTProcessing.find_wake` / `strip_wake`). It used to be a plain
+`wake in processed` substring test, which was False for essentially every
+real utterance - "alexa" is not in "Alexa, set a timer for 1 minute." - and
+the same test split the command off the wake word, so when it failed the wake
+word was passed through as part of the command.
+
+Boundaries matter too: a short wake word otherwise fires inside ordinary
+words ("Alexander").
+
+### Units
+
+`normalize.expand_units()` turns spoken abbreviations into canonical units,
+but only directly after a number, so ordinary speech is untouched:
+
+```text
+"3 mins"  -> "3 minutes"      "the min temperature" -> unchanged
+"30 secs" -> "30 seconds"     "press s to continue" -> unchanged
+"2 hrs"   -> "2 hours"
+```
+
+That means argument patterns only ever need to list the canonical form, and
+using `LEMMA` rather than `LOWER` covers singular and plural in one entry:
+
+```python
+"time": [[{"LIKE_NUM": True},
+          {"LEMMA": {"IN": ["second", "minute", "hour", "day"]}}]]
+```
+
+### Arguments
+
+`arguments` patterns often need an anchor word to find the value:
+
+```python
+"name": [[{"LOWER": {"IN": ["call", "called", "named"]}},
+          {"LOWER": "it", "OP": "?"},
+          {"IS_ALPHA": True, "IS_STOP": False}]]
+```
+
+The anchor is stripped before the value reaches your skill, so
+`"call it Eggs"` arrives as `name="Eggs"` rather than `name="call it Eggs"`.
+
+## Transcript normalisation
+
+`src/assistant/normalize.py` cleans a transcript before it reaches the intent
+engine. Skill patterns match on tokens, so spoken numbers have to end up as
+separate number and unit tokens or the argument never extracts:
+
+```text
+"set a timer for one minute"      -> "set a timer for 1 minute"
+"set a timer for1minute"          -> "set a timer for 1 minute"
+"set a timer for half an hour"    -> "set a timer for 30 minutes"
+"set a timer for a couple of mins"-> "set a timer for 2 mins"
+```
+
+It handles compound numbers ("twenty-five", "one hundred and twenty"),
+articles before a unit ("a minute" -> 1, but "a timer" is left alone),
+fractions, filler words, and digits glued to words. Number conversion is
+written out rather than delegated to `word2number`, which raised on ordinary
+input like "zero" or a trailing "and" - a transcript is untrusted text and an
+exception there dropped the whole phrase.
+
+## Backing out
+
+Saying "nevermind", "cancel", "forget it", "stop" and similar abandons
+whatever the assistant is doing and returns it to waiting for the wake word.
+
+This is handled in two places on purpose:
+
+* `STTProcessing.start_skill_parse()` checks for a cancel phrase **before**
+  intent matching, so backing out works even with no cancel skill registered.
+* `CoreSkillsBundle` also registers a `nevermind` skill, so it appears in the
+  skills list in Settings and the activity bar acknowledges it.
+
+`client.cancel_assistant(reason)` does the same thing from code, and fires
+`on_assistant_cancelled`.
+
+Cancel phrases are matched against the **whole** utterance, never searched
+within it - "never mind the weather" stays a weather query.
+
+### Sessions
+
+A skill holding a conversation (`STT.new_session()`) gets the same escape.
+`wait_for_phrase()` returns `None` when the user cancels, the session times
+out, or it is closed - so a prompt loop should break on `None` rather than
+asking again:
+
+```python
+with session:
+    while True:
+        phrase = session.wait_for_phrase()
+        if phrase is None:
+            break            # cancelled, timed out, or closed
+        ...
+```
+
+This previously had no way out. `wait_for_phrase()` was a blocking `get()`
+with no timeout and no sentinel, so anything that was not an expected answer
+re-prompted forever, and when the five-minute timeout fired it reset the STT
+without ever releasing the waiter - leaving that skill thread blocked for the
+life of the process.
+
+## The STT process
+
+`whisper-process.py` runs detached and talks over a socket. Points worth
+knowing if you change it:
+
+* **VAD gets raw audio.** It used to spectral-gate the whole 420ms context
+  buffer on every 30ms frame and keep only the last 30ms - about 76% of a core
+  continuously, and 5000x the cost of the VAD call it fed. On slower hardware
+  the loop cannot keep up, drops input, and truncates phrases. Noise reduction
+  still runs once on the complete utterance before transcription, which is
+  where it helps.
+* **`beam_size`, not `best_of`.** `best_of` only applies when sampling; at
+  `temperature=0` it was inert.
+* **`condition_on_previous_text=False`.** Carrying context between windows
+  makes short isolated commands loop and hallucinate.
+* **Hallucinations are filtered.** Whisper emits "Thank you.", "you",
+  "Thanks for watching!" and repeated single words from silence, confidently.
+  These are not transcription errors better audio would fix.
+* **The model is locked.** The wake-word check transcribes on its own thread
+  alongside the processing loop, and `WhisperModel` is not documented as
+  thread-safe.
+* **Overflows are logged.** `stream.read()` reports dropped input; it used to
+  be discarded, which made truncated phrases look like model errors.
+
+## Changing settings while running
+
+Changing the model, microphone, wake word, `enabled` or `tts_enabled` in
+Settings restarts the assistant on save -- including the download prompt if
+you switch to a model that is not cached yet. Nothing needs a relaunch.
+
+`Client.assistant_config()` is the snapshot that gets compared; add to it if
+you add a setting the running assistant depends on.
+
+## Devices
+
+`input_device` is stored as a **name**, not an index, because PortAudio
+indices shift whenever devices are added or removed -- a pinned index
+silently becomes the wrong microphone. A configured name that is no longer
+present falls back to the system default and says so, rather than refusing
+to start.
+
+ALSA advertises its rate-conversion and channel-mixing plugins (`lavrate`,
+`samplerate`, `speexrate`, `upmix`, `vdownmix`) as capture devices. They are
+not microphones, so they are hidden from the listing -- but still resolvable
+by name if you deliberately want one. Real backends (`pulse`, `pipewire`,
+`default`, `sysdefault`, `hw:*`) are always listed.
+
+Microphone problems detected while running (unplugged mid-session, another
+app claiming the device) are reported back over the socket and shown once,
+not on every retry.
+
+## Speaking
+
+Skills should call `client.say(text)` rather than `client.TTS.play(...)`:
+
+```python
+if not self.client.say("Twenty two degrees."):
+    self.client.simple_notify("assistant", "Assistant", "Twenty two degrees.")
+```
+
+`say()` returns whether anything was actually said. TTS needs
+`ELEVENLABS_KEY` in `.env`; without it the app still runs, skills still work,
+they just do not talk back. `TTSProcessing` exposes `.available` and `.error`
+for the specific reason.
+
+## Wake words
+
+`client.wake_word` is the app-wide setting. A plugin may override it for its
+own skills, but should default to inheriting:
+
+```python
+own = str(self.settings.general.wake_word.value).strip()
+wake = own.lower() or self.client.wake_word
+```
+
+## Cross-platform note
+
+`import sounddevice` raises **OSError**, not ImportError, when PortAudio is
+missing -- which is the normal state of a fresh Windows install without audio
+drivers, or a minimal Linux container. Anything touching the audio stack must
+catch `Exception`, not `ImportError`. `audio.available()` already does, and
+returns a reason worth showing a user.
+
+
 # Dialogs
 
 `Client` exposes modal dialogs directly. All of them are thread-safe -- call
@@ -999,6 +1406,19 @@ dlg = self.client.progress("Syncing", "Talking to the server...")
 dlg.set_status("42 of 300")     # safe from any thread
 self.client.close_dialog()
 ```
+
+## Layering
+
+Dialogs are registered in the `DIALOG` overlay layer, which sits above
+`TOPMOST`. This matters: `OverlayManager._enforce_z_order()` raises every
+widget registered in a layer, and a widget that is only reparented onto
+`OVERLAYS` without being registered is invisible to it. Anything added to a
+layer afterwards - a notification toast, the voice bar - would then be raised
+over the dialog, hiding it and handing the next tap to the click blocker
+underneath, which closed it.
+
+If you build an overlay widget of your own, register it with
+`OVERLAYS.add(layer, widget)` rather than calling `setParent()`.
 
 ## Building your own
 

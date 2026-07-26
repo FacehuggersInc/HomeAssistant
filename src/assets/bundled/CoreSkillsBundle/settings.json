@@ -1,0 +1,16 @@
+{
+    "general": {
+        "wake_word": {
+            "type": "string",
+            "default": "",
+            "value": "",
+            "description": "Wake word for these skills. Leave empty to use the app-wide wake word from Assistant settings."
+        },
+        "confirm_quit": {
+            "type": "bool",
+            "default": true,
+            "value": true,
+            "description": "Ask for spoken confirmation before quitting the application."
+        }
+    }
+}

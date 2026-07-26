@@ -32,6 +32,13 @@ class APIRegistry():
         self.client : Client = client
         self.__store = {}
 
+    def endpoints_for(self, plugin_key:str) -> list[str]:
+        """Endpoint names owned by a plugin, sorted."""
+        return sorted(self.__store.get(plugin_key, {}).keys())
+
+    def owners(self) -> list[str]:
+        return sorted(self.__store.keys())
+
     def plugin_has_registered(self, plugin_key:str) -> bool:
         endpoints = self.__store.get(plugin_key, None)
         if endpoints:
