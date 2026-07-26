@@ -55,7 +55,6 @@ class APIRegistry():
         return None
 
     def unregister(self, plugin_key:str, endpoint:str = ""):
-        """Dynamic Unloading of a Endpoint"""
         if plugin_key and self.plugin_has_registered(plugin_key):
             if endpoint and self.plugin_has_endpoint(plugin_key, endpoint):
                 del self.__store[plugin_key][endpoint]
@@ -65,7 +64,6 @@ class APIRegistry():
                 self.client.log("info", f"[APIRegistry] '{plugin_key}' had it API endpoints unloaded")
 
     def register(self, plugin_key:str, endpoint:str, callback: Callable, requires_auth:bool, cached:bool = False) -> tuple[APIEndpoint, bool]:
-        """Creates and Stores an APIEndpoint. Returns the endpoint and if it was Just registered"""
         if not self.plugin_has_registered(plugin_key):
             self.__store.setdefault(plugin_key, {})
 

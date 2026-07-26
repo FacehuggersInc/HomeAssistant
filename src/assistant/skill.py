@@ -44,7 +44,6 @@ class SkillGroup:
 		return self.skills[idx]
 
 	def __add__(self, other):
-		"""Allows list + SkillGroup or SkillGroup + list"""
 		if isinstance(other, list):
 			return self.skills + other
 		elif isinstance(other, SkillGroup):
@@ -52,11 +51,9 @@ class SkillGroup:
 		return NotImplemented
 
 	def __radd__(self, other):
-		"""Allows list + SkillGroup in reverse order"""
 		if isinstance(other, list):
 			return other + self.skills
 		return NotImplemented
-
 
 
 class Skill:
@@ -71,31 +68,6 @@ class Skill:
 		func: Optional[Callable] = None,
 		words_leeway: int = 5
 	):
-		"""
-		Initialize a Skill instance for the assistant.
-
-		This class represents a skill with a wake word, intent key, plugin association,
-		example phrases, argument patterns, and an optional callable function.
-
-		Parameters
-		----------
-		wake_word : str
-			The keyword that activates the skill (e.g., "Clyde, assistant", "Clyde" being the keyword).
-		skill_key : str
-			A unique identifier for the skill.
-		plugin_key : str
-			The Plugin identifier, should be the same as the plugin key you created and registered for this Skill.
-		examples : list[str]
-			Example phrases demonstrating how the skill may be invoked. These will be converted automatically into the best
-		patterns : list[list[dict]], optional
-			Additional spaCy Matcher patterns for the skill beyond auto-generated patterns.
-		arguments : dict[str, list[list[dict]]], optional
-			Mapping of argument names to spaCy Matcher patterns for extracting arguments from text.
-		func : Callable, optional
-			Function to execute when this skill is triggered.
-		words_leeway : int, default=5
-			Extra allowance added to the maximum word count of example phrases for flexible pattern matching.
-		"""
 		self.nlp = nlp.model()
 		
 		self.wake = wake_word
@@ -141,7 +113,6 @@ class Skill:
 		return patterns
 	
 	def extract_args(self, doc):
-		"""Run arg_matcher on the doc and return dict of arguments"""
 		args = {}
 		matches = self.arg_matcher(doc)
 		for match_id, start, end in matches:
@@ -154,16 +125,11 @@ class Skill:
 		return self.normalized_patterns
 
 	def call(self, *args, **kwargs):
-		"""Execute the skill's function if defined"""
 		if self.func:
 			self.func(*args ,**kwargs)
 
 
 class SkillIntentEngine:
-	# Client.__init__ constructs one of these unconditionally, whether or not
-	# the voice assistant is ever used. Resolving the model here would defeat
-	# the lazy load entirely, so nlp/matcher are properties that only touch
-	# spaCy when something actually parses a phrase.
 
 	def __init__(self, client):
 		self.client = client
@@ -268,7 +234,6 @@ class SkillIntentEngine:
 		return s
 	
 	def multi_phase(self, phase):
-		"""deprecated"""
 		start = time.time()
 		phase_results = {}
 		phase_threads = {}

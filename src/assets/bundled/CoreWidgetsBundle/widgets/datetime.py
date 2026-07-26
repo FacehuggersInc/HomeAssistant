@@ -14,7 +14,6 @@ if TYPE_CHECKING:
 
 
 class DateTimeWidget(Widget):
-    """Displays current time and/or date. Labels are tight to their font height."""
 
     def __init__(
         self,

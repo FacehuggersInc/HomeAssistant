@@ -31,7 +31,6 @@ class TTSProcessing():
 		self.speaking = False
 
 
-
 	## AUDIO
 	def __convert_audio_to_buffer(self, audio:Iterator[bytes]) -> BytesIO:
 		buffer = io.BytesIO()
@@ -62,11 +61,9 @@ class TTSProcessing():
 		self.speaking = False
 
 
-
 	## HELPERS
 	def is_speaking(self) -> bool:
 		return self.speaking
-
 
 
 	## API
@@ -99,7 +96,6 @@ class TTSProcessing():
 
 	## INTERFACE
 	def play(self, text:str = None, audio:list[bytes] = None, thread:bool = True):
-		"""Ask ElevenLabs to generate the audio OR use already generated audio(ElevenLabs Audio Only), plays locally."""
 		if text:
 			if thread:
 				Thread(target = self.__play_tts, name=f"__tts_thread({text[:10]})" , args = [text, ]).start()
@@ -112,7 +108,6 @@ class TTSProcessing():
 				self.__play_audio(audio)
 
 	def stream(self, text:str, thread:bool = True):
-		"""Ask ElevenLabs to generate the audio from the text, then stream the audio back, playing audio in chunks."""
 		if thread: 
 			Thread(target = self.stream_audio, args = [text, ]).start()
 		else: 

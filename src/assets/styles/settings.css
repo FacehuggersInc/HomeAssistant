@@ -56,9 +56,7 @@
 }
 
 .category-header-standalone {
-    /* same header look, but used when a category has no content blocks
-       below it (e.g. a plugin with zero exposed settings) — full
-       radius all the way around instead of a flat bottom edge */
+    /* same header look, but used when a category has no content blocks belo... */
     background: rgba(255,255,255,10);
     border-radius: 8px;
 }
@@ -132,15 +130,12 @@
 }
 
 .settings-nav-rail {
-    /* wraps a category's indented sub-category buttons — the left
-       border is the "this branches off the category above it" guideline */
+    /* wraps a category's indented sub-category buttons — the left border is... */
     background: transparent;
     border-left: 2px solid rgba(255,255,255,30);
 }
 
-/* ── Plugin management buttons (settings page category header) ──────────
-   Color-coded by how destructive the action is: copy is neutral,
-   reload is an assertive-but-safe blue, unload is a clear red warning. */
+/* Plugin management buttons (settings page category header) Color-coded... */
 
 .plugin-action-copy {
     background: rgba(255,255,255,18);
@@ -180,9 +175,7 @@
     padding: 0 14px;
 }
 
-/* ── Sort toolbar (every category/sub-category page) ─────────────────────
-   Visible border even when inactive — these need to read as clickable
-   controls at a glance, not blend into the background until pressed. */
+/* Sort toolbar (every category/sub-category page) Visible border even w... */
 
 .sort-button {
     background: rgba(255,255,255,8);
@@ -221,8 +214,7 @@
 .plugin-action-install:hover   { background: #248a58; }
 .plugin-action-install:pressed { background: #1a6641; }
 
-/* Uninstall: destructive, and deliberately distinct from Unload —
-   Unload is reversible, this removes files from the venv. */
+/* Uninstall: destructive, and deliberately distinct from Unload — Unloa... */
 .plugin-action-uninstall {
     background: #7a2020;
     border: 1px solid #b03434;
@@ -241,8 +233,7 @@
     padding: 0 14px;
 }
 
-/* A plugin held back for missing packages: same card, dimmed, with a
-   dashed edge so it reads as "not active" rather than "broken". */
+/* A plugin held back for missing packages: same card, dimmed, with a da... */
 .category-header-pending {
     background: rgba(255,255,255,6);
     border: 1px dashed rgba(255,255,255,40);

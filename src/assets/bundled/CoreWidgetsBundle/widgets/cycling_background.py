@@ -15,15 +15,6 @@ from src.ui.icons import Icons
 
 
 class CyclingBackground(QWidget):
-    """
-    Full-screen cycling wallpaper with true crossfade.
-
-    A single widget owns two QPixmaps and paints them both in one
-    paintEvent: back at full opacity, front at (1 - progress).
-    QPropertyAnimation drives _progress from 0.0 → 1.0.
-    At 0.0: only front visible. At 1.0: only back visible.
-    During transition: genuine crossfade between the two.
-    """
 
     KEY = "cyclingbackground"
 

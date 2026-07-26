@@ -22,7 +22,6 @@ if TYPE_CHECKING:
 # ── Notification history item ─────────────────────────────────────────────────
 
 class NotificationHistoryItem(QFrame):
-    """A single swipe-dismissible notification row."""
 
     def __init__(self, history: "NotificationHistory",
                  icon: str, title: str, body: str,
@@ -31,12 +30,6 @@ class NotificationHistoryItem(QFrame):
         self._history   = history
         self._timestamp = timestamp
 
-        #card background — deliberately LIGHTER than NotificationPanel's
-        #own background (COLORS.DARK.BG) so each item reads as a
-        #distinct card rather than blending into the panel behind it.
-        #Using the same colour as the parent panel was the original bug
-        #here: visually there was no contrast between "this is a
-        #notification card" and "this is empty panel background".
         set_style(self, "notification", "notification-history-item")
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
 
@@ -44,11 +37,6 @@ class NotificationHistoryItem(QFrame):
         layout.setContentsMargins(10, 8, 10, 8)
         layout.setSpacing(12)
 
-        # Icon — resolved through the same Icons/qtawesome system every
-        # other icon in the app uses, instead of just taking the first
-        # character of the icon string (which is what was happening
-        # before: "check" became "C", "download" became "D", etc. —
-        # never an actual icon at all)
         icon_lbl = QLabel()
         icon_lbl.setFixedSize(36, 36)
         set_style(icon_lbl, "common", "transparent")
@@ -56,9 +44,6 @@ class NotificationHistoryItem(QFrame):
         try:
             icon_lbl.setPixmap(resolve_icon(icon or "bell", color="white").pixmap(24, 24))
         except Exception:
-            #resolve_icon() already falls back to a generic icon for
-            #unresolvable names, so this is only a last-resort guard
-            #against something unexpected (e.g. a non-string icon arg)
             icon_lbl.setPixmap(resolve_icon("bell", color="white").pixmap(24, 24))
         layout.addWidget(icon_lbl)
 
@@ -114,29 +99,6 @@ class NotificationHistoryItem(QFrame):
 # ── Notification history ───────────────────────────────────────────────────────
 
 class NotificationHistory:
-    """
-    Tracks notification history independently of any single
-    NotificationCenterWidget instance.
-
-    This object is exposed globally via client.public (see
-    NotificationCenterWidget.__init__), which means it can OUTLIVE the
-    specific widget instance that created it. The home page (and its
-    NotificationCenterWidget) gets destroyed and rebuilt every time
-    Client.goto() navigates away and back, or a plugin reloads — but
-    nothing clears client.public.notification_history on a normal page
-    navigation, only on plugin unload. So self.manager can end up
-    pointing at a widget whose underlying C++ object has already been
-    deleted by Qt, while this Python object is still very much alive
-    and still the one client.simple_notify() reaches for.
-
-    is_manager_alive() below guards every method that touches
-    self.manager for exactly this reason — calling .show()/.hide() or
-    reading an attribute off a deleted QWidget raises
-    "RuntimeError: wrapped C/C++ object ... has been deleted", which
-    is silent and easy to trigger just by calling simple_notify() from
-    any page other than the one whose widget originally created this
-    history object.
-    """
 
     def __init__(self, manager: "NotificationCenterWidget"):
         self.manager = manager
@@ -149,16 +111,12 @@ class NotificationHistory:
             self.items = self.client.public.cwb_notifications
 
     def is_manager_alive(self) -> bool:
-        """True if self.manager's underlying Qt widget still exists."""
         if self.manager is None:
             return False
         try:
             from PyQt6 import sip
             return not sip.isdeleted(self.manager)
         except ImportError:
-            # sip unavailable for some reason — fall back to a plain
-            # attribute access, which itself raises RuntimeError on a
-            # deleted widget and is caught the same way
             try:
                 self.manager.isVisible()
                 return True
@@ -199,11 +157,6 @@ class NotificationHistory:
 # ── Notification center widget ────────────────────────────────────────────────
 
 class NotificationCenterWidget(Widget):
-    """
-    Bell icon in the top-right corner.
-    Shows a blue dot when there are unread notifications.
-    Opens a dialog listing all history items.
-    """
 
     SIZE = 55
 
@@ -221,19 +174,6 @@ class NotificationCenterWidget(Widget):
             f"notify_center_dialog:{client.uuid()}"
         )
 
-        # Reuse the existing NotificationHistory if one was already
-        # exposed by a previous NotificationCenterWidget instance,
-        # re-pointing its manager at THIS fresh widget instead of
-        # creating a brand new, disconnected history object. The home
-        # page (and this widget) gets destroyed and rebuilt on every
-        # navigation away-and-back or plugin reload — without this,
-        # client.public.notification_history would keep pointing at
-        # whichever widget instance last constructed a NotificationHistory,
-        # and that instance's underlying Qt object is gone the moment
-        # you navigate elsewhere. is_manager_alive() in NotificationHistory
-        # is still the real safety net for whenever NO home page exists
-        # at all (e.g. simple_notify() called from Settings), but
-        # re-linking here keeps that gap as small as possible.
         if client.public.has("notification_history"):
             self.history = client.public.notification_history
             self.history.manager = self
@@ -283,8 +223,6 @@ class NotificationCenterWidget(Widget):
             self._panel.toggle()
 
     def _open_history(self, event=None) -> None:
-        #lazily build the panel once, then just toggle it open/closed
-        #from then on — same pattern TilePanel uses
         if self._panel is None:
             self._panel = NotificationPanel(self)
         self._panel.toggle()
@@ -294,26 +232,6 @@ class NotificationCenterWidget(Widget):
 # ── Notification panel ──────────────────────────────────────────────────────
 
 class NotificationPanel(Panel):
-    """
-    Slide-in panel listing notification history, anchored to the
-    right edge of the screen — same full-height treatment as
-    TilePanel (src/ui/widgets/tile_panel.py), since this just inherits
-    Panel's default _sync_geometry() unmodified rather than overriding
-    it. (An earlier version of this class sat shorter, just below the
-    bell icon, via its own _sync_geometry() override — removed in
-    favour of matching TilePanel's full height.)
-
-    Inherits from Panel (src/ui/overlays.py) for its OVERLAYS-based
-    parenting: parented to client.OVERLAYS up front, in __init__, and
-    never reparented again afterwards. That specific ordering is what
-    actually matters here — this panel used to be shown via
-    client.DIALOG.open(), which reparents a widget onto the overlay
-    manager AFTER its position was already set, resetting its
-    geometry relative to the new parent. That's what caused the dialog
-    to always appear centred instead of at the top-right corner.
-    Panel solves that the same way this class used to solve it by
-    hand, just generically.
-    """
 
     WIDTH = Panel.DEFAULT_WIDTH   #shared by every panel — see Panel.apply_frosted_style()
 
@@ -322,13 +240,6 @@ class NotificationPanel(Panel):
         self.manager = manager
         self._anim.setEasingCurve(QEasingCurve.Type.OutCubic)
 
-        #give ourselves our own objectName so set_style() calls below
-        #(for the title/close/clear buttons) stay correctly scoped to
-        #us — then re-apply the frosted style, since Panel.__init__
-        #already applied it once using the objectName it had *before*
-        #this rename, and a stylesheet's ID selector won't follow a
-        #rename. Square, like TilePanel, since this is now a flush
-        #full-height panel rather than a floating one.
         self.setObjectName("notif_panel")
         self.apply_frosted_style()
 
@@ -365,15 +276,7 @@ class NotificationPanel(Panel):
         scroll.setWidgetResizable(True)
         set_style(scroll, "notification", "notification-scroll", object_tag="QScrollArea")
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        #see TilePanel's identical fix — the QSS rule above only styles
-        #the scroll area's outer frame, not this separate internal
-        #viewport widget, which otherwise paints opaque over the
-        #blurred backdrop for most of the panel
         scroll.viewport().setAutoFillBackground(False)
-        # Finger-drag scrolling with inertia — same reasoning as
-        # SettingsPage (src/pages/settings.py): a plain QScrollArea
-        # only reacts to the scrollbar handle or a mouse wheel, and
-        # ours is hidden via ScrollBarAlwaysOff above.
         QScroller.grabGesture(scroll.viewport(),
                                QScroller.ScrollerGestureType.LeftMouseButtonGesture)
 
@@ -389,12 +292,8 @@ class NotificationPanel(Panel):
 
         self._populate()
 
-        #Panel.__init__ (already ran via super().__init__() above) calls
-        #its own _sync_geometry() + self.hide() for us — full-height,
-        #right-edge anchored, same as TilePanel. No override needed.
 
     def toggle(self) -> None:
-        """Slide the panel in if closed, or out if open."""
         self._sync_geometry()   #account for any window resize since last toggle
 
         self._anim.stop()

@@ -28,10 +28,6 @@ class SubHomePage(SubPageFramework):
         self.setFixedSize(w, h)
         set_style(self, "common", "page-background")
 
-        # Widget layer — empty space passes clicks through to the drawer
-        # handle via WidgetFramework's own mouse event handling (it
-        # ignore()s clicks rather than using WA_TransparentForMouseEvents,
-        # which would also make child widgets like buttons unclickable)
         self.widget_manager = WidgetFramework(
             client   = client,
             page_key = "sub.home",
@@ -57,8 +53,6 @@ class SubHomePage(SubPageFramework):
             self._btn_close,
         ])
 
-        # Z-order: background < widget_manager < drawer
-        # widget_manager is transparent to mouse so drawer handle receives clicks
         self.widget_manager.raise_()
         self.drawer.raise_()
 

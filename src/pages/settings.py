@@ -27,11 +27,6 @@ from src.ui.keyboard import make_keyboard
 if TYPE_CHECKING:
     from src.main import Client
 
-## INTERACTIVE SURFACE COLORS
-## -- Field, EnumComponent, and ToggleSwitch's "off" state all share this
-## -- translucent white-overlay tier, one step lighter than a
-## -- setting-block card, so the editable part of a setting reads as
-## -- raised OUT of its card rather than a disconnected solid-gray box.
 
 FIELD_BG           = QColor(255, 255, 255, 40)
 FIELD_BORDER       = QColor(255, 255, 255, 55)
@@ -49,7 +44,6 @@ def format_name(name: str) -> str:
         if sep in name:
             return " ".join(w.capitalize() for w in name.split(sep))
     return " ".join(f"{w[0].upper()}{w[1:]}" for w in name.split(" "))
-
 
 
 class GridBackground(QWidget):
@@ -120,10 +114,6 @@ class ToggleSwitch(QWidget):
 
 
 class Field(QWidget):
-    """
-    Input field. Draws its own background via paintEvent so parent
-    stylesheet cascades cannot override it.
-    """
 
     def __init__(self, setting, index=None, is_numeric=False, prefix="", suffix="", on_change=None):
         super().__init__()
@@ -219,16 +209,6 @@ class Field(QWidget):
 
 
 def normalize_setting_type(raw_t: str) -> str:
-    """
-    Collapses a raw setting "type" string down to the same category
-    SettingBlock actually dispatches on when building a control for it
-    — "list[float]"/"list[int]" both become "list", "double" becomes
-    "float". Used both there and by the sort toolbar's "type" axis, so
-    sorting by type groups things exactly the same way they're already
-    grouped by which control renders for them, rather than treating
-    e.g. "list[float]" and "list[int]" as two different types just
-    because the raw strings differ.
-    """
     t = "list" if raw_t.startswith("list") else raw_t
     if t in ("double",):
         t = "float"
@@ -259,37 +239,11 @@ class SettingBlock(QFrame):
         super().__init__()
         self.client  = client
         self._setting = setting
-        # Snapshot of the value as it was when this block was first
-        # built — what _refresh_modified_badge() actually compares
-        # against, NOT the template's "default" field. "Modified" means
-        # "you've changed this since opening the page", not "differs
-        # from the factory default forever" — comparing against the
-        # template default would show the badge on startup for any
-        # setting you'd legitimately customized in a previous session
-        # and saved, which isn't useful information; comparing against
-        # this snapshot means it's trivially equal (badge hidden) right
-        # when the page loads, and only shows once you actually change
-        # something. deepcopy matters here specifically for list-type
-        # settings — their Field widgets mutate setting["value"] in
-        # place, so a shallow reference here would silently track the
-        # live list itself instead of a real snapshot.
         self._initial_value = copy.deepcopy(setting.get("value")) if setting else None
         set_style(self, "settings", "setting-block")
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
 
-        # Read by the sort toolbar (see _sorted_content()) — A-Z/Z-A
-        # sorts by this. Not a dependency-having thing, so it just
-        # doesn't move under the "dependants" sort mode (sort_dependants
-        # is read via getattr(..., 0) there, defaulting everything
-        # without it to 0 and leaving relative order stable).
         self.sort_label = (setting.get("name") if setting else None) or format_name(key) or ""
-        # Read by the sort toolbar's "type" axis — normalized the same
-        # way the widget-dispatch logic below groups things (list[float]
-        # and list[int] both count as "list", etc.), so sorting by type
-        # groups things exactly the same way they're already grouped by
-        # which control renders for them. Doesn't mean anything for
-        # plugin-supplied raw content (no real setting dict), so it
-        # just defaults to "no type", which sorts as a no-op.
         self.sort_type = normalize_setting_type(setting.get("type", "")) if setting else ""
 
         outer = QVBoxLayout(self)
@@ -310,13 +264,6 @@ class SettingBlock(QFrame):
         set_style(name_lbl, "common", "text-strong")
         header.addWidget(name_lbl)
 
-        # Live "Modified" badge — shown directly on the block rather
-        # than as a sort option, since a sort computed once when the
-        # page is built can't reflect an edit you make without leaving
-        # and coming back. _refresh_modified_badge() gets called by
-        # every control below on every change, live, so this actually
-        # tracks the current in-memory value against its declared
-        # default in real time.
         self._modified_badge = QLabel("Modified")
         self._modified_badge.setFont(make_font(SIZES.S1, bold=True))
         set_style(self._modified_badge, "settings", "modified-badge")
@@ -402,10 +349,6 @@ class SettingBlock(QFrame):
         self._modified_badge.setVisible(is_modified)
 
 
-
-
-
-
 # ── Section label ─────────────────────────────────────────────────────────────
 
 def _section_label(text: str) -> QLabel:
@@ -423,11 +366,9 @@ def _divider() -> QFrame:
     return d
 
 
-
 # ── Info page ─────────────────────────────────────────────────────────────────
 
 def _build_info_page(client) -> list:
-    """Build the widgets for the Info category."""
     import socket, platform
 
     def _local_ip() -> str:
@@ -566,11 +507,6 @@ class SettingsPage(PageFramework):
         self._content_scroll.setHorizontalScrollBarPolicy(
             Qt.ScrollBarPolicy.ScrollBarAlwaysOff
         )
-        # Lets a finger-drag scroll this like a phone, with inertia —
-        # a plain QScrollArea only reacts to the scrollbar handle or a
-        # mouse wheel, neither usable here since the scrollbar's
-        # hidden (ScrollBarAlwaysOff above). Works for a real mouse
-        # drag too, so there's no downside to leaving this always on.
         QScroller.grabGesture(self._content_scroll.viewport(),
                                QScroller.ScrollerGestureType.LeftMouseButtonGesture)
 
@@ -607,20 +543,6 @@ class SettingsPage(PageFramework):
             "new_settings_list":      self.builder,
         })
 
-        # Edits build up against a working copy, not the live
-        # client.SETTINGS — nothing here takes effect anywhere else in
-        # the app until Save and Return is actually pressed (see
-        # return_and_save() below). Previously every Field wrote
-        # straight into client.SETTINGS on every keystroke, live —
-        # mostly just "early" for most settings, but actively dangerous
-        # for application.interaction_timeout specifically: that's the
-        # exact value _check_interaction_timeout() (src/main.py) reads
-        # to decide when to fire the idle event THIS PAGE reacts to by
-        # auto-saving and leaving — so retyping it could self-trigger
-        # an immediate save of whatever half-typed digit was sitting in
-        # the field a moment before you finished. See
-        # _check_interaction_timeout()'s own floor for the other half
-        # of that fix.
         self._working_settings = Settings(copy.deepcopy(client.settings_dict()))
         self._generate_settings(self._working_settings, self._working_settings.to_dict())
         self._page_additions()
@@ -629,8 +551,6 @@ class SettingsPage(PageFramework):
     # ── Builder ───────────────────────────────────────────────────────────────
 
     def new_category(self, name: str, controls: list, label: str = None) -> None:
-        """Register (or replace) a top-level category. `controls` is this
-        category's own content, shown below its title-card header."""
         self.categories[name] = {
             "label":      label or format_name(name),
             "content":    controls,
@@ -646,22 +566,6 @@ class SettingsPage(PageFramework):
                          label: str = None, plugin=None, plugin_key: str = None,
                          icon: str = None, readme: str = None,
                          pending=None) -> None:
-        """
-        Register a sub-category nested under an existing top-level
-        category — rendered indented beneath it in the nav (connected by
-        a small rail, see _build_nav()), with its own title-card header
-        and content, same as a top-level category gets.
-
-        Currently used purely to give every plugin its own page under
-        "plugins" (see _page_additions()) — pass plugin/plugin_key for
-        that case and the header gets the Copy Key / Reload / Unload
-        buttons automatically (see _build_category_header()). icon/
-        readme come from that same plugin's optional plugin.toml
-        fields — see _build_nav()/_build_category_header() for where
-        they actually render. Neither plugin/plugin_key/icon/readme is
-        plugin-specific otherwise; this mechanism works for any
-        category. Only one level of nesting is supported.
-        """
         if parent not in self.categories:
             self.client.log("warning", f"[SettingsPage.new_subcategory] parent category '{parent}' does not exist — call new_category() first")
             return
@@ -673,9 +577,6 @@ class SettingsPage(PageFramework):
             "plugin_key": plugin_key,
             "icon":       icon,
             "readme":     readme,
-            # A PendingPlugin when this page belongs to a plugin that could
-            # not load for missing pip packages. The header renders
-            # differently in that case -- see _build_category_header().
             "pending":    pending,
         }
 
@@ -729,23 +630,12 @@ class SettingsPage(PageFramework):
         overview = []
         for plugin, key in plugins:
             icon_value = plugin.config.get_path("plugin.icon", None)
-            # The overview page is a stacked summary of every plugin at
-            # once — each plugin's own dedicated subpage already shows
-            # its readme, so repeating potentially-long markdown content
-            # N times over here would make this page unreasonably tall.
-            # readme=None keeps everything else (icon, title, action
-            # buttons, dependency line) identical to that subpage's
-            # header.
             overview.append(self._build_category_header(
                 plugin.config.plugin.name,
                 plugin=plugin, plugin_key=key,
                 has_content=True, icon=icon_value, readme=None,
             ))
 
-        # Plugins held back for missing pip packages are listed alongside the
-        # loaded ones rather than hidden -- otherwise declining the startup
-        # prompt makes them vanish with no way back. They render dimmed, with
-        # an Install button in place of the usual actions.
         for item in self.client.PLUGIN.pending_plugins():
             overview.append(self._build_pending_header(item))
 
@@ -772,7 +662,6 @@ class SettingsPage(PageFramework):
             )
 
     def _build_pending_header(self, item) -> QFrame:
-        """Title card for a plugin that could not load for missing packages."""
         from src.plugin import dependencies as deps
 
         card = QFrame()
@@ -872,26 +761,12 @@ class SettingsPage(PageFramework):
     def _build_category_header(self, label: str, plugin=None, plugin_key: str = None,
                                 has_content: bool = True, icon: str = None,
                                 readme: str = None, pending=None) -> QFrame:
-        """The title card shown at the top of every category's and every
-        sub-category's content. Plugin sub-categories additionally get
-        the Copy Key / Reload / Unload management buttons in the top
-        row (see _build_plugin_actions()), an icon next to the title if
-        plugin.toml declared one, and its README rendered as markdown
-        at the very bottom if it declared that too (see
-        _build_readme_block())."""
-        # A plugin held back for missing packages gets an entirely different
-        # card: dimmed, badged, and offering Install instead of the usual
-        # Copy Key / Reload / Unload row.
         if pending is not None:
             return self._build_pending_header(pending)
 
         card = QFrame()
         set_style(card, "settings", "category-header" if has_content else "category-header-standalone")
 
-        # Read by the sort toolbar (see _sorted_content()) when this
-        # header is one entry among several sortable ones — currently
-        # only the Plugins overview page (_page_additions()) stacks
-        # multiple of these together.
         card.sort_label = label
         card.sort_dependants = len(self.client.PLUGIN.get_dependants(plugin_key)) if plugin_key else 0
 
@@ -941,11 +816,6 @@ class SettingsPage(PageFramework):
         return card
 
     def _build_readme_block(self, readme_path: str) -> QLabel | None:
-        """Renders a plugin's optional plugin.toml `readme` file (a
-        path, resolved relative to the plugin's own directory by
-        PluginManager at load time) as markdown. Returns None if
-        there's no path, the file's missing, or it's empty — same
-        "just don't show it" approach as _build_dependency_line()."""
         if not readme_path:
             return None
         path = Path(readme_path)
@@ -969,30 +839,11 @@ class SettingsPage(PageFramework):
         set_style(label, "common", "text-muted")
         return label
 
-    # ── Sort toolbar ─────────────────────────────────────────────────────────
-    # Shown at the top of every category/sub-category's content (built
-    # fresh each time _show_category() renders), sorting whatever's in
-    # target["content"] — SettingBlocks normally, or the stacked plugin
-    # headers on the Plugins overview page (see _page_additions()).
-    #
-    # One button per axis (alphabetical, dependants), not one per
-    # direction — clicking a button that isn't active yet turns sorting
-    # on for that axis at its default direction; clicking the axis
-    # that's ALREADY active flips its direction in place instead of
-    # turning anything off. The icon shown on each button always
-    # reflects its OWN current direction (which way clicking it again
-    # would go), regardless of whether that axis is the active one.
 
     SORT_AXES = ("alpha", "dependants", "type")
 
     def _compose_dual_icon(self, name1: str, name2: str, size: int = 20,
                             gap: int = 4, color: str = "white") -> QIcon:
-        """
-        Renders two icon-system glyphs side by side into one QIcon —
-        used for the sort buttons below so each one visually shows
-        *both ends* of what it sorts (e.g. an A and a Z) instead of
-        relying on a text label to explain itself.
-        """
         i1 = icon(name1, color=color).pixmap(QSize(size, size))
         i2 = icon(name2, color=color).pixmap(QSize(size, size))
         canvas = QPixmap(size * 2 + gap, size)
@@ -1008,8 +859,6 @@ class SettingsPage(PageFramework):
         if axis == "alpha":
             return (self._compose_dual_icon("mdi.alpha-a-box", "mdi.alpha-z-box") if direction == "asc"
                     else self._compose_dual_icon("mdi.alpha-z-box", "mdi.alpha-a-box"))
-        # Every other axis uses the same visual language: a glyph for
-        # the concept being sorted, plus a direction arrow.
         concept = {
             "dependants": "mdi.sitemap",
             "type":       "mdi.shape-outline",
@@ -1030,12 +879,6 @@ class SettingsPage(PageFramework):
             "dependants": "Dependants",
             "type":       "Type",
         }
-        # dependants only means anything for plugin headers (which have
-        # a dependency relationship); type only means anything for real
-        # SettingBlocks (which have an actual setting type). Plugin
-        # headers aren't settings and don't have one, so the two axes
-        # are mutually exclusive based on whether we're in the Plugins
-        # category at all — never both shown, never both hidden.
         axes = [a for a in self.SORT_AXES
                 if (a != "dependants" or in_plugins_category)
                 and (a != "type" or not in_plugins_category)]
@@ -1050,8 +893,6 @@ class SettingsPage(PageFramework):
             set_style(btn, "settings", "sort-button-active" if is_active else "sort-button")
             btn.clicked.connect(lambda _, a=axis: self._click_sort_axis(a))
 
-            # A label, not a tooltip — there's no hover state on a
-            # touchscreen, so a tooltip would never actually be seen.
             cap_lbl = QLabel(captions[axis])
             cap_lbl.setFont(make_font(SIZES.S1))
             set_style(cap_lbl, "common", "text-muted")
@@ -1069,40 +910,17 @@ class SettingsPage(PageFramework):
         return bar
 
     def _click_sort_axis(self, axis: str) -> None:
-        """
-        Each axis cycles through 3 states with repeated clicks:
-        ascending -> descending -> off (back to the page's normal
-        declared order) -> ascending -> ... Switching to a DIFFERENT
-        axis always starts that axis fresh at ascending, discarding
-        whatever direction it was left on last time, so the cycle is
-        always predictable from a cold start regardless of history.
-        """
         if self._active_sort_mode != axis:
             self._active_sort_mode = axis
             self._sort_direction[axis] = "asc"
         elif self._sort_direction[axis] == "asc":
             self._sort_direction[axis] = "desc"
         else:
-            # last step of the cycle -> off, reset so the next time
-            # this axis is picked it starts at the beginning again
             self._active_sort_mode = None
             self._sort_direction[axis] = "asc"
         self._show_category(self._active_path)
 
     def _sorted_content(self, content: list) -> list:
-        """
-        Default (no active sort) returns content completely unchanged —
-        including structural widgets like section labels/dividers that
-        nested settings groups use, since those need to stay anchored
-        to their original position relative to the blocks they
-        introduce. An active sort instead keeps only the genuinely
-        sortable items (anything with a sort_label — see SettingBlock
-        and _build_category_header) and drops the structural ones,
-        since "sort everything alphabetically" and "preserve these
-        section groupings" can't both be true at once. Picking a sort
-        axis is an explicit choice to flatten the page in exchange for
-        that ordering.
-        """
         if not self._active_sort_mode:
             return content
 
@@ -1120,15 +938,6 @@ class SettingsPage(PageFramework):
 
 
     def _build_dependency_line(self, plugin_key: str) -> QLabel | None:
-        """
-        "Depends on: ..." / "Required by: ..." line for a plugin's
-        header — this plugin's own declared dependencies (whether or
-        not they're currently loaded) and the currently-loaded plugins
-        that depend on IT (the same live set unload_plugin() checks
-        before refusing to unload). Returns None when there's nothing
-        to show, so the header doesn't grow for a plugin with no
-        dependency relationships either way.
-        """
         own_deps  = self.client.PLUGIN.get_dependencies(plugin_key)
         dependants = self.client.PLUGIN.get_dependants(plugin_key)
         if not own_deps and not dependants:
@@ -1151,10 +960,6 @@ class SettingsPage(PageFramework):
         return line
 
     def _build_plugin_actions(self, plugin, plugin_key: str) -> list[QPushButton]:
-        """Copy Key / Reload / Unload buttons for a plugin's settings
-        header — color-coded by how destructive the action is (see
-        settings.css) and 44px tall to stay comfortably touch-sized,
-        same as every other primary control on this page."""
         copy_btn = QPushButton("Copy Key")
         copy_btn.setFont(make_font(SIZES.S2, bold=True))
         copy_btn.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -1178,11 +983,6 @@ class SettingsPage(PageFramework):
 
         dependants = self.client.PLUGIN.get_dependants(plugin_key)
         if dependants:
-            # Reload stays available on purpose — only a plain unload
-            # is blocked, since unload_plugin() itself refuses it while
-            # any of these is still loaded (see PluginManager.unload_plugin).
-            # Disabling the button here just means there's nothing to
-            # click instead of a click that's silently refused.
             unload_btn.setEnabled(False)
             unload_btn.setCursor(Qt.CursorShape.ForbiddenCursor)
             unload_btn.setToolTip(
@@ -1197,9 +997,6 @@ class SettingsPage(PageFramework):
 
         buttons = [copy_btn, reload_btn, unload_btn]
 
-        # Uninstall is only meaningful for plugins that declare pip
-        # requirements, so plugins without any never grow the button at all
-        # rather than showing a permanently dead control.
         specs = self.client.PLUGIN.plugin_requirements(plugin_key)
         if specs:
             buttons.append(self._build_uninstall_button(plugin_key, specs))
@@ -1207,8 +1004,6 @@ class SettingsPage(PageFramework):
         return buttons
 
     def _build_uninstall_button(self, plugin_key: str, specs: list) -> QPushButton:
-        """Removes the plugin's pip packages, then unloads it. Distinct from
-        Unload, which is reversible without touching the venv."""
         from src.plugin import dependencies as deps
 
         btn = QPushButton("Uninstall")
@@ -1266,29 +1061,17 @@ class SettingsPage(PageFramework):
         self.client.simple_notify(Icons.COPY, "Settings", f"Copied '{plugin_key}' to clipboard.")
 
     def _reload_plugin(self, plugin_key: str) -> None:
-        # reload_plugin() does its own client.goto() (with override=True)
-        # once finished, including the brief "Reloading…" detour and a
-        # success notification — nothing else needed here. Deferred via
-        # call_on_ui so it runs after this click handler returns rather
-        # than nested inside it, same pattern src/backend.py uses for
-        # the same call.
         self.client.call_on_ui(lambda: self.client.PLUGIN.reload_plugin(plugin_key))
 
     def _unload_plugin(self, plugin_key: str) -> None:
         def _do():
             if not self.client.PLUGIN.unload_plugin(plugin_key):
-                # Refused — most likely a dependant loaded in the brief
-                # window between this button being built and clicked.
-                # unload_plugin() already logged why; just surface it.
                 dependants = self.client.PLUGIN.get_dependants(plugin_key)
                 detail = (f" — required by: {', '.join(dependants)}" if dependants else "")
                 self.client.simple_notify(Icons.WARNING, "Settings",
                                            f"Couldn't unload '{plugin_key}'{detail}.")
                 return
             self.client.simple_notify(Icons.DELETE, "Settings", f"'{plugin_key}' was unloaded.")
-            # Force the settings page to rebuild from scratch — its nav
-            # and the now-gone plugin's sub-category would otherwise
-            # keep referencing an instance that no longer exists.
             self.client.goto("#settings", override=True)
         self.client.call_on_ui(_do)
 
@@ -1341,8 +1124,6 @@ class SettingsPage(PageFramework):
             self._select_path(first_path)
 
     def _apply_nav_style(self, btn: QPushButton, state: str, indent: bool = False) -> None:
-        # state: "active" (this exact button is selected), "parent" (a
-        # child of this category is selected), or "inactive"
         bg = {"active": "rgba(255,255,255,18)",
               "parent": "rgba(255,255,255,8)",
               "inactive": "transparent"}[state]
@@ -1403,15 +1184,6 @@ class SettingsPage(PageFramework):
 
     @mixin_target("settings.timeout")
     def interaction_timeout(self, event=None) -> None:
-        # on_interaction_timeout fires from update_thread(), not the Qt
-        # UI thread — return_and_save() below calls client.goto(),
-        # which creates and destroys real QWidgets. Doing that off the
-        # UI thread is undefined behaviour in Qt and was crashing the
-        # app the moment this actually fired. self.interaction_timeout
-        # itself stays a plain bound method (so subscribe_to_event/
-        # unsubscribe_from_event in start()/stop() keep working via the
-        # usual bound-method equality), it just immediately hands the
-        # real work to the UI thread instead of doing it right here.
         self.client.call_on_ui(self._do_interaction_timeout)
 
     def _do_interaction_timeout(self) -> None:
@@ -1423,22 +1195,6 @@ class SettingsPage(PageFramework):
 
     @mixin_target("settings.save")
     def return_and_save(self, event=None, notify: bool = True) -> None:
-        # This used to be missing entirely — the page navigated away and
-        # claimed "Settings saved!" without ever writing anything to
-        # disk. Every change up to this point only ever lived in the
-        # in-memory client.SETTINGS object; it would have been silently
-        # lost on the next restart unless the app happened to reach a
-        # clean Client.stop() first.
-        #
-        # __init__ now builds this page against self._working_settings
-        # (a deep copy) rather than the live client.SETTINGS, so
-        # nothing committed until exactly here: dump the working copy,
-        # then client.SETTINGS.reload() re-reads that same file
-        # (client.DATA) right back in. Reload refreshes the *existing*
-        # Dynaconf object in place rather than replacing it, so
-        # anything elsewhere already holding a reference to
-        # client.SETTINGS keeps working unchanged — it just sees the
-        # new values.
         self.client.dump(self._working_settings.to_dict(), self.client.DATA)
         self.client.SETTINGS.reload()
         self.client.iterate_event_callables("on_settings_saved", self.client.SETTINGS)
@@ -1455,13 +1211,6 @@ class SettingsPage(PageFramework):
 
     def stop(self) -> None:
         super().stop()
-        # Essential, not just tidy — without this, this page instance
-        # stays subscribed even after goto() destroys it (e.g. via Save,
-        # or navigating away some other way), and the next idle timeout
-        # anywhere in the app would call interaction_timeout() on a
-        # deleted widget. Same class of bug as Drawer's own auto-close
-        # timer outliving the Drawer itself — see Drawer.__init__ in
-        # src/ui/controls/drawer.py for the other place this was fixed.
         self.client.unsubscribe_from_event("on_interaction_timeout", self.interaction_timeout)
 
     def resizeEvent(self, event) -> None:

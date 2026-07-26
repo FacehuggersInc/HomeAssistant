@@ -1,6 +1,4 @@
-
 class PublicRegistry:
-    """Central registry for plugin-exposed classes, variables and etc."""
 
     def __init__(self):
         self.exposed: dict[str, list[str]] = {}

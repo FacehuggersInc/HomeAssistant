@@ -28,10 +28,6 @@ class _Key(QPushButton):
 # ── Base keyboard ─────────────────────────────────────────────────────────────
 
 class KeyboardPopup(QWidget):
-    """
-    Floating keyboard that types into a target QLineEdit.
-    Slides up from the bottom of the overlay.
-    """
 
     submitted = pyqtSignal(str)   # emitted on Enter/Done
 
@@ -94,7 +90,6 @@ class KeyboardPopup(QWidget):
                 col += span
 
     def _key_rows(self) -> list:
-        """Override in subclasses for different layouts."""
         return [
             ["1","2","3","4","5","6","7","8","9","0"],
             ["q","w","e","r","t","y","u","i","o","p"],
@@ -185,7 +180,6 @@ class KeyboardPopup(QWidget):
 # ── Numpad (int / float only) ─────────────────────────────────────────────────
 
 class NumpadPopup(KeyboardPopup):
-    """Compact numpad for int / float / numeric settings."""
 
     def _key_rows(self) -> list:
         return [
@@ -212,7 +206,6 @@ class NumpadPopup(KeyboardPopup):
 
 def make_keyboard(client, target: QLineEdit, setting_type: str,
                   parent: QWidget) -> KeyboardPopup:
-    """Return the appropriate keyboard for the setting type."""
     numeric_types = {"int", "float", "numeric", "list[int]", "list[float]"}
     if setting_type in numeric_types:
         kb = NumpadPopup(client, target, parent)

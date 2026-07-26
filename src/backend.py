@@ -28,7 +28,6 @@ def FlaskApp(client):
 
 	# AUTH & HELPERS
 	def auth():
-		"""Return error response tuple if ?id= is missing or wrong, else None."""
 		given = request.args.get("id", "").strip()
 		if not given:
 			return {"request": "Failed", "reason": "Missing required ?id= parameter"}, 401
@@ -37,15 +36,6 @@ def FlaskApp(client):
 		return None
 
 	def log(level:str = "info", extra:str = ""):
-		"""
-		Log the current request endpoint and query args.
-		Masks the id= parameter if present.
-		Call at the top of any route function:
-			@app.route("/something")
-			def something():
-				log()
-				...
-		"""
 		args = {k: ("***" if k == "id" else v) for k, v in request.args.items()}
 		arg_str = "  " + "  ".join(f"{k}={v}" for k, v in args.items()) if args else ""
 
@@ -53,7 +43,6 @@ def FlaskApp(client):
 			client.log(level, f"[API] {request.method} {request.path}{arg_str}")
 		else:
 			client.log(level, f"[API][{extra}] {request.method} {request.path}{arg_str}")
-
 
 
 	## CLIENT CONTROL ENDPOINTS
@@ -82,14 +71,6 @@ def FlaskApp(client):
 		if not client.BUILT:
 			return {"request": "Failed", "reason": "Wait until the Program has started fully."}
 
-		# Staging only. This used to download and overwrite the installed tree
-		# in place while the Qt app was still running, then sleep 2s and quit --
-		# which races every lazy import still to come, cannot replace a file
-		# Windows has open, and had no way back if it failed halfway through.
-		#
-		# Now the payload lands in .update-staging/ and the launcher applies it
-		# with the app stopped, keeping a backup until the new build proves it
-		# can start. See src/updater.py.
 		from src import updater
 
 		def staging_thread():
@@ -108,8 +89,6 @@ def FlaskApp(client):
 			client.UPDATE = True
 			client.call_on_ui(client.stop)
 
-		# Download off the request thread so the endpoint answers immediately
-		# instead of holding the connection open for the whole transfer.
 		Thread(target=staging_thread, name="__update_staging", daemon=True).start()
 		return {"request": "Success", "message": "Update staging started."}
 
@@ -146,7 +125,6 @@ def FlaskApp(client):
 			return {"request": "Success"}, 200
 		else:
 			return {"request": "Failed", "reason": "No Query(q) Given!"}, 404
-
 
 
 	## ASSET MANAGEMENT ENDPOINTS
@@ -272,7 +250,6 @@ def FlaskApp(client):
 			return {"request": "Failed", "reason": f"Asset '{key}' not found"}, 404
 
 		def _safe(f):
-			"""Exclude dotfiles and anything under src/."""
 			name = f.name
 			rel  = f.as_posix()
 			return (
@@ -317,7 +294,6 @@ def FlaskApp(client):
 			return {"request": "Failed", "reason": "No given Path"}, 404
 
 
-
 	## PLUGIN ENDPOINTS
 	@app.route("/plugins/<plugin_key>/<endpoint>", methods=["GET"])
 	def reload_plugin(plugin_key, endpoint):
@@ -331,13 +307,6 @@ def FlaskApp(client):
 			if client.PLUGIN.has_plugin(plugin_key):
 				match endpoint:
 					case "reload":
-						# reload_plugin() ends up calling client.goto(), which does
-						# real QWidget mutations (setParent, deleteLater, show,
-						# raise_). Those MUST happen on the Qt main thread — calling
-						# reload_plugin() directly from this Flask request thread
-						# was exactly the kind of cross-thread Qt violation that
-						# caused long hangs and unpredictable/corrupted state.
-						# call_on_ui() is the existing bridge built for this.
 						client.call_on_ui(lambda: client.PLUGIN.reload_plugin(plugin_key))
 						return {"request": "Success", "message": "Reload queued."}, 200
 					case _: #! NOT BUILT YET

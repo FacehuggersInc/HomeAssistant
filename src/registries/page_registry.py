@@ -6,15 +6,6 @@ if TYPE_CHECKING:
 
 
 class PageEntry:
-	"""
-	One registered page. Holds the un-built page CLASS (not an instance)
-	plus bookkeeping needed for hot reload and ownership cleanup.
-
-	The live instance (when this page is the one currently on screen) is
-	tracked here too, so registry-driven cleanup (unregister) can tell
-	whether THIS page is the one currently showing and tear it down
-	properly instead of leaving an orphaned hidden QWidget behind.
-	"""
 
 	def __init__(self, owner: str, key: str, display: str, page_class):
 		self.owner   : str = owner
@@ -25,16 +16,6 @@ class PageEntry:
 
 
 class PageRegistry:
-	"""
-	Registers pages under an owning plugin key, the same way APIRegistry
-	registers API endpoints. This is what Client.goto() uses to switch
-	between pages, and what lets PluginManager.unload_plugin() clean up
-	every page a plugin registered automatically rather than leaving
-	orphaned page classes/instances behind.
-
-	"#root" and "#settings" are registered under owner "client" since
-	they belong to the Client itself, not any plugin.
-	"""
 
 	def __init__(self, client):
 		self.client : Client = client
@@ -53,7 +34,6 @@ class PageRegistry:
 		return self.get_entry(key) is not None
 
 	def get_entry(self, key: str):
-		"""Find a PageEntry by key regardless of which plugin owns it."""
 		for owner in self.store:
 			if key in self.store[owner]:
 				return self.store[owner][key]
@@ -75,12 +55,6 @@ class PageRegistry:
 	## REGISTER / UNREGISTER
 
 	def register(self, owner: str, key: str, display: str, page_class) -> tuple[PageEntry, bool]:
-		"""
-		Register a page CLASS under an owning plugin key. Returns the
-		entry and whether it was newly registered (False if a page with
-		this key already exists, regardless of owner — keys must be
-		globally unique the same way API endpoints are).
-		"""
 		self.store.setdefault(owner, {})
 
 		existing = self.get_entry(key)
@@ -98,12 +72,6 @@ class PageRegistry:
 		return entry, True
 
 	def unregister(self, owner: str, key: str = "") -> None:
-		"""
-		Unregister one page (key given) or every page owned by a plugin
-		(key omitted) — same shape as APIRegistry.unregister(). If the
-		page being removed is the one currently on screen, its live
-		instance is torn down first so nothing orphaned is left behind.
-		"""
 		if not owner or not self.plugin_has_registered(owner):
 			return
 
@@ -121,14 +89,6 @@ class PageRegistry:
 			self.client.log("info", f"[PageRegistry] '{owner}' had its pages unloaded")
 
 	def _destroy_instance_if_current(self, entry: PageEntry) -> None:
-		"""
-		If this entry's page is the one currently showing on screen,
-		properly tear it down instead of leaving a hidden, orphaned
-		QWidget alive. This is the fix for the leftover blank window
-		seen during plugin hot reload — the old page instance used to
-		only ever get hidden, never destroyed, so it stayed alive (just
-		invisible) as a child of page_host indefinitely.
-		"""
 		if entry.instance is not None and self.client.PAGE is entry.instance:
 			if hasattr(entry.instance, "stop"):
 				try:

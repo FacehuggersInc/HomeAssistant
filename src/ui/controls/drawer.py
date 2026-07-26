@@ -13,11 +13,6 @@ if TYPE_CHECKING:
 
 
 class Drawer(QWidget):
-    """
-    A slide-in toolbar at the top or bottom edge of its parent page.
-    The handle pill peeks above the bottom edge; dragging it up slides
-    the full bar into view.
-    """
 
     BUTTON_BAR_HEIGHT = 85
     HANDLE_SPACING    = 8   # gap between handle and bar
@@ -38,14 +33,6 @@ class Drawer(QWidget):
             self._close,
             f"__timeout_drawer_{position}:{self.client.uuid()}",
         )
-        # If this Drawer gets destroyed before that timeout fires —
-        # e.g. its page is torn down via goto(override=True) while the
-        # drawer was recently opened/closed — the scheduled call would
-        # otherwise run _close() on an already-deleted C++ object and
-        # crash with "wrapped C/C++ object ... has been deleted".
-        # destroyed fires no matter who/what destroys this widget, so
-        # this is the one place that reliably catches every case rather
-        # than relying on every caller to remember to cancel it.
         self.destroyed.connect(lambda: self.client.TIMEOUTS.cancel(self._timeout_id))
 
         # Handle
@@ -67,8 +54,6 @@ class Drawer(QWidget):
         self._btn_layout.setSpacing(8)
         self._btn_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        # Do NOT use a QLayout on self — position children manually
-        # so we have full control over geometry without layout interference.
         self.handle.setParent(self)
 
         # Animation on self.pos()
@@ -84,7 +69,6 @@ class Drawer(QWidget):
     # ── Geometry helpers ──────────────────────────────────────────────────────
 
     def _layout_children(self) -> None:
-        """Position handle and bar inside self without a QLayout."""
         w = self.width()
         h_h = self.handle.height()
         h_w = self.handle.width()
@@ -170,10 +154,6 @@ class Drawer(QWidget):
     # ── Setup ─────────────────────────────────────────────────────────────────
 
     def place_on_page(self) -> None:
-        """
-        Call once after the parent page exists and has a valid size.
-        Sets width, lays out children, moves to hidden position, then shows.
-        """
         if not self.parent():
             return
 

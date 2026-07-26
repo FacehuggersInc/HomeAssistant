@@ -20,9 +20,6 @@ if TYPE_CHECKING:
 
 SENTENCE_END_TOKENS = {'.', '!', '?', ';'}
 
-# Sibling scripts, launched as subprocesses. Built from this file's own
-# location rather than hardcoded separators so they resolve on any platform
-# and regardless of the process working directory.
 _HERE = Path(__file__).resolve().parent
 PROCESS_REALTIMESTT = str(_HERE / "realtimestt-process.py")
 PROCESS_VOSK        = str(_HERE / "vosk-process.py")
@@ -87,7 +84,6 @@ class STTProcessing():
 
 		self.session :Session = None
 		self.route = "wake"
-
 
 
 	## PROCESSING
@@ -167,14 +163,12 @@ class STTProcessing():
 		return pattern.sub(replacer, text)
 
 	def pre_processing(self, transcribed:str):
-		"""Pre process transcribed text before letting Routing take it somewhere | Punctuation will not be Processed"""
 		if not self.client.TTS.is_speaking():
 			if not self.processing:
 				self.processing = True
 				self.client.ASSIST_STATUS = "THINKING"
 				processed = self.words_to_numbers(transcribed)
 				self.routing( processed )
-
 
 
 	## SESSIONS
@@ -281,7 +275,6 @@ class STTProcessing():
 				time.sleep(1)  # avoid busy loop
 
 
-
 	## PROCESS
 	def start(self):
 		if self.process is None or self.process.poll() is not None:
@@ -295,13 +288,11 @@ class STTProcessing():
 			self.client.THREADS.start("__stt_receiver_thread")
 
 	def kill(self):
-		"""Force kill subprocess"""
 		if self.process and self.process.poll() is None:
 			self.process.terminate()
 			self.listening = False
 
 	def stop(self):
-		"""Graceful stop via socket command"""
 		try:
 			self.send_command("STOP")
 

@@ -55,7 +55,6 @@ class OpenMeteoAPI:
         return 12
 
     def get_icon(self, data: dict) -> str:
-        """Return an MDI icon name for the current weather conditions."""
         day        = data["is_day"] > 0
         showers    = data["showers"]  > 0
         raining    = data["rain"]     > 0

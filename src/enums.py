@@ -50,7 +50,6 @@ def clear_events():
 class Asset(Path):
 
 	def mark_uploadable(self) -> "Asset":
-		"""Mark this asset as uploadable. Returns self for chaining."""
 		object.__setattr__(self, "uploadable_flag", True)
 		return self
 

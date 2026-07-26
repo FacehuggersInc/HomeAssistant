@@ -4,5 +4,10 @@ key = "rssfeeds"
 order = 0
 dependencies = ["idletriggers"]
 
+# feedparser is genuinely this plugin's dependency, and is also listed in the
+# app's own requirements.txt -- so it is already satisfied and this plugin
+# never gets held back. Declared here as the worked example of the syntax,
+# and so the Uninstall button correctly reports feedparser as protected
+# rather than offering to remove something the app itself ships.
 [requirements]
 pip = ["feedparser"]

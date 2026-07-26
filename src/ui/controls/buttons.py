@@ -13,15 +13,6 @@ from src.ui.icons import icon as resolve_to_icon, resolve as resolve_name
 # ── Icon Button ───────────────────────────────────────────────────────────────
 
 class IconButton(QPushButton):
-    """
-    A flat icon button backed by qtawesome MDI icons.
-
-    `icon` accepts:
-      - An Icons constant   : Icons.CLOSE
-      - A registered name   : "close", "settings", "bell"
-      - A raw MDI name      : "mdi.alarm"
-      - A QIcon directly    : qta.icon("mdi.star", color="gold")
-    """
 
     def __init__(
         self,
@@ -63,7 +54,6 @@ class IconButton(QPushButton):
         add_text_shadow(self, blur=6, offset_x=1, offset_y=1)
 
     def update_icon(self, icon_arg, color: str = "white") -> None:
-        """Swap the icon at runtime (e.g. play/pause toggle)."""
         self._set_icon(icon_arg, color, self._size)
 
     @property
@@ -74,7 +64,6 @@ class IconButton(QPushButton):
 # ── Icon + Text Button ────────────────────────────────────────────────────────
 
 class IconAndTextButton(QPushButton):
-    """Button with an MDI icon and a text label side-by-side."""
 
     def __init__(
         self,
@@ -129,7 +118,6 @@ class IconAndTextButton(QPushButton):
 # ── Dropdown Button ───────────────────────────────────────────────────────────
 
 class DropdownButton(QToolButton):
-    """A flat icon button that opens a popup menu."""
 
     def __init__(
         self,

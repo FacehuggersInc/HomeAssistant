@@ -44,18 +44,13 @@ from src.constants import (
     get_data_dir,
 )
 
-# Qt platform theming. Must be set before QApplication is constructed, which
-# Client.__init__ does — module scope here is the last guaranteed-earlier
-# point. Previously lived in src/__init__.py's platform-guard block.
 if _platform.system() != "Windows":
     os.environ["QT_STYLE_OVERRIDE"] = ""
-
 
 
 ##UI BRIDGE
 
 class UIBridge(QObject):
-    """Marshals callables from background threads onto the Qt main thread."""
 
     ui_call = pyqtSignal(object)
 
@@ -78,7 +73,6 @@ class UIBridge(QObject):
 ##APP WINDOW
 
 class AppWindow(QMainWindow):
-    """The QMainWindow. Owned by Client, forwards window events back to it."""
 
     def __init__(self, client: "Client"):
         super().__init__()
@@ -117,16 +111,6 @@ class AppWindow(QMainWindow):
 ##INTERACTION WATCHER
 
 class InteractionWatcher(QObject):
-    """
-    Installed app-wide on Client.app — watches for any mouse/touch
-    interaction anywhere in the app and forwards it back to
-    Client._on_global_interaction(). This used to live inside
-    CarouselPlugin as its own InteractionEventWatcher, installed by
-    that one plugin for its own use; it's a Client-level concern now,
-    so every plugin gets on_interaction/on_fresh_interaction/
-    on_interaction_timeout for free via subscribe_to_event() instead
-    of installing its own event filter.
-    """
 
     INTERACTION_EVENT_TYPES = (
         QEvent.Type.MouseButtonPress,
@@ -149,19 +133,7 @@ class InteractionWatcher(QObject):
 ##CLIENT
 
 class Client:
-    """
-    Central application object. Owns the QApplication, QMainWindow,
-    all managers, and the plugin system.
 
-    Usage
-    -----
-    client = Client()
-    client.run()
-    """
-
-    # Hard floor (ms) applied when checking application.interaction_timeout
-    # in _check_interaction_timeout() — see the comment there. Doesn't
-    # affect what's stored or shown in Settings, only what's enforced.
     MIN_INTERACTION_TIMEOUT_MS = 1000
 
     @mixin_target("client.__init__")
@@ -175,11 +147,6 @@ class Client:
         self.window = AppWindow(self)
         self.bridge = UIBridge()
 
-        # See InteractionWatcher above and _on_global_interaction()/
-        # _check_interaction_timeout() below — drives the
-        # on_interaction/on_fresh_interaction/on_interaction_timeout
-        # events any plugin can subscribe to instead of installing its
-        # own event filter the way CarouselPlugin used to.
         self._last_interaction_time = time.time()
         self._interaction_idle      = False
         self._interaction_watcher   = InteractionWatcher(self)
@@ -250,8 +217,6 @@ class Client:
         self.register_asset("icons",   Asset(cwd / "src" / "assets" / "icons"), "FOLDER")
         self.register_asset("styles",  Asset(cwd / "src" / "assets" / "styles"), "FOLDER")
 
-        #parses every *.css class file into STYLES — must run before any
-        #widget that calls set_style()/get_style() gets constructed
         self.log("info", "[Styling] Loading Styles")
         load_styles()
         
@@ -326,7 +291,6 @@ class Client:
     ##UI BRIDGE
 
     def call_on_ui(self, fn: Callable) -> None:
-        """Schedule fn() to run on the Qt main thread. Safe from any thread."""
         self.bridge.dispatch(fn)
 
     ##EVENTS
@@ -376,14 +340,6 @@ class Client:
     ##INTERACTION
 
     def _on_global_interaction(self, event) -> None:
-        """
-        Called by InteractionWatcher for every qualifying mouse/touch
-        event anywhere in the app. Fires on_interaction every time, and
-        on_fresh_interaction additionally on the specific edge where
-        this is the first interaction after a period of idleness (i.e.
-        right as on_interaction_timeout's effect should end). Runs on
-        the Qt UI thread, same as the event itself.
-        """
         was_idle = self._interaction_idle
         self._interaction_idle      = False
         self._last_interaction_time = time.time()
@@ -393,47 +349,11 @@ class Client:
             self.iterate_event_callables("on_fresh_interaction", event, True)
 
     def _check_interaction_timeout(self) -> None:
-        """
-        Polled from update_thread() at the same cadence as on_update.
-        Fires on_interaction_timeout exactly once per idle period, the
-        moment application.interaction_timeout is first crossed with no
-        interaction.
-
-        This fires regardless of which page is active, including
-        Settings — it subscribes to this event itself (see
-        SettingsPage.start()/stop()) to auto-return-home when idle,
-        rather than running its own separate timer. Anything that
-        shouldn't act on this while Settings (or any other particular
-        page) is active is responsible for checking that itself — see
-        CarouselPlugin.on_interaction_timeout() for an example, which
-        deliberately stays out of the way of the Settings page.
-        """
         if self._interaction_idle:
             return
 
-        # .get() with a default rather than direct attribute access:
-        # this setting is new (added under "application" alongside the
-        # window settings) — an existing data.json from before it
-        # existed won't have the key yet, and this shouldn't crash
-        # just because someone hasn't re-saved their settings since
-        # upgrading.
         timeout_ms = self.SETTINGS.get("application.interaction_timeout.value", 5000)
 
-        # Floor against a live-editing feedback loop: Field commits its
-        # setting's value on every keystroke, not just on blur/save (see
-        # Field._changed() in src/pages/settings.py) — so someone
-        # retyping this exact setting on the Settings page passes
-        # through tiny intermediate values (e.g. backspacing "60000"
-        # down to "6") for a moment, live, before they finish typing.
-        # Without a floor, the very next poll of this function reads
-        # that momentary value back out, sees any real elapsed time at
-        # all already exceeds a near-zero timeout, and fires
-        # on_interaction_timeout immediately — which Settings' own
-        # handler responds to by auto-saving and leaving the page,
-        # permanently persisting whatever half-typed digit happened to
-        # be sitting in the field at that instant. This only clamps the
-        # value used for this check; it never touches the stored
-        # setting or what's shown in the field itself.
         timeout_ms = max(timeout_ms, self.MIN_INTERACTION_TIMEOUT_MS)
 
         if time.time() - self._last_interaction_time >= (timeout_ms / 1000):
@@ -444,11 +364,6 @@ class Client:
     ##LOGGING
 
     def _open_log_file(self) -> None:
-        """
-        Opens logs/latest.log for this run, archiving whatever a
-        previous run left behind under its own start-timestamp first.
-        Called once, lazily, on the first log() call.
-        """
         if self.LOG:
             self.LOG.close()
 
@@ -525,51 +440,6 @@ class Client:
                       key: str = None, destroy_on_close: bool = True,
                       on_created: Optional[Callable[[Panel], None]] = None
                       ) -> Optional[Panel]:
-        """
-        Build a basic Panel on the overlay system, optionally drop a
-        content widget straight into it, and slide it into view
-        immediately. Returns the Panel instance so the caller can hang
-        onto it for a later .toggle()/.close_panel(), or just
-        fire-and-forget it for a one-off panel.
-
-        destroy_on_close defaults to True here (unlike Panel's own
-        default of False): once this panel's close_panel() animation
-        finishes, the widget is fully released — detached from
-        OVERLAYS and deleted — rather than just hidden. A hidden-but-
-        never-destroyed Panel still gets counted in every
-        OverlayManager mask recompute and still receives events
-        forever, since Qt's C++ parent-child ownership keeps it alive
-        regardless of whether anything in Python still references it.
-        That's exactly the leak this method used to have: build a new
-        one-off Panel here every time (e.g. each Carousel rotation, or
-        each API request), and they'd pile up indefinitely, getting
-        slower the longer the app ran. Pass destroy_on_close=False if
-        you genuinely want to build a *reusable* panel this way and
-        toggle the same instance open/closed repeatedly — most callers
-        don't, but if you do, that's the same pattern TilePanel/
-        NotificationPanel use building Panel directly.
-
-        Thread-safe: Panel is a real QWidget, and QWidgets must be
-        built on the Qt main/UI thread. Calling this from a Qt slot
-        (a button click, etc.) already puts you there, so this
-        returns the Panel directly, same as always. Calling it from
-        anywhere else — a Flask backend route, a voice command
-        handler, a subscribed event callback, a background thread —
-        building the widget right there would leave it only
-        half-parented; Qt/your window manager would then place it
-        wherever they like (usually dead centre) instead of anchored
-        to the edge you asked for, since none of the geometry this
-        class sets actually "took". This method detects that case,
-        hops onto the UI thread for you via call_on_ui(), and returns
-        None immediately since the Panel can't exist synchronously
-        yet at that point — pass on_created if you need a reference to
-        the finished panel once it exists (e.g. to toggle/close it
-        later from that same background context).
-
-        See src/ui/overlays.py:Panel for the underlying class — this is
-        just the convenience entry point most plugins/pages should use
-        instead of constructing Panel directly.
-        """
         def _build() -> Panel:
             panel = Panel(self, width=width, edge=edge, bgcolor=bgcolor, key=key,
                            destroy_on_close=destroy_on_close)
@@ -604,7 +474,6 @@ class Client:
         return self.PAGES.has_page(query)
 
     def get_page_data(self, name: str):
-        """Returns the PageEntry for a registered page key, or None."""
         return self.PAGES.get_entry(name)
 
     def get_page(self):
@@ -614,20 +483,6 @@ class Client:
         return self.PAGES.keys()
 
     def add_page(self, key: str, display: str, page_class, owner: str = "client") -> None:
-        """
-        Register a page. owner defaults to "client" for the Client's
-        own built-in pages (#root, #settings). Plugins registering
-        their own pages should pass their own plugin key as owner —
-        this is what lets PluginManager.unload_plugin() automatically
-        clean up every page a plugin registered, the same way it
-        already does for API endpoints (see API_REGISTRY.unregister).
-
-        Without a real owner, an unloaded/reloaded plugin's old pages
-        would stay registered under PageRegistry forever, which is
-        exactly what caused the leftover blank window during hot
-        reload: the stale page entry/instance never got torn down
-        because nothing tracked who was responsible for cleaning it up.
-        """
         self.PAGES.register(owner, key, display, page_class)
 
     def is_switching_page(self) -> bool:
@@ -659,15 +514,6 @@ class Client:
             )
             self.PAGE.hide()
 
-            #the previous page instance is fully torn down here, not
-            #just hidden. Leaving it merely hidden (the old behaviour)
-            #meant it stayed alive indefinitely as a hidden child of
-            #page_host — normally harmless, but during plugin hot
-            #reload the OLD page class/instance could end up coexisting
-            #with a freshly reloaded one with the same key, which is
-            #what produced the leftover blank window: two real QWidget
-            #instances under page_host, one of them stale and orphaned
-            #from its now-unloaded module.
             self.PAGE.setParent(None)
             self.PAGE.deleteLater()
             if old_entry:
@@ -733,11 +579,6 @@ class Client:
 
         self.OVERLAYS.setParent(self.window)
         self.OVERLAYS.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
-        # NOTE: deliberately NOT setting WA_TransparentForMouseEvents here.
-        # OverlayManager now manages its own click-passthrough via a mask
-        # that tracks its visible children (see src/ui/overlays.py). Setting
-        # this attribute on the manager itself would make Qt skip it — and
-        # everything inside it — during hit-testing, regardless of the mask.
         self.OVERLAYS.setGeometry(0, 0, w, h)
         self.OVERLAYS.show()
         self.OVERLAYS.raise_()
@@ -757,15 +598,9 @@ class Client:
 
         self.log("info", f"Startup Time: {round(time.time() - self.START_TIME, 3)}s")
 
-        # Plugins held back for missing pip packages get prompted for once
-        # the UI actually exists. This cannot happen during plugin load --
-        # that runs inside __init__, long before there is anything to show a
-        # dialog on. Delayed slightly so it lands after the first paint and
-        # the overlay raise above, rather than on top of a half-built window.
         QTimer.singleShot(1200, self.prompt_for_plugin_dependencies)
 
     def prompt_for_plugin_dependencies(self) -> None:
-        """Offer to pip-install for any plugin held back at load time."""
         pending = self.PLUGIN.pending_plugins(include_declined=False)
         if not pending:
             return
@@ -985,21 +820,12 @@ class Client:
     ##DIALOGS
 
     def dialog(self, dialog) -> None:
-        """
-        Show any BaseDialog (or plain QWidget) as a modal.
-
-        Thread-safe, same contract as create_panel(): QWidgets have to be
-        touched from the Qt thread, so calling this from a Flask route, a
-        voice handler, an event callback or any background thread hops onto
-        the UI thread instead of half-building a widget off it.
-        """
         if QThread.currentThread() is self.app.thread():
             self.DIALOG.open(dialog)
         else:
             self.call_on_ui(lambda: self.DIALOG.open(dialog))
 
     def close_dialog(self) -> None:
-        """Close the topmost open dialog."""
         if QThread.currentThread() is self.app.thread():
             self.DIALOG.close()
         else:
@@ -1008,10 +834,6 @@ class Client:
     def alert(self, title: str, body: str = "", ok_text: str = "OK",
               on_close: Optional[Callable] = None,
               detail: str = None) -> None:
-        """Message with a single dismiss button.
-
-            client.alert("Backup complete", "Wrote 412 files.")
-        """
         def _build():
             from src.ui.dialogs import AlertDialog
             self.DIALOG.open(AlertDialog(self, title, body, ok_text=ok_text,
@@ -1023,13 +845,6 @@ class Client:
                 on_cancel: Optional[Callable] = None,
                 confirm_text: str = "Confirm", cancel_text: str = "Cancel",
                 destructive: bool = False, detail: str = None) -> None:
-        """
-        Yes/no. Callbacks fire AFTER the dialog closes, so a callback is free
-        to open another dialog without fighting the one it came from.
-
-            client.confirm("Delete backup?", "This cannot be undone.",
-                           on_confirm=wipe, destructive=True)
-        """
         def _build():
             from src.ui.dialogs import ConfirmDialog
             self.DIALOG.open(ConfirmDialog(
@@ -1046,16 +861,6 @@ class Client:
                submit_text: str = "OK", cancel_text: str = "Cancel",
                numeric: bool = False, password: bool = False,
                allow_empty: bool = False, detail: str = None) -> None:
-        """
-        Single-line text entry. on_submit receives the string.
-
-        Raises the on-screen keyboard on focus (numpad when numeric=True),
-        since the target hardware has no physical one.
-
-            client.prompt("Rename plugin", "New name:",
-                          on_submit=lambda text: rename(text),
-                          default="untitled")
-        """
         def _build():
             from src.ui.dialogs import InputDialog
             self.DIALOG.open(InputDialog(
@@ -1072,13 +877,6 @@ class Client:
                on_cancel: Optional[Callable] = None,
                default=None, choose_text: str = "Select",
                cancel_text: str = "Cancel", detail: str = None) -> None:
-        """
-        Pick one from a list. Options are plain strings, or (value, label)
-        pairs when the value shown differs from the value returned.
-
-            client.choose("Theme", "Pick one", ["Dark", "Light"],
-                          on_choose=lambda v: set_theme(v))
-        """
         def _build():
             from src.ui.dialogs import ChoiceDialog
             self.DIALOG.open(ChoiceDialog(
@@ -1089,15 +887,6 @@ class Client:
         self.call_on_ui(_build)
 
     def progress(self, title: str, body: str = ""):
-        """
-        Modal status line with no buttons, for work that has to be waited on.
-        Returns the dialog so a worker thread can call set_status() on it and
-        close_dialog() when finished. Returns None if called off the UI
-        thread, since the widget cannot exist synchronously in that case.
-
-            dlg = client.progress("Syncing", "Talking to the server...")
-            dlg.set_status("42 of 300")
-        """
         from src.ui.dialogs import ProgressDialog
         if QThread.currentThread() is self.app.thread():
             dialog = ProgressDialog(self, title, body)
@@ -1153,19 +942,6 @@ class Client:
             json.dump(obj, f, indent=4)
 
     def settings_dict(self) -> dict:
-        """
-        self.SETTINGS.as_dict() — but with top-level keys lowercased
-        back to match new-template.json's own casing. Dynaconf
-        uppercases every top-level section key internally (APPLICATION,
-        NOTIFICATIONS, etc.) — reading still works fine regardless of
-        case since attribute/item access on it is case-insensitive, but
-        writing that straight to disk via dump() produces a file in
-        ALL-CAPS section names, which is needlessly confusing to read
-        by hand and inconsistent with the template it started from.
-        Every place that calls SETTINGS.as_dict() — _generate_settings()
-        building the Settings page, and every dump() of it — should go
-        through this instead so the casing stays consistent everywhere.
-        """
         return {k.lower(): v for k, v in self.SETTINGS.as_dict().items()}
 
     def load_or_create_client_id(self) -> str:
@@ -1221,15 +997,7 @@ class Client:
         self.build()
         exit_code = self.app.exec()
 
-        # Relaunching is the launcher's job now. This used to try to do it
-        # itself with subprocess.Popen([sys.executable]) -- which starts a
-        # bare interpreter, not the app -- and Popen([sys.executable,
-        # "force"]), which asks python to run a file called "force". Neither
-        # ever worked, and both bypassed startup.sh's relaunch loop.
-        #
-        # UPDATE takes precedence over RESTART: applying a staged update
-        # restarts anyway, and the two used to be able to fire together and
-        # spawn two processes.
+        # Exit codes are the launcher's protocol - see launcher.py.
         if self.UPDATE:
             code = EXIT_UPDATE
         elif self.RESTART:

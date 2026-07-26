@@ -16,10 +16,6 @@ if TYPE_CHECKING:
 ##CLOCK TILE
 
 class ClockTile(Tile):
-    """
-    Example tile. Displays the current time and date.
-    Starts in the tile panel — drag it onto the grid to place it.
-    """
 
     KEY  = "clock_tile"
     NAME = "Clock"

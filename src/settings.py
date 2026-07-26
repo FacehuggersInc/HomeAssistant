@@ -4,7 +4,6 @@ from collections.abc import MutableMapping
 
 class Settings(MutableMapping):
 	def __init__(self, *args, **kwargs):
-		"""Converts a Dictionary into JS-like Map/Object with extensions"""
 		self._store = {}
 		self._extensions = {}
 
@@ -16,10 +15,6 @@ class Settings(MutableMapping):
 
 	## EXTENSIONS
 	def __normalize_value(self, key, value):
-		"""
-		Normalize dicts, lists, strings, and handle extensions.
-		Returns (normalized_value, actual_key_to_store)
-		"""
 		# Handle extensions
 		if isinstance(value, str) and key.startswith("::ext?"):
 			ext_name = key.split("?", 1)[1]
@@ -38,7 +33,6 @@ class Settings(MutableMapping):
 		return value, key
 
 	def __load_extension(self, filepath):
-		"""Try to load a JSON file into a Settings object"""
 		try:
 			print(f"  ? Loading -> {filepath}")
 			if not os.path.exists(filepath): return None
@@ -51,7 +45,6 @@ class Settings(MutableMapping):
 
 	## PATH-ING
 	def set_path(self, path: str, value):
-		"""Set a value using a dotted path string, e.g. 'home.background_cycle_interval'"""
 		keys = path.split(".")
 		current = self
 		for key in keys[:-1]:
@@ -62,7 +55,6 @@ class Settings(MutableMapping):
 		current[keys[-1]] = value
 
 	def get_path(self, path: str, default=None):
-		"""Get a value using a dotted path string"""
 		keys = path.split(".")
 		current = self
 		for key in keys:

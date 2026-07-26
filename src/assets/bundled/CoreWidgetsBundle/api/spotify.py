@@ -53,7 +53,6 @@ class SpotifyAPI():
 		is_token = self.update_access_token()
 
 
-
 	## HELPERS
 	def url(self, name:str, endpoint:str = None) -> str | None:
 		url = self.URLS.get(name)
@@ -261,7 +260,6 @@ class SpotifyAPI():
 		Thread(target = self.__socket_auth_receive_server).start()
 
 
-
 	## AUTH
 	def update_access_token(self) -> bool:
 
@@ -356,7 +354,6 @@ class SpotifyAPI():
 		else:
 			#self.app.log_event("info", "[SPOT] Failed to get Token ...")
 			return False
-
 
 
 	## LIVE PLAYER
@@ -499,10 +496,8 @@ class SpotifyAPI():
 			return None
 
 
-
 	## PLAYLIST
 	def add_to_playlist(self, playlist_id, uris:str) -> bool:
-		"""Adds to a playlist"""
 		self.update_access_token()
 		self.app.log_event("info", f"[SPOT] Adding {uris} to Playlist {playlist_id} ...")
 
@@ -522,7 +517,6 @@ class SpotifyAPI():
 			return False
 
 	def get_genres_from_artists(self, artists:list[dict]) -> dict:
-		"""Does not make API request for artists, use get_artists_data func first"""
 		self.app.log_event("info", "[SPOT] Grabbing Genres from Artists ...")
 
 		#Assign Genres to Artist ID
@@ -545,7 +539,6 @@ class SpotifyAPI():
 		return genres_dict
 
 	def get_artists_data(self, artist_ids:list[str]) -> list:
-		"""Returns the data for each artist in the list. artist_ids can be a list of "name,id" or just "id" """
 		self.update_access_token()
 
 		self.app.log_event("info", "[SPOT] Getting Artists Data ...")
@@ -603,7 +596,6 @@ class SpotifyAPI():
 		return artists
 
 	def get_playlist_artists(self, playlist_id:str, include_colab_artists:bool = False) -> list:
-		"""Gets Artists Name and Id in <name,id> format, returned in a list"""
 		self.update_access_token()
 
 		self.app.log_event("info", "[SPOT] Getting Artists ...")

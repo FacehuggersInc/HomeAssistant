@@ -1,6 +1,4 @@
-/* src/ui/controls/buttons.py — size/colour/radius arguments that vary
-   per call site are patched in at runtime via set_style()'s override
-   dict; everything else lives here. */
+/* src/ui/controls/buttons */
 
 .icon-button {
     background: transparent;

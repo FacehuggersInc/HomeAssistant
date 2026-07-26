@@ -1,22 +1,3 @@
-"""
-Concrete modal dialogs.
-
-All of these derive from BaseDialog (src/ui/overlays.py) and are reachable
-through convenience methods on Client, which is what most callers should use:
-
-    client.alert("Done", "Backup finished.")
-    client.confirm("Delete?", "This cannot be undone.", on_confirm=do_it,
-                   destructive=True)
-    client.prompt("Rename", "New name:", on_submit=rename, default="untitled")
-    client.choose("Theme", "Pick one", ["Dark", "Light"], on_choose=set_theme)
-
-Constructing one directly and passing it to client.dialog() is also fine, and
-is how DependencyDialog is used.
-
-pip work runs on a worker thread -- it blocks for tens of seconds -- and every
-widget touch from that thread goes back through client.call_on_ui().
-"""
-
 from __future__ import annotations
 
 from threading import Thread
@@ -39,7 +20,6 @@ if TYPE_CHECKING:
 ## -- GENERIC ----------------------------------------------------------------
 
 class AlertDialog(BaseDialog):
-    """Message plus a single dismiss button."""
 
     def __init__(self, client: "Client", title: str, body: str = "",
                  ok_text: str = "OK", on_close: Callable = None,
@@ -55,7 +35,6 @@ class AlertDialog(BaseDialog):
 
 
 class ConfirmDialog(BaseDialog):
-    """Yes/no. `destructive` colours the confirm button as a warning."""
 
     def __init__(self, client: "Client", title: str, body: str = "",
                  on_confirm: Callable = None, on_cancel: Callable = None,
@@ -81,13 +60,6 @@ class ConfirmDialog(BaseDialog):
 
 
 class InputDialog(BaseDialog):
-    """
-    Single-line text entry.
-
-    The on-screen keyboard is raised on focus, since the target hardware is a
-    touch panel with no physical keyboard -- same treatment settings fields
-    get (see src/ui/keyboard.py). `numeric=True` gets the numpad instead.
-    """
 
     def __init__(self, client: "Client", title: str, body: str = "",
                  on_submit: Callable = None, on_cancel: Callable = None,
@@ -176,7 +148,6 @@ class InputDialog(BaseDialog):
 
 
 class ChoiceDialog(BaseDialog):
-    """Pick one from a list. Options are strings or (value, label) pairs."""
 
     def __init__(self, client: "Client", title: str, body: str = "",
                  options: Iterable = (), on_choose: Callable = None,
@@ -234,12 +205,6 @@ class ChoiceDialog(BaseDialog):
 
 
 class ProgressDialog(BaseDialog):
-    """
-    Status line with no buttons, for work the user must wait on.
-
-    Update it from any thread with set_status(); it marshals onto the UI
-    thread itself.
-    """
 
     def __init__(self, client: "Client", title: str, body: str = ""):
         super().__init__(client, title, body)
@@ -256,13 +221,6 @@ class ProgressDialog(BaseDialog):
 ## -- PLUGIN DEPENDENCIES ----------------------------------------------------
 
 class DependencyDialog(BaseDialog):
-    """
-    'These plugins need packages installed' -> Install All / Not Now.
-
-    Declining discards nothing: the plugins stay in PluginManager.pending,
-    marked declined, and Settings keeps showing them greyed out with their
-    own Install button.
-    """
 
     def __init__(self, client: "Client", pending: list):
         count = len(pending)

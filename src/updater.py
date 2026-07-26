@@ -1,29 +1,3 @@
-"""
-The update engine.
-
-Replaces three divergent copies of this logic: app.py's do_update(), the
-/update route in backend.py, and the old root-level updater.py (which nothing
-ever invoked). They disagreed about what to preserve, all overwrote files
-while the app was still running, and none could roll back.
-
-The split here is deliberate:
-
-  stage()   runs INSIDE the live app. It only downloads, extracts and
-            validates into .update-staging/. It never touches an installed
-            file, so it is safe to run while the UI is up and safe to fail.
-
-  apply()   runs from the launcher, with the app stopped. Nothing is holding
-            file handles at that point, which is what makes this work on
-            Windows -- shutil.copy2 onto a file open in another process
-            raises PermissionError there, and the old in-place updaters
-            would leave a half-written install behind when it did.
-
-  rollback() restores what apply() replaced.
-
-Standard library only. The launcher imports this before third-party packages
-are known to be importable.
-"""
-
 from __future__ import annotations
 
 import io
@@ -50,8 +24,6 @@ from src.constants import (
 MANIFEST_NAME = "update-manifest.json"
 PAYLOAD_DIR = "payload"
 
-# A repo zip missing these is not a valid install and is refused before
-# anything on disk is touched.
 SANITY_PATHS = ("app.py", "src/main.py", "src/constants.py")
 
 
@@ -78,15 +50,6 @@ def is_preserved(rel_path: str) -> bool:
 
 
 def _glob_match(rel_path: str, pattern: str) -> bool:
-    """
-    Segment-wise glob. `*` matches within one path segment and never across
-    a separator.
-
-    Deliberately not Path.match(): its anchoring and wildcard semantics have
-    moved across 3.12 -> 3.14 (full_match() was split out in 3.13), and this
-    decides whether a user's settings get merged or overwritten. Not a good
-    place for a version-dependent surprise.
-    """
     parts = rel_path.split("/")
     pat = pattern.split("/")
     if len(parts) != len(pat):
@@ -100,15 +63,6 @@ def is_merged(rel_path: str) -> bool:
 
 
 def merge_settings_json(shipped: str, installed: str) -> str:
-    """
-    Take structure and new keys from the shipped file, keep the user's own
-    "value" entries from the installed one.
-
-    A settings leaf looks like {"type":..., "default":..., "value":...}. Only
-    "value" is user-owned; everything else belongs to whoever shipped the
-    plugin. A key the new version dropped is dropped; a key it added arrives
-    at its default.
-    """
     try:
         new = json.loads(shipped)
         old = json.loads(installed)
@@ -150,11 +104,6 @@ def clear_staging() -> None:
 
 def stage(url: str = REPO_ZIP_URL, log: Callable[[str], None] = _noop,
           timeout: int = 60) -> dict:
-    """
-    Download and unpack an update into .update-staging/ without touching the
-    running install. Returns the manifest. Raises UpdateError on any failure,
-    leaving the installed tree untouched.
-    """
     log("Downloading update...")
 
     tmp = Path(tempfile.mkdtemp(prefix="ha-update-"))
@@ -220,7 +169,6 @@ def stage(url: str = REPO_ZIP_URL, log: Callable[[str], None] = _noop,
 
 
 def _safe_extract(z: zipfile.ZipFile, dest: Path) -> None:
-    """Extract, refusing entries that would escape dest (zip-slip)."""
     dest = dest.resolve()
     for info in z.infolist():
         target = (dest / info.filename).resolve()
@@ -231,13 +179,8 @@ def _safe_extract(z: zipfile.ZipFile, dest: Path) -> None:
 
 ## -- APPLY ------------------------------------------------------------------
 
+# Must run with the app stopped - Windows cannot replace an open file.
 def apply(log: Callable[[str], None] = _noop) -> dict:
-    """
-    Apply the staged update. MUST run with the app stopped.
-
-    Every file replaced is copied into .update-backup/ first, so rollback()
-    can put things back exactly as they were. Returns a result dict.
-    """
     if not has_staged_update():
         raise UpdateError("No staged update to apply")
 
@@ -303,7 +246,6 @@ def has_backup() -> bool:
 
 
 def rollback(log: Callable[[str], None] = _noop) -> bool:
-    """Restore whatever the last apply() replaced, and delete what it added."""
     if not has_backup():
         log("No backup to roll back to.")
         return False

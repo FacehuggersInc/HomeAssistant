@@ -1,17 +1,4 @@
 #!/usr/bin/env python3
-"""
-Entry point.
-
-Normally started by launcher.py, which supervises restarts and applies staged
-updates while this process is stopped. Running it directly still works -- see
-the LAUNCHER_ENV_FLAG check in main().
-
-Usage:
-    python app.py                 launch
-    python app.py force           launch (explicit; what the launcher passes)
-    python app.py update          stage an update and exit
-    python app.py apply-update    apply a staged update in place, then exit
-"""
 
 import os
 import sys
@@ -27,12 +14,18 @@ from src.constants import (
 )
 
 
+USAGE = """Usage:
+    python app.py                 launch
+    python app.py force           launch (what the launcher passes)
+    python app.py update          stage an update and exit
+    python app.py apply-update    apply a staged update in place, then exit"""
+
+
 def _log(msg: str) -> None:
     print(f"[APP] {msg}", flush=True)
 
 
 def stage_update() -> int:
-    """Download and stage an update, then exit 42 so the launcher applies it."""
     from src import updater
     try:
         updater.stage(log=_log)
@@ -43,12 +36,6 @@ def stage_update() -> int:
 
 
 def apply_update() -> int:
-    """
-    Apply a staged update from this process.
-
-    Only for running without the launcher. The launcher path is preferred --
-    it keeps the rollback armed until the new version proves it can start.
-    """
     from src import updater
     if not updater.has_staged_update():
         _log("No staged update to apply.")
@@ -77,10 +64,6 @@ def launch() -> int:
     if os.environ.get(LAUNCHER_ENV_FLAG):
         return code
 
-    # Unsupervised. Nothing is watching for 42/43, so honour them here rather
-    # than exiting with a code that silently does nothing. This is what the
-    # old Client.run() tried to do with subprocess.Popen([sys.executable]),
-    # which launched a bare REPL instead of the app.
     if code in (EXIT_UPDATE, EXIT_RESTART):
         if code == EXIT_UPDATE:
             rc = apply_update()
@@ -103,7 +86,7 @@ def main() -> int:
         return apply_update()
 
     print(f"Unknown arguments: {sys.argv[1:]}")
-    print(__doc__)
+    print(USAGE)
     return 1
 
 

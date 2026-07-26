@@ -1,5 +1,4 @@
-/* src/ui/overlays.py — the toast notification card built by
-   OverlayedWidget when it isn't handed a pre-built content widget. */
+/* src/ui/overlays */
 
 .toast-icon-fallback {
     color: white;
@@ -20,13 +19,7 @@
     background: transparent;
 }
 
-
-/* ── Dialogs (src/ui/overlays.py BaseDialog, src/ui/dialogs.py) ──────────
-   The card sits on the SYSTEM overlay layer, which is translucent, so it
-   MUST paint its own opaque background. Note that every widget using these
-   classes also sets WA_StyledBackground — without that attribute Qt simply
-   ignores `background` on a plain QWidget and the card renders see-through,
-   which is exactly what went wrong the first time round. */
+/* Dialogs (src/ui/overlays */
 
 .dialog-card {
     background: #1c1c1c;
@@ -59,10 +52,7 @@
     padding: 6px 4px;
 }
 
-/* ── Dialog buttons ──────────────────────────────────────────────────────
-   Three tiers: primary (the affirmative action), secondary (cancel/defer)
-   and destructive (removes something). Sized 44px tall by BaseDialog to
-   stay touch-friendly, same as the settings controls. */
+/* Dialog buttons Three tiers: primary (the affirmative action), seconda... */
 
 .dialog-button-primary {
     background: #2d6cc0;

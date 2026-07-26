@@ -13,10 +13,6 @@ if TYPE_CHECKING:
 
 
 class WeatherWidget(Widget):
-    """
-    Displays current temperature from Open-Meteo.
-    Fetches once on startup then refreshes every hour.
-    """
 
     def __init__(self, client: "Client"):
         super().__init__(

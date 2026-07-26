@@ -1,28 +1,3 @@
-"""
-Icon registry — wraps qtawesome (Material Design Icons).
-
-Usage
------
-    from src.ui.icons import icon, Icons
-
-    # By registered name
-    btn = IconButton(Icons.CLOSE, func)
-    btn = IconButton(Icons.SETTINGS, func)
-
-    # Direct qtawesome name (mdi.*)
-    btn = IconButton("mdi.alarm", func)
-
-    # Get a QIcon directly
-    q_icon = icon(Icons.BELL, color="white", size=32)
-
-Registered names are short strings that map to MDI icon names.
-Any unrecognised string starting with "mdi." is passed straight
-through to qtawesome, so plugins can use the full MDI catalogue
-without registering.
-
-Full MDI catalogue: https://materialdesignicons.com
-"""
-
 from __future__ import annotations
 from typing import Optional
 from pathlib import Path
@@ -133,13 +108,6 @@ _REGISTRY: dict[str, str] = {
 # ── Constants class for IDE autocomplete ──────────────────────────────────────
 
 class Icons:
-    """
-    Named constants for all registered icon names.
-    Use these instead of bare strings for IDE autocomplete and refactoring.
-
-        from src.ui.icons import Icons
-        btn = IconButton(Icons.CLOSE, func)
-    """
     CLOSE           = "close"
     MINIMIZE        = "minimize"
     MAXIMIZE        = "maximize"
@@ -218,10 +186,6 @@ class Icons:
 # ── Public API ─────────────────────────────────────────────────────────────────
 
 def resolve(name: str) -> str:
-    """
-    Resolve a registered name or raw mdi.* name to an MDI icon name.
-    Returns the MDI name string, or None if unresolvable.
-    """
     if name in _REGISTRY:
         return _REGISTRY[name]
     if name.startswith("mdi."):
@@ -236,19 +200,6 @@ def icon(
     scale_factor: float = 1.0,
     size:         int   = None,
 ) -> QIcon:
-    """
-    Return a QIcon for the given registered name or mdi.* name.
-
-    Parameters
-    ----------
-    name         : registered name (e.g. Icons.CLOSE) or raw mdi.* name
-    color        : icon colour, any CSS colour string
-    color_active : colour when button is active/checked (optional)
-    scale_factor : scale within the button (0.5–1.5 typical)
-    size         : if given, returns icon pre-rendered at this pixel size
-
-    Falls back to a generic question-mark icon if the name is not found.
-    """
     import qtawesome as qta
 
     mdi_name = resolve(name)
@@ -271,13 +222,6 @@ def icon(
 
 
 def register(name: str, mdi_name: str) -> None:
-    """
-    Register a custom icon name → MDI name mapping.
-    Call this from a plugin's load() to add plugin-specific icons.
-
-        from src.ui.icons import register
-        register("my-plugin-icon", "mdi.rocket")
-    """
     _REGISTRY[name] = mdi_name
 
 
@@ -285,14 +229,6 @@ _IMAGE_SUFFIXES = (".png", ".svg", ".jpg", ".jpeg", ".webp", ".ico", ".bmp", ".g
 
 
 def is_icon_path(value: str) -> bool:
-    """
-    True if a plugin.toml `icon` value looks like a path to a custom
-    image rather than an icon-system name — has a path separator, or
-    ends in a known image extension. Used by PluginManager at load
-    time to decide whether to resolve it relative to the plugin's own
-    directory (the same way `settings.path` is resolved), and by
-    resolve_plugin_icon() below to decide how to actually load it.
-    """
     if not value:
         return False
     if "/" in value or "\\" in value:
@@ -301,19 +237,6 @@ def is_icon_path(value: str) -> bool:
 
 
 def resolve_plugin_icon(value: str, color: str = "white", size: int = None) -> Optional[QIcon]:
-    """
-    Resolve a plugin's `icon` config value, which can be EITHER a
-    registered icon-system name (or raw mdi.* name) OR a path to a
-    custom image file. PluginManager already resolves a relative path
-    to an absolute one at load time (see _is_probable_path() there),
-    same as it does for settings.path — this just decides which kind
-    of value it ended up with and builds the QIcon accordingly.
-
-    Returns None if value is falsy, or if it was clearly meant to be a
-    custom image but that file doesn't actually exist — a missing
-    icon should just not render rather than show a broken/placeholder
-    one.
-    """
     if not value:
         return None
 

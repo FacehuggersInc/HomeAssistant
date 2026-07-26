@@ -1,7 +1,4 @@
-/* Shared classes pulled in from almost every widget file. Hex values
-   below are the resolved output of styling.py's COLORS palette at the
-   time this file was written — see src/styling.py if the palette
-   itself ever changes. */
+/* Shared classes pulled in from almost every widget file */
 
 .transparent {
     background: transparent;
@@ -21,8 +18,7 @@
     background-color: #0d0d0d;
 }
 
-/* Dimmed text for a plugin that is present but not active -- held back
-   for missing pip packages. Referenced from src/pages/settings.py. */
+/* Dimmed text for a plugin that is present but not active -- held back... */
 .text-pending {
     color: #8a8a8a;
     background: transparent;

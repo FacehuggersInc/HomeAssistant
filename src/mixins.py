@@ -4,7 +4,6 @@ from collections import defaultdict
 _registry = defaultdict(lambda: {"before": [], "after": []})
 
 def mixin(target_key: str, plugin_key: str, when: str = "before"):
-	"""Attach mixin to a function under a target key"""
 	assert when in ("before", "after"), "when must be 'before' or 'after'"
 
 	def decorator(func):
@@ -14,7 +13,6 @@ def mixin(target_key: str, plugin_key: str, when: str = "before"):
 	return decorator
 
 def mixin_target(key: str):
-	"""Mark a method as a mixin attach point under a key."""
 	def decorator(func):
 		func._mixin_key = key
 		return func
@@ -28,7 +26,6 @@ class MixinManager:
 		self._patched_targets = {}
 
 	def _make_wrapper(self, attr, hooks, is_class_method=False):
-		"""Create a wrapper with before/after hooks attached"""
 
 		@wraps(attr)
 		def wrapper(*args, **kwargs):
@@ -61,7 +58,6 @@ class MixinManager:
 		return wrapper
 
 	def apply_mixins_to(self, obj_or_cls):
-		"""Patch mixin targets on a class or instance"""
 		for attr_name in dir(obj_or_cls):
 			attr = getattr(obj_or_cls, attr_name)
 
@@ -88,9 +84,6 @@ class MixinManager:
 		return obj_or_cls
 
 	def plugin_has_mixins_on(self, plugin_key: str, obj_or_cls) -> bool:
-		"""
-		Check if a plugin has applied any mixins to a given class or instance.
-		"""
 		for attr_name in dir(obj_or_cls):
 			attr = getattr(obj_or_cls, attr_name)
 
@@ -122,7 +115,6 @@ class MixinManager:
 		return total
 
 	def remove_plugin_mixins(self, plugin_key: str):
-		"""Remove all mixins contributed by a plugin"""
 		for target, hooks in _registry.items():
 			hooks["before"] = [(f, p) for f, p in hooks["before"] if p != plugin_key]
 			hooks["after"] = [(f, p) for f, p in hooks["after"] if p != plugin_key]
@@ -138,7 +130,6 @@ class MixinManager:
 			self.apply_mixins_to(obj)
 
 	def clear_all(self):
-		"""Reset everything (for shutdown/restart)"""
 		for (obj, attr_name), original in self._patched_targets.items():
 			setattr(obj, attr_name, original)
 		self._patched_targets.clear()

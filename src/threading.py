@@ -6,7 +6,6 @@ class ThreadManager:
 		self.threads = {}  # name -> {thread, stop_event, target, args, kwargs}
 
 	def create(self, name, target, *args, **kwargs):
-		"""Register a thread but do not start it yet."""
 		if name in self.threads and self.is_active(name):
 			return
 
@@ -20,7 +19,6 @@ class ThreadManager:
 		}
 
 	def start(self, name):
-		"""Actually start a previously created thread."""
 		if name not in self.threads:
 			return
 
@@ -42,18 +40,15 @@ class ThreadManager:
 		thread.start()
 
 	def stop(self, name):
-		"""Signal the thread to stop."""
 		if name in self.threads:
 			self.threads[name]["stop_event"].set()
 
 	def is_active(self, name):
-		"""Check if a thread is running."""
 		if name in self.threads and self.threads[name]["thread"]:
 			return self.threads[name]["thread"].is_alive()
 		return False
 
 	def wait_for_stop(self, name, timeout=1):
-		"""Wait for the thread to finish."""
 		if name in self.threads and self.threads[name]["thread"]:
 			try: self.threads[name]["thread"].join(timeout)
 			except: print("Cannot Join with Current Thread.")
@@ -64,13 +59,10 @@ class ThreadManager:
 		return self.threads.get(name)
 
 	def __iter__(self):
-		"""Iterate over (name, entry) pairs."""
 		return iter(self.threads)
 
 	def __getitem__(self, name):
-		"""Allow manager['thread_name'] access."""
 		return self.threads[name]
 
 	def __len__(self):
-		"""Return number of managed threads."""
 		return len(self.threads)

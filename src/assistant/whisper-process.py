@@ -20,34 +20,6 @@ except Exception:
 
 
 class WakeWhisper:
-	"""
-    WakeWhisper: Real-time speech-to-text with wake word support. Using Whisper.
-
-    Features:
-        - Always-on listening with VAD (Voice Activity Detection)
-        - Partial transcription for wake word detection
-        - Full phrase capture after wake word
-        - Optional noise reduction
-        - Threaded audio processing
-
-    Args:
-        model_name (str): Whisper model name (e.g., "tiny.en").
-        device (str): Device for inference ("cpu" or "cuda").
-        compute_type (str): Model compute type ("int8", "float16", etc.).
-        sample_rate (int): Audio sample rate (default 16000).
-        vad_aggressiveness (int): VAD sensitivity (0-3).
-        window_duration_ms (int): Audio window size in ms.
-        context_audio_windows_start (int): Pre-context window size.
-        context_audio_windows_end (int): End-context window size.
-        minimum_speech_windows (int): Minimum windows for valid speech.
-        wake_timeout_seconds (float): Timeout after wake word.
-        wake_speech_after_timeout_extension (float): Extension after timeout.
-        use_noise_reduction (bool): Enable noise reduction.
-        max_queue_size (int): Max audio queue size.
-        wake_words (list[str]): List of wake words.
-        override_limits (bool): Override stability limits (e.g min, max's for certain vars).
-
-	"""
 
 	def __init__(
 		self,
@@ -151,14 +123,6 @@ class WakeWhisper:
 		return ''.join(ch for ch in text if ch not in string.punctuation).strip()
 
 	def contains_wake_word(self, text: str) -> str | None:
-		"""
-		Check if text contains a wake word.
-
-		Returns
-		-------
-		str | None
-			The matched wake word (lowercase) if found, else None.
-		"""
 		t = text.lower()
 		for w in self.wake_words:
 			if w in t:
@@ -232,8 +196,6 @@ class WakeWhisper:
 		#Always Stores a frame of audio each iteration, will be inserted at the beginning of the speech window when speech is first detected
 		pre_context = collections.deque(maxlen=self.context_windows_start)
 
-		#Similar to pre_context, but stores the semi-silence frames after, -
-		#used for extra context at the end of speech and for knowing when to actually queue up the entire speech
 		end_context = collections.deque(maxlen=self.context_windows_end)
 
 		was_speech = False #the trigger var for capturing an entire phrase
@@ -376,8 +338,6 @@ class WakeWhisper:
 						#Reset Per Speech Blob End Context Accumulation Counter
 						end_context_windows_accumulated = 0
 
-						#If Woke and Speech Window is already long enough, start the timeout
-						#This way, end context can start building immediately after speech
 						if self.woke and len(speech_window) >= self.minimum_speech_windows:
 							if self.speech_timeout_start is None:
 								self.speech_timeout_start = time.time()
@@ -399,8 +359,6 @@ class WakeWhisper:
 							#Start Building End Context
 							end_context.append( audio_window )
 
-							#Final Test for Wake Word if not already woken
-							#(this is in case, only the wake word was said, this gives it a bigger window to be detected)
 							if not self.woke:
 								sample_window.append( audio_window )
 								if not self.sample_check_thread and len(sample_window) >= self.wake_sample_windows:
@@ -475,8 +433,6 @@ class WakeWhisper:
 									except Exception:
 										pass
 
-							#With was_speech triggered and end_context triggered
-							#were at the reset point of the full speech
 							reset_all()
 
 				## PASSTHROUGH MODE | Does not require to be Woken, Will Build Speech window as Normal
@@ -556,8 +512,6 @@ class WakeWhisper:
 										except Exception:
 											pass
 
-								#With was_speech triggered and end_context triggered
-								#were at the reset point of the full speech
 								reset_all()
 
 				#Whether Speech is detected or Not, Reset if too long without speech
@@ -654,7 +608,6 @@ class WakeWhisper:
 			final_text = ""
 
 
-
 class STTServer:
 	def __init__(self, host="127.0.0.1", command_port=65432, data_port=65433):
 		self.host = host
@@ -729,7 +682,6 @@ class STTServer:
 
 	## CORE
 	def __close_connection(self, which: str):
-		"""Close a specific socket connection safely."""
 		conn = self.connections.get(which)
 		if conn:
 			try:
@@ -805,7 +757,6 @@ class STTServer:
 		print("[STTServer]: Server shutting down complete.")
 
 	def stop(self):
-		"""Stop everything cleanly (called from STOP command)."""
 		if not self.running:
 			return
 		print("[STTServer]: Stopping server...")
@@ -817,7 +768,6 @@ class STTServer:
 		# Close sockets
 		self.__close_connection("command")
 		self.__close_connection("data")
-
 
 
 if __name__ == "__main__":

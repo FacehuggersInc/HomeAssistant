@@ -1,22 +1,3 @@
-"""
-Plugin pip dependency handling.
-
-A plugin declares what it needs in its own plugin.toml:
-
-    [requirements]
-    pip = ["feedparser>=6.0", "Pillow"]
-
-Nothing here ever runs automatically. Installing and uninstalling are both
-driven by an explicit user action -- a plugin's toml is arbitrary text from
-wherever the user got the plugin, so silently handing it to pip would make
-dropping a folder into plugins/ equivalent to running an installer.
-
-Everything targets the interpreter currently running the app
-(`sys.executable -m pip`), which inside a virtualenv is that virtualenv's
-pip. `assert_venv()` refuses to run at all outside one, so a misconfigured
-launch cannot quietly install into the system Python.
-"""
-
 from __future__ import annotations
 
 import re
@@ -28,8 +9,6 @@ from typing import Callable, Iterable, Optional
 
 from src.constants import INSTALL_ROOT
 
-# name[extras]specifier -- we only need the distribution name and the
-# specifier tail; extras are passed through to pip untouched.
 _REQ_RE = re.compile(r"^\s*([A-Za-z0-9][A-Za-z0-9._-]*)\s*(\[[^\]]*\])?\s*(.*)$")
 
 PIP_TIMEOUT = 600  # sec
@@ -65,14 +44,10 @@ def venv_path() -> str:
 ## -- PARSING ----------------------------------------------------------------
 
 def normalize(name: str) -> str:
-    """PEP 503 normalisation, so Pillow / pillow / PIL-style casing and
-    separator differences all compare equal."""
     return re.sub(r"[-_.]+", "-", name).lower()
 
 
 def split_requirement(spec: str) -> tuple[str, str]:
-    """'requests>=2.28' -> ('requests', '>=2.28'). Returns ('', '') if the
-    spec is unparseable, which the caller treats as invalid."""
     spec = spec.strip()
     if not spec or spec.startswith("#"):
         return "", ""
@@ -83,17 +58,6 @@ def split_requirement(spec: str) -> tuple[str, str]:
 
 
 def requirements_of(config) -> list[str]:
-    """
-    Pull the pip requirement list out of a plugin's parsed toml.
-
-    Accepts either shape, since both read naturally:
-
-        [requirements]
-        pip = [...]
-
-        [plugin]
-        requirements = [...]
-    """
     out: list[str] = []
 
     def _collect(value):
@@ -146,16 +110,6 @@ def installed_version(name: str) -> Optional[str]:
 
 
 def _specifier_ok(version: str, specifier: str) -> bool:
-    """
-    Check a version against a specifier, using `packaging` when it is
-    importable and degrading to a presence check when it is not.
-
-    packaging is not in requirements.txt -- it is only ever present as a
-    transitive dependency -- so this cannot assume it. Treating an
-    uncheckable specifier as satisfied is the safe direction: the worst case
-    is not prompting for an upgrade, rather than repeatedly prompting to
-    install something already there.
-    """
     if not specifier:
         return True
     try:
@@ -179,20 +133,12 @@ def is_satisfied(spec: str) -> bool:
 
 
 def missing(specs: Iterable[str]) -> list[str]:
-    """The subset of specs not currently satisfied, in declared order."""
     return [s for s in specs if not is_satisfied(s)]
 
 
 ## -- PROTECTED SET ----------------------------------------------------------
 
 def core_packages() -> set[str]:
-    """
-    Normalised distribution names from the app's own requirements.txt.
-
-    These are never uninstallable through the plugin UI. A plugin declaring
-    `requests` and then being uninstalled would otherwise take out the Flask
-    backend with it.
-    """
     out: set[str] = set()
     req = INSTALL_ROOT / "requirements.txt"
     try:
@@ -211,12 +157,6 @@ def core_packages() -> set[str]:
 
 def removable_for(plugin_specs: Iterable[str],
                   other_plugin_specs: Iterable[str]) -> tuple[list[str], dict[str, str]]:
-    """
-    Split a plugin's requirements into what may be uninstalled and what must
-    be kept, with a reason for each kept one.
-
-    Returns (removable_names, {kept_name: reason}).
-    """
     core = core_packages()
     others = {normalize(split_requirement(s)[0]) for s in other_plugin_specs}
     others.discard("")
@@ -274,10 +214,8 @@ def install(specs: Iterable[str], log: Callable[[str], None] = _noop) -> tuple[b
     log(f"Installing into {venv_path()}")
     ok, out = _run_pip(["install", *specs], log)
 
-    # importlib.metadata caches the distribution list, so a package installed
-    # in this process is otherwise still reported as missing afterwards --
-    # which would make the plugin fail to load immediately after a
-    # successful install.
+    # Required: importlib.metadata caches distributions, so a package installed
+    # in this process still reports as missing without this.
     invalidate_caches()
     return ok, out
 
@@ -292,8 +230,6 @@ def uninstall(names: Iterable[str], log: Callable[[str], None] = _noop) -> tuple
 
 
 def invalidate_caches() -> None:
-    """Make freshly installed or removed distributions visible to this
-    process without a restart."""
     import importlib
     importlib.invalidate_caches()
     try:

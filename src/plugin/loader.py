@@ -16,25 +16,12 @@ from src.settings import Settings
 
 from src.plugin.template import Plugin
 from src.plugin.carryover import PluginCarryover
-# Aliased to pipdeps, not deps: resolve_load_order() already has a local
-# named `deps` for plugin-to-plugin dependencies, and the collision makes
-# the module reference an unbound local for the whole function.
+# NOT `as deps` - resolve_load_order() has a local `deps`, which would shadow it.
 from src.plugin import dependencies as pipdeps
 from src.ui.icons import is_icon_path
 
 
 class PendingPlugin:
-	"""
-	A plugin held back because pip packages it declares are not installed.
-
-	Its module is never imported while in this state -- a plugin whose main.py
-	does `import feedparser` raises at import time, so there is nothing to be
-	gained by trying and catching it, and a partially-imported module left in
-	sys.modules causes problems later.
-
-	`declined` is set when the user says no. The plugin stays listed in
-	Settings either way, greyed out, with an Install button.
-	"""
 
 	def __init__(self, key: str, name: str, path: Path, config: dict,
 				 missing: list[str], requirements: list[str], icon=None):
@@ -58,9 +45,6 @@ class PluginManager():
 		self.plugins = Settings()
 		self.registered : dict[str, Path] = {}
 
-		# Plugins held back because their declared pip requirements are not
-		# installed. Populated during resolve_load_order(), consumed by the
-		# dependency dialog after the UI exists (see Client.build).
 		self.pending : dict[str, PendingPlugin] = {}
 
 	## LOADER
@@ -68,22 +52,12 @@ class PluginManager():
 		return self.client.DATA
 
 	def load_plugin(self, plugin_path:Path):
-		# `module` used to be left unbound when the path check failed, making
-		# the `if module` below raise UnboundLocalError rather than skipping.
-		# Never hit from load_plugins_from_directories (which only ever passes
-		# folders it already validated) but reachable now that
-		# load_pending_plugin() calls this directly.
-		module = None
+		module = None   # must be bound: the path check below may not run
 		if plugin_path.is_dir() and (plugin_path / "main.py").exists():
 			# plugin_folder/__init__.py
 			try:
 				module = self.import_module_from_path(plugin_path / "main.py")
 			except Exception as e:
-				# An exception at plugin import time used to propagate all the
-				# way out of Client.__init__ and kill the app before the window
-				# ever appeared -- one plugin with a bad import took down
-				# everything. A plugin that cannot import is now skipped with a
-				# log line, same as one with a malformed plugin.toml.
 				self.client.log(
 					"error",
 					f"[PluginManager] Plugin at '{plugin_path.name}' failed to import: {e}"
@@ -92,20 +66,6 @@ class PluginManager():
 		if module:	self.register_plugin_classes(module, plugin_path)
 
 	def scan_plugin_toml(self, plugin_path: Path) -> dict | None:
-		"""
-		Read ONLY plugin.toml — no module import, no code execution.
-		Used by resolve_load_order() to build the dependency graph
-		before any plugin code actually runs. This has to be a separate,
-		lighter pass than load_toml() because load_toml() is normally
-		called AFTER a plugin's module is already imported (it wants
-		the Python class name for log messages) — but dependency
-		ordering has to be decided BEFORE any plugin is imported at all,
-		so nothing here can depend on that having happened yet.
-
-		Returns the raw toml dict (or None if missing/invalid), plus the
-		plugin_path attached under "_scan_path" for the caller's
-		convenience.
-		"""
 		toml_path = plugin_path / "plugin.toml"
 		if not toml_path.exists():
 			return None
@@ -124,43 +84,6 @@ class PluginManager():
 		return config
 
 	def resolve_load_order(self, plugin_dirs: list[Path]) -> list[Path]:
-		"""
-		Pre-scan every plugin.toml across all plugin directories (no
-		module imports yet) and compute a load order that respects:
-
-		  1. dependencies — a plugin listed in another plugin's
-		     `dependencies` array loads first, whenever possible.
-		  2. order — an integer tiebreaker among plugins with no
-		     dependency relationship to each other; lower loads first.
-		     Defaults to 0 if omitted.
-
-		plugin.toml shape:
-
-		    [plugin]
-		    name = "My Plugin"
-		    key  = "myplugin"
-		    order = 10                       # optional, default 0
-		    dependencies = ["otherplugin"]   # optional, default []
-
-		Implementation: Kahn's algorithm (BFS topological sort). At each
-		step, every plugin with zero remaining unmet dependencies is a
-		candidate; candidates are sorted by `order` (then by key, for a
-		stable result when order ties) before being added to the
-		schedule, which is what makes `order` act as a tiebreaker
-		rather than an absolute ranking — a real dependency edge always
-		wins over `order` alone.
-
-		Plugins with a missing/invalid plugin.toml, or a dependency that
-		never resolves to a real plugin, are scheduled last (in folder
-		order) with a warning rather than being dropped — a plugin
-		failing to declare itself correctly shouldn't silently prevent
-		every OTHER plugin from loading.
-
-		A circular dependency is also not fatal: whatever's left over
-		once no more zero-dependency candidates exist is appended in
-		whatever order remains, with a warning identifying the cycle as
-		best as can be determined.
-		"""
 		# 1. Pre-scan every plugin folder across every plugin directory
 		scanned: dict[str, dict] = {}      # key -> toml config
 		unscannable: list[Path] = []       # paths with no valid plugin.toml
@@ -185,11 +108,6 @@ class PluginManager():
 					self.client.log("warning", f"[PluginManager] Duplicate plugin key '{key}' found at '{plugin_path}' — keeping the first one scanned ('{scanned[key]['_scan_path']}')")
 					continue
 
-				# Requirements are checked here, in the toml pre-scan, because
-				# this is the only point where a plugin's needs are known
-				# BEFORE its module is imported. A plugin missing a package it
-				# imports at module scope cannot be imported at all, so it is
-				# held back rather than attempted -- see PendingPlugin.
 				requirements = pipdeps.requirements_of(config)
 				if requirements:
 					unmet = pipdeps.missing(requirements)
@@ -211,8 +129,6 @@ class PluginManager():
 
 				scanned[key] = config
 
-		# 2. Build the dependency graph
-		# dependencies[key] = set of keys that must load before `key`
 		dependencies: dict[str, set] = {}
 		for key, config in scanned.items():
 			deps = config.get("plugin", {}).get("dependencies", []) or []
@@ -227,19 +143,12 @@ class PluginManager():
 		def get_order(key: str) -> int:
 			return int(scanned[key].get("plugin", {}).get("order", 0) or 0)
 
-		# 3. Kahn's algorithm — repeatedly take all currently-resolvable
-		# plugins (zero remaining unmet dependencies), sorted by order
-		# then key for a stable, predictable result among ties.
 		remaining = dict(dependencies)   # mutable copy we'll shrink
 		scheduled: list[str] = []
 
 		while remaining:
 			ready = [k for k, deps in remaining.items() if not deps]
 			if not ready:
-				# Circular dependency — nothing left has zero unmet deps.
-				# Break the deadlock by scheduling whatever has the FEWEST
-				# remaining unmet deps (best-effort) rather than refusing
-				# to load anything at all.
 				cycle_keys = list(remaining.keys())
 				self.client.log("warning", f"[PluginManager] Circular or unresolvable plugin dependency detected among: {cycle_keys} — loading in best-effort order")
 				ready = sorted(remaining.keys(), key=lambda k: (len(remaining[k]), get_order(k), k))[:1]
@@ -252,9 +161,6 @@ class PluginManager():
 			for deps in remaining.values():
 				deps.difference_update(ready)
 
-		# 4. Build the final path list: resolved plugins in dependency
-		# order, then anything that failed to scan at all (folder order,
-		# since there's no metadata to sort those by)
 		ordered_paths = [scanned[key]["_scan_path"] for key in scheduled]
 		ordered_paths.extend(unscannable)
 
@@ -382,18 +288,6 @@ class PluginManager():
 					config['path'] = plugin_path / "plugin.toml"
 					if not config: return
 
-					#Resolve optional readme/icon — both relative to the
-					#plugin's own directory, same convention settings.path
-					#below uses. readme is always treated as a path; icon
-					#is only resolved as one if it looks like one (a bare
-					#icon-system name like "extension" or "mdi.rocket"
-					#should pass through untouched for src.ui.icons to
-					#resolve later). Neither has to be declared at all —
-					#readme falls back to auto-detecting a README file
-					#sitting right there in the plugin's own folder, and
-					#icon falls back to a generic "extension" (puzzle
-					#piece) icon so every plugin's settings page still
-					#gets one.
 					if config.get("plugin"):
 						readme = config["plugin"].get("readme")
 						if readme:
@@ -440,14 +334,6 @@ class PluginManager():
 
 	## UN-LOADER
 	def _accepts_carryover(self, bound_method) -> bool:
-		"""
-		True if a plugin's load()/reload()/unload() method accepts a
-		positional argument for carryover, beyond self. Lets plugins
-		written before PluginCarryover existed keep their old
-		zero-argument signatures working unchanged — we only pass
-		carryover through if the method actually has a parameter slot
-		for it.
-		"""
 		try:
 			sig = inspect.signature(bound_method)
 			return len(sig.parameters) >= 1
@@ -461,14 +347,6 @@ class PluginManager():
 			self.client.log("warning", f"[PluginManager] Plugin '{plugin_key}' not found when trying to unload it.")
 			return False
 
-		# A plain unload — not part of a reload_plugin() cycle (which
-		# always passes a real carryover) and not the app's own
-		# shutdown path (which always passes quick=True) — is refused
-		# while another currently-loaded plugin still depends on this
-		# one. Unloading it out from under a live dependant would leave
-		# that dependant broken with no warning. Reloading is
-		# unaffected on purpose: the plugin comes back, dependants
-		# never actually lose it.
 		if not quick and carryover is None:
 			dependants = self.get_dependants(plugin_key)
 			if dependants:
@@ -477,13 +355,6 @@ class PluginManager():
 
 		self.client.iterate_event_callables("on_plugin_unload", plugin_key, True)
 
-		# 2. Call shutdown/unload hook if available
-		# carryover is the PluginCarryover created by reload_plugin() for
-		# this one reload cycle, or None for a normal/shutdown unload
-		# (see PluginCarryover's docstring). Plugins whose unload() was
-		# written before this existed still work unchanged — the call
-		# below only passes carryover if the plugin's unload() actually
-		# accepts a parameter for it.
 		if hasattr(plugin, "unload") and callable(plugin.unload):
 			try:
 				if carryover is not None and self._accepts_carryover(plugin.unload):
@@ -508,15 +379,6 @@ class PluginManager():
 			# etc a. Auto Unload Registered API Endpoints
 			self.client.API_REGISTRY.unregister(plugin_key)
 
-			# etc a2. Auto Unload Registered Pages
-			# This is what fixes the leftover blank window during hot
-			# reload — pages registered with this plugin as owner
-			# (e.g. add_page(..., owner=plugin_key)) are now torn down
-			# automatically here, the same way API endpoints already
-			# were. Without this, a plugin's old page instance/class
-			# stayed registered and alive (just hidden) indefinitely,
-			# even after the plugin module itself was removed from
-			# sys.modules below.
 			self.client.PAGES.unregister(plugin_key)
 
 			# etc b. Remove from plugin registry
@@ -541,49 +403,16 @@ class PluginManager():
 	def reload_plugin(self, plugin_key:str):
 		plugin_path : Path = self.registered.get(plugin_key)
 		if plugin_path and plugin_path.exists() and self.plugins.get(plugin_key):
-			# Tell every OTHER plugin that this one is about to be
-			# unloaded, BEFORE any teardown actually happens. The event
-			# data is just the plugin's key — any plugin that depends on
-			# or cooperates with the one being reloaded (shared state via
-			# self.client.public, a feature it registered onto another
-			# plugin's page, etc.) gets a chance to react (pause, detach,
-			# show its own message) while the reloading plugin is still
-			# fully intact, rather than discovering it's gone after the
-			# fact with no warning.
 			self.client.iterate_event_callables("on_plugin_reloading", plugin_key)
 
-			# Remember what page we were on BEFORE unloading. unload_plugin
-			# now properly destroys the current page if it belongs to this
-			# plugin (see PageRegistry._destroy_instance_if_current), which
-			# sets self.client.PAGE to None — reading PAGE.name AFTER
-			# unloading would crash exactly in the common case of reloading
-			# a plugin while looking at one of its own pages.
 			previous_page = self.client.PAGE.name if self.client.PAGE else "#root"
 
-			# unload_plugin() deletes this plugin from self.plugins, so
-			# its display name has to be captured BEFORE that happens —
-			# self.plugin_name(plugin_key) would otherwise raise a KeyError
-			# once we try to build the "Reloading '...'" message below.
 			plugin_display_name = self.plugin_name(plugin_key)
 
-			# One PluginCarryover per reload cycle. The OLD plugin
-			# instance's unload() gets it first to stash whatever it
-			# wants to survive — the NEW instance's load() and reload()
-			# get the exact same object back afterward. See
-			# src/plugin/carryover.py for the full contract.
 			carryover = PluginCarryover()
 
 			self.unload_plugin( plugin_key, carryover=carryover )
 
-			# Show a clearly DIFFERENT message than the generic "no home
-			# page installed" one while this plugin is actually mid-reload
-			# — there's a real gap here (the sleep below, plus
-			# load_plugin() reading the module from disk) where the old
-			# page is already destroyed and the new one doesn't exist yet.
-			# Without this, that gap either showed a stale frame or the
-			# same "nothing registered" message you'd see if the plugin
-			# were permanently gone, which made it impossible to tell the
-			# two situations apart at a glance.
 			self.client.goto("#root", data={
 				"title": f"Reloading '{plugin_display_name or plugin_key}'…",
 				"body":  "This plugin is being reloaded and will be back shortly.",
@@ -599,18 +428,7 @@ class PluginManager():
 			else:
 				reloaded_plugin.load()
 
-			# handled_navigation lets a plugin's unload() opt out of the
-			# fallback navigation below entirely — useful if load()/built()
-			# already moved somewhere specific and the fallback would just
-			# undo that. See PluginCarryover's docstring for the full
-			# contract; this is the ONLY point where it's checked, since
-			# unload() is the only hook that runs before this.
 			if not carryover.get("handled_navigation", False):
-				# If the page we were on no longer exists (it belonged to
-				# this plugin and got torn down above, and the plugin's
-				# fresh load() hasn't re-registered it under the same key
-				# for some reason), fall back to root rather than calling
-				# goto() with a stale key.
 				reload_page = previous_page if self.client.PAGES.has_page(previous_page) else "#root"
 				self.client.goto(reload_page, override = True)
 
@@ -635,13 +453,11 @@ class PluginManager():
 	## DEPENDENCIES
 
 	def pending_plugins(self, include_declined: bool = True) -> list[PendingPlugin]:
-		"""Plugins held back for missing pip packages, name-sorted."""
 		items = [p for p in self.pending.values()
 				 if include_declined or not p.declined]
 		return sorted(items, key=lambda p: p.name.lower())
 
 	def plugin_requirements(self, plugin_key: str) -> list[str]:
-		"""Declared pip requirements for a plugin, loaded or pending."""
 		if plugin_key in self.pending:
 			return list(self.pending[plugin_key].requirements)
 		plugin = self.plugins.get(plugin_key, None)
@@ -653,10 +469,6 @@ class PluginManager():
 			return pipdeps.requirements_of(plugin.config)
 
 	def other_plugin_requirements(self, exclude_key: str) -> list[str]:
-		"""Every requirement declared by every OTHER plugin, loaded or pending.
-
-		This is what stops an uninstall from removing a package a second
-		plugin still needs."""
 		out: list[str] = []
 		for _, key in self.get_plugins():
 			if key != exclude_key:
@@ -668,13 +480,6 @@ class PluginManager():
 
 	def install_pending(self, plugin_key: str,
 						log: Callable[[str], None] = None) -> tuple[bool, str]:
-		"""
-		Run pip for a held-back plugin, then load it.
-
-		The pip half is slow and blocking, so callers should run this off the
-		UI thread; the load half is dispatched back onto the UI thread here,
-		since it builds pages and widgets.
-		"""
 		pending = self.pending.get(plugin_key)
 		if not pending:
 			return False, f"'{plugin_key}' is not waiting on any packages"
@@ -705,13 +510,6 @@ class PluginManager():
 		return True, output
 
 	def load_pending_plugin(self, plugin_key: str) -> bool:
-		"""
-		Bring a held-back plugin into a running app.
-
-		Same sequence as the second half of reload_plugin(): import, load(),
-		mixins, then built() because the app is already built by the time
-		this can be reached.
-		"""
 		pending = self.pending.get(plugin_key)
 		if not pending:
 			return False
@@ -752,14 +550,6 @@ class PluginManager():
 
 	def uninstall_plugin_packages(self, plugin_key: str,
 								  log: Callable[[str], None] = None) -> tuple[bool, str]:
-		"""
-		Uninstall the pip packages a plugin declares, then unload the plugin.
-
-		Only packages nothing else needs are removed -- see
-		dependencies.removable_for(). The plugin is unloaded afterwards
-		because leaving it running against packages that no longer exist just
-		defers the crash to whenever it next touches them.
-		"""
 		specs = self.plugin_requirements(plugin_key)
 		if not specs:
 			return False, "This plugin does not declare any pip requirements."
@@ -810,9 +600,6 @@ class PluginManager():
 			)
 			return
 
-		# Move it straight into the pending list so it stays visible in
-		# Settings, greyed out, with an Install button -- same place a plugin
-		# sits when its packages were never installed in the first place.
 		if path is not None and config is not None:
 			specs = pipdeps.requirements_of(config)
 			self.pending[plugin_key] = PendingPlugin(
@@ -842,21 +629,12 @@ class PluginManager():
 		return False
 
 	def get_dependencies(self, plugin_key: str) -> list[str]:
-		"""Plugin keys this plugin's own plugin.toml declares as
-		dependencies — regardless of whether those plugins are
-		currently loaded (see get_dependants() for the reverse, live-only
-		direction)."""
 		plugin = self.plugins.get(plugin_key)
 		if not plugin:
 			return []
 		return list(plugin.config.get_path("plugin.dependencies", []) or [])
 
 	def get_dependants(self, plugin_key: str) -> list[str]:
-		"""Keys of every CURRENTLY LOADED plugin that declares
-		plugin_key as one of its own dependencies — i.e. plugins that
-		would be left depending on something missing if plugin_key were
-		unloaded right now. This is what unload_plugin() checks before
-		refusing a plain unload."""
 		dependants = []
 		for other_key, other_plugin in self.plugins.items():
 			if other_key == plugin_key:
@@ -867,9 +645,6 @@ class PluginManager():
 		return dependants
 
 	def can_unload(self, plugin_key: str) -> bool:
-		"""False if a plain unload of this plugin would currently be
-		refused by unload_plugin() — i.e. some other loaded plugin still
-		depends on it. Reload is never affected by this."""
 		return len(self.get_dependants(plugin_key)) == 0
 
 	def get_plugins(self) -> list[tuple[Plugin, str]]:
@@ -909,6 +684,5 @@ class PluginManager():
 				self.client.log("warning", f"[PluginManager] Plugin '{key}' failed to build: {e}")
 
 	def unload_plugins(self):
-		"""A Function to Call Unload and to Save Settings on ALL Plugins. Not for Hot Reloading All Plugins!"""
 		for plugin, key in self.get_plugins():
 			self.unload_plugin(key, quick=True)

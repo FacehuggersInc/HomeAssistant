@@ -1,25 +1,4 @@
 #!/usr/bin/env python3
-"""
-Cross-platform supervisor for the Home Assistant client.
-
-Replaces startup.sh's relaunch loop, update.sh, and the old root updater.py,
-all of which were bash-only or never invoked.
-
-Responsibilities:
-  - apply any update staged by the running app, with the app stopped
-  - relaunch the app on request (exit 42 / 43)
-  - roll back and relaunch if a freshly-applied update fails to start
-  - restart the app after a crash, bounded by user settings
-
-Exit codes this returns to the shell wrapper:
-  0   done, do not re-run
-  44  launcher.py itself was updated -- wrapper should re-run this script so
-      the new code takes effect
-
-Standard library only, and deliberately so: this has to run before anything
-in the venv is known to be importable, and has to keep working even when an
-update has broken the app it supervises.
-"""
 
 from __future__ import annotations
 
@@ -71,13 +50,6 @@ def log(msg: str) -> None:
 ## -- SETTINGS ---------------------------------------------------------------
 
 def load_settings() -> dict:
-    """
-    Read the crash-restart policy straight out of the app's settings JSON.
-
-    Deliberately not Dynaconf: this runs before the venv is trusted, and a
-    malformed or absent settings file must never stop the app from starting.
-    Anything unreadable falls back to DEFAULTS.
-    """
     out = dict(DEFAULTS)
     try:
         data = json.loads(get_data_file().read_text(encoding="utf-8"))
@@ -110,7 +82,6 @@ def run_app() -> int:
 
 
 def launcher_hash() -> str:
-    """Cheap identity for this file, to notice an update replacing it."""
     try:
         import hashlib
         return hashlib.sha256(Path(__file__).resolve().read_bytes()).hexdigest()
@@ -172,8 +143,6 @@ def main() -> int:
         # ---- app asked to restart, with or without an update
         if code in (EXIT_UPDATE, EXIT_RESTART):
             if just_updated:
-                # it came up far enough to ask for a restart, so the update
-                # is good -- stop holding the rollback
                 updater.clear_backup()
                 just_updated = False
             attempts = 0

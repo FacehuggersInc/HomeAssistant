@@ -21,15 +21,6 @@ class IdleTriggersPlugin(Plugin):
 
     ## CORE
     def load(self, carryover=None):
-        # Interaction watching used to be this plugin's own job —
-        # InteractionEventWatcher, installed directly on client.app.
-        # That's a Client-level concern now (see InteractionWatcher/
-        # _on_global_interaction in src/main.py): on_fresh_interaction
-        # fires exactly on the edge this plugin cares about (the FIRST
-        # interaction after a period of idleness), and
-        # on_interaction_timeout fires exactly on the other edge (idle
-        # threshold first crossed) — both replace what this plugin used
-        # to detect by hand via its own last_interaction_time polling.
         self.client.subscribe_to_event(
             "on_fresh_interaction",
             self.on_fresh_interaction
@@ -63,16 +54,6 @@ class IdleTriggersPlugin(Plugin):
         if self.rotating_builders:
             self.rotating_builders = False
             self.already_called_ids = []
-            #Dismiss — destroy=True regardless of whether the builder
-            #used client.create_panel() (which already defaults to
-            #destroy_on_close=True) or built a Panel directly: this
-            #plugin never reuses a builder's panel once it's done
-            #showing it, so it should always be fully released here,
-            #not just hidden. See Panel.close_panel()/_destroy() in
-            #src/ui/overlays.py for what that actually does and why it
-            #matters — this used to be exactly the leak that made the
-            #app gradually slow down the longer it sat idle rotating
-            #through builders.
             if isinstance(self.last_built[0], Panel) and self.last_built[3]:
                 self.last_built[0].close_panel(destroy=True)
                 #Cancel Timer
@@ -80,11 +61,6 @@ class IdleTriggersPlugin(Plugin):
                     self.client.TIMEOUTS.cancel(self.last_timeout_id)
 
     def on_interaction_timeout(self, event=None) -> None:
-        # Settings subscribes to this same event for its own
-        # auto-return-home-when-idle behaviour, so it has to actually
-        # fire while Settings is the active page — this plugin just
-        # shouldn't act on it there, the same way it already stays out
-        # of any other page registered via add_invalid_pages().
         if self.client.PAGE and self.client.PAGE.name == "#settings":
             return
         self.rotating_builders = True
@@ -140,17 +116,6 @@ class IdleTriggersPlugin(Plugin):
 
         builders = [b for b in all_builders if b[1] not in self.already_called_ids]
 
-        # Only exclude the immediately-previous builder if there's an
-        # actual alternative left to fall back on. With exactly one
-        # builder registered (the common case for a plugin like
-        # RSSFeeds, which registers a single builder total regardless
-        # of how many feeds it has), this exclusion would otherwise
-        # filter out the only candidate every single time after its
-        # first use — already_called_ids resets back to [] each cycle,
-        # but last_built[1] never does, so a lone builder gets
-        # permanently blacklisted by its own anti-repeat check, and
-        # nothing afterwards ever resets builder_used_timeslot back to
-        # True. The whole rotation just silently stops forever.
         if len(builders) > 1:
             builders = [b for b in builders if b[1] != self.last_built[1]]
 

@@ -28,19 +28,6 @@ FLOATING = "floating"   # set widget.floating = True, widget.float_x / float_y
 # ── Base Widget ───────────────────────────────────────────────────────────────
 
 class Widget(QWidget):
-    """
-    Base class for all home-screen widgets.
-
-    Placement is declared via `anchor`:
-      - "top-left", "top-center", "top-right"
-      - "bottom-left", "bottom-center", "bottom-right"
-      - "top-left:1"  →  second row in the top-left anchor zone
-      - "topmost"     →  always raised above other anchored widgets
-      - "floating"    →  absolute position; set float_x / float_y
-
-    Periodic updates are driven by `start_tick(interval_ms)` which fires
-    `tick()` on the main thread via QTimer — no background thread needed.
-    """
 
     def __init__(
         self,
@@ -74,11 +61,9 @@ class Widget(QWidget):
     # ── Tick API ──────────────────────────────────────────────────────────────
 
     def start_tick(self, interval_ms: int = 1000) -> None:
-        """Start periodic tick() calls on the main thread."""
         self._tick_timer.start(interval_ms)
 
     def stop_tick(self) -> None:
-        """Stop periodic ticks."""
         self._tick_timer.stop()
 
     def _safe_tick(self) -> None:
@@ -88,19 +73,12 @@ class Widget(QWidget):
             pass
 
     def tick(self) -> None:
-        """Override to implement periodic widget updates."""
         pass
 
 
 # ── Anchor zone ───────────────────────────────────────────────────────────────
 
 class _AnchorZone(QWidget):
-    """
-    A transparent container pinned to one corner of the WidgetLayer.
-
-    Internally it holds a QVBoxLayout (rows stacked top→bottom or bottom→top).
-    Each row index maps to a QHBoxLayout inside the column.
-    """
 
     def __init__(self, anchor_name: str, padding: int, widget_spacing: int):
         super().__init__()
@@ -125,7 +103,6 @@ class _AnchorZone(QWidget):
         self._rows: dict[int, QHBoxLayout] = {}
 
     def add_widget(self, widget: Widget, row_index: int) -> None:
-        """Insert widget into the given row, creating the row if needed."""
         if row_index not in self._rows:
             row_widget = QWidget()
             set_style(row_widget, "common", "transparent")
@@ -161,24 +138,6 @@ class _AnchorZone(QWidget):
 # ── Widget framework ──────────────────────────────────────────────────────────
 
 class WidgetFramework(QWidget):
-    """
-    Transparent overlay that sits above page content and manages widget
-    placement into named anchor zones.
-
-    Anchor zone layout:
-
-        top-left    top-center    top-right
-        [padding]
-        ...content...
-        [padding]
-        bottom-left bottom-center bottom-right
-
-    Each zone is a QWidget pinned to its corner.  Zones are created
-    lazily the first time a widget claims them.
-
-    Floating widgets (widget.floating = True) are placed at absolute
-    coordinates via setGeometry() and raised to the top.
-    """
 
     def __init__(self, client: "Client", page_key: str,
                  padding: int = 35, widget_spacing: int = 5):
@@ -197,7 +156,6 @@ class WidgetFramework(QWidget):
     # ── Public API ────────────────────────────────────────────────────────────
 
     def add(self, widgets: list[Widget]) -> None:
-        """Register and place a list of widgets."""
         for widget in widgets:
             if any(w.KEY == widget.KEY for w in self._widgets):
                 raise KeyError(f"Widget key '{widget.KEY}' already exists.")
@@ -225,7 +183,6 @@ class WidgetFramework(QWidget):
             w.raise_()
 
     def remove(self, key: str) -> None:
-        """Remove a widget by key."""
         found = [w for w in self._widgets if w.KEY == key]
         if not found:
             return
@@ -245,14 +202,9 @@ class WidgetFramework(QWidget):
             self._topmost.remove(widget)
 
     def tick_widgets(self) -> None:
-        """Called by the page's tick loop — no-op since each widget uses QTimer."""
         pass  # widgets manage their own QTimers
 
     def update_geometry(self) -> None:
-        """
-        Called when the parent page is resized.
-        Repositions all anchor zones and floating widgets.
-        """
         self.setGeometry(0, 0, self.parent().width(), self.parent().height())
         self._reposition_zones()
         self._reposition_floating()
@@ -260,7 +212,6 @@ class WidgetFramework(QWidget):
     # ── Internal helpers ──────────────────────────────────────────────────────
 
     def _parse_anchor(self, anchor: str) -> tuple[str, int]:
-        """Split 'top-left:1' → ('top-left', 1)."""
         if ":" in anchor:
             name, idx = anchor.split(":", 1)
             return name, int(idx)
@@ -304,7 +255,6 @@ class WidgetFramework(QWidget):
             self._reposition_zone(anchor_name, zone)
 
     def _reposition_zone(self, anchor_name: str, zone: _AnchorZone) -> None:
-        """Pin a zone widget to its corner using absolute positioning."""
         if not self.parent():
             return
         w = self.width()

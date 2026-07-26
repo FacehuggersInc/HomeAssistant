@@ -12,14 +12,6 @@ if TYPE_CHECKING:
 
 
 class Handle(QWidget):
-    """
-    A pill-shaped drag handle that triggers open/close callbacks.
-
-    NOTE: WA_TranslucentBackground is intentionally NOT set here.
-    On Linux compositors it causes the widget to lose its input region,
-    making it invisible to mouse events. Instead we paint a transparent
-    background manually in paintEvent.
-    """
 
     def __init__(
         self,

@@ -16,7 +16,6 @@ if TYPE_CHECKING:
 
 
 class _GridBackground(QWidget):
-    """Subtle dot-grid background."""
 
     GRID_SPACING = 32
     DOT_RADIUS   = 1
@@ -41,30 +40,6 @@ class _GridBackground(QWidget):
 
 
 class RootPage(PageFramework):
-    """
-    Shown when no plugin has registered a default page, or as an
-    in-between screen while a plugin is mid-reload.
-
-    Displays a subtle grid background and a message in the centre. The
-    message is configurable via the `data` dict passed to
-    client.goto("#root", data={...}) — this is what lets a plugin (or
-    PluginManager during a hot reload) show something contextual like
-    "CoreWidgetsBundle is reloading..." instead of the generic
-    "no home page installed" message, so there's a visible difference
-    between "nothing is registered at all" and "something is
-    temporarily unavailable mid-reload".
-
-    data keys (all optional):
-        title     : str  — headline text. Default: "No home page installed"
-        body      : str  — supporting text, \\n for line breaks.
-        hint      : str  — monospace path/hint line shown below the body.
-        show_hint : bool — set False to hide the hint line entirely.
-                    Default: True (only matters if hint is also set or
-                    defaulted)
-
-    Still provides a drawer with Settings, Fullscreen, and Close
-    regardless of what message is showing.
-    """
 
     DEFAULT_TITLE = "No home page installed"
     DEFAULT_BODY  = (

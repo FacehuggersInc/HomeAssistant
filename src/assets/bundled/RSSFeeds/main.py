@@ -55,22 +55,6 @@ class RSSFeedsPlugin(Plugin):
 
     ## FEED FILES
     def _load_feed_files(self):
-        """
-        Scan self.feeds_path for individual *.json feed definitions and
-        register each one via add_feed(), the same entry point any other
-        plugin uses — these just get registered under this plugin's own
-        key ("rssfeeds") rather than a caller's, since nothing external
-        is the owner.
-
-        Each file is expected to contain:
-            {
-                "url": "https://example.com/feed.xml",
-                "transformer": { ... }
-            }
-
-        Missing/unreadable/malformed files are logged and skipped rather
-        than blocking the rest from loading.
-        """
         if not self.feeds_path.exists():
             try:
                 self.feeds_path.mkdir(parents=True, exist_ok=True)
@@ -113,9 +97,6 @@ class RSSFeedsPlugin(Plugin):
         return id
 
     def _set_feed_transformer(self, plugin_key:str, feed_id:str, transformer:dict):
-        """Persist a (now-inferred) transformer back onto its stored feed
-        entry so every future pick of this feed reuses it instead of
-        re-inferring one from scratch each time."""
         group = self.feeds.get(plugin_key, [])
         for i, feed in enumerate(group):
             if feed[1] == feed_id:
@@ -147,7 +128,6 @@ class RSSFeedsPlugin(Plugin):
     ## UI
 
     def _make_tag(self, text:str, color:str) -> QLabel:
-        """Small colored metadata pill used in the tags row (feed name, published date, author)."""
         tag = QLabel(text)
         tag.setFont(make_font(12, bold=True))
         tag.setWordWrap(False)

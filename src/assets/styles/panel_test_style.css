@@ -1,7 +1,4 @@
-/* src/ui/widgets/panel_test.py — PanelTestContent.
-   Deliberately chaotic/clashing on purpose: this exists purely to
-   stress-test Panel (src/ui/overlays.py) with a wide variety of widget
-   types and set_style() calls in one place, not to look good. */
+/* src/ui/widgets/panel_test */
 
 .test-title {
     color: #ffe14d;

@@ -13,7 +13,6 @@ if TYPE_CHECKING:
 # ── Features dict (unchanged from original) ──────────────────────────────────
 
 class Features(Settings):
-    """Exposes page capabilities to plugins and other pages."""
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
@@ -21,24 +20,6 @@ class Features(Settings):
 # ── Page Framework ────────────────────────────────────────────────────────────
 
 class PageFramework(QWidget):
-    """
-    Base class for top-level pages (e.g. HomePage, SettingsPage).
-
-    Lifecycle
-    ---------
-    start()  — called by Client.goto() after the page is made visible.
-    stop()   — called by Client.goto() before navigating away.
-
-    Features API
-    ------------
-    Identical to the original: plugins call page.features().add_widgets(...)
-    etc. to add content via the features dict.
-
-    Threading
-    ---------
-    Pages no longer have a threaded_update background thread.
-    Use QTimer within the page or its sub-pages instead.
-    """
 
     page_entered = pyqtSignal()
     page_left    = pyqtSignal()
@@ -88,17 +69,14 @@ class PageFramework(QWidget):
     # ── Lifecycle hooks ───────────────────────────────────────────────────────
 
     def start(self) -> None:
-        """Called after the page becomes the active visible page."""
         self.page_entered.emit()
 
     def stop(self) -> None:
-        """Called before navigating away from this page."""
         self.page_left.emit()
 
     # ── Sizing ────────────────────────────────────────────────────────────────
 
     def apply_window_size(self) -> None:
-        """Resize to match the current client window dimensions."""
         if self.client and self.client.BUILT:
             w, h = self.client.SETTINGS.application.window.size.value
             self.setFixedSize(int(w), int(h))
@@ -107,17 +85,6 @@ class PageFramework(QWidget):
 # ── Sub-Page Framework ────────────────────────────────────────────────────────
 
 class SubPageFramework(QWidget):
-    """
-    Base class for sub-pages within a page (e.g. SubHomePage, SubTilesPage).
-
-    Sub-pages are children of the PageHost's page widget and use a 2-D
-    coordinate system identical to the original.  The PageHost moves them
-    with QPropertyAnimation on pos rather than manually setting left/top.
-
-    coord=(0,0) is the default/home sub-page.
-    coord=(1,0) is one page to the right.
-    coord=(0,1) is one page down.
-    """
 
     def __init__(
         self,
@@ -174,14 +141,12 @@ class SubPageFramework(QWidget):
     # ── Animation ─────────────────────────────────────────────────────────────
 
     def animate_to(self, x: int, y: int) -> None:
-        """Slide this sub-page to the given position."""
         self._anim.stop()
         self._anim.setStartValue(self.pos())
         self._anim.setEndValue(self._make_point(x, y))
         self._anim.start()
 
     def move_to(self, x: int, y: int) -> None:
-        """Instantly move this sub-page (no animation)."""
         self._anim.stop()
         self.move(x, y)
 
@@ -193,8 +158,4 @@ class SubPageFramework(QWidget):
     # ── Tick ──────────────────────────────────────────────────────────────────
 
     def tick(self) -> None:
-        """
-        Called by the parent page's QTimer while this sub-page is active.
-        Override to drive per-frame updates.
-        """
         pass

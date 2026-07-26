@@ -1,5 +1,3 @@
-"""A File holding a Reference Classes for STT Processing with Whisper Models | These may be outdated or unused."""
-
 from threading import Thread, Event as ThreadEvent
 import queue
 import collections
@@ -21,37 +19,6 @@ except Exception:
 
 
 class WakeWhisper:
-	"""
-	May be Outdated to the newer implementation in assistant/whisper-process.py.
-
-	Unused / Works as Standalone Currently.
-
-	WakeWhisper: Real-time speech-to-text with wake word support. Using Whisper.
-
-	Features:
-		- Always-on listening with VAD (Voice Activity Detection)
-		- Partial transcription for wake word detection
-		- Full phrase capture after wake word
-		- Optional noise reduction
-		- Threaded audio processing
-
-	Args:
-		model_name (str): Whisper model name (e.g., "tiny.en").
-		device (str): Device for inference ("cpu" or "cuda").
-		compute_type (str): Model compute type ("int8", "float16", etc.).
-		sample_rate (int): Audio sample rate (default 16000).
-		vad_aggressiveness (int): VAD sensitivity (0-3).
-		window_duration_ms (int): Audio window size in ms.
-		context_audio_windows_start (int): Pre-context window size.
-		context_audio_windows_end (int): End-context window size.
-		minimum_speech_windows (int): Minimum windows for valid speech.
-		wake_timeout_seconds (float): Timeout after wake word.
-		wake_speech_after_timeout_extension (float): Extension after timeout.
-		use_noise_reduction (bool): Enable noise reduction.
-		max_queue_size (int): Max audio queue size.
-		wake_words (list[str]): List of wake words.
-		override_limits (bool): Override safety limits.
-	"""
 
 	def __init__(
 		self,
@@ -145,14 +112,6 @@ class WakeWhisper:
 		return ''.join(ch for ch in text if ch not in string.punctuation).strip()
 
 	def contains_wake_word(self, text: str) -> str | None:
-		"""
-		Check if text contains a wake word.
-
-		Returns
-		-------
-		str | None
-			The matched wake word (lowercase) if found, else None.
-		"""
 		t = text.lower()
 		for w in self.wake_words:
 			if w in t:
@@ -217,8 +176,6 @@ class WakeWhisper:
 		#Always Stores a frame of audio each iteration, will be inserted at the beginning of the speech window when speech is first detected
 		pre_context = collections.deque(maxlen=self.context_windows_start)
 
-		#Similar to pre_context, but stores the semi-silence frames after, -
-		#used for extra context at the end of speech and for knowing when to actually queue up the entire speech
 		end_context = collections.deque(maxlen=self.context_windows_end)
 
 		was_speech = False #the trigger var for capturing an entire phrase
@@ -288,8 +245,6 @@ class WakeWhisper:
 
 				end_context_windows_accumulated = 0
 
-				#If Woke and Speech Window is already long enough, start the timeout
-				#This way, end context can start building immediately after speech
 				if self.woke and len(speech_window) >= self.minimum_speech_windows:
 					if self.speech_timeout_start is None:
 						self.speech_timeout_start = time.time()
@@ -314,8 +269,6 @@ class WakeWhisper:
 					#Start Building End Context
 					end_context.append( audio_window )
 
-					#Final Test for Wake Word if not already woken
-					#(this is in case, only the wake word was said, this gives it a bigger window to be detected)
 					if not self.woke:
 						sample_window.append( audio_window )
 						if not self.sample_check_thread and len(sample_window) >= self.wake_sample_amount:
@@ -330,8 +283,6 @@ class WakeWhisper:
 						end_context.clear()
 						
 					elif self.woke and len(speech_window) >= self.minimum_speech_windows:
-						#Start a timeout
-						# Start timeout if not already started
 						if self.speech_timeout_start is None:
 							self.speech_timeout_start = time.time()
 
@@ -383,8 +334,6 @@ class WakeWhisper:
 								except Exception:
 									pass
 
-						#With was_speech triggered and end_context triggered
-						#were at the reset point of the full speech
 						was_speech = False
 						end_context.clear()
 						sample_window.clear()
@@ -463,19 +412,6 @@ class WakeWhisper:
 			final_text = ""
 
 class FullUtteranceWhisper:
-	"""
-	Unused / Works as Standalone Currently.
-
-	A Whisper Object Class
-
-	Phases:
-		1) Listen + VAD + optional short noise reduction -> "general recording"
-		2) On VAD end, push utterance to a processing queue (processing runs in separate thread)
-		3) Processing thread runs transcription.
-
-	Callbacks:
-		- on_final(text, timestamps): called for final utterance result
-	"""
 
 	def __init__(
 		self,
@@ -491,33 +427,6 @@ class FullUtteranceWhisper:
 		max_queue_size=8,
 		maximum_words = 30
 	):
-		"""
-		Parameters
-		----------
-		model_name : str
-			faster-whisper model id or path (use tiny.en for English-only).
-		device : str
-			"cpu" for CPU. faster-whisper supports "cpu" for CTranslate2 backend.
-		compute_type : str
-			quantization type for faster-whisper (e.g., "int8", "int8_float16", "float32").
-		sample_rate : int
-			microphone sampling rate in Hz.
-		window_duration_ms : int
-			VAD frame duration in ms (10, 20, or 30 recommended).
-		vad_aggressiveness : int
-			webrtcvad aggressiveness (0..3). Higher is stricter on noise.
-		prebuffer_ms : int
-			how many ms of audio to keep before VAD start for context (e.g., 400ms).
-		context_windows_end : int
-			number of consecutive non-speech frames to consider end of utterance.
-		use_noise_reduction : bool
-			if True and noisereduce is available, apply a short denoise to buffered audio
-			before VAD decision and before queuing for transcription.
-		max_queue_size : int
-			maximum queued utterances before dropping older ones.
-		maximum_words : int
-			maximum words for an understood utterance, if the utterance if over this number, it will be ignore and not returned.
-		"""
 		torch.set_num_threads(5)
 
 		self.model_name = model_name
@@ -575,7 +484,6 @@ class FullUtteranceWhisper:
 		self._process_thread.start()
 
 	def stop(self):
-		"""Signal all threads to stop and wait for them."""
 		self.stop_event.set()
 		try:
 			self.audio_queue.put_nowait(None)
@@ -586,9 +494,6 @@ class FullUtteranceWhisper:
 		if self._process_thread:
 			self._process_thread.join(timeout=2.0)
 
-	# ----------------------
-	# Listening / VAD thread
-	# ----------------------
 	
 	def is_too_quiet(self, audio_bytes, threshold_db=-35, sample_rate=16000):
 		audio = np.frombuffer(audio_bytes, dtype=np.int16).astype(np.float32)
@@ -597,7 +502,6 @@ class FullUtteranceWhisper:
 		return db < threshold_db
 	
 	def __listen_loop(self):
-		"""Retry opening mic every 5s until success."""
 		while not self.stop_event.is_set():
 			try:
 				with sd.InputStream(samplerate=self.sample_rate, 
@@ -610,10 +514,6 @@ class FullUtteranceWhisper:
 				time.sleep(5)
 
 	def __stream_loop(self, stream):
-		"""
-		Continuously read frames from microphone, run VAD on buffered windows,
-		collect voiced frames, and enqueue utterances for processing.
-		"""
 
 		talking_frames = []
 		context_buffer = collections.deque(maxlen=self.context_windows_start)
@@ -702,9 +602,6 @@ class FullUtteranceWhisper:
 					pass
 
 
-	# -------------------------
-	# Processing / transcription
-	# -------------------------
 	def clean_text(self, text:str) -> str:
 		return ''.join(ch for ch in text if ch not in string.punctuation).strip()
 	
@@ -720,10 +617,6 @@ class FullUtteranceWhisper:
 		return False
 
 	def __processing_loop(self):
-		"""
-		Pull utterances from the queue and run transcription.
-		This thread is allowed to be slower; listening thread stays responsive.
-		"""
 
 		while True:
 			self.status["processing"] = "waiting"
@@ -738,11 +631,7 @@ class FullUtteranceWhisper:
 			# Convert to float32 numpy array in range [-1, 1]
 			audio_np = np.frombuffer(utterance_bytes, dtype=np.int16).astype(np.float32) / self.__PCM_NORM_FACTOR
 
-			# For shorter utterances, whisper/faster-whisper works fine directly.
-			# For long utterances, consider chunking. Here we pass the full chunk.
 			try:
-				# Run faster-whisper transcription.
-				# segments is an iterator/list of Segment objects; info contains metadata.
 				self.status["processing"] = "transcribing"
 				segments, info = self.model.transcribe(
 					audio_np,
@@ -789,12 +678,6 @@ class FullUtteranceWhisper:
 					except Exception as e:
 						print(f"Final Callable Error: {e}")
 
-	# -------------------------
-	# Convenience setters
-	# -------------------------
 	def set_callbacks(self, on_partial=None, on_final=None):
-		"""
-		Set callback functions. Each receives (text, timestamps).
-		"""
 		self.on_partial = on_partial
 		self.on_final = on_final
