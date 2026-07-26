@@ -275,6 +275,12 @@
    "value": 6,
    "suffix": "sec",
    "description": "Minimum time the activity bar keeps a transcript on screen. Longer transcripts are held longer than this automatically."
+  },
+  "elevenlabs_key": {
+   "type": "secret",
+   "env": "ELEVENLABS_KEY",
+   "value": "",
+   "description": "ElevenLabs API key, used for spoken replies. Stored in your .env file, not here. Leave empty and the assistant still works, it just does not talk back."
   }
  }
 }

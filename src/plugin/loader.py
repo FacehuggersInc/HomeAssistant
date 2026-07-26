@@ -12,7 +12,7 @@ from typing import Callable
 
 from src.enums import Asset
 
-from src.settings import Settings
+from src.settings import Settings, scrub_secrets
 
 from src.plugin.template import Plugin
 from src.plugin.carryover import PluginCarryover
@@ -107,6 +107,11 @@ class PluginManager():
 				if key in scanned:
 					self.client.log("warning", f"[PluginManager] Duplicate plugin key '{key}' found at '{plugin_path}' — keeping the first one scanned ('{scanned[key]['_scan_path']}')")
 					continue
+
+				# Registered for every scanned plugin, including ones held back
+				# below - a plugin blocked on a package should still show its key
+				# fields, since the credential is usually needed anyway.
+				self.register_secrets(key, config)
 
 				requirements = pipdeps.requirements_of(config)
 				if requirements:
@@ -368,7 +373,9 @@ class PluginManager():
 		if hasattr(plugin, "settings"):
 			path = plugin.config["settings"]["path"]
 			with open(path, "w") as jsonfile:
-				json.dump(plugin.settings.to_dict(), jsonfile, indent = 4)
+				# Scrubbed: a plugin's own settings.json is written here on every
+				# unload, and a credential must never land in it.
+				json.dump(scrub_secrets(plugin.settings.to_dict()), jsonfile, indent = 4)
 			self.client.log("info", f"[PluginManager] '{plugin_key}' Settings Saved.")
 
 		# etc. If not Quick Unloading; Remove Mixins, Remove from Plugin Registry | essentially this is for hot reloading, if quick is true, its because the app is shutting down
@@ -385,6 +392,9 @@ class PluginManager():
 			del self.plugins[plugin_key]
 			self.client.SKILLS.un_register( plugin_key )
 			self.client.public.clear( plugin_key )
+			# Forgets the declaration only. The stored value stays, so a
+			# reload does not silently require retyping the credential.
+			self.client.SECRETS.unregister(plugin_key)
 
 			# etc c. Remove from sys.modules
 			module_name = plugin.__class__.__module__  # e.g. "myplugin.main"
@@ -450,6 +460,42 @@ class PluginManager():
 
 
 	
+	## SECRETS
+
+	def register_secrets(self, plugin_key: str, config: dict) -> list[str]:
+		"""
+		Declare a plugin's secret KEY NAMES. Accepts either shape:
+
+			[secrets]
+			keys = ["WORDNIK_KEY"]
+
+			[plugin]
+			secrets = ["WORDNIK_KEY"]
+
+		Values never appear in a toml - only names.
+		"""
+		names = []
+
+		def collect(entry):
+			if isinstance(entry, str):
+				names.append(entry)
+			elif isinstance(entry, (list, tuple)):
+				names.extend(str(k) for k in entry)
+
+		section = (config or {}).get("secrets")
+		if isinstance(section, dict):
+			collect(section.get("keys", section.get("key")))
+		else:
+			collect(section)
+
+		plugin_section = (config or {}).get("plugin", {})
+		if isinstance(plugin_section, dict):
+			collect(plugin_section.get("secrets"))
+
+		if not names:
+			return []
+		return self.client.SECRETS.register_many(plugin_key, names)
+
 	## REGISTRATIONS
 
 	def registrations(self, plugin_key: str) -> list[tuple[str, list[str]]]:
@@ -498,6 +544,15 @@ class PluginManager():
 		try:
 			add("Mixins", [f"{target}   ({when})" for target, when in
 						   client.MIXINS.mixins_for(plugin_key)])
+		except Exception:
+			pass
+
+		try:
+			# Names and whether they are set - never the values.
+			add("Secrets", [
+				f"{name}   ({client.SECRETS.status(name)})"
+				for name in client.SECRETS.keys_for(plugin_key)
+			])
 		except Exception:
 			pass
 

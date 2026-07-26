@@ -280,6 +280,80 @@ path = "/path/to/.json"
 
 the settings path will be joined into the default settings page under plugins for Public settings.
 
+### Secrets
+
+API keys and other credentials go in `.env`, never in a settings file. A
+plugin declares the key **names** it needs; values are never in a toml.
+
+```toml
+[secrets]
+keys = ["WORDNIK_KEY", "SPOTIFY_CLIENT_ID"]
+```
+
+Then add a `secret` setting for each, naming the env key it maps to:
+
+```json
+"credentials": {
+    "wordnik_key": {
+        "type": "secret",
+        "env": "WORDNIK_KEY",
+        "value": "",
+        "description": "Wordnik API key. Stored in .env, not here."
+    }
+}
+```
+
+The field renders masked, shows **Set** or **Not set** rather than the value,
+and has its own Save and Clear buttons - it writes straight through to `.env`
+on save rather than waiting for the page save, because the value never enters
+the settings object at all.
+
+Read it back from inside the plugin:
+
+```python
+key = self.secret("WORDNIK_KEY")
+```
+
+Use that rather than `os.getenv`, so a key edited in Settings takes effect
+without a restart.
+
+### Ownership
+
+`self.secret()` only returns keys **your** plugin declared. Asking for
+another plugin's key returns the default and logs a refusal, and the same
+applies to `self.set_secret()`. `client.secret()` is scoped the same way to
+keys the Client itself owns, so reaching through the Client is not a way
+around it.
+
+This is not a security boundary and is not meant to be - anything running in
+this process can read `os.environ` directly. It is there so one plugin cannot
+pick up another's credential through the Client by accident or by casual
+intent. A plugin that genuinely needs a shared key should declare the same
+name; the registry logs when two plugins declare one, and both then read the
+same value.
+
+| Call | Returns |
+|------|---------|
+| `self.secret(key)` | keys this plugin declared |
+| `self.set_secret(key, value)` | writes keys this plugin declared |
+| `client.secret(key)` | keys the Client declared (`CORE_SECRETS`) |
+| `SECRETS.is_set(key)` / `status(key)` | unrestricted - metadata, never the value |
+
+**Why not just store it in settings.json.** That file is written to disk on
+every save, rendered wholesale in the Settings UI, and carried across updates
+by the preserve list. A credential in there leaks by default. `.env` is
+already excluded from updates and from version control, and the registry
+chmods it to owner-only on POSIX.
+
+Three separate paths could otherwise write a value into a settings file - the
+settings page save, the plugin settings save on unload, and the template
+migration - so all three run `scrub_secrets()`, which empties the `value` of
+anything typed `secret`. A plugin author who ships a key in their
+settings.json gets it stripped rather than persisted.
+
+Unloading a plugin forgets the *declaration* but keeps the stored value, so
+reloading does not silently require typing the key in again.
+
 ### Python package requirements
 
 If your plugin needs pip packages the app does not already ship, declare them:
@@ -1039,6 +1113,7 @@ Settings live under **Assistant**:
 | `model` | Whisper model, default `tiny.en`. Downloaded on first use |
 | `voice_bar` | The activity bar along the bottom of the screen |
 | `tts_enabled` | Whether replies are spoken |
+| `elevenlabs_key` | ElevenLabs API key, stored in `.env` (see Secrets) |
 
 ## The activity bar
 
@@ -1330,9 +1405,11 @@ if not self.client.say("Twenty two degrees."):
     self.client.simple_notify("assistant", "Assistant", "Twenty two degrees.")
 ```
 
-`say()` returns whether anything was actually said. TTS needs
-`ELEVENLABS_KEY` in `.env`; without it the app still runs, skills still work,
-they just do not talk back. `TTSProcessing` exposes `.available` and `.error`
+`say()` returns whether anything was actually said. TTS needs an ElevenLabs
+key, set under **Assistant** in Settings (it is stored in `.env`, not in the
+settings file - see Secrets). Without one the app still runs and skills still
+work, they just do not talk back. Entering a key restarts the assistant, so
+speech comes up without relaunching. `TTSProcessing` exposes `.available` and `.error`
 for the specific reason.
 
 ## Wake words

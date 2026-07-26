@@ -32,6 +32,7 @@ from src.plugin.loader import PluginManager
 from src.registries.api_registry import APIRegistry
 from src.registries.public_registry import PublicRegistry
 from src.registries.page_registry import PageRegistry
+from src.registries.secret_registry import SecretRegistry
 from src.backend import FlaskApp, FlaskService
 from src.assistant.skill import Skill, SkillIntentEngine
 from src.assistant.stt import STTProcessing
@@ -253,6 +254,9 @@ class Client:
 
         ## -- APIS
         self.API_REGISTRY = APIRegistry(self)
+        self.SECRETS      = SecretRegistry(self)
+        for _key in self.CORE_SECRETS:
+            self.SECRETS.register("client", _key)
         self.API: dict = {} #This is for custom API Classes (NOT the API_REGISTRY which handles backend.py Flask REST API endpoints)
 
         ## -- OVERLAYS
@@ -625,6 +629,18 @@ class Client:
         except Exception:
             return False
 
+    CORE_SECRETS = ("ELEVENLABS_KEY",)
+
+    def secret(self, key: str, default: str = "") -> str:
+        """
+        Value of a secret the CLIENT owns.
+
+        Scoped deliberately: a plugin reaching for another plugin's key
+        through the Client gets the default. Plugins read their own keys with
+        self.secret() (see src/plugin/template.py).
+        """
+        return self.SECRETS.get_for("client", key, default)
+
     def cancel_assistant(self, reason: str = "") -> bool:
         """Stop listening and return to the wake word. No-op when idle."""
         if self.STT is None:
@@ -658,6 +674,9 @@ class Client:
             str(self.setting("assistant.model.value", "tiny.en") or "tiny.en"),
             self.wake_word,
             bool(self.setting("assistant.tts_enabled.value", True)),
+            # Whether a key exists, never the key. Entering one in Settings
+            # should bring speech up without a manual restart.
+            self.SECRETS.is_set("ELEVENLABS_KEY"),
         )
 
     def stop_assistant(self) -> None:
@@ -1206,6 +1225,7 @@ class Client:
         default.
         """
         from src.updater import merge_values, added_paths
+        from src.settings import scrub_secrets
 
         try:
             shipped = json.loads(template.read_text(encoding="utf-8"))
@@ -1226,7 +1246,7 @@ class Client:
             self.log("warning", f"[Settings] Could not back up data file: {e}")
             return
 
-        merged = merge_values(shipped, installed)
+        merged = scrub_secrets(merge_values(shipped, installed))
         try:
             self.DATA.write_text(json.dumps(merged, indent=1) + "\n", encoding="utf-8")
         except OSError as e:

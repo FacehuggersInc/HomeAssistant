@@ -121,3 +121,43 @@ class Settings(MutableMapping):
 			else:
 				result[key] = value
 		return result
+
+
+def scrub_secrets(data):
+    """
+    Blank the value of every `secret` setting, in place, recursively.
+
+    Belt and braces. The secret field never writes to `value`, but a plugin
+    author can put a key straight into their shipped settings.json, and both
+    settings files are dumped to disk on every save and rendered wholesale in
+    the UI. Anything typed as `secret` gets emptied on the way out, so a
+    credential cannot reach either file by accident.
+    """
+    if isinstance(data, dict):
+        if str(data.get("type", "")).lower() == "secret":
+            data["value"] = ""
+            data.pop("default", None)
+            return data
+        for value in data.values():
+            scrub_secrets(value)
+    elif isinstance(data, list):
+        for item in data:
+            scrub_secrets(item)
+    return data
+
+
+def secret_keys(data, found=None):
+    """Every env key named by a `secret` setting."""
+    found = [] if found is None else found
+    if isinstance(data, dict):
+        if str(data.get("type", "")).lower() == "secret":
+            key = str(data.get("env", "") or data.get("key", "")).strip()
+            if key:
+                found.append(key)
+            return found
+        for value in data.values():
+            secret_keys(value, found)
+    elif isinstance(data, list):
+        for item in data:
+            secret_keys(item, found)
+    return found

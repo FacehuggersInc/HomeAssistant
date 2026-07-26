@@ -27,9 +27,13 @@ class TTSProcessing():
 		self.available = False
 		self.error = ""
 
-		self.KEY = os.getenv("ELEVENLABS_KEY")
+		# Through the registry rather than os.getenv, so a key entered in
+		# Settings takes effect on the next assistant restart without the
+		# process having to be relaunched.
+		self.KEY = client.secret("ELEVENLABS_KEY")
 		if not self.KEY:
-			self.error = "ELEVENLABS_KEY is not set in .env - the assistant will not speak."
+			self.error = ("No ElevenLabs key set. Add one under Assistant in "
+						  "Settings, or set ELEVENLABS_KEY in .env.")
 			self.elevenlabs = None
 			self.voices, self.voice_ids, self.names = {}, {}, []
 			self.default_voice = None

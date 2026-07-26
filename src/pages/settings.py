@@ -16,7 +16,7 @@ from PyQt6.QtCore import Qt, QSize, QPropertyAnimation, QEasingCurve, pyqtProper
 from PyQt6.QtGui import QPainter, QColor, QBrush, QPen, QPixmap, QIcon
 
 from src.mixins import mixin_target
-from src.settings import Settings
+from src.settings import Settings, scrub_secrets
 from src.ui.page import PageFramework
 from src.ui.widget import WidgetFramework
 from src.ui.controls.drawer import Drawer
@@ -295,6 +295,9 @@ class SettingBlock(QFrame):
             toggle.connect(_bool_changed)
             header.addWidget(toggle)
 
+        elif t == "secret":
+            outer.addWidget(self._build_secret_field(setting))
+
         elif t == "string":
             outer.addWidget(Field(setting, prefix=prefix, suffix=suffix, on_change=self._refresh_modified_badge))
 
@@ -344,6 +347,123 @@ class SettingBlock(QFrame):
                 outer.addWidget(Field(setting, index=i, is_numeric=is_num,
                                        prefix=str(pfx), suffix=str(sfx),
                                        on_change=self._refresh_modified_badge))
+
+    def _build_secret_field(self, setting) -> QWidget:
+        """
+        A credential field. The value goes to .env, never into `setting`.
+
+        The settings JSON is written on every save and rendered wholesale in
+        this page, so a key left in `value` would leak by default. Nothing is
+        stored here: the field shows whether a value exists, and typing one
+        writes it straight through to the registry.
+        """
+        env_key = str(setting.get("env", "") or setting.get("key", "")).strip()
+        secrets = self.client.SECRETS
+
+        row = QWidget()
+        set_style(row, "common", "transparent")
+        layout = QHBoxLayout(row)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(6)
+
+        if not env_key:
+            warning = QLabel("This secret has no 'env' key set in its settings file.")
+            warning.setFont(make_font(SIZES.S1))
+            warning.setWordWrap(True)
+            set_style(warning, "common", "text-muted")
+            layout.addWidget(warning)
+            return row
+
+        wrapper = QFrame()
+        wrapper.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        set_style(wrapper, "settings", "setting-block")
+        wrap = QHBoxLayout(wrapper)
+        wrap.setContentsMargins(2, 2, 2, 2)
+
+        entry = QLineEdit()
+        entry.setFont(make_font(SIZES.S2))
+        entry.setFixedHeight(44)
+        entry.setEchoMode(QLineEdit.EchoMode.Password)
+        entry.setPlaceholderText("Set — enter a new value to replace"
+                                 if secrets.is_set(env_key) else "Not set")
+        set_style(entry, "overlays", "dialog-input")
+        wrap.addWidget(entry)
+        layout.addWidget(wrapper, stretch=1)
+
+        status = QLabel(secrets.status(env_key))
+        status.setFont(make_font(SIZES.S1, bold=True))
+        status.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        set_style(status, "settings", "registry-count" if secrets.is_set(env_key)
+                  else "pending-badge")
+        layout.addWidget(status)
+
+        def refresh():
+            status.setText(secrets.status(env_key))
+            set_style(status, "settings", "registry-count" if secrets.is_set(env_key)
+                      else "pending-badge")
+            entry.setPlaceholderText("Set — enter a new value to replace"
+                                     if secrets.is_set(env_key) else "Not set")
+            entry.clear()
+
+        def save():
+            value = entry.text()
+            if not value:
+                return
+            if secrets.set(env_key, value):
+                self.client.simple_notify(Icons.SAVE, "Secrets", f"'{env_key}' saved.")
+            else:
+                self.client.simple_notify("error", "Secrets", f"Could not save '{env_key}'.")
+            refresh()
+
+        def clear():
+            def do_clear():
+                secrets.clear(env_key)
+                self.client.simple_notify(Icons.SAVE, "Secrets", f"'{env_key}' cleared.")
+                refresh()
+            self.client.confirm(
+                f"Clear '{env_key}'?",
+                "The value is removed from your .env file. Anything using it "
+                "stops working until a new one is entered.",
+                confirm_text="Clear", destructive=True, on_confirm=do_clear,
+            )
+
+        entry.returnPressed.connect(save)
+
+        original_focus_in = entry.focusInEvent
+
+        def _focus_in(event):
+            original_focus_in(event)
+            try:
+                page = self
+                kb = make_keyboard(self.client, entry, "string", self.client.OVERLAYS)
+                page._kb = kb
+                kb.show_keyboard()
+            except Exception:
+                pass
+
+        entry.focusInEvent = _focus_in
+
+        save_btn = QPushButton("Save")
+        save_btn.setFixedSize(72, 44)
+        save_btn.setFont(make_font(SIZES.S1, bold=True))
+        save_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        set_style(save_btn, "settings", "plugin-action-reload")
+        save_btn.clicked.connect(save)
+        layout.addWidget(save_btn)
+
+        clear_btn = QPushButton("Clear")
+        clear_btn.setFixedSize(72, 44)
+        clear_btn.setFont(make_font(SIZES.S1, bold=True))
+        clear_btn.setEnabled(secrets.is_set(env_key))
+        if clear_btn.isEnabled():
+            clear_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            set_style(clear_btn, "settings", "plugin-action-uninstall")
+        else:
+            set_style(clear_btn, "settings", "plugin-action-uninstall-disabled")
+        clear_btn.clicked.connect(clear)
+        layout.addWidget(clear_btn)
+
+        return row
 
     def _refresh_modified_badge(self) -> None:
         is_modified = bool(self._setting and self._setting.get("value") != self._initial_value)
@@ -1319,7 +1439,7 @@ class SettingsPage(PageFramework):
 
     @mixin_target("settings.save")
     def return_and_save(self, event=None, notify: bool = True) -> None:
-        saved = self._working_settings.to_dict()
+        saved = scrub_secrets(self._working_settings.to_dict())
         self.client.dump(saved, self.client.DATA)
         self.client.apply_settings(saved)
         self.client.iterate_event_callables("on_settings_saved", self.client.SETTINGS)
