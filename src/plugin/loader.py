@@ -8,6 +8,7 @@ import tomllib
 import importlib.util as ILUtil
 from pathlib import Path
 from types import ModuleType
+from typing import Callable
 
 from src.enums import Asset
 
@@ -15,7 +16,40 @@ from src.settings import Settings
 
 from src.plugin.template import Plugin
 from src.plugin.carryover import PluginCarryover
+# Aliased to pipdeps, not deps: resolve_load_order() already has a local
+# named `deps` for plugin-to-plugin dependencies, and the collision makes
+# the module reference an unbound local for the whole function.
+from src.plugin import dependencies as pipdeps
 from src.ui.icons import is_icon_path
+
+
+class PendingPlugin:
+	"""
+	A plugin held back because pip packages it declares are not installed.
+
+	Its module is never imported while in this state -- a plugin whose main.py
+	does `import feedparser` raises at import time, so there is nothing to be
+	gained by trying and catching it, and a partially-imported module left in
+	sys.modules causes problems later.
+
+	`declined` is set when the user says no. The plugin stays listed in
+	Settings either way, greyed out, with an Install button.
+	"""
+
+	def __init__(self, key: str, name: str, path: Path, config: dict,
+				 missing: list[str], requirements: list[str], icon=None):
+		self.key = key
+		self.name = name
+		self.path = path
+		self.config = config
+		self.missing = missing
+		self.requirements = requirements
+		self.icon = icon
+		self.declined = False
+		self.error: str | None = None
+
+	def __repr__(self):
+		return f"PendingPlugin({self.key}, missing={self.missing})"
 
 class PluginManager():
 	def __init__(self, client, dirs:list[Asset]):
@@ -24,14 +58,37 @@ class PluginManager():
 		self.plugins = Settings()
 		self.registered : dict[str, Path] = {}
 
+		# Plugins held back because their declared pip requirements are not
+		# installed. Populated during resolve_load_order(), consumed by the
+		# dependency dialog after the UI exists (see Client.build).
+		self.pending : dict[str, PendingPlugin] = {}
+
 	## LOADER
 	def get_data_path(self) -> str:
 		return self.client.DATA
 
 	def load_plugin(self, plugin_path:Path):
+		# `module` used to be left unbound when the path check failed, making
+		# the `if module` below raise UnboundLocalError rather than skipping.
+		# Never hit from load_plugins_from_directories (which only ever passes
+		# folders it already validated) but reachable now that
+		# load_pending_plugin() calls this directly.
+		module = None
 		if plugin_path.is_dir() and (plugin_path / "main.py").exists():
 			# plugin_folder/__init__.py
-			module = self.import_module_from_path(plugin_path / "main.py")
+			try:
+				module = self.import_module_from_path(plugin_path / "main.py")
+			except Exception as e:
+				# An exception at plugin import time used to propagate all the
+				# way out of Client.__init__ and kill the app before the window
+				# ever appeared -- one plugin with a bad import took down
+				# everything. A plugin that cannot import is now skipped with a
+				# log line, same as one with a malformed plugin.toml.
+				self.client.log(
+					"error",
+					f"[PluginManager] Plugin at '{plugin_path.name}' failed to import: {e}"
+				)
+				return
 		if module:	self.register_plugin_classes(module, plugin_path)
 
 	def scan_plugin_toml(self, plugin_path: Path) -> dict | None:
@@ -127,6 +184,31 @@ class PluginManager():
 				if key in scanned:
 					self.client.log("warning", f"[PluginManager] Duplicate plugin key '{key}' found at '{plugin_path}' — keeping the first one scanned ('{scanned[key]['_scan_path']}')")
 					continue
+
+				# Requirements are checked here, in the toml pre-scan, because
+				# this is the only point where a plugin's needs are known
+				# BEFORE its module is imported. A plugin missing a package it
+				# imports at module scope cannot be imported at all, so it is
+				# held back rather than attempted -- see PendingPlugin.
+				requirements = pipdeps.requirements_of(config)
+				if requirements:
+					unmet = pipdeps.missing(requirements)
+					if unmet:
+						self.pending[key] = PendingPlugin(
+							key          = key,
+							name         = config["plugin"].get("name", key),
+							path         = plugin_path,
+							config       = config,
+							missing      = unmet,
+							requirements = requirements,
+							icon         = config["plugin"].get("icon", None),
+						)
+						self.client.log(
+							"warning",
+							f"[PluginManager] Plugin '{key}' held back — missing packages: {', '.join(unmet)}"
+						)
+						continue
+
 				scanned[key] = config
 
 		# 2. Build the dependency graph
@@ -550,6 +632,207 @@ class PluginManager():
 
 
 	
+	## DEPENDENCIES
+
+	def pending_plugins(self, include_declined: bool = True) -> list[PendingPlugin]:
+		"""Plugins held back for missing pip packages, name-sorted."""
+		items = [p for p in self.pending.values()
+				 if include_declined or not p.declined]
+		return sorted(items, key=lambda p: p.name.lower())
+
+	def plugin_requirements(self, plugin_key: str) -> list[str]:
+		"""Declared pip requirements for a plugin, loaded or pending."""
+		if plugin_key in self.pending:
+			return list(self.pending[plugin_key].requirements)
+		plugin = self.plugins.get(plugin_key, None)
+		if plugin is None or not hasattr(plugin, "config"):
+			return []
+		try:
+			return pipdeps.requirements_of(plugin.config.to_dict())
+		except AttributeError:
+			return pipdeps.requirements_of(plugin.config)
+
+	def other_plugin_requirements(self, exclude_key: str) -> list[str]:
+		"""Every requirement declared by every OTHER plugin, loaded or pending.
+
+		This is what stops an uninstall from removing a package a second
+		plugin still needs."""
+		out: list[str] = []
+		for _, key in self.get_plugins():
+			if key != exclude_key:
+				out.extend(self.plugin_requirements(key))
+		for key, pending in self.pending.items():
+			if key != exclude_key:
+				out.extend(pending.requirements)
+		return out
+
+	def install_pending(self, plugin_key: str,
+						log: Callable[[str], None] = None) -> tuple[bool, str]:
+		"""
+		Run pip for a held-back plugin, then load it.
+
+		The pip half is slow and blocking, so callers should run this off the
+		UI thread; the load half is dispatched back onto the UI thread here,
+		since it builds pages and widgets.
+		"""
+		pending = self.pending.get(plugin_key)
+		if not pending:
+			return False, f"'{plugin_key}' is not waiting on any packages"
+
+		def _log(msg: str) -> None:
+			self.client.log("info", f"[PluginManager][pip] {msg}")
+			if log:
+				log(msg)
+
+		try:
+			ok, output = pipdeps.install(pending.missing, _log)
+		except pipdeps.DependencyError as e:
+			pending.error = str(e)
+			self.client.log("error", f"[PluginManager] {e}")
+			return False, str(e)
+
+		if not ok:
+			pending.error = "pip install failed — see the log for details"
+			return False, output
+
+		still_missing = pipdeps.missing(pending.requirements)
+		if still_missing:
+			pending.missing = still_missing
+			pending.error = f"still missing after install: {', '.join(still_missing)}"
+			return False, pending.error
+
+		self.client.call_on_ui(lambda: self.load_pending_plugin(plugin_key))
+		return True, output
+
+	def load_pending_plugin(self, plugin_key: str) -> bool:
+		"""
+		Bring a held-back plugin into a running app.
+
+		Same sequence as the second half of reload_plugin(): import, load(),
+		mixins, then built() because the app is already built by the time
+		this can be reached.
+		"""
+		pending = self.pending.get(plugin_key)
+		if not pending:
+			return False
+
+		try:
+			self.load_plugin(pending.path)
+		except Exception as e:
+			pending.error = f"failed to import: {e}"
+			self.client.log("error", f"[PluginManager] Plugin '{plugin_key}' failed to import after install: {e}")
+			return False
+
+		plugin = self.plugins.get(plugin_key, None)
+		if plugin is None:
+			pending.error = "module imported but registered no Plugin subclass"
+			self.client.log("error", f"[PluginManager] {pending.error} ('{plugin_key}')")
+			return False
+
+		del self.pending[plugin_key]
+
+		try:
+			if self._accepts_carryover(plugin.load):
+				plugin.load(None)
+			else:
+				plugin.load()
+			self.client.MIXINS.apply_mixins_to(plugin)
+			if self.client.BUILT and hasattr(plugin, "built"):
+				plugin.built()
+		except Exception as e:
+			self.client.log("error", f"[PluginManager] Plugin '{plugin_key}' failed during load after install: {e}")
+			self.client.simple_notify("error", "Plugin Manager",
+									  f"'{pending.name}' installed but failed to start.")
+			return False
+
+		self.client.log("info", f"[PluginManager] Plugin '{plugin_key}' installed and loaded.")
+		self.client.simple_notify("extension", "Plugin Manager",
+								  f"'{pending.name}' installed and loaded.")
+		return True
+
+	def uninstall_plugin_packages(self, plugin_key: str,
+								  log: Callable[[str], None] = None) -> tuple[bool, str]:
+		"""
+		Uninstall the pip packages a plugin declares, then unload the plugin.
+
+		Only packages nothing else needs are removed -- see
+		dependencies.removable_for(). The plugin is unloaded afterwards
+		because leaving it running against packages that no longer exist just
+		defers the crash to whenever it next touches them.
+		"""
+		specs = self.plugin_requirements(plugin_key)
+		if not specs:
+			return False, "This plugin does not declare any pip requirements."
+
+		removable, kept = pipdeps.removable_for(specs, self.other_plugin_requirements(plugin_key))
+
+		def _log(msg: str) -> None:
+			self.client.log("info", f"[PluginManager][pip] {msg}")
+			if log:
+				log(msg)
+
+		for name, reason in kept.items():
+			_log(f"keeping {name} — {reason}")
+
+		if not removable:
+			return False, "Nothing to remove — every package is still needed elsewhere."
+
+		try:
+			ok, output = pipdeps.uninstall(removable, _log)
+		except pipdeps.DependencyError as e:
+			self.client.log("error", f"[PluginManager] {e}")
+			return False, str(e)
+
+		if not ok:
+			return False, output
+
+		# Unload last: if pip failed we leave the plugin alone entirely.
+		if self.has_plugin(plugin_key):
+			self.client.call_on_ui(lambda: self._unload_after_uninstall(plugin_key, removable))
+
+		return True, output
+
+	def _unload_after_uninstall(self, plugin_key: str, removed: list[str]) -> None:
+		name = self.plugin_name(plugin_key) or plugin_key
+		path = self.registered.get(plugin_key)
+		config = None
+		plugin = self.plugins.get(plugin_key, None)
+		if plugin is not None and hasattr(plugin, "config"):
+			try:
+				config = plugin.config.to_dict()
+			except AttributeError:
+				config = None
+
+		if not self.unload_plugin(plugin_key):
+			self.client.simple_notify(
+				"error", "Plugin Manager",
+				f"Removed {len(removed)} package(s), but '{name}' could not be unloaded."
+			)
+			return
+
+		# Move it straight into the pending list so it stays visible in
+		# Settings, greyed out, with an Install button -- same place a plugin
+		# sits when its packages were never installed in the first place.
+		if path is not None and config is not None:
+			specs = pipdeps.requirements_of(config)
+			self.pending[plugin_key] = PendingPlugin(
+				key          = plugin_key,
+				name         = name,
+				path         = path,
+				config       = config,
+				missing      = pipdeps.missing(specs),
+				requirements = specs,
+				icon         = config.get("plugin", {}).get("icon", None),
+			)
+			self.pending[plugin_key].declined = True
+
+		self.client.simple_notify(
+			"extension", "Plugin Manager",
+			f"Removed {len(removed)} package(s) and unloaded '{name}'."
+		)
+		if self.client.PAGE and getattr(self.client.PAGE, "name", "") == "#settings":
+			self.client.goto("#settings", override=True)
+
 	## MANAGEMENT
 	def has_plugin(self, plugin_key:str) -> bool:
 		plugin = self.plugins.get(plugin_key, None)

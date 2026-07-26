@@ -757,6 +757,36 @@ class Client:
 
         self.log("info", f"Startup Time: {round(time.time() - self.START_TIME, 3)}s")
 
+        # Plugins held back for missing pip packages get prompted for once
+        # the UI actually exists. This cannot happen during plugin load --
+        # that runs inside __init__, long before there is anything to show a
+        # dialog on. Delayed slightly so it lands after the first paint and
+        # the overlay raise above, rather than on top of a half-built window.
+        QTimer.singleShot(1200, self.prompt_for_plugin_dependencies)
+
+    def prompt_for_plugin_dependencies(self) -> None:
+        """Offer to pip-install for any plugin held back at load time."""
+        pending = self.PLUGIN.pending_plugins(include_declined=False)
+        if not pending:
+            return
+
+        from src.plugin import dependencies as deps
+        if not deps.in_venv():
+            self.log("warning",
+                     "[Dependencies] Not in a virtualenv — skipping the install prompt. "
+                     f"{len(pending)} plugin(s) remain unloaded.")
+            self.simple_notify(
+                "error", "Plugins",
+                f"{len(pending)} plugin(s) need packages, but the app is not "
+                "running inside a virtualenv."
+            )
+            return
+
+        from src.ui.dialogs import DependencyDialog
+        dialog = DependencyDialog(self, pending)
+        self.DIALOG.open(dialog)
+        dialog.center_on(self.OVERLAYS)
+
     ##WINDOW
 
     @mixin_target("client.configure")

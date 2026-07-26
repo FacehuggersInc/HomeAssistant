@@ -1,5 +1,8 @@
 [plugin]
 name = "RSS Feeds Plugin"
 key = "rssfeeds"
-order = 0 
+order = 0
 dependencies = ["idletriggers"]
+
+[requirements]
+pip = ["feedparser"]

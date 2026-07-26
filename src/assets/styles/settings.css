@@ -207,3 +207,66 @@
     border-radius: 6px;
     padding: 2px 8px;
 }
+
+/* ── Plugin dependency dialogs (src/ui/dialogs.py) ───────────────────────
+   The card itself sits on the SYSTEM overlay layer above the click
+   blocker, so it needs its own opaque background rather than inheriting
+   the page behind it. */
+
+.dialog-card {
+    background: #1a1a1a;
+    border: 1px solid rgba(255,255,255,45);
+    border-radius: 14px;
+}
+
+/* Install: same visual weight as Reload — a constructive action. */
+.plugin-action-install {
+    background: #1f7a4d;
+    border: 1px solid #34b06f;
+    border-radius: 8px;
+    color: #f2f2f2;
+    padding: 0 14px;
+}
+.plugin-action-install:hover   { background: #248a58; }
+.plugin-action-install:pressed { background: #1a6641; }
+
+/* Uninstall: destructive, and deliberately distinct from Unload —
+   Unload is reversible, this removes files from the venv. */
+.plugin-action-uninstall {
+    background: #7a2020;
+    border: 1px solid #b03434;
+    border-radius: 8px;
+    color: #f2f2f2;
+    padding: 0 14px;
+}
+.plugin-action-uninstall:hover   { background: #8a2424; }
+.plugin-action-uninstall:pressed { background: #661a1a; }
+
+.plugin-action-uninstall-disabled {
+    background: rgba(255,255,255,8);
+    border: 1px solid rgba(255,255,255,25);
+    border-radius: 8px;
+    color: #666666;
+    padding: 0 14px;
+}
+
+/* A plugin held back for missing packages: same card, dimmed, with a
+   dashed edge so it reads as "not active" rather than "broken". */
+.category-header-pending {
+    background: rgba(255,255,255,6);
+    border: 1px dashed rgba(255,255,255,40);
+    border-radius: 12px;
+}
+
+.pending-badge {
+    background: rgba(255,193,7,30);
+    color: #ffc107;
+    border: 1px solid rgba(255,193,7,90);
+    border-radius: 6px;
+    padding: 2px 8px;
+}
+
+.text-pending {
+    color: #8a8a8a;
+    background: transparent;
+}

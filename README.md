@@ -280,6 +280,79 @@ path = "/path/to/.json"
 
 the settings path will be joined into the default settings page under plugins for Public settings.
 
+### Python package requirements
+
+If your plugin needs pip packages the app does not already ship, declare them:
+
+```toml
+[plugin]
+name = "Weather Radar"
+key  = "weatherradar"
+
+[requirements]
+pip = ["Pillow", "requests>=2.28"]
+```
+
+`[plugin] requirements = [...]` works identically if you prefer it in one
+section.
+
+Nothing is ever installed silently. At startup the requirements are checked
+during the `plugin.toml` pre-scan -- before any plugin code is imported --
+and a plugin with unmet requirements is **held back**: its `main.py` is never
+imported, since a module doing `import PIL` at the top cannot be imported at
+all when PIL is absent.
+
+Once the UI is up, a dialog lists every held-back plugin and exactly which
+packages would be installed, and where. Approving it runs pip, then loads the
+plugin normally (`load()` -> mixins -> `built()`) without a restart.
+
+Declining leaves the plugin listed in Settings under Plugins, greyed out and
+badged `NOT INSTALLED`, with its own **Install** button. Nothing is lost and
+nothing is retried behind your back.
+
+Requirement checks use `importlib.metadata` against the *distribution* name,
+so `Pillow` and `PyYAML` resolve correctly even though they import as `PIL`
+and `yaml`. Version specifiers are honoured when `packaging` is importable
+and treated as satisfied when it is not, so an unverifiable specifier never
+causes a repeat prompt for something already installed.
+
+### Uninstalling packages
+
+Every plugin that declares requirements gets an **Uninstall** button in
+Settings, next to Reload and Unload. It removes the plugin's pip packages and
+then unloads the plugin -- leaving it running against packages that no longer
+exist would only defer the crash.
+
+The plugin's own files are untouched. It reappears in the list, greyed out,
+with an Install button, exactly as if its packages had never been installed.
+
+A package is only removed when nothing else needs it. The confirm dialog
+lists what will be removed and what will be kept, with a reason for each:
+
+```text
+Will be removed:
+  some-niche-lib
+
+Will be kept:
+  requests   — required by the app itself
+  Pillow     — required by another installed plugin
+```
+
+Anything in the app's own `requirements.txt` is permanently protected. A
+plugin declaring `requests` cannot take the Flask backend down with it.
+
+### A note on trust
+
+`plugin.toml` is arbitrary text from wherever you got the plugin, so
+installing from it is equivalent to running an installer. That is why it is
+always an explicit, itemised prompt rather than something that happens during
+load, and why package names are shown verbatim before anything runs.
+
+Everything targets `sys.executable -m pip`, which inside a virtualenv is that
+virtualenv's pip. The app refuses to install or uninstall at all when
+`sys.prefix == sys.base_prefix`, so a launch outside the venv cannot quietly
+modify system Python.
+
 ### Load order and dependencies
 
 Two more optional fields under `[plugin]` control the order plugins load in:

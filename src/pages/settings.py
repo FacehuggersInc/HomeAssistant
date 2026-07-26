@@ -2,6 +2,7 @@ from __future__ import annotations
 import socket
 import platform
 import copy
+from threading import Thread
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -37,6 +38,11 @@ FIELD_BORDER       = QColor(255, 255, 255, 55)
 FIELD_BORDER_FOCUS = QColor(COLORS.PRIMARY.LIGHT)
 
 ## HELPERS
+
+def deps_venv_path() -> str:
+    from src.plugin import dependencies as deps
+    return deps.venv_path()
+
 
 def format_name(name: str) -> str:
     for sep in ("_", "-"):
@@ -633,11 +639,13 @@ class SettingsPage(PageFramework):
             "plugin_key": None,
             "icon":       None,
             "readme":     None,
+            "pending":    None,
         }
 
     def new_subcategory(self, parent: str, name: str, controls: list,
                          label: str = None, plugin=None, plugin_key: str = None,
-                         icon: str = None, readme: str = None) -> None:
+                         icon: str = None, readme: str = None,
+                         pending=None) -> None:
         """
         Register a sub-category nested under an existing top-level
         category — rendered indented beneath it in the nav (connected by
@@ -665,6 +673,10 @@ class SettingsPage(PageFramework):
             "plugin_key": plugin_key,
             "icon":       icon,
             "readme":     readme,
+            # A PendingPlugin when this page belongs to a plugin that could
+            # not load for missing pip packages. The header renders
+            # differently in that case -- see _build_category_header().
+            "pending":    pending,
         }
 
     def insert_block(self, category: str, index: int, content: QWidget) -> None:
@@ -729,6 +741,14 @@ class SettingsPage(PageFramework):
                 plugin=plugin, plugin_key=key,
                 has_content=True, icon=icon_value, readme=None,
             ))
+
+        # Plugins held back for missing pip packages are listed alongside the
+        # loaded ones rather than hidden -- otherwise declining the startup
+        # prompt makes them vanish with no way back. They render dimmed, with
+        # an Install button in place of the usual actions.
+        for item in self.client.PLUGIN.pending_plugins():
+            overview.append(self._build_pending_header(item))
+
         self.new_category("plugins", overview, label="Plugins")
 
         for plugin, key in plugins:
@@ -743,11 +763,121 @@ class SettingsPage(PageFramework):
                 readme=plugin.config.get_path("plugin.readme", None),
             )
 
+        for item in self.client.PLUGIN.pending_plugins():
+            self.new_subcategory(
+                "plugins", item.key, [],
+                label=item.name,
+                icon=item.icon,
+                pending=item,
+            )
+
+    def _build_pending_header(self, item) -> QFrame:
+        """Title card for a plugin that could not load for missing packages."""
+        from src.plugin import dependencies as deps
+
+        card = QFrame()
+        set_style(card, "settings", "category-header-pending")
+        card.sort_label = item.name
+        card.sort_dependants = 0
+
+        layout = QVBoxLayout(card)
+        layout.setContentsMargins(16, 14, 16, 14)
+        layout.setSpacing(4)
+
+        top_row = QHBoxLayout()
+        top_row.setContentsMargins(0, 0, 0, 0)
+        top_row.setSpacing(10)
+
+        if item.icon:
+            q_icon = resolve_plugin_icon(item.icon, size=28)
+            if q_icon:
+                icon_lbl = QLabel()
+                icon_lbl.setPixmap(q_icon.pixmap(QSize(28, 28)))
+                set_style(icon_lbl, "common", "transparent")
+                top_row.addWidget(icon_lbl)
+
+        title = QLabel(item.name)
+        title.setFont(make_font(SIZES.M1, bold=True))
+        set_style(title, "common", "text-pending")
+        top_row.addWidget(title)
+
+        badge = QLabel("NOT INSTALLED")
+        badge.setFont(make_font(SIZES.S1, bold=True))
+        set_style(badge, "settings", "pending-badge")
+        top_row.addWidget(badge)
+        top_row.addStretch()
+
+        install_btn = QPushButton("Install")
+        install_btn.setFont(make_font(SIZES.S2, bold=True))
+        install_btn.setFixedHeight(44)
+        install_btn.setMinimumWidth(100)
+
+        if not deps.in_venv():
+            install_btn.setEnabled(False)
+            install_btn.setCursor(Qt.CursorShape.ForbiddenCursor)
+            install_btn.setToolTip("Not running inside a virtualenv")
+            set_style(install_btn, "settings", "plugin-action-uninstall-disabled")
+        else:
+            install_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            set_style(install_btn, "settings", "plugin-action-install")
+            install_btn.clicked.connect(lambda: self._install_pending_plugin(item))
+        top_row.addWidget(install_btn)
+
+        layout.addLayout(top_row)
+
+        sub = QLabel(item.key)
+        sub.setFont(make_font(SIZES.S1))
+        set_style(sub, "common", "text-muted")
+        layout.addWidget(sub)
+
+        missing = QLabel("Missing packages: " + ", ".join(item.missing))
+        missing.setFont(make_font(SIZES.S1))
+        missing.setWordWrap(True)
+        set_style(missing, "common", "text-muted")
+        layout.addWidget(missing)
+
+        if item.error:
+            err = QLabel(item.error)
+            err.setFont(make_font(SIZES.S1))
+            err.setWordWrap(True)
+            set_style(err, "common", "text-muted")
+            layout.addWidget(err)
+
+        return card
+
+    def _install_pending_plugin(self, item) -> None:
+        from src.ui.dialogs import ConfirmDialog
+
+        def _go() -> None:
+            def worker() -> None:
+                ok, message = self.client.PLUGIN.install_pending(item.key)
+                if not ok:
+                    self.client.simple_notify("error", "Plugins", str(message)[:160])
+                self.client.call_on_ui(self._refresh_if_on_settings)
+            Thread(target=worker, name="__plugin_pip_install", daemon=True).start()
+            self.client.simple_notify("download", "Plugins", f"Installing packages for '{item.name}'...")
+
+        dialog = ConfirmDialog(
+            self.client,
+            title=f"Install packages for '{item.name}'?",
+            body=f"These will be installed into {deps_venv_path()} and the plugin will be loaded.",
+            detail="\n  ".join(["Packages:"] + item.missing),
+            confirm_text="Install",
+            on_confirm=_go,
+            confirm_style="plugin-action-install",
+        )
+        self.client.DIALOG.open(dialog)
+        dialog.center_on(self.client.OVERLAYS)
+
+    def _refresh_if_on_settings(self) -> None:
+        if self.client.PAGE is self:
+            self.client.goto("#settings", override=True)
+
     # ── Category header (title card) ────────────────────────────────────────
 
     def _build_category_header(self, label: str, plugin=None, plugin_key: str = None,
                                 has_content: bool = True, icon: str = None,
-                                readme: str = None) -> QFrame:
+                                readme: str = None, pending=None) -> QFrame:
         """The title card shown at the top of every category's and every
         sub-category's content. Plugin sub-categories additionally get
         the Copy Key / Reload / Unload management buttons in the top
@@ -755,6 +885,12 @@ class SettingsPage(PageFramework):
         plugin.toml declared one, and its README rendered as markdown
         at the very bottom if it declared that too (see
         _build_readme_block())."""
+        # A plugin held back for missing packages gets an entirely different
+        # card: dimmed, badged, and offering Install instead of the usual
+        # Copy Key / Reload / Unload row.
+        if pending is not None:
+            return self._build_pending_header(pending)
+
         card = QFrame()
         set_style(card, "settings", "category-header" if has_content else "category-header-standalone")
 
@@ -1065,7 +1201,76 @@ class SettingsPage(PageFramework):
             set_style(unload_btn, "settings", "plugin-action-unload")
             unload_btn.clicked.connect(lambda: self._unload_plugin(plugin_key))
 
-        return [copy_btn, reload_btn, unload_btn]
+        buttons = [copy_btn, reload_btn, unload_btn]
+
+        # Uninstall is only meaningful for plugins that declare pip
+        # requirements, so plugins without any never grow the button at all
+        # rather than showing a permanently dead control.
+        specs = self.client.PLUGIN.plugin_requirements(plugin_key)
+        if specs:
+            buttons.append(self._build_uninstall_button(plugin_key, specs))
+
+        return buttons
+
+    def _build_uninstall_button(self, plugin_key: str, specs: list) -> QPushButton:
+        """Removes the plugin's pip packages, then unloads it. Distinct from
+        Unload, which is reversible without touching the venv."""
+        from src.plugin import dependencies as deps
+
+        btn = QPushButton("Uninstall")
+        btn.setFont(make_font(SIZES.S2, bold=True))
+        btn.setFixedHeight(44)
+        btn.setMinimumWidth(100)
+
+        removable, kept = deps.removable_for(
+            specs, self.client.PLUGIN.other_plugin_requirements(plugin_key)
+        )
+
+        if not removable:
+            btn.setEnabled(False)
+            btn.setCursor(Qt.CursorShape.ForbiddenCursor)
+            reasons = "; ".join(f"{n} — {r}" for n, r in kept.items())
+            btn.setToolTip("Nothing to remove. " + (reasons or "No packages installed."))
+            set_style(btn, "settings", "plugin-action-uninstall-disabled")
+            return btn
+
+        btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        set_style(btn, "settings", "plugin-action-uninstall")
+        btn.setToolTip("Uninstall this plugin's pip packages and unload it")
+        btn.clicked.connect(lambda: self._uninstall_plugin_packages(plugin_key, removable, kept))
+        return btn
+
+    def _uninstall_plugin_packages(self, plugin_key: str,
+                                    removable: list, kept: dict) -> None:
+        from src.ui.dialogs import ConfirmDialog
+
+        name = self.client.PLUGIN.plugin_name(plugin_key) or plugin_key
+        detail = "Will be removed:\n  " + "\n  ".join(removable)
+        if kept:
+            detail += "\n\nWill be kept:\n  " + "\n  ".join(
+                f"{n} — {r}" for n, r in kept.items()
+            )
+
+        def _go() -> None:
+            def worker() -> None:
+                ok, message = self.client.PLUGIN.uninstall_plugin_packages(plugin_key)
+                if not ok:
+                    self.client.simple_notify("error", "Plugins", message[:160])
+            Thread(target=worker, name="__plugin_pip_uninstall", daemon=True).start()
+
+        dialog = ConfirmDialog(
+            self.client,
+            title=f"Uninstall packages for '{name}'?",
+            body=("This removes the packages from the virtualenv and unloads "
+                  "the plugin. The plugin's files are left alone — it will "
+                  "reappear in this list with an Install button."),
+            detail=detail,
+            confirm_text="Uninstall",
+            on_confirm=_go,
+            confirm_style="plugin-action-uninstall",
+        )
+        self.client.DIALOG.open(dialog)
+        dialog.center_on(self.client.OVERLAYS)
 
     def _copy_plugin_key(self, plugin_key: str) -> None:
         self.client.app.clipboard().setText(plugin_key)
@@ -1192,6 +1397,7 @@ class SettingsPage(PageFramework):
             has_content=bool(target["content"]),
             icon=target.get("icon"),
             readme=target.get("readme"),
+            pending=target.get("pending"),
         )
         self._content_layout.insertWidget(self._content_layout.count() - 1, header)
 
