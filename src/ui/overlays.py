@@ -134,8 +134,18 @@ class OverlayManager(QWidget):
         for child in self.findChildren(
             QWidget, options=Qt.FindChildOption.FindDirectChildrenOnly
         ):
-            if child.isVisible():
-                region += QRegion(child.geometry())
+            if not child.isVisible():
+                continue
+            # A child that does not want mouse events must not claim its area
+            # for the overlay either. The mask decides where OVERLAYS accepts
+            # clicks at all, so including a WA_TransparentForMouseEvents child
+            # created a dead zone: the overlay took the click, childAt() found
+            # nothing willing to handle it, and it never reached the page
+            # underneath. The voice bar sits bottom-centre, over exactly where
+            # page buttons tend to be.
+            if child.testAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents):
+                continue
+            region += QRegion(child.geometry())
 
         if region.isEmpty():
             # Qt reads an empty QRegion as clearMask() -> full solid rect, which would
@@ -593,6 +603,12 @@ class BaseDialog(QFrame):
     def center(self) -> None:
         host = self.client.OVERLAYS
         self.adjustSize()
+        # adjustSize() grows a widget to its hint but never shrinks it, so a
+        # dialog whose content got smaller keeps its old height and sits
+        # off-centre - or off-screen.
+        hint = self.sizeHint().height()
+        if hint < self.height():
+            self.resize(self.width(), hint)
         self.move(max(0, (host.width() - self.width()) // 2),
                   max(0, (host.height() - self.height()) // 2))
 

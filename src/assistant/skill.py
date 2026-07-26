@@ -216,6 +216,10 @@ class Skill:
 		rather than becoming empty.
 		"""
 		args = {}
+		if not self.arguments:
+			# Running an empty Matcher emits spaCy's W036 warning on every
+			# parse of an argument-less skill, which is most of them.
+			return args
 		for match_id, start, end in self.arg_matcher(doc):
 			arg_label = doc.vocab.strings[match_id]
 			span = doc[start:end]
@@ -486,6 +490,11 @@ class SkillIntentEngine:
 		if not best_skill:
 			self.client.log("info", f"[SkillIntentEngine] Matcher found Nothing : {round(time.time() - start, 3)}s")
 			self.client.ASSIST_STATUS = "LIVE"
+			if use_skill:
+				# Nothing understood it. Anything subscribed gets a chance to
+				# answer instead - see the AI fallback plugin. Only on the real
+				# input path, so a use_skill=False probe stays side-effect free.
+				self.client.iterate_event_callables("on_assistant_fallback", phrase)
 			return None, None
 		else:
 			if use_skill:

@@ -1,0 +1,65 @@
+{
+    "general": {
+        "enabled": {
+            "type": "bool",
+            "default": true,
+            "value": true,
+            "description": "Answer unmatched phrases with an AI. Turn off and unmatched phrases are simply ignored."
+        },
+        "model": {
+            "type": "enum",
+            "default": "gpt-5.6-luna",
+            "value": "gpt-5.6-luna",
+            "options": [
+                "gpt-5.6-luna",
+                "gpt-5.6-terra",
+                "gpt-5.6-sol",
+                "gpt-5.4-mini",
+                "gpt-5.4-nano",
+                "gpt-5.5"
+            ],
+            "description": "OpenAI model. Luna is the cheap high-volume tier and suits short spoken replies; Terra balances cost and quality; Sol is the flagship. If OpenAI adds models after this release, the list will need updating."
+        },
+        "max_tokens": {
+            "type": "int",
+            "default": 600,
+            "value": 600,
+            "description": "Ceiling on reply length. Lower is faster and cheaper."
+        },
+        "history_turns": {
+            "type": "int",
+            "default": 8,
+            "value": 8,
+            "description": "How many previous exchanges to send as context. Higher costs more per call."
+        }
+    },
+    "credentials": {
+        "openai_key": {
+            "type": "secret",
+            "env": "OPENAI_API_KEY",
+            "value": "",
+            "description": "OpenAI API key. Note that OpenAI has no free tier - the account needs credit on it. Stored in your .env file, not here."
+        }
+    },
+    "conversation": {
+        "system_prompt": {
+            "type": "body",
+            "default": "You are the voice assistant for a wall-mounted home display. Answer in a few short sentences unless asked for detail. You are being read aloud and shown on a small screen, so avoid long lists. Use markdown for code, links and emphasis. If you do not know something, say so briefly.",
+            "value": "You are the voice assistant for a wall-mounted home display. Answer in a few short sentences unless asked for detail. You are being read aloud and shown on a small screen, so avoid long lists. Use markdown for code, links and emphasis. If you do not know something, say so briefly.",
+            "description": "Sent to the AI before every conversation, telling it what it is and how to reply."
+        },
+        "speak_replies": {
+            "type": "bool",
+            "default": true,
+            "value": true,
+            "description": "Read replies aloud as well as showing them, when TTS is available."
+        },
+        "panel_timeout": {
+            "type": "int",
+            "default": 300,
+            "value": 300,
+            "suffix": "sec",
+            "description": "How long the chat panel stays open with no interaction. Deliberately long, so a conversation is not cut off mid-thought."
+        }
+    }
+}

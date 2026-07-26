@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 from PyQt6.QtWidgets import (
     QGridLayout,
     QWidget, QHBoxLayout, QVBoxLayout, QLabel, QPushButton,
-    QScrollArea, QLineEdit, QComboBox, QFrame, QSizePolicy, QFileDialog,
+    QScrollArea, QLineEdit, QTextEdit, QComboBox, QFrame, QSizePolicy, QFileDialog,
     QScroller,
 )
 from PyQt6.QtCore import Qt, QSize, QPropertyAnimation, QEasingCurve, pyqtProperty
@@ -114,10 +114,90 @@ class ToggleSwitch(QWidget):
         p.drawEllipse(int(self._thumb_x), 4, thumb_size, thumb_size)
 
 
+class BodyField(QFrame):
+    """
+    Multi-line text for settings that hold a paragraph rather than a line -
+    a system prompt, a template, a note. A QLineEdit shows one line of a
+    three-line value and hides the rest behind the caret.
+    """
+
+    # A prompt or template is the usual content; the old 132px showed about
+    # three lines of it.
+    MIN_HEIGHT = 220
+    MAX_HEIGHT = 460
+
+    def __init__(self, setting, on_change=None, client=None,
+                 label: str = "", description: str = ""):
+        super().__init__()
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        set_style(self, "settings", "body-field")
+        self.client = client
+        self._label = label or "Edit value"
+        self._description = description or str(setting.get("description", "") or "")
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(2, 2, 2, 2)
+
+        self.edit = QTextEdit()
+        self.edit.setPlainText(str(setting["value"]))
+        self.edit.setFont(make_font(SIZES.S2))
+        self.edit.setAcceptRichText(False)
+        self.edit.setLineWrapMode(QTextEdit.LineWrapMode.WidgetWidth)
+        self.edit.setFrameShape(QFrame.Shape.NoFrame)
+        set_style(self.edit, "settings", "body-input")
+        layout.addWidget(self.edit)
+
+        def changed():
+            setting["value"] = self.edit.toPlainText()
+            self._fit()
+            if on_change:
+                on_change()
+
+        self.edit.textChanged.connect(changed)
+
+        # Same as Field: read-only display, tap opens the editor.
+        self.edit.setReadOnly(True)
+        self.edit.viewport().setCursor(Qt.CursorShape.PointingHandCursor)
+
+        def _open_keyboard(event=None):
+            if event is not None and hasattr(event, "accept"):
+                event.accept()
+            if self.client is None:
+                return
+            kb = make_keyboard(self.client, self.edit, "body",
+                               label=self._label, description=self._description)
+            kb.show_keyboard()
+
+        self.edit.mousePressEvent = _open_keyboard
+        self.edit.focusInEvent = _open_keyboard
+        self._fit()
+
+    def _fit(self):
+        # Grow with the content between sensible bounds, so a short prompt does
+        # not leave a huge empty box and a long one does not push everything
+        # else off the page.
+        document = self.edit.document()
+        document.setTextWidth(max(200, self.edit.viewport().width()))
+        wanted = int(document.size().height()) + 18
+        self.setFixedHeight(max(self.MIN_HEIGHT, min(self.MAX_HEIGHT, wanted)))
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._fit()
+
+
 class Field(QWidget):
 
-    def __init__(self, setting, index=None, is_numeric=False, prefix="", suffix="", on_change=None):
+    def __init__(self, setting, index=None, is_numeric=False, prefix="", suffix="",
+                 on_change=None, label="", description="", client=None,
+                 setting_type=""):
         super().__init__()
+        self._label = label or "Edit value"
+        self._description = description or str(setting.get("description", "") or "")
+        # Both of these used to be read off the setting object, which carries
+        # neither - so every keyboard call raised AttributeError into a bare
+        # `except Exception: pass` and the keyboard silently never opened.
+        self._setting_type = setting_type or str(setting.get("type", "string"))
         self.setFixedHeight(44)
         self._bg     = QColor(FIELD_BG)
         self._border = QColor(FIELD_BORDER)
@@ -141,36 +221,39 @@ class Field(QWidget):
             row.addWidget(pl)
             row.addWidget(sep)
 
-        self.client = setting.client if hasattr(setting, 'client') else None
+        self.client = client
         le = QLineEdit(str(val))
         le.setFont(make_font(SIZES.S3))
         le.setFixedHeight(44)
+        # Read-only on purpose: there is no physical keyboard, so the field is
+        # a display and a tap target, and all editing happens in the dialog.
+        # It also stops a caret blinking in a field nothing can type into.
+        le.setReadOnly(True)
+        le.setCursor(Qt.CursorShape.PointingHandCursor)
         set_style(le, "settings", "field-input", object_tag="QLineEdit")
         _field = self
 
-        def _focus_in(e):
+        def _open_keyboard(event=None):
+            if event is not None and hasattr(event, "accept"):
+                event.accept()
+            if _field.client is None:
+                return
             _field._border = QColor(FIELD_BORDER_FOCUS)
             _field.update()
-            QLineEdit.focusInEvent(le, e)
-            # Open keyboard popup
-            page = _field.window()
-            if page and not hasattr(page, "_kb") or (hasattr(page, "_kb") and page._kb is None):
-                pass
-            try:
-                overlay = _field.client.OVERLAYS
-                kb = make_keyboard(_field.client, le, _field._setting_type, overlay)
-                page._kb = kb
-                kb.show_keyboard()
-            except Exception:
-                pass
+            kb = make_keyboard(_field.client, le, _field._setting_type,
+                               label=_field._label,
+                               description=_field._description)
+            kb.show_keyboard()
 
-        def _focus_out(e):
-            _field._border = QColor(FIELD_BORDER)
-            _field.update()
-            QLineEdit.focusOutEvent(le, e)
-
-        le.focusInEvent  = _focus_in
-        le.focusOutEvent = _focus_out
+        # Bound to the tap, not just to focus: a read-only field still takes
+        # focus, but a touch screen has no other way in, and relying on focus
+        # alone meant a second tap did nothing.
+        #
+        # Only the line edit, and the event is accepted. Binding the parent
+        # Field as well meant an unaccepted press propagated child to parent
+        # and opened the keyboard twice.
+        le.mousePressEvent = _open_keyboard
+        le.focusInEvent = _open_keyboard
 
         def _changed(text):
             if is_numeric:
@@ -295,14 +378,27 @@ class SettingBlock(QFrame):
             toggle.connect(_bool_changed)
             header.addWidget(toggle)
 
+        elif t == "body":
+            outer.addWidget(BodyField(setting, on_change=self._refresh_modified_badge,
+                                      client=self.client, label=format_name(key),
+                                      description=str(setting.get("description", "") or "")))
+
         elif t == "secret":
             outer.addWidget(self._build_secret_field(setting))
 
         elif t == "string":
-            outer.addWidget(Field(setting, prefix=prefix, suffix=suffix, on_change=self._refresh_modified_badge))
+            outer.addWidget(Field(setting, prefix=prefix, suffix=suffix,
+                                  on_change=self._refresh_modified_badge,
+                                  label=format_name(key), client=self.client,
+                                  setting_type=raw_t,
+                                  description=str(setting.get("description", "") or "")))
 
         elif t == "path":
-            field = Field(setting, prefix=prefix, suffix=suffix, on_change=self._refresh_modified_badge)
+            field = Field(setting, prefix=prefix, suffix=suffix,
+                          on_change=self._refresh_modified_badge,
+                          label=format_name(key), client=self.client,
+                          setting_type=raw_t,
+                          description=str(setting.get("description", "") or ""))
             browse = QPushButton("Browse")
             browse.setFixedSize(80, 44)
             browse.setFont(make_font(SIZES.S1))
@@ -332,7 +428,10 @@ class SettingBlock(QFrame):
 
         elif t in ("int", "float", "numeric"):
             outer.addWidget(Field(setting, is_numeric=True, prefix=prefix, suffix=suffix,
-                                   on_change=self._refresh_modified_badge))
+                                   on_change=self._refresh_modified_badge,
+                                   label=format_name(key), client=self.client,
+                                   setting_type=raw_t,
+                                   description=str(setting.get("description", "") or "")))
 
         elif t == "enum":
             outer.addWidget(EnumComponent(setting, on_change=self._refresh_modified_badge))
@@ -345,6 +444,10 @@ class SettingBlock(QFrame):
                 sfx = suffix[i] if isinstance(suffix, list) and i < len(suffix) else (suffix or "")
                 is_num = list_numeric or not isinstance(val, str)
                 outer.addWidget(Field(setting, index=i, is_numeric=is_num,
+                                       client=self.client,
+                                       setting_type=("int" if is_num else "string"),
+                                       label=f"{format_name(key)} [{i + 1}]",
+                                       description=str(setting.get("description", "") or ""),
                                        prefix=str(pfx), suffix=str(sfx),
                                        on_change=self._refresh_modified_badge))
 
@@ -360,11 +463,14 @@ class SettingBlock(QFrame):
         env_key = str(setting.get("env", "") or setting.get("key", "")).strip()
         secrets = self.client.SECRETS
 
+        # Two rows, not one. Field, status badge, Save and Clear side by side
+        # left the buttons about 70px wide and unreadable once the panel was
+        # any narrower than full width.
         row = QWidget()
         set_style(row, "common", "transparent")
-        layout = QHBoxLayout(row)
+        layout = QVBoxLayout(row)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(6)
+        layout.setSpacing(8)
 
         if not env_key:
             warning = QLabel("This secret has no 'env' key set in its settings file.")
@@ -388,14 +494,21 @@ class SettingBlock(QFrame):
                                  if secrets.is_set(env_key) else "Not set")
         set_style(entry, "overlays", "dialog-input")
         wrap.addWidget(entry)
-        layout.addWidget(wrapper, stretch=1)
+        layout.addWidget(wrapper)
+
+        controls = QWidget()
+        set_style(controls, "common", "transparent")
+        control_row = QHBoxLayout(controls)
+        control_row.setContentsMargins(0, 0, 0, 0)
+        control_row.setSpacing(8)
 
         status = QLabel(secrets.status(env_key))
         status.setFont(make_font(SIZES.S1, bold=True))
         status.setAlignment(Qt.AlignmentFlag.AlignCenter)
         set_style(status, "settings", "registry-count" if secrets.is_set(env_key)
                   else "pending-badge")
-        layout.addWidget(status)
+        control_row.addWidget(status)
+        control_row.addStretch()
 
         def refresh():
             status.setText(secrets.status(env_key))
@@ -404,6 +517,11 @@ class SettingBlock(QFrame):
             entry.setPlaceholderText("Set — enter a new value to replace"
                                      if secrets.is_set(env_key) else "Not set")
             entry.clear()
+            is_set = secrets.is_set(env_key)
+            clear_btn.setEnabled(is_set)
+            set_style(clear_btn, "settings",
+                      "plugin-action-uninstall" if is_set
+                      else "plugin-action-uninstall-disabled")
 
         def save():
             value = entry.text()
@@ -429,31 +547,24 @@ class SettingBlock(QFrame):
 
         entry.returnPressed.connect(save)
 
-        original_focus_in = entry.focusInEvent
+        entry.setReadOnly(True)
+        entry.setCursor(Qt.CursorShape.PointingHandCursor)
 
-        def _focus_in(event):
-            original_focus_in(event)
-            try:
-                page = self
-                kb = make_keyboard(self.client, entry, "string", self.client.OVERLAYS)
-                page._kb = kb
-                kb.show_keyboard()
-            except Exception:
-                pass
+        def _open_keyboard(event=None):
+            if event is not None and hasattr(event, "accept"):
+                event.accept()
+            kb = make_keyboard(self.client, entry, "string",
+                               label=env_key,
+                               description=str(setting.get("description", "") or ""))
+            kb.show_keyboard()
 
-        entry.focusInEvent = _focus_in
-
-        save_btn = QPushButton("Save")
-        save_btn.setFixedSize(72, 44)
-        save_btn.setFont(make_font(SIZES.S1, bold=True))
-        save_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        set_style(save_btn, "settings", "plugin-action-reload")
-        save_btn.clicked.connect(save)
-        layout.addWidget(save_btn)
+        entry.mousePressEvent = _open_keyboard
+        entry.focusInEvent = _open_keyboard
 
         clear_btn = QPushButton("Clear")
-        clear_btn.setFixedSize(72, 44)
-        clear_btn.setFont(make_font(SIZES.S1, bold=True))
+        clear_btn.setFixedHeight(44)
+        clear_btn.setMinimumWidth(110)
+        clear_btn.setFont(make_font(SIZES.S2, bold=True))
         clear_btn.setEnabled(secrets.is_set(env_key))
         if clear_btn.isEnabled():
             clear_btn.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -461,8 +572,18 @@ class SettingBlock(QFrame):
         else:
             set_style(clear_btn, "settings", "plugin-action-uninstall-disabled")
         clear_btn.clicked.connect(clear)
-        layout.addWidget(clear_btn)
+        control_row.addWidget(clear_btn)
 
+        save_btn = QPushButton("Save")
+        save_btn.setFixedHeight(44)
+        save_btn.setMinimumWidth(110)
+        save_btn.setFont(make_font(SIZES.S2, bold=True))
+        save_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        set_style(save_btn, "settings", "plugin-action-reload")
+        save_btn.clicked.connect(save)
+        control_row.addWidget(save_btn)
+
+        layout.addWidget(controls)
         return row
 
     def _refresh_modified_badge(self) -> None:

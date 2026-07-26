@@ -21,3 +21,36 @@
     border-top: 1px solid #4d4d4d;
     border-radius: 0px;
 }
+
+/* Touch keyboard dialog */
+
+.keyboard-preview {
+    background: rgba(255,255,255,16);
+    border: 1px solid rgba(255,255,255,55);
+    border-radius: 8px;
+    color: #f2f2f2;
+    padding: 0 12px;
+}
+
+.key-modifier {
+    background: rgba(255,255,255,26);
+    border: 1px solid rgba(255,255,255,60);
+    border-radius: 8px;
+    color: #f2f2f2;
+}
+.key-modifier:pressed { background: rgba(255,255,255,60); }
+
+.key-modifier-active {
+    background: #2d6cc0;
+    border: 1px solid #6fa8e0;
+    border-radius: 8px;
+    color: #ffffff;
+}
+
+.key-space {
+    background: rgba(255,255,255,20);
+    border: 1px solid rgba(255,255,255,50);
+    border-radius: 8px;
+    color: #cfcfcf;
+}
+.key-space:pressed { background: rgba(255,255,255,50); }

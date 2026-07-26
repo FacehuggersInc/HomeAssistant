@@ -72,6 +72,8 @@ class InputDialog(BaseDialog):
         self._on_cancel = on_cancel
         self._allow_empty = allow_empty
         self._keyboard = None
+        self._kb_label = title
+        self._kb_description = body
 
         wrapper = QFrame()
         wrapper.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
@@ -90,13 +92,14 @@ class InputDialog(BaseDialog):
         self.content.addWidget(wrapper)
 
         self._numeric = numeric
-        original_focus_in = self.field.focusInEvent
+        self.field.setReadOnly(True)
+        self.field.setCursor(Qt.CursorShape.PointingHandCursor)
 
-        def _focus_in(event):
-            original_focus_in(event)
+        def _open_keyboard(event=None):
             self._show_keyboard()
 
-        self.field.focusInEvent = _focus_in
+        self.field.mousePressEvent = _open_keyboard
+        self.field.focusInEvent = _open_keyboard
         self.field.returnPressed.connect(self._submit)
 
         self.add_button(cancel_text, self._cancel, "secondary")
@@ -114,7 +117,7 @@ class InputDialog(BaseDialog):
             self._keyboard = make_keyboard(
                 self.client, self.field,
                 "int" if self._numeric else "string",
-                self.client.OVERLAYS,
+                label=self._kb_label, description=self._kb_description,
             )
             self._keyboard.show_keyboard()
         except Exception as e:

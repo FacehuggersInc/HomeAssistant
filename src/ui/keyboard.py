@@ -1,214 +1,394 @@
 from __future__ import annotations
-from typing import Callable
+
+from typing import TYPE_CHECKING, Optional
 
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
-    QLabel, QLineEdit, QGridLayout,
+    QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QLineEdit,
+    QTextEdit, QPlainTextEdit, QFrame,
 )
-from PyQt6.QtCore import Qt, QPropertyAnimation, QEasingCurve, QPoint, pyqtSignal
-from PyQt6.QtGui import QPainter, QColor, QBrush, QPen
+from PyQt6.QtCore import Qt, QTimer
 
 from src.styling import make_font, SIZES, set_style
+from src.ui.overlays import BaseDialog
 
+if TYPE_CHECKING:
+    from src.main import Client
 
-# ── Key button ────────────────────────────────────────────────────────────────
+# Sized for fingers, not a mouse. 64px is roughly a fingertip at arm's length
+# on a wall panel; the old 52px grid was usable with a cursor and fiddly
+# without one.
+KEY_W = 64
+KEY_H = 58
+GAP = 6
+
+# Rows are offset like a real keyboard, in fractions of a key width. Without
+# this every column lines up and muscle memory does not transfer.
+LETTER_ROWS = [
+    (0.0, list("1234567890")),
+    (0.5, list("qwertyuiop")),
+    (0.9, list("asdfghjkl")),
+    (0.0, ["shift"] + list("zxcvbnm") + ["backspace"]),
+]
+
+SYMBOL_ROWS = [
+    (0.0, list("1234567890")),
+    (0.5, list("-/:;()$&@\"")),
+    (0.9, list(".,?!'#%*+=")),
+    (0.0, ["letters"] + list("_<>[]{}") + ["backspace"]),
+]
+
+NUMPAD_ROWS = [
+    (0.0, list("789")),
+    (0.0, list("456")),
+    (0.0, list("123")),
+    (0.0, ["negate", "0", "backspace"]),
+]
+
+GLYPHS = {
+    "shift": "⇧", "backspace": "⌫", "space": "space",
+    "symbols": "?123", "letters": "ABC", "negate": "±", "clear": "clear",
+}
+
+WIDE = {"space": 5.0, "shift": 1.6, "backspace": 1.6,
+        "symbols": 1.6, "letters": 1.6, "clear": 1.6}
+
 
 class _Key(QPushButton):
-    def __init__(self, label: str, action: str = None, wide: bool = False):
-        super().__init__(label)
-        self.action = action or label
-        self.setFont(make_font(SIZES.S2, bold=False))
+    def __init__(self, action: str, label: str = None, units: float = 1.0,
+                 width: int = KEY_W, height: int = KEY_H):
+        super().__init__(label if label is not None else GLYPHS.get(action, action))
+        self.action = action
+        self.setFont(make_font(SIZES.S3 if height >= 48 else SIZES.S2))
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        w = 100 if wide else 52
-        self.setFixedSize(w, 52)
-        set_style(self, "keyboard", "key-button")
+        self.setFixedSize(int(width * units + GAP * (units - 1)), height)
+        set_style(self, "keyboard", self._style_for(action))
+
+    @staticmethod
+    def _style_for(action: str) -> str:
+        if action in ("space",):
+            return "key-space"
+        if action in ("shift", "backspace", "symbols", "letters", "clear", "negate"):
+            return "key-modifier"
+        return "key-button"
 
 
-# ── Base keyboard ─────────────────────────────────────────────────────────────
+class _MultilinePreview(QTextEdit):
+    """
+    QTextEdit that quacks like a QLineEdit, so the key handling does not need
+    two code paths.
+    """
 
-class KeyboardPopup(QWidget):
+    def __init__(self, text: str = ""):
+        super().__init__()
+        self.setAcceptRichText(False)
+        self.setReadOnly(True)
+        self.setLineWrapMode(QTextEdit.LineWrapMode.WidgetWidth)
+        self.setFrameShape(QFrame.Shape.NoFrame)
+        self.setText(text)
 
-    submitted = pyqtSignal(str)   # emitted on Enter/Done
+    def text(self) -> str:
+        return self.toPlainText()
 
-    def __init__(self, client, target: QLineEdit, parent: QWidget = None):
-        super().__init__(parent)
-        self.client = client
+    def setText(self, value: str) -> None:
+        self.setPlainText(value)
+        cursor = self.textCursor()
+        cursor.movePosition(cursor.MoveOperation.End)
+        self.setTextCursor(cursor)
+        self.ensureCursorVisible()
+
+    def setCursorPosition(self, _position: int) -> None:
+        self.ensureCursorVisible()
+
+
+class KeyboardDialog(BaseDialog):
+    """
+    Full-screen-ish editing dialog: what you are editing, why, the value, and
+    a keyboard.
+
+    Replaces a popup that slid up over the bottom of the page - which covered
+    the field being edited on a short screen, gave no indication of which
+    setting was in play, and had no room for a description.
+    """
+
+    WIDTH = KEY_W * 10 + GAP * 9 + 56
+    MAX_HEIGHT = 900
+    MIN_KEY_H = 44
+    SIDE_MARGIN = 48       # breathing room either side of the dialog
+    MIN_PREVIEW_H = 60     # two or three lines; below this it is pointless
+    MAX_KEY_W = 112        # beyond this keys stop being easier to hit
+
+    def __init__(self, client: "Client", target, mode: str = "text",
+                 label: str = "", description: str = ""):
+        # On a short panel the description is the first thing to go. A
+        # keyboard running off the bottom of an 800x480 screen is a worse
+        # trade than losing a line of explanation.
+        available = self._probe_host_height(client)
+        if available and available < 560:
+            description = ""
+
+        host_width = self._probe_host_width(client)
+        if host_width:
+            usable = host_width - self.SIDE_MARGIN * 2
+            key_w = int((usable - 56 - GAP * 9) / 10)
+            key_w = max(KEY_W, min(self.MAX_KEY_W, key_w))
+        else:
+            key_w = KEY_W
+        width = key_w * 10 + GAP * 9 + 56
+
+        super().__init__(client, label or "Edit value", description or "",
+                         width=width)
         self.target = target
-        self._caps  = False
+        self.mode = mode
 
-        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
-        self.setObjectName("kb_popup")
-        set_style(self, "keyboard", "keyboard-popup", object_tag="QWidget#kb_popup")
+        # Keys scale to the screen rather than assuming one. At the full size
+        # the dialog is ~580px, which leaves nothing on a 600px panel; a
+        # keyboard that runs off the bottom is worse than slightly smaller
+        # keys. MIN_KEY_H is the floor - below that it stops being touchable
+        # and there is no point shrinking further.
+        self.multiline = isinstance(target, (QTextEdit, QPlainTextEdit))
 
-        outer = QVBoxLayout(self)
-        outer.setContentsMargins(16, 12, 16, 12)
-        outer.setSpacing(8)
+        self.key_h = KEY_H
+        self.key_w = key_w
+        if available and available < 660:
+            # Everything that is not keys: title, preview, buttons, margins,
+            # plus the description when it survived.
+            overhead = 260 if not description else 300
+            self.key_h = max(self.MIN_KEY_H, min(KEY_H, int((available - overhead) / 5) - GAP))
 
-        # Preview bar
-        preview_row = QHBoxLayout()
-        self._preview = QLabel()
-        self._preview.setFont(make_font(SIZES.S3))
-        set_style(self._preview, "common", "text-strong")
-        self._refresh_preview()
+        if self.multiline:
+            # Editing a paragraph, so reading room beats key height. Keys drop
+            # to the touch floor and the preview takes what that frees up -
+            # otherwise a 600px panel leaves about four lines of a prompt
+            # visible, which is barely better than the single-line field the
+            # dialog replaced.
+            self.key_h = self.MIN_KEY_H
+        self.key_w = key_w
 
-        close_btn = _Key("✕", "close", wide=False)
-        close_btn.clicked.connect(self.close_keyboard)
+        self._caps = False
+        self._shift_latched = False
+        self._layer = "letters"
 
-        preview_row.addWidget(self._preview, stretch=1)
-        preview_row.addWidget(close_btn)
-        outer.addLayout(preview_row)
+        # A paragraph needs more than one line to be readable, so a multi-line
+        # target gets a multi-line preview. Both expose .text()/.setText() so
+        # the key handling below does not have to care which it is.
+        if self.multiline:
+            self.preview = _MultilinePreview(self._read_target())
+            self.preview.setFixedHeight(self._preview_height(available))
+        else:
+            self.preview = QLineEdit(self._read_target())
+            self.preview.setFixedHeight(50)
+            self.preview.setCursorPosition(len(self.preview.text()))
+        self.preview.setFont(make_font(SIZES.S3))
+        self.preview.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        set_style(self.preview, "keyboard", "keyboard-preview")
+        self.content.addWidget(self.preview)
 
-        # Build key rows
-        self._key_grid = QGridLayout()
-        self._key_grid.setSpacing(6)
-        outer.addLayout(self._key_grid)
+        self.keys_host = QWidget()
+        set_style(self.keys_host, "common", "transparent")
+        self.keys_layout = QVBoxLayout(self.keys_host)
+        self.keys_layout.setContentsMargins(0, 4, 0, 0)
+        self.keys_layout.setSpacing(GAP)
+        self.content.addWidget(self.keys_host)
 
         self._build_keys()
 
-        # Animation
-        self._anim = QPropertyAnimation(self, b"pos")
-        self._anim.setDuration(200)
-        self._anim.setEasingCurve(QEasingCurve.Type.OutCubic)
+        self.add_button("Cancel", self.close, "secondary")
+        self.add_button("Done", self._done, "primary")
 
-    # ── Key layout ────────────────────────────────────────────────────────────
+    @staticmethod
+    def _probe_host_width(client) -> int:
+        try:
+            return int(client.OVERLAYS.width())
+        except Exception:
+            return 0
+
+    @staticmethod
+    def _probe_host_height(client) -> int:
+        try:
+            return int(client.OVERLAYS.height())
+        except Exception:
+            return 0
+
+    def _host_height(self) -> int:
+        return self._probe_host_height(self.client)
+
+    def _preview_height(self, available: int) -> int:
+        # A starting guess only. Predicting the exact chrome height - title,
+        # wrapped description, button row, margins - is guesswork, so
+        # center() measures the built dialog and trims this to fit.
+        if not available:
+            return 200
+        spare = available - (self.key_h + GAP) * 5 - 190
+        return max(120, min(300, spare))
+
+    def center(self) -> None:
+        # Measure, then fit. The preview is the only elastic part, so it
+        # absorbs whatever the rest of the dialog actually turned out to need.
+        host = self._host_height()
+        if host and self.multiline:
+            # Trim until it fits or the preview reaches its floor. One pass is
+            # not always enough: shrinking the preview can rewrap the
+            # description, which changes the chrome height underneath it.
+            for _ in range(3):
+                self.adjustSize()
+                overflow = self.sizeHint().height() - (host - 16)
+                if overflow <= 0 or self.preview.height() <= self.MIN_PREVIEW_H:
+                    break
+                self.preview.setFixedHeight(
+                    max(self.MIN_PREVIEW_H, self.preview.height() - overflow))
+                self.updateGeometry()
+                # adjustSize() only ever grows a widget to its hint; shrinking
+                # needs an explicit resize.
+                self.resize(self.width(), self.sizeHint().height())
+        super().center()
+
+    ## -- target
+
+    def _read_target(self) -> str:
+        if isinstance(self.target, (QTextEdit, QPlainTextEdit)):
+            return self.target.toPlainText()
+        return self.target.text()
+
+    def _write_target(self, text: str) -> None:
+        if isinstance(self.target, (QTextEdit, QPlainTextEdit)):
+            self.target.setPlainText(text)
+        else:
+            self.target.setText(text)
+
+    ## -- layout
+
+    def _rows(self):
+        if self.mode == "numeric":
+            return NUMPAD_ROWS
+        return SYMBOL_ROWS if self._layer == "symbols" else LETTER_ROWS
 
     def _build_keys(self) -> None:
-        rows = self._key_rows()
-        for r, row in enumerate(rows):
-            col = 0
-            for key_data in row:
-                if isinstance(key_data, tuple):
-                    label, action, wide = key_data
-                else:
-                    label = action = key_data
-                    wide = False
-                btn = _Key(label, action, wide=wide)
-                btn.clicked.connect(lambda _, a=action: self._press(a))
-                span = 2 if wide else 1
-                self._key_grid.addWidget(btn, r, col, 1, span)
-                col += span
+        while self.keys_layout.count():
+            item = self.keys_layout.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.setParent(None)
+                widget.deleteLater()
+            elif item.layout() is not None:
+                self._clear_layout(item.layout())
 
-    def _key_rows(self) -> list:
-        return [
-            ["1","2","3","4","5","6","7","8","9","0"],
-            ["q","w","e","r","t","y","u","i","o","p"],
-            ["a","s","d","f","g","h","j","k","l"],
-            [("⇧","shift",False),"z","x","c","v","b","n","m",("⌫","backspace",False)],
-            [("⎵","space",True),(".",".",False),("-","-",False),("_","_",False),
-             ("Done","done",True)],
-        ]
+        for offset, keys in self._rows():
+            row = QHBoxLayout()
+            row.setSpacing(GAP)
+            row.setContentsMargins(0, 0, 0, 0)
+            if self.mode == "numeric":
+                row.addStretch()
+            elif offset:
+                row.addSpacing(int(self.key_w * offset))
+            for action in keys:
+                row.addWidget(self._make_key(action))
+            if self.mode == "numeric":
+                row.addStretch()
+            else:
+                row.addStretch()
+            self.keys_layout.addLayout(row)
 
-    # ── Key handling ──────────────────────────────────────────────────────────
+        self.keys_layout.addLayout(self._bottom_row())
+
+    def _bottom_row(self) -> QHBoxLayout:
+        row = QHBoxLayout()
+        row.setSpacing(GAP)
+        row.setContentsMargins(0, 0, 0, 0)
+        if self.mode == "numeric":
+            row.addStretch()
+            for action in (".", "negate", "clear"):
+                row.addWidget(self._make_key(action))
+            row.addStretch()
+        else:
+            for action in ("symbols" if self._layer == "letters" else "letters",
+                           ",", "space", ".", "clear"):
+                row.addWidget(self._make_key(action))
+            row.addStretch()
+        return row
+
+    def _make_key(self, action: str) -> _Key:
+        label = None
+        if len(action) == 1 and action.isalpha():
+            label = action.upper() if self._caps else action
+        key = _Key(action, label, WIDE.get(action, 1.0),
+                   width=self.key_w, height=self.key_h)
+        if action == "shift" and self._caps:
+            set_style(key, "keyboard", "key-modifier-active")
+        key.clicked.connect(lambda _=False, a=action: self._press(a))
+        return key
+
+    @staticmethod
+    def _clear_layout(layout) -> None:
+        while layout.count():
+            item = layout.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.setParent(None)
+                widget.deleteLater()
+            elif item.layout() is not None:
+                KeyboardDialog._clear_layout(item.layout())
+
+    ## -- keys
 
     def _press(self, action: str) -> None:
-        t = self.target
+        text = self.preview.text()
+
         if action == "backspace":
-            cur = t.cursorPosition()
-            if cur > 0:
-                text = t.text()
-                t.setText(text[:cur-1] + text[cur:])
-                t.setCursorPosition(cur - 1)
+            self.preview.setText(text[:-1])
         elif action == "space":
-            self._insert(" ")
+            self.preview.setText(text + " ")
+        elif action == "clear":
+            self.preview.setText("")
         elif action == "shift":
             self._caps = not self._caps
-            self._rebuild_caps()
-        elif action == "done":
-            self.submitted.emit(t.text())
-            self.close_keyboard()
-        elif action == "close":
-            self.close_keyboard()
-        elif len(action) == 1:
-            self._insert(action.upper() if self._caps else action)
-            if self._caps:
+            self._shift_latched = False
+            self._build_keys()
+            return
+        elif action in ("symbols", "letters"):
+            self._layer = "symbols" if action == "symbols" else "letters"
+            self._build_keys()
+            return
+        elif action == "negate":
+            self.preview.setText(text[1:] if text.startswith("-") else "-" + text)
+        else:
+            char = action.upper() if (self._caps and action.isalpha()) else action
+            self.preview.setText(text + char)
+            if self._caps and not self._shift_latched:
+                # One-shot shift, the way a phone keyboard behaves: capitalise
+                # one letter then drop back rather than staying locked.
                 self._caps = False
-                self._rebuild_caps()
-        self._refresh_preview()
+                self._build_keys()
 
-    def _insert(self, char: str) -> None:
-        t = self.target
-        cur  = t.cursorPosition()
-        text = t.text()
-        t.setText(text[:cur] + char + text[cur:])
-        t.setCursorPosition(cur + 1)
+        self.preview.setCursorPosition(len(self.preview.text()))
 
-    def _rebuild_caps(self) -> None:
-        # Re-render single-char key labels for caps state
-        for i in range(self._key_grid.count()):
-            item = self._key_grid.itemAt(i)
-            if item and item.widget():
-                btn = item.widget()
-                if isinstance(btn, _Key) and len(btn.action) == 1 and btn.action.isalpha():
-                    btn.setText(btn.action.upper() if self._caps else btn.action)
+    ## -- lifecycle
 
-    def _refresh_preview(self) -> None:
-        text = self.target.text() if self.target else ""
-        if len(text) > 40:
-            text = "…" + text[-40:]
-        self._preview.setText(text or " ")
-
-    # ── Show / hide ───────────────────────────────────────────────────────────
+    def _done(self) -> None:
+        self._write_target(self.preview.text())
+        self.close()
 
     def show_keyboard(self) -> None:
-        parent = self.parent()
-        if not parent:
-            return
-        pw, ph = parent.width(), parent.height()
-        self.setFixedWidth(pw)
-        self.adjustSize()
-        kh = self.sizeHint().height()
-        self.setFixedHeight(kh)
-        self.move(0, ph)          # start off-screen below
-        self.show()
-        self.raise_()
-        self._anim.stop()
-        self._anim.setStartValue(QPoint(0, ph))
-        self._anim.setEndValue(QPoint(0, ph - kh))
-        self._anim.start()
+        """Kept for callers written against the old popup."""
+        # Exactly one keyboard at a time. A tap fires mousePressEvent on the
+        # line edit AND, unaccepted, on its parent, and focusInEvent besides -
+        # so a single tap could stack two or three identical dialogs. Closing
+        # the top one revealed the next, which reads as a button that needs
+        # clicking twice.
+        for existing in getattr(self.client.DIALOG, "dialog_stack", []):
+            if isinstance(existing, KeyboardDialog):
+                return
+        self.client.dialog(self)
+        QTimer.singleShot(0, self.center)
 
     def close_keyboard(self) -> None:
-        parent = self.parent()
-        ph = parent.height() if parent else 1000
-        self._anim.stop()
-        self._anim.setStartValue(self.pos())
-        self._anim.setEndValue(QPoint(0, ph))
-        self._anim.finished.connect(self.hide)
-        self._anim.start()
+        self.close()
 
 
-# ── Numpad (int / float only) ─────────────────────────────────────────────────
-
-class NumpadPopup(KeyboardPopup):
-
-    def _key_rows(self) -> list:
-        return [
-            ["7", "8", "9"],
-            ["4", "5", "6"],
-            ["1", "2", "3"],
-            [("±","negate",False), "0", ("⌫","backspace",False)],
-            [(".", ".", False), ("Done","done",True)],
-        ]
-
-    def _press(self, action: str) -> None:
-        if action == "negate":
-            text = self.target.text()
-            if text.startswith("-"):
-                self.target.setText(text[1:])
-            else:
-                self.target.setText("-" + text)
-            self._refresh_preview()
-        else:
-            super()._press(action)
-
-
-# ── Factory ───────────────────────────────────────────────────────────────────
-
-def make_keyboard(client, target: QLineEdit, setting_type: str,
-                  parent: QWidget) -> KeyboardPopup:
+def make_keyboard(client: "Client", target, setting_type: str,
+                  parent: QWidget = None, label: str = "",
+                  description: str = "") -> KeyboardDialog:
     numeric_types = {"int", "float", "numeric", "list[int]", "list[float]"}
-    if setting_type in numeric_types:
-        kb = NumpadPopup(client, target, parent)
-    else:
-        kb = KeyboardPopup(client, target, parent)
-    return kb
+    mode = "numeric" if setting_type in numeric_types else "text"
+    return KeyboardDialog(client, target, mode=mode,
+                          label=label, description=description)

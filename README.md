@@ -242,6 +242,26 @@ If you find yourself modifying the Client itself, consider whether it should ins
 
 ---
 
+# Where plugins live
+
+| Location | Ships with the app | Survives an update |
+|----------|--------------------|--------------------|
+| `src/assets/bundled/<Name>/` | yes | replaced, but its `settings.json` is merged so your values are kept |
+| `plugins/<Name>/` | no | preserved untouched |
+
+Bundled plugins are part of the app and update with it. `plugins/` is for
+your own work and is never overwritten - put anything you do not want an
+update to replace there.
+
+A bundled plugin points at its settings with a path from the install root:
+
+```toml
+[settings]
+path = "src/assets/bundled/MyPlugin/settings.json"
+```
+
+Append `.DISABLED` to a folder name to stop it loading without deleting it.
+
 # Plugin Structure
 
 Every plugin requires two files.
@@ -279,6 +299,23 @@ path = "/path/to/.json"
 * `path` = a json file
 
 the settings path will be joined into the default settings page under plugins for Public settings.
+
+### Setting types
+
+`bool`, `string`, `body`, `path`, `int`, `float`, `enum`, `list`, `secret`.
+
+`body` is multi-line — use it for anything holding a paragraph rather than a
+line, such as a prompt or a template. It grows with its content between 132
+and 320px, so a short value does not leave a large empty box and a long one
+does not push the rest of the page away.
+
+```json
+"system_prompt": {
+    "type": "body",
+    "value": "You are the voice assistant for a wall-mounted display...",
+    "description": "Sent to the AI before every conversation."
+}
+```
 
 ### Secrets
 
@@ -1305,6 +1342,75 @@ written out rather than delegated to `word2number`, which raised on ordinary
 input like "zero" or a trailing "and" - a transcript is untrusted text and an
 exception there dropped the whole phrase.
 
+## When nothing matches
+
+If `SkillIntentEngine` finds no skill, the client fires
+**`on_assistant_fallback`** with the phrase. Skills always win - a subscriber
+only ever sees what nothing else claimed. It fires on the real input path
+only, so a `use_skill=False` probe stays side-effect free.
+
+`src/assets/bundled/AIFallback` uses it to answer the question with an AI and show the
+reply in a chat panel. Nothing in the client depends on that plugin: remove
+it and unmatched phrases go back to being ignored.
+
+```python
+def load(self, carryover=None):
+    self.client.subscribe_to_event("on_assistant_fallback", self.on_fallback)
+
+def on_fallback(self, event):
+    phrase = event          # the phrase nothing understood
+```
+
+Handle it **off the event thread**. It fires from inside the intent engine,
+so blocking there stalls the whole STT pipeline.
+
+### The AI fallback plugin
+
+Needs an OpenAI key, entered under the plugin's own settings and stored in
+`.env` (see Secrets). Without one it stays quiet.
+
+**OpenAI has no free tier** - the account needs credit on it. An
+`insufficient_quota` error is a billing limit, not a rate limit, so waiting
+will not help.
+
+Defaults to `gpt-5.6-luna`, the cost-sensitive tier, which suits the short
+spoken replies this plugin asks for. The model list is fixed at release; if
+OpenAI ships new models it needs updating.
+
+Configurable: model, token ceiling, how many previous turns to send, the
+system prompt, whether replies are spoken, and the panel timeout.
+
+Two details worth knowing:
+
+**A Session opens before the first API call.** That is what serialises the
+conversation. While a request is in flight, anything else the user says lands
+in the session queue rather than being treated as a fresh command, and is
+only picked up once a reply has come back. Without it a second question fired
+mid-request would race the first.
+
+**Replies are markdown**, rendered to the HTML subset Qt actually supports -
+headings, emphasis, lists, links, images, blockquotes and fenced code blocks.
+Written out in `markdown.py` rather than pulling in a markdown package: every
+general-purpose converter emits CSS that Qt ignores, which renders worse than
+handling the subset directly. Replies are HTML-escaped before any markup is
+added, so a reply containing a `<script>` tag is displayed rather than
+interpreted. A separate `to_speech()` strips markup and drops code blocks
+before anything is read aloud.
+
+The panel is reused across turns and carries its own long timeout, so a
+conversation is not cut off mid-thought by the ordinary interaction timeout.
+
+**Failures never open the panel.** A chat panel containing nothing but an
+error implies a conversation started; the error goes to a dialog instead,
+with the summary as the body and OpenAI's own message as the detail. If a
+panel is already open the note is added there too, so the transcript does not
+end on an unanswered question.
+
+Errors are also classed as fatal or not. A rejected key, an account with no
+credit, or a model this account cannot use ends the conversation - there is
+no point holding a session open that will fail again on the next question.
+Rate limits and network errors leave it open so a follow-up can retry.
+
 ## Backing out
 
 Saying "nevermind", "cancel", "forget it", "stop" and similar abandons
@@ -1431,6 +1537,59 @@ catch `Exception`, not `ImportError`. `audio.available()` already does, and
 returns a reason worth showing a user.
 
 
+# The on-screen keyboard
+
+Any text field opens a keyboard dialog rather than a strip sliding up from
+the bottom. The dialog shows what you are editing, its description, the
+current value, and the keys.
+
+The old popup covered the very field it was editing on a short screen, and
+had no room to say which setting was in play.
+
+* Rows are **staggered** like a physical keyboard - the home row sits half a
+  key right of the number row, and the one below it nine tenths. Aligned
+  columns look tidy and defeat muscle memory.
+* Keys scale to the panel - roughly 81px wide on a 1024 screen, capped at
+  112px, so the dialog uses about 90% of the available width instead of a
+  fixed 750px. On a panel shorter than 660px key height shrinks toward a 44px
+  floor and the description is dropped first, so it still fits an 800x480
+  screen rather than running off the bottom.
+* Shift is one-shot, the way a phone behaves - capitalise one letter and drop
+  back rather than staying locked.
+* `?123` switches to a symbols layer. Numeric settings get a numpad with a
+  sign toggle instead.
+* Nothing is written to the field until **Done**. Cancel leaves it untouched.
+* A `body` setting gets a **multi-line preview** rather than a single line,
+  and the keys drop to their touch floor so the text gets the room instead.
+  The dialog then measures itself and trims the preview until it fits the
+  panel, so it never runs off the bottom.
+* Only **one** keyboard can be open at a time. A tap fires `mousePressEvent`
+  on the field and, unaccepted, on its parent, plus `focusInEvent` besides -
+  which used to stack two or three identical dialogs. Closing the top one
+  revealed the next, so buttons appeared to need clicking twice.
+
+Numeric settings (`int`, `float`, `numeric`, `list[int]`, `list[float]`) get a
+numpad with a sign toggle and no letters. Everything else gets the full
+QWERTY board.
+
+`make_keyboard(client, target, setting_type, label=..., description=...)`
+builds it. The target may be a `QLineEdit`, `QTextEdit` or `QPlainTextEdit`.
+
+## Fields are displays
+
+Every editable field is **read-only** and opens the keyboard dialog on tap.
+There is no physical keyboard on the target hardware, so a field that accepts
+direct input only ever shows a caret nothing can type into. All editing goes
+through the dialog, and the value is written back on Done.
+
+If you add a field type, bind `mousePressEvent` as well as `focusInEvent` -
+focus alone means a second tap on an already-focused field does nothing.
+
+Pass `client` and `setting_type` in explicitly. An earlier version read both
+off the setting object, which carries neither, so every call raised
+`AttributeError` into a bare `except Exception: pass` and the keyboard never
+opened at all.
+
 # Dialogs
 
 `Client` exposes modal dialogs directly. All of them are thread-safe -- call
@@ -1483,6 +1642,22 @@ dlg = self.client.progress("Syncing", "Talking to the server...")
 dlg.set_status("42 of 300")     # safe from any thread
 self.client.close_dialog()
 ```
+
+## The overlay hit mask
+
+`OverlayManager` sets a mask built from the union of its visible children's
+geometry. The mask is what decides where the overlay accepts clicks at all -
+outside it, events fall through to the page underneath.
+
+**A child that sets `WA_TransparentForMouseEvents` is excluded from the
+mask.** Including it created dead zones: the overlay claimed the area, nothing
+inside it was willing to handle the click, and the event never reached the
+page. The voice bar sits bottom-centre, which is exactly where page buttons
+tend to be - the symptom was buttons that only worked if you moved and tried
+again a few pixels away.
+
+If you add an overlay widget that should not receive input, set that
+attribute and the mask will leave the area clickable.
 
 ## Layering
 
