@@ -16,7 +16,8 @@ If you are setting the panel up for the first time, read
 
 If you are writing a plugin, read [Architecture](architecture.md) for the shape
 of the thing, then [Plugins](plugins.md) for the lifecycle, then whichever of
-[Widgets](widgets.md), [Pages](pages.md) or [Features](features.md) matches
+[Widgets](widgets.md), [Tiles](tiles.md), [Pages](pages.md) or
+[Features](features.md) matches
 what you are building. [Application lifecycle](lifecycle.md) explains when
 each of your hooks runs, and [Threading](threading.md) is worth reading before
 you write any background work - it is the rule most easily broken by accident.
@@ -71,7 +72,8 @@ can subscribe to.
 | [Plugins](plugins.md) | `plugin.toml`, `main.py`, and the full lifecycle. |
 | [Bundled plugins](bundled-plugins.md) | The five that ship, and what each provides. |
 | [Pages](pages.md) | Registering a page, a full example, sub-pages. |
-| [Widgets](widgets.md) | The widget framework, layout, dragging, persistence. |
+| [Widgets](widgets.md) | Writing and registering widgets, layout, persistence. |
+| [Tiles](tiles.md) | Writing and registering tiles, the grid and panel. |
 | [Features](features.md) | Exposing and calling page features. |
 | [Registries](registries.md) | API, page, public, secret and quick access registries. |
 | [Quick settings](quick-settings.md) | The global controls panel and its registry. |
@@ -84,7 +86,7 @@ can subscribe to.
 | [Dialogs and overlays](dialogs.md) | Overlay layers, masks, dialogs, panels. |
 | [On-screen keyboard](keyboard.md) | The touch keyboard. |
 | [Voice assistant](assistant.md) | Intent matching, STT, TTS. |
-| [Writing skills](skills.md) | Declaring skills, arguments, follow-up questions. |
+| [Writing skills](skills.md) | Skills, Matcher patterns, follow-up questions. |
 | [Mixins](mixins.md) | Extending existing methods from a plugin. |
 | [Backend API](api.md) | Every endpoint, and the `hactl.py` CLI. |
 | [Development philosophy](philosophy.md) | Why it is built the way it is. |

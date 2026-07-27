@@ -35,6 +35,7 @@ NAV_ORDER = [
     ("bundled-plugins.md", "Bundled plugins"),
     ("pages.md",           "Pages"),
     ("widgets.md",         "Widgets"),
+    ("tiles.md",           "Tiles"),
     ("features.md",        "Features"),
     ("registries.md",      "Registries"),
     ("quick-settings.md",  "Quick settings"),

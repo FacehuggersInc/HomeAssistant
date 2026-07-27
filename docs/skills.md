@@ -98,9 +98,111 @@ def set_timer(self, duration: str = ""):
     ...
 ```
 
-Each argument maps to a **list of pattern alternatives**, and each alternative
-is a list of token specs. Anything the Matcher supports works — `LOWER`,
-`LEMMA`, `IS_ALPHA`, `LIKE_NUM`, `IN`, `OP` for quantifiers.
+### The shape of `arguments`
+
+```
+arguments = {
+    "arg_name": [           # a LIST of alternative patterns
+        [ {...}, {...} ],   # pattern 1: a list of token specs
+        [ {...}, {...} ],   # pattern 2: a different way of saying it
+    ],
+}
+```
+
+Each key maps to a **list of alternatives**, and each alternative is a list of
+token specs. Any one of them matching captures the argument, so this is how you
+cover phrasings that do not share a shape. From the bundled skills:
+
+```python
+arguments={
+    "given_date": [
+        # "the day before today"  - two or three bare words
+        [{"IS_ALPHA": True, "OP": "{2,3}"}],
+        # "what is tomorrow"      - a copula, then up to four words
+        [{"LOWER": {"IN": ["is", "was"]}}, {"IS_ALPHA": True, "OP": "{1,4}"}],
+    ],
+}
+```
+
+Alternatives are cheap. Adding one is almost always better than making a
+single pattern clever enough to cover both, because a loose pattern starts
+capturing things you did not mean.
+
+### Token attributes
+
+Full reference: <https://spacy.io/usage/rule-based-matching>, and the API at
+<https://spacy.io/api/matcher>.
+
+The ones worth knowing:
+
+| Key | Matches | Example |
+|---|---|---|
+| `LOWER` | The lowercased text. | `{"LOWER": "timer"}` |
+| `ORTH` / `TEXT` | The exact text, case-sensitive. | `{"ORTH": "AM"}` |
+| `LEMMA` | The dictionary form, so one spec covers inflections. | `{"LEMMA": "set"}` matches set/sets/setting |
+| `POS` | Coarse part of speech. | `{"POS": "NOUN"}` |
+| `TAG` | Fine-grained tag. | `{"TAG": "NNP"}` |
+| `DEP` | Dependency label. | `{"DEP": "dobj"}` |
+| `SHAPE` | Orthographic shape. | `{"SHAPE": "dddd"}` matches `2026` |
+| `ENT_TYPE` | Named entity type. | `{"ENT_TYPE": "TIME"}` |
+| `IS_ALPHA` | Letters only. | `{"IS_ALPHA": True}` |
+| `IS_DIGIT` | Digits only. | `{"IS_DIGIT": True}` matches `10`, not `ten` |
+| `IS_PUNCT` | Punctuation. | `{"IS_PUNCT": True}` |
+| `IS_STOP` | A stop word. | `{"IS_STOP": False}` |
+| `LIKE_NUM` | Anything numeric. | `{"LIKE_NUM": True}` matches `10` **and** `ten` |
+| `LIKE_URL` / `LIKE_EMAIL` | Looks like one. | `{"LIKE_URL": True}` |
+
+`LIKE_NUM` over `IS_DIGIT` almost always. Whisper writes numbers either way
+depending on how they were said, and normalisation converts most but not all.
+
+### Value operators
+
+A value can be a dict instead of a literal:
+
+| Operator | Means | Example |
+|---|---|---|
+| `IN` | One of a list. | `{"LOWER": {"IN": ["minute", "minutes", "min"]}}` |
+| `NOT_IN` | None of a list. | `{"LOWER": {"NOT_IN": ["not", "cancel"]}}` |
+| `REGEX` | Matches a pattern. | `{"LOWER": {"REGEX": "^colou?r$"}}` |
+| `FUZZY` | Approximate, for mishearings. | `{"LOWER": {"FUZZY": "notifications"}}` |
+| `>=`, `<=`, `>`, `<`, `==` | Numeric comparison on a numeric attribute. | `{"LENGTH": {">=": 4}}` |
+
+`IN` is the workhorse. It is how you accept singular and plural, or a handful
+of synonyms, without writing an alternative for each.
+
+### Quantifiers — `OP`
+
+`OP` says how many of the preceding token spec to match:
+
+| `OP` | Means |
+|---|---|
+| `"?"` | Zero or one — an optional token. |
+| `"*"` | Zero or more. |
+| `"+"` | One or more. |
+| `"!"` | Exactly zero — assert this token is *not* here. |
+| `"{2,3}"` | Between two and three. |
+| `"{2}"` | Exactly two. |
+| `"{2,}"` | Two or more. |
+
+```python
+# "for 10 minutes" / "10 minutes" - the preposition is optional
+[{"LOWER": "for", "OP": "?"}, {"LIKE_NUM": True}, {"LOWER": {"IN": ["minute", "minutes"]}}]
+
+# a name of one to three words
+[{"IS_ALPHA": True, "OP": "{1,3}"}]
+
+# anything up to the word "off", not including a negation
+[{"LOWER": {"NOT_IN": ["not"]}, "OP": "*"}, {"LOWER": "off"}]
+```
+
+Be careful with bare `*` and `+` at the start of a pattern — they will happily
+swallow the whole utterance. Bound them with `{1,4}` unless you mean it.
+
+### Writing them
+
+Keep patterns short. A pattern of two or three tokens anchored on a distinctive
+word is more reliable than a long one describing a whole sentence, because the
+sentence around your argument varies and the argument itself usually does not.
 
 Give every argument a default in your function signature. An argument that
 does not match is simply not passed, and a skill that raises `TypeError`

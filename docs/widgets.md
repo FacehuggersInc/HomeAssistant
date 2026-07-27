@@ -239,6 +239,169 @@ A widget that wants to be transparent should set `WA_NoSystemBackground`, not
 stops the background being cleared between paints, so repeated resizing leaves
 the previous frames behind.
 
+For the grid-based equivalent that lives on `sub.tiles`, see
+[Tiles](tiles.md).
+
+## Writing a widget
+
+```python
+from datetime import datetime
+
+from PyQt6.QtWidgets import QVBoxLayout, QLabel
+from PyQt6.QtCore import Qt
+
+from src.ui.widget import Widget
+from src.styling import make_font, SIZES, set_style
+
+
+class CountdownWidget(Widget):
+
+    KEY         = "countdown"
+    NAME        = "Countdown"
+    ICON        = "mdi.timer-outline"
+    DESCRIPTION = "Days until a date you set."
+
+    RESIZABLE = True
+    ROTATABLE = False        # composed from child widgets, so it cannot rotate
+    FLOATABLE = True
+    REMOVABLE = True
+    MULTIPLE  = False        # one instance; True makes it a template
+
+    MIN_W, MIN_H = 160, 90
+    MAX_W, MAX_H = 480, 260
+    DEFAULT_ANCHOR = "top-right"
+
+    def __init__(self, client, key=None, **kwargs):
+        super().__init__(client=client, key=key or self.KEY,
+                         width=220, height=120, **kwargs)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(14, 10, 14, 10)
+        layout.setSpacing(2)
+        layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        self.days = QLabel("--")
+        self.days.setFont(make_font(SIZES.L2, bold=True))
+        self.days.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        set_style(self.days, "common", "text-strong")
+        layout.addWidget(self.days)
+
+        self.caption = QLabel("days to go")
+        self.caption.setFont(make_font(SIZES.S1))
+        self.caption.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        set_style(self.caption, "common", "text-muted")
+        layout.addWidget(self.caption)
+
+        self.start_tick(1000)     # once a second is plenty
+
+    def tick(self) -> None:
+        target = datetime(2027, 1, 1)
+        self.days.setText(str(max(0, (target - datetime.now()).days)))
+```
+
+### Class attributes
+
+The framework reads these off the **class**, so a widget can be listed in the
+panel without ever being placed.
+
+| Attribute | Meaning |
+|---|---|
+| `KEY` | Unique. How the layout is saved. |
+| `NAME` | Shown in the widgets panel. |
+| `ICON` | An `mdi.` name for the panel entry. |
+| `DESCRIPTION` | One line, shown in the panel. |
+| `RESIZABLE` | Whether the resize handles appear. |
+| `ROTATABLE` | Requires the widget to paint itself — see Rotation above. |
+| `FLOATABLE` | Whether it can be dropped anywhere rather than snapped to an anchor. |
+| `REMOVABLE` | Whether the trash target accepts it. |
+| `MULTIPLE` | Template: stays in the panel, and Add makes another copy. |
+| `MIN_W`/`MIN_H`, `MAX_W`/`MAX_H` | Resize bounds. |
+| `DEFAULT_ANCHOR` | Where it lands the first time. |
+
+`MULTIPLE = True` is what makes a widget a template rather than a singleton.
+`register()` returns `None` for one, because no instance is created — the panel
+offers it and each Add builds a copy with its own key and its own saved state.
+`StickyNote` is the worked example.
+
+### Composed or self-painted
+
+A widget built from child widgets (`QLabel`, `QPushButton`) is the easy case
+and cannot rotate — children keep painting square. A widget that draws itself
+in `paintEvent` can, which is why `ROTATABLE` is opt-in.
+
+Self-painting also avoids child hit targets falling out of alignment when the
+widget is scaled. `StickyNote` is self-painted for exactly these two reasons.
+
+### Ticking
+
+`start_tick(ms)` starts a timer that calls your `tick()`. It runs on the UI
+thread, so it must be cheap — anything slow goes on a thread and comes back
+through `call_on_ui`. See [Threading](threading.md).
+
+The framework calls `stop_tick()` for you when the widget is removed.
+
+---
+
+## Registering a widget
+
+Widgets are **registered, not constructed and added**. The saved layout decides
+what is on the page and what waits in the panel — so registration is a
+declaration that the widget exists, not an instruction to place it.
+
+From a mixin on the sub-page's own `__init__`, which is what the bundled
+plugin does:
+
+```python
+from src.mixins import mixin
+
+class MyPlugin(Plugin):
+
+    @mixin("sub.home.__init__", "myplugin", "after")
+    def _add_widgets(self, sub_home, *args):
+        register = sub_home.features().register_widget
+        register(CountdownWidget)
+```
+
+Or from `built()`, reaching the page through the registry:
+
+```python
+def built(self):
+    entry = self.client.PAGES.get_entry("#cwb_home_page")
+    if entry and entry.instance:
+        sub_home = entry.instance.sub_page_dict.get("home")
+        if sub_home and sub_home.has_feature("register_widget"):
+            sub_home.features().register_widget(CountdownWidget)
+```
+
+The mixin is preferable — it runs exactly when the page is built, whether that
+is at startup or after a reload. See [Mixins](mixins.md).
+
+### Features on `sub.home`
+
+| Feature | Does |
+|---|---|
+| `register_widget(cls)` | Declare it. Returns the instance, or `None` for a `MULTIPLE` template. |
+| `add_widgets(...)` | Place an already-constructed widget. |
+| `remove_widget(key)` | Take it off and out of the panel. |
+| `toggle_widget_panel()` | Open or close the panel. |
+| `widget_framework` | The `WidgetFramework` itself. |
+
+### Cleaning up
+
+```python
+def unload(self, carryover=None):
+    entry = self.client.PAGES.get_entry("#cwb_home_page")
+    if entry and entry.instance:
+        sub_home = entry.instance.sub_page_dict.get("home")
+        if sub_home and sub_home.has_feature("remove_widget"):
+            sub_home.features().remove_widget("countdown")
+```
+
+The page outlives your plugin. A widget left on it after unload keeps painting
+and keeps ticking, from a module that is gone.
+
+---
+
 ## Masks and hit testing
 
 A `QWidget` mask clips **painting** as well as input. Mask a widget to only
