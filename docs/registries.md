@@ -67,3 +67,59 @@ margin = self.client.setting("home.widget_margin.value", 28)
 `setting()` takes a dotted path and a default, holds the settings lock, and
 returns the default rather than raising if anything on the path is missing.
 Direct `client.SETTINGS.x.y` access is still fine on the UI thread.
+
+
+---
+
+## `SecretRegistry` — `self.client.SECRETS`
+
+API keys and anything else that should not sit in a settings file. Values live
+in `.env` at the install root; the registry only knows the **names**.
+
+A plugin declares the keys it needs in `plugin.toml`, or by registering them:
+
+```python
+self.client.SECRETS.register("myplugin", "MYSERVICE_KEY",
+                             label="MyService API key")
+```
+
+Reads are **scoped to the owner**. A plugin can only read a key it declared:
+
+```python
+key = self.client.SECRETS.get_for("myplugin", "MYSERVICE_KEY", "")
+```
+
+| Method | Does |
+|---|---|
+| `register(owner, key, label="")` | Declare a key. |
+| `get_for(owner, key, default="")` | Read, scoped. |
+| `set_for(owner, key, value)` | Write to `.env`. |
+| `is_set(key)` | Whether it has a value. |
+| `is_declared(key)` | Whether anything declared it. |
+| `status(key)` | A human-readable state for the Settings page. |
+| `masked(key)` | The value with most of it replaced by asterisks. |
+| `keys_for(owner)` | What an owner declared. |
+| `clear(key)` | Remove it from `.env`. |
+
+Never log a secret, and never put one in a notification. Use `masked()` when
+you need to show that a key is present.
+
+Declaring a key with a `secret` setting type gives you a masked field in
+Settings for free — see [Settings](settings.md).
+
+---
+
+## `QuickAccessRegistry` — `self.client.QUICK`
+
+Buttons in the [quick settings](quick-settings.md) panel. Owner-scoped like
+the others, and cleared automatically when a plugin unloads.
+
+```python
+self.client.QUICK.register(
+    "myplugin", "porch", "Porch", Icons.LIGHTBULB,
+    on_press = self.toggle_porch,
+    on_state = lambda: self.porch_on,
+)
+```
+
+Full detail on that page.

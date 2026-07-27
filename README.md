@@ -49,18 +49,23 @@ No client ID is needed.
 | [Updating](docs/updating.md) | Update checks, staging, rollback, exit codes. |
 | [Architecture](docs/architecture.md) | How the client, backend and plugins fit together. |
 | [Plugins](docs/plugins.md) | `plugin.toml`, `main.py`, and the full lifecycle. |
+| [Bundled plugins](docs/bundled-plugins.md) | The five that ship, and what each provides. |
+| [Pages](docs/pages.md) | Registering a page, sub-pages, what a page owns. |
 | [Widgets](docs/widgets.md) | The widget framework, layout, dragging, persistence. |
-| [Pages](docs/pages.md) | What a page owns. |
-| [Features](docs/features.md) | How pages expose behaviour to plugins. |
-| [Registries](docs/registries.md) | API, page, public and secret registries. |
+| [Features](docs/features.md) | Exposing and calling page features. |
+| [Registries](docs/registries.md) | API, page, public, secret and quick access registries. |
 | [Quick settings](docs/quick-settings.md) | The global controls panel and its registry. |
 | [Events](docs/events.md) | Client events and custom events. |
-| [Voice assistant](docs/assistant.md) | Skills, intent matching, STT, TTS. |
+| [Settings](docs/settings.md) | Declaring settings, types, migration. |
+| [Threading](docs/threading.md) | `call_on_ui`, background threads, timeouts. |
+| [Styling](docs/styling.md) | `set_style`, fonts, colours, stylesheet conventions. |
+| [Notifications, state, assets](docs/notifications.md) | Toasts, shared state, registered files. |
+| [Dialogs and overlays](docs/dialogs.md) | Overlay layers, masks, dialogs, panels. |
 | [On-screen keyboard](docs/keyboard.md) | The touch keyboard. |
-| [Dialogs and overlays](docs/dialogs.md) | Overlay layers, masks, dialogs. |
+| [Voice assistant](docs/assistant.md) | Skills, intent matching, STT, TTS. |
 | [Mixins](docs/mixins.md) | Extending existing methods from a plugin. |
 | [Backend API](docs/api.md) | Every endpoint, and the `hactl.py` CLI. |
-| [Philosophy](docs/philosophy.md) | Why it is built the way it is. |
+| [Development philosophy](docs/philosophy.md) | Why it is built the way it is. |
 
 ---
 

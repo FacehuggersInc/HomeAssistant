@@ -111,3 +111,41 @@ attribute -- but only once it is parented into `OVERLAYS`, which is
 translucent. Rendered standalone it looks completely fine, so this is easy to
 ship by accident and the symptom is floating text over the page. Anything you
 parent into the overlay layer wants one or the other.
+
+---
+
+## Panels
+
+A `Panel` is a frosted sliding surface, used for the notification history, the
+tile panel, the AI chat panel and [quick settings](quick-settings.md).
+
+```python
+from src.ui.overlays import Panel
+
+panel = Panel(client, edge="right", width=Panel.DEFAULT_WIDTH, key="mypanel")
+panel.add_content(my_widget)
+panel.open_panel()
+```
+
+| Argument | Default | Meaning |
+|---|---|---|
+| `edge` | `"right"` | `"left"`, `"right"`, `"top"` or `"bottom"`. |
+| `width` | 680 for left/right | `None` fills the axis less the margin. |
+| `height` | `None` | Set it for a panel that does not reach the far edge. |
+| `margin` | `0` | Inset from the screen edges. Non-zero makes it float. |
+| `radius` | `None` | CSS border-radius. Floating panels default to `14px`. |
+| `blur_radius` | 28 | Backdrop blur strength. |
+| `animation_speed` | 220 | Slide duration in ms. |
+| `key` | `None` | Identifier, for `client.create_panel()`. |
+| `destroy_on_close` | `False` | Whether closing deletes it. |
+
+With `margin=0` a panel is flush to its edge and spans the full cross axis.
+With a margin it floats as a card, and gets a border all the way round rather
+than a single seam.
+
+Use `Panel.DEFAULT_WIDTH` rather than a number when you want to match the
+other side panels — several places share it, and a literal will drift.
+
+`open_panel()`, `close_panel()` and `toggle()` drive it. The frosted effect is
+a blurred snapshot of the page behind, refreshed on open and on resize, so it
+costs nothing while the panel is closed.

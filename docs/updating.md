@@ -21,6 +21,66 @@ python app.py update          # stage an update, then exit
 python app.py apply-update    # apply a staged update in place (no launcher)
 ```
 
+---
+
+## Knowing an update exists
+
+The panel asks GitHub for the head commit of the tracked branch on an
+interval — one small API request, not a download. Nothing is fetched until you
+choose to update.
+
+`application.updates.check_interval` in Settings controls how often, in hours.
+Default is 6; set it to `0` to never check automatically.
+
+The repo, owner and branch are all derived from `REPO_ZIP_URL` in
+`src/constants.py`, so pointing the panel at a fork means changing one line.
+The check itself is `src/update_check.py`; `client.check_for_update()` runs it
+off the UI thread and leaves the result on `client.UPDATE_AVAILABLE` and
+`client.UPDATE_COMMIT`.
+
+### The version marker
+
+`.update-version.json` at the install root records the commit currently
+installed. It is written when an update is applied, and is listed in
+`UPDATE_PRESERVE` so an update does not wipe the record of what it just
+installed.
+
+An install with no marker has nothing to compare against, so the first check
+records the current head as a baseline and reports "up to date". Otherwise
+every fresh install would open by announcing an update it already has.
+
+### Being told
+
+When a check finds something newer you get one notification, once per commit.
+The timer keeps running, and re-announcing the same commit every few hours
+would be worse than silence.
+
+The **update button** in the [quick settings](quick-settings.md) header is
+always present, and turns green when something is waiting. Pressing it opens a
+dialog with the commit summary, author, age and short sha, and an
+**Update now** button that runs the same path as the API.
+
+If no check has run yet, pressing it checks there and then — and either opens
+the dialog or says this is the latest version. A failed check reports why
+rather than claiming there is nothing new, because the truth in that case is
+that nobody could look.
+
+### From elsewhere
+
+```
+GET /update/check?id=...      does an update exist
+GET /update?id=...            stage it and restart
+```
+
+Or with the CLI:
+
+```bash
+./hactl.py update --check
+./hactl.py update --wait
+```
+
+See [Backend API](api.md).
+
 ## What an update will not touch
 
 `.env`, `.venv/`, `plugins/`, `logs/` and `startup.log` are never overwritten.
