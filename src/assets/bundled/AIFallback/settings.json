@@ -8,17 +8,12 @@
         },
         "model": {
             "type": "enum",
-            "default": "gpt-5.6-luna",
-            "value": "gpt-5.6-luna",
+            "default": "gpt-5.4-mini",
+            "value": "gpt-5.4-mini",
             "options": [
-                "gpt-5.6-luna",
-                "gpt-5.6-terra",
-                "gpt-5.6-sol",
-                "gpt-5.4-mini",
-                "gpt-5.4-nano",
-                "gpt-5.5"
+                "gpt-5.4-mini"
             ],
-            "description": "OpenAI model. Luna is the cheap high-volume tier and suits short spoken replies; Terra balances cost and quality; Sol is the flagship. If OpenAI adds models after this release, the list will need updating."
+            "description": "OpenAI model used for replies."
         },
         "max_tokens": {
             "type": "int",

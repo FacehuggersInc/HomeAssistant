@@ -6,7 +6,7 @@ from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QLineEdit,
     QTextEdit, QPlainTextEdit, QFrame,
 )
-from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtCore import Qt, QTimer, QEvent
 
 from src.styling import make_font, SIZES, set_style
 from src.ui.overlays import BaseDialog
@@ -23,6 +23,10 @@ GAP = 6
 
 # Rows are offset like a real keyboard, in fractions of a key width. Without
 # this every column lines up and muscle memory does not transfer.
+# The furthest a row is indented, in key widths. The dialog has to be wide
+# enough for the longest row PLUS this, or its right-hand keys are cut off.
+MAX_ROW_OFFSET = 0.9
+
 LETTER_ROWS = [
     (0.0, list("1234567890")),
     (0.5, list("qwertyuiop")),
@@ -82,7 +86,14 @@ class _MultilinePreview(QTextEdit):
     def __init__(self, text: str = ""):
         super().__init__()
         self.setAcceptRichText(False)
-        self.setReadOnly(True)
+        # Editable on purpose. A read-only text edit moves its cursor but
+        # never draws one, so tap-to-position worked while giving no clue
+        # where the next key would land. Hardware key input is blocked by
+        # KeyboardDialog.eventFilter instead, which leaves the caret visible
+        # and blinking without letting a real keyboard bypass the on-screen
+        # one.
+        self.setReadOnly(False)
+        self.setTextInteractionFlags(Qt.TextInteractionFlag.TextEditorInteraction)
         self.setLineWrapMode(QTextEdit.LineWrapMode.WidgetWidth)
         self.setFrameShape(QFrame.Shape.NoFrame)
         self.setText(text)
@@ -114,7 +125,8 @@ class KeyboardDialog(BaseDialog):
     WIDTH = KEY_W * 10 + GAP * 9 + 56
     MAX_HEIGHT = 900
     MIN_KEY_H = 44
-    SIDE_MARGIN = 48       # breathing room either side of the dialog
+    SIDE_MARGIN = 32       # breathing room either side of the dialog
+    CHROME_W = 56          # dialog padding around the key grid
     MIN_PREVIEW_H = 60     # two or three lines; below this it is pointless
     MAX_KEY_W = 112        # beyond this keys stop being easier to hit
 
@@ -127,14 +139,23 @@ class KeyboardDialog(BaseDialog):
         if available and available < 560:
             description = ""
 
+        # The widest row is ten keys, but the staggered rows start up to 0.9 of
+        # a key in, so the grid really spans 10.9 keys. Solving for ten alone
+        # left the right-hand column clipped; adding the allowance afterwards
+        # made the dialog wider than the screen.
+        span = 10 + MAX_ROW_OFFSET
+
         host_width = self._probe_host_width(client)
         if host_width:
             usable = host_width - self.SIDE_MARGIN * 2
-            key_w = int((usable - 56 - GAP * 9) / 10)
+            key_w = int((usable - self.CHROME_W - GAP * 9) / span)
             key_w = max(KEY_W, min(self.MAX_KEY_W, key_w))
         else:
             key_w = KEY_W
-        width = key_w * 10 + GAP * 9 + 56
+
+        width = int(key_w * span + GAP * 9 + self.CHROME_W)
+        if host_width:
+            width = min(width, host_width - self.SIDE_MARGIN)
 
         super().__init__(client, label or "Edit value", description or "",
                          width=width)
@@ -178,9 +199,14 @@ class KeyboardDialog(BaseDialog):
         else:
             self.preview = QLineEdit(self._read_target())
             self.preview.setFixedHeight(50)
-            self.preview.setCursorPosition(len(self.preview.text()))
+    
         self.preview.setFont(make_font(SIZES.S3))
-        self.preview.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        # Clickable, so a caret can be placed by tapping. Focus stays off the
+        # keys, which have no focus policy of their own.
+        self.preview.setFocusPolicy(Qt.FocusPolicy.ClickFocus)
+        self.preview.setReadOnly(False)
+        self.preview.installEventFilter(self)
+        self.preview.setCursor(Qt.CursorShape.IBeamCursor)
         set_style(self.preview, "keyboard", "keyboard-preview")
         self.content.addWidget(self.preview)
 
@@ -189,7 +215,13 @@ class KeyboardDialog(BaseDialog):
         self.keys_layout = QVBoxLayout(self.keys_host)
         self.keys_layout.setContentsMargins(0, 4, 0, 0)
         self.keys_layout.setSpacing(GAP)
-        self.content.addWidget(self.keys_host)
+        # The grid is a fixed-width block centred in the dialog rather than
+        # something that fills it. The dialog is sized for a worst case - ten
+        # keys plus the largest stagger offset - that no single row actually
+        # reaches, so filling left the whole keyboard hard against the left
+        # edge with all the slack on the right.
+        self.content.addWidget(self.keys_host, 0,
+                               Qt.AlignmentFlag.AlignHCenter)
 
         self._build_keys()
 
@@ -263,6 +295,31 @@ class KeyboardDialog(BaseDialog):
             return NUMPAD_ROWS
         return SYMBOL_ROWS if self._layer == "symbols" else LETTER_ROWS
 
+    def _key_width(self, action: str) -> int:
+        """Rendered width of one key, matching what _Key sets on itself."""
+        units = WIDE.get(action, 1.0)
+        return int(self.key_w * units + GAP * (units - 1))
+
+    def _row_width(self, offset: float, keys: list) -> int:
+        if not keys:
+            return 0
+        return (int(self.key_w * offset)
+                + sum(self._key_width(action) for action in keys)
+                + GAP * (len(keys) - 1))
+
+    def _grid_width(self) -> int:
+        """
+        How wide the key grid actually is: the widest row, including the
+        stagger offset that pushes it right.
+
+        Measured rather than assumed. WIDTH and the constructor both solve for
+        ten keys plus MAX_ROW_OFFSET, which is deliberately generous - the row
+        carrying the 0.9 offset only has nine keys, so nothing ever spans the
+        full allowance. Centring needs the real number.
+        """
+        rows = list(self._rows()) + [(0.0, self._bottom_row_keys())]
+        return max(self._row_width(offset, keys) for offset, keys in rows)
+
     def _build_keys(self) -> None:
         while self.keys_layout.count():
             item = self.keys_layout.takeAt(0)
@@ -291,18 +348,27 @@ class KeyboardDialog(BaseDialog):
 
         self.keys_layout.addLayout(self._bottom_row())
 
+        # Recomputed on every rebuild: switching to the symbol layer changes
+        # which row is widest, and so does switching between text and numeric.
+        self.keys_host.setFixedWidth(self._grid_width())
+
+    def _bottom_row_keys(self) -> list:
+        if self.mode == "numeric":
+            return [".", "negate", "clear"]
+        return ["symbols" if self._layer == "letters" else "letters",
+                ",", "space", ".", "clear"]
+
     def _bottom_row(self) -> QHBoxLayout:
         row = QHBoxLayout()
         row.setSpacing(GAP)
         row.setContentsMargins(0, 0, 0, 0)
         if self.mode == "numeric":
             row.addStretch()
-            for action in (".", "negate", "clear"):
+            for action in self._bottom_row_keys():
                 row.addWidget(self._make_key(action))
             row.addStretch()
         else:
-            for action in ("symbols" if self._layer == "letters" else "letters",
-                           ",", "space", ".", "clear"):
+            for action in self._bottom_row_keys():
                 row.addWidget(self._make_key(action))
             row.addStretch()
         return row
@@ -331,15 +397,80 @@ class KeyboardDialog(BaseDialog):
 
     ## -- keys
 
+    # Keys that only move the caret. Everything else from a physical keyboard
+    # is dropped, so the preview stays editable - and therefore draws a caret
+    # - without becoming a second, competing input path.
+    # Compared as plain ints: a PyQt6 enum member is not equal to the int
+    # event.key() returns, and Qt.Key(value) raises on a keycode outside the
+    # enum - which a media or vendor key on a real keyboard will be.
+    _NAV_KEYS = {
+        Qt.Key.Key_Left.value, Qt.Key.Key_Right.value,
+        Qt.Key.Key_Up.value, Qt.Key.Key_Down.value,
+        Qt.Key.Key_Home.value, Qt.Key.Key_End.value,
+        Qt.Key.Key_PageUp.value, Qt.Key.Key_PageDown.value,
+    }
+
+    def eventFilter(self, watched, event) -> bool:
+        if watched is getattr(self, "preview", None) and event.type() in (
+                QEvent.Type.KeyPress, QEvent.Type.KeyRelease):
+            if int(event.key()) not in self._NAV_KEYS:
+                event.accept()
+                return True
+        return super().eventFilter(watched, event)
+
+    def _focus_preview(self) -> None:
+        """
+        Put the caret in the preview and leave it there.
+
+        Without this the Done button takes focus when the dialog opens and the
+        caret is not drawn until the field is tapped - which reads as the same
+        bug it is meant to fix. The keys are NoFocus, so nothing steals it back.
+        """
+        self.preview.setFocus(Qt.FocusReason.OtherFocusReason)
+        self.set_caret(len(self.preview.text()))
+
+    def caret(self) -> int:
+        """Where the caret is, so typing happens there rather than at the end."""
+        try:
+            if self.multiline:
+                return self.preview.textCursor().position()
+            return self.preview.cursorPosition()
+        except Exception:
+            return len(self.preview.text())
+
+    def set_caret(self, position: int) -> None:
+        text = self.preview.text()
+        position = max(0, min(position, len(text)))
+        try:
+            if self.multiline:
+                cursor = self.preview.textCursor()
+                cursor.setPosition(position)
+                self.preview.setTextCursor(cursor)
+            else:
+                self.preview.setCursorPosition(position)
+        except Exception:
+            pass
+
+    def _insert(self, chunk: str) -> None:
+        at = self.caret()
+        text = self.preview.text()
+        self.preview.setText(text[:at] + chunk + text[at:])
+        self.set_caret(at + len(chunk))
+
     def _press(self, action: str) -> None:
         text = self.preview.text()
 
         if action == "backspace":
-            self.preview.setText(text[:-1])
+            at = self.caret()
+            if at <= 0:
+                return
+            self.preview.setText(text[:at - 1] + text[at:])
+            self.set_caret(at - 1)
         elif action == "space":
-            self.preview.setText(text + " ")
+            self._insert(" ")
         elif action == "clear":
             self.preview.setText("")
+            self.set_caret(0)
         elif action == "shift":
             self._caps = not self._caps
             self._shift_latched = False
@@ -353,14 +484,14 @@ class KeyboardDialog(BaseDialog):
             self.preview.setText(text[1:] if text.startswith("-") else "-" + text)
         else:
             char = action.upper() if (self._caps and action.isalpha()) else action
-            self.preview.setText(text + char)
+            self._insert(char)
             if self._caps and not self._shift_latched:
                 # One-shot shift, the way a phone keyboard behaves: capitalise
                 # one letter then drop back rather than staying locked.
                 self._caps = False
                 self._build_keys()
 
-        self.preview.setCursorPosition(len(self.preview.text()))
+
 
     ## -- lifecycle
 
@@ -380,6 +511,7 @@ class KeyboardDialog(BaseDialog):
                 return
         self.client.dialog(self)
         QTimer.singleShot(0, self.center)
+        QTimer.singleShot(0, self._focus_preview)
 
     def close_keyboard(self) -> None:
         self.close()

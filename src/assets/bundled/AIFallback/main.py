@@ -202,7 +202,9 @@ class AIFallback(Plugin):
         payload = json.dumps({
             "model": str(self.option("general.model", "gpt-4o-mini")),
             "messages": messages,
-            "max_tokens": int(self.option("general.max_tokens", 600)),
+            # max_completion_tokens, not max_tokens: the GPT-5 family rejects
+            # the old name outright with a 400.
+            "max_completion_tokens": int(self.option("general.max_tokens", 600)),
         }).encode("utf-8")
 
         request = urllib.request.Request(

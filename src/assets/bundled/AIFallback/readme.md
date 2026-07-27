@@ -17,12 +17,7 @@ they did before.
 `insufficient_quota` error is a billing limit, not a rate limit, so waiting
 will not help.
 
-## Models
+## Model
 
-`gpt-5.6-luna` by default - the cost-sensitive tier, which suits the short
-spoken replies this plugin asks for. `gpt-5.6-terra` balances cost and
-quality, `gpt-5.6-sol` is the flagship. The `gpt-5.4` entries are the
-previous generation and remain cheaper still.
-
-The list is fixed at release. If OpenAI ships new models it will need
-updating.
+`gpt-5.4-mini`. Add more to the `model` options in `settings.json` if you want
+the choice back.

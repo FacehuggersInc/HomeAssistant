@@ -58,6 +58,10 @@ class SubHomePage(SubPageFramework):
 
         self.add_features({
             "add_widgets":            self.widget_manager.add,
+            "register_widget":        self.widget_manager.register,
+            "remove_widget":          self.widget_manager.remove,
+            "toggle_widget_panel":    self.widget_manager.toggle_panel,
+            "widget_framework":       self.widget_manager,
             "remove_widget":          self.widget_manager.remove,
             "add_drawer_controls":    self.drawer.insert_controls,
             "remove_drawer_controls": self.drawer.remove_controls,

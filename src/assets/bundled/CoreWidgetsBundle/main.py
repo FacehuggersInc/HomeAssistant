@@ -5,7 +5,8 @@ from src.plugin.carryover import PluginCarryover
 from .widgets.cycling_background import CyclingBackground
 from .widgets.datetime import DateTimeWidget
 from .widgets.weather import WeatherWidget
-from .widgets.notification import NotificationCenterWidget
+from .widgets.configuration_bar import ConfigurationBar
+from .widgets.sticky_note import StickyNote
 from .widgets.tiles.clock_tile import ClockTile
 from .pages.home import HomePage
 from .api.openmeteo import OpenMeteoAPI
@@ -137,11 +138,20 @@ class CoreWidgetsBundle(Plugin):
         if sub_home.has_feature("add_drawer_controls"):
             sub_home.features().add_drawer_controls(self.drawer_btns["sub.home"])
 
-        # Anchored widgets into WidgetFramework
-        widgets = [
-            DateTimeWidget(self.client, show_date=True, show_time=True),
-            WeatherWidget(self.client),
-            NotificationCenterWidget(self.client),
+        # Registered, not constructed-and-added: the saved layout decides what
+        # sits on the page and what waits in the widgets panel, the same way
+        # sub.tiles registers tiles.
+        register = sub_home.features().register_widget
+
+        # StickyNote is a template: register() returns None for those, since
+        # the panel offers it and each Add makes a copy with its own key.
+        register(StickyNote)
+
+        self.client.public.cwb_widgets["sub.home"] = [
+            w for w in (
+                # Always present; carries notifications and the panel button.
+                register(ConfigurationBar),
+                register(DateTimeWidget, show_date=True, show_time=True),
+                register(WeatherWidget),
+            ) if w is not None
         ]
-        self.client.public.cwb_widgets["sub.home"] = widgets
-        sub_home.features().add_widgets(widgets)

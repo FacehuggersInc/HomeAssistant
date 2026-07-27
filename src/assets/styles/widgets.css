@@ -10,3 +10,13 @@
     background: transparent;
     letter-spacing: 3px;
 }
+
+/* Configuration bar - always-present controls */
+
+/* Deliberately faint. It sits behind two icon buttons, and at the original
+   alpha the icons were hard to pick out against it. */
+.configuration-bar {
+    background: rgba(20,20,20,110);
+    border: 1px solid rgba(255,255,255,35);
+    border-radius: 14px;
+}

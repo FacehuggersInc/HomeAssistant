@@ -3,7 +3,7 @@ from typing import TYPE_CHECKING, Optional
 
 from PyQt6.QtWidgets import QWidget, QHBoxLayout, QVBoxLayout, QSizePolicy
 from PyQt6.QtCore import Qt, QPropertyAnimation, QEasingCurve, QPoint
-from PyQt6.QtGui import QPainter, QColor, QBrush, QPen
+from PyQt6.QtGui import QRegion, QPainter, QColor, QBrush, QPen
 
 from src.ui.controls.handle import Handle
 from src.styling import COLORS, set_style
@@ -81,6 +81,29 @@ class Drawer(QWidget):
             # handle at bottom, bar above
             self._bar.setGeometry(0, 0, w, self.BUTTON_BAR_HEIGHT)
             self.handle.move((w - h_w) // 2, self.BUTTON_BAR_HEIGHT + self.HANDLE_SPACING)
+
+        self._apply_hit_mask()
+
+    def _apply_hit_mask(self) -> None:
+        """
+        Accept clicks only where the drawer actually is.
+
+        The drawer spans the full width of the page, but when collapsed only
+        the handle is on screen - the rest is a transparent strip that still
+        swallowed every click. That produced a dead band along the bottom edge
+        where widgets underneath could not be touched.
+        """
+        try:
+            # Always both. A mask clips PAINTING as well as input, so leaving
+            # the bar out whenever it happened to be hidden meant the drawer
+            # slid open and drew nothing - the handle animated over an empty
+            # space. The bar is off-screen while collapsed anyway, so
+            # including it costs nothing and creates no dead zone.
+            region = QRegion(self.handle.geometry())
+            region = region.united(QRegion(self._bar.geometry()))
+            self.setMask(region)
+        except Exception:
+            self.clearMask()
 
     def _hidden_y(self) -> int:
         parent_h = self.parent().height() if self.parent() else 480
@@ -164,6 +187,7 @@ class Drawer(QWidget):
         self.move(0, self._hidden_y())
         self.show()
         self.raise_()
+        self._apply_hit_mask()
 
     def apply_parent_width(self) -> None:
         if not self.parent():
