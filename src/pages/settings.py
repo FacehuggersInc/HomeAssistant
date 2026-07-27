@@ -12,8 +12,8 @@ from PyQt6.QtWidgets import (
     QScrollArea, QLineEdit, QTextEdit, QComboBox, QFrame, QSizePolicy, QFileDialog,
     QScroller,
 )
-from PyQt6.QtCore import Qt, QSize, QPropertyAnimation, QEasingCurve, pyqtProperty
-from PyQt6.QtGui import QPainter, QColor, QBrush, QPen, QPixmap, QIcon
+from PyQt6.QtCore import Qt, QSize, QPropertyAnimation, QEasingCurve, pyqtProperty, QUrl
+from PyQt6.QtGui import QPainter, QColor, QBrush, QPen, QPixmap, QIcon, QDesktopServices
 
 from src.mixins import mixin_target
 from src.settings import Settings, scrub_secrets
@@ -664,6 +664,76 @@ def _build_info_page(client) -> list:
     set_style(hint, "settings", "settings-hint")
     hint.setWordWrap(True)
     widgets.append(hint)
+
+    # Documentation, with the address spelled out. The docs endpoint is the one
+    # thing here that needs no client ID, so it can be opened in a browser as
+    # written - which is the whole reason it is unauthenticated.
+    docs_url = f"http://{_local_ip()}:5000/docs"
+
+    docs_card = QFrame()
+    docs_card.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+    set_style(docs_card, "settings", "setting-block")
+    docs_card.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+
+    docs_row = QHBoxLayout(docs_card)
+    docs_row.setContentsMargins(14, 10, 14, 10)
+    docs_row.setSpacing(12)
+
+    docs_label = QLabel("Documentation")
+    docs_label.setFont(make_font(SIZES.S2, bold=True))
+    set_style(docs_label, "common", "text-muted")
+    docs_label.setFixedWidth(120)
+
+    docs_value = QLabel(docs_url)
+    docs_value.setFont(make_font(SIZES.S2))
+    set_style(docs_value, "common", "text-strong")
+    docs_value.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+    docs_value.setWordWrap(True)
+
+    def _open_docs():
+        # The panel is a touchscreen with no browser worth using, so opening it
+        # here is a courtesy for desktop runs; the address above is the part
+        # that matters and copying it is the usual path.
+        try:
+            QDesktopServices.openUrl(QUrl(docs_url))
+        except Exception as e:
+            client.log("warning", f"[Settings] Could not open the docs: {e}")
+
+    def _copy_docs():
+        try:
+            client.app.clipboard().setText(docs_url)
+            client.simple_notify("copy", "Documentation", "Address copied.")
+        except Exception as e:
+            client.log("warning", f"[Settings] Could not copy the docs link: {e}")
+
+    open_btn = QPushButton("Open")
+    open_btn.setFont(make_font(SIZES.S1, bold=True))
+    open_btn.setFixedHeight(36)
+    open_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+    set_style(open_btn, "overlays", "dialog-button-primary")
+    open_btn.clicked.connect(lambda: _open_docs())
+
+    copy_btn = QPushButton("Copy")
+    copy_btn.setFont(make_font(SIZES.S1, bold=True))
+    copy_btn.setFixedHeight(36)
+    copy_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+    set_style(copy_btn, "overlays", "dialog-button-secondary")
+    copy_btn.clicked.connect(lambda: _copy_docs())
+
+    docs_row.addWidget(docs_label)
+    docs_row.addWidget(docs_value, stretch=1)
+    docs_row.addWidget(copy_btn)
+    docs_row.addWidget(open_btn)
+    widgets.append(docs_card)
+
+    docs_hint = QLabel(
+        "Full local documentation, served by the panel itself. No client ID needed. "
+        "The same files are in the docs/ folder of the install."
+    )
+    docs_hint.setFont(make_font(SIZES.S1))
+    set_style(docs_hint, "settings", "settings-hint")
+    docs_hint.setWordWrap(True)
+    widgets.append(docs_hint)
 
     return widgets
 

@@ -325,6 +325,38 @@ def FlaskApp(client):
 		return {"request": "Success", "setting": client.SETTINGS.get_path(path)}, 200
 
 
+	## DOCUMENTATION
+	@app.route("/docs", methods=["GET"])
+	@app.route("/docs/", methods=["GET"])
+	@app.route("/docs/<path:page>", methods=["GET"])
+	def docs_route(page: str = "index"):
+		"""
+		The docs/ folder, rendered.
+
+		Deliberately unauthenticated. This is the documentation shipped with
+		the app, it exposes nothing the install does not already publish, and
+		requiring ?id= would mean the link in Settings could not simply be
+		opened in a browser.
+		"""
+		from src import docs
+
+		if not docs.available():
+			return {"request": "Failed",
+					"reason": "No docs/ folder in this install."}, 404
+
+		# Raw markdown, for reading it in an editor or piping it somewhere.
+		if page.endswith(".md"):
+			path = docs.resolve(page)
+			if path is None:
+				return {"request": "Failed", "reason": f"No page '{page}'."}, 404
+			return path.read_text(encoding="utf-8"), 200, {
+				"Content-Type": "text/plain; charset=utf-8"}
+
+		rendered = docs.page(page)
+		if rendered is None:
+			return {"request": "Failed", "reason": f"No page '{page}'."}, 404
+		return rendered, 200, {"Content-Type": "text/html; charset=utf-8"}
+
 	## PLUGIN ENDPOINTS
 	@app.route("/plugins", methods=["GET"])
 	def list_plugins():
