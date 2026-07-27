@@ -6,9 +6,6 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QPainter, QColor, QPen
 
 from src.ui.page import PageFramework
-from src.ui.controls.drawer import Drawer
-from src.ui.controls.buttons import IconButton
-from src.ui.icons import Icons
 from src.styling import make_font, add_text_shadow, set_style
 
 if TYPE_CHECKING:
@@ -108,21 +105,8 @@ class RootPage(PageFramework):
             (h - centre.height()) // 2,
         )
 
-        # ── Drawer ────────────────────────────────────────────────────────────
-        self.drawer = Drawer(client, position="bottom")
-        self.drawer.setParent(self)
-        self.drawer.place_on_page()
-
-        self.drawer.add_controls([
-            IconButton(Icons.SETTINGS,  lambda: client.goto("#settings")),
-            IconButton(Icons.FULLSCREEN, client.toggle_fullscreen),
-            IconButton(Icons.CLOSE,      client.stop),
-        ])
-
-        self.drawer.raise_()
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
         w, h = self.width(), self.height()
         self._grid.setGeometry(0, 0, w, h)
-        self.drawer.apply_parent_width()

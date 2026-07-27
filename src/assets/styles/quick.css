@@ -1,0 +1,62 @@
+/* Quick settings panel — cards, tiles and sliders */
+
+.quick-card {
+    background: rgba(255,255,255,10);
+    border: 1px solid rgba(255,255,255,22);
+    border-radius: 12px;
+}
+
+/* A registered quick access button. Two states, so a toggle reads as on or
+   off at a glance rather than needing its label read. */
+
+.quick-tile-off {
+    background: rgba(255,255,255,14);
+    border: 1px solid rgba(255,255,255,26);
+    border-radius: 10px;
+}
+
+.quick-tile-on {
+    background: rgba(45,108,192,80);
+    border: 1px solid rgba(120,175,240,140);
+    border-radius: 10px;
+}
+
+/* Sliders are touch targets first, so these are far chunkier than a desktop
+   default. Handle margin is -(handle - groove) / 2, or the handle sits off
+   the centre line. */
+
+.quick-slider::groove:horizontal {
+    height: 14px;
+    background: rgba(255,255,255,32);
+    border: 1px solid rgba(255,255,255,20);
+    border-radius: 7px;
+}
+
+/* Brand green rather than the muted blue it started as - the filled portion
+   is the only thing on the panel that has to read at a glance from across a
+   room. */
+.quick-slider::sub-page:horizontal {
+    height: 14px;
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #1faf68, stop:1 #2ff08e);
+    border: 1px solid rgba(47,240,142,120);
+    border-radius: 7px;
+}
+
+.quick-slider::handle:horizontal {
+    width: 32px;
+    height: 32px;
+    margin: -9px 0;
+    background: #f5f5f5;
+    border: 2px solid rgba(47,240,142,200);
+    border-radius: 16px;
+}
+
+.quick-slider::handle:horizontal:hover {
+    background: #ffffff;
+    border: 2px solid #2ff08e;
+}
+
+.quick-slider::handle:horizontal:pressed {
+    background: #2ff08e;
+    border: 2px solid #ffffff;
+}

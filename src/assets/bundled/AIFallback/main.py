@@ -3,15 +3,53 @@ from __future__ import annotations
 import json
 import urllib.error
 import urllib.request
+from dataclasses import dataclass
 from threading import Thread, Lock
 
+from PyQt6.QtCore import QEvent, QPoint, QRect
+
 from src.plugin.template import Plugin
+from src.ui.overlays import Panel
 
 from .chat_panel import ChatPanel
 from .markdown import to_speech
 
 API_URL = "https://api.openai.com/v1/chat/completions"
 REQUEST_TIMEOUT = 60
+
+
+@dataclass
+class Usage:
+    """Token counts for one exchange, or a running total across a session."""
+
+    prompt: int = 0
+    completion: int = 0
+
+    @property
+    def total(self) -> int:
+        return self.prompt + self.completion
+
+    def add(self, other: "Usage") -> None:
+        self.prompt += other.prompt
+        self.completion += other.completion
+
+    @classmethod
+    def from_response(cls, body: dict) -> "Usage":
+        """
+        Read the usage block OpenAI returns beside the reply.
+
+        Taken from the response rather than counted here: a local count would
+        need the exact tokeniser for whichever model is configured, and would
+        still be wrong, because the billed prompt includes the system message,
+        the entire history, and per-message framing this code never sees
+        assembled.
+        """
+        usage = (body or {}).get("usage") or {}
+        try:
+            return cls(int(usage.get("prompt_tokens", 0) or 0),
+                       int(usage.get("completion_tokens", 0) or 0))
+        except (TypeError, ValueError):
+            return cls()
 
 
 class AIFallback(Plugin):
@@ -23,13 +61,18 @@ class AIFallback(Plugin):
         self.chat = None
         self.history = []
         self.busy = False
+        self.usage = Usage()
+        self.session = None
+        self._dismissed = False
         self._lock = Lock()
 
     def load(self, carryover=None):
         self.client.subscribe_to_event("on_assistant_fallback", self.on_fallback)
+        self.client.subscribe_to_event("on_interaction", self.on_interaction)
 
     def unload(self, carryover=None):
         self.client.unsubscribe_from_event("on_assistant_fallback", self.on_fallback)
+        self.client.unsubscribe_from_event("on_interaction", self.on_interaction)
         self.close_panel()
 
     ## SETTINGS
@@ -92,6 +135,8 @@ class AIFallback(Plugin):
         question fired mid-request would race the first.
         """
         session = self.client.STT.new_session() if self.client.STT else None
+        self.session = session
+        self._dismissed = False
         phrase = first_phrase
 
         try:
@@ -114,6 +159,8 @@ class AIFallback(Plugin):
                     if not phrase:
                         break
         finally:
+            if self.session is session:
+                self.session = None
             with self._lock:
                 self.busy = False
             self.client.call_on_ui(lambda: self._set_status(""))
@@ -133,7 +180,7 @@ class AIFallback(Plugin):
             self.client.call_on_ui(lambda: self._show(phrase, from_user=True))
             self.client.call_on_ui(lambda: self._set_status("Thinking…"))
 
-        reply, error, fatal = self._ask(phrase)
+        reply, error, fatal, usage = self._ask(phrase)
 
         if error:
             self._report_error(error, panel_open)
@@ -147,9 +194,11 @@ class AIFallback(Plugin):
         turns = int(self.option("general.history_turns", 8))
         self.history = self.history[-turns * 2:]
 
-        self.client.call_on_ui(lambda: self._show(reply, from_user=False))
+        self.usage.add(usage)
+        self.client.call_on_ui(
+            lambda: self._show(reply, from_user=False, usage=usage))
 
-        if self.option("conversation.speak_replies", True):
+        if self.option("conversation.speak_replies", True) and not self._dismissed:
             spoken = to_speech(reply)
             if spoken:
                 self.client.say(spoken, thread=False)
@@ -181,9 +230,10 @@ class AIFallback(Plugin):
 
     ## API
 
-    def _ask(self, phrase: str) -> tuple[str, str, bool]:
+    def _ask(self, phrase: str) -> tuple[str, str, bool, Usage]:
         """
-        (reply, error, fatal). Never raises - a failed call becomes a message.
+        (reply, error, fatal, usage). Never raises - a failed call becomes a
+        message.
 
         `fatal` means retrying will not help until something is changed: a bad
         key, no credit, a model this account cannot use. Those end the
@@ -192,7 +242,7 @@ class AIFallback(Plugin):
         """
         key = self.secret("OPENAI_API_KEY")
         if not key:
-            return "", "No OpenAI key is set for this plugin.", True
+            return "", "No OpenAI key is set for this plugin.", True, Usage()
 
         messages = [{"role": "system",
                      "content": str(self.option("conversation.system_prompt", ""))}]
@@ -234,27 +284,28 @@ class AIFallback(Plugin):
                 return "", (f"OpenAI rejected the key. Check it under this plugin's "
                             f"settings.\n\n{detail}" if detail
                             else "OpenAI rejected the key. Check it under this "
-                                 "plugin's settings."), True
+                                 "plugin's settings."), True, Usage()
             if e.code == 429:
                 if "quota" in code or "quota" in detail.lower() or "billing" in detail.lower():
                     return "", ("Your OpenAI account has no available credit, so the "
                                 "request was refused. This is a billing limit, not a "
-                                f"rate limit.\n\n{detail}"), True
-                return "", f"Rate limited by OpenAI - too many requests.\n\n{detail}", False
+                                f"rate limit.\n\n{detail}"), True, Usage()
+                return "", f"Rate limited by OpenAI - too many requests.\n\n{detail}", False, Usage()
             if e.code == 404 and "model" in detail.lower():
                 model = self.option("general.model", "")
                 return "", (f"The model `{model}` is not available on this account. "
-                            f"Pick another under this plugin's settings.\n\n{detail}"), True
-            return "", f"OpenAI returned {e.code}.\n\n{detail}", e.code < 500
+                            f"Pick another under this plugin's settings.\n\n{detail}"), True, Usage()
+            return "", f"OpenAI returned {e.code}.\n\n{detail}", e.code < 500, Usage()
         except urllib.error.URLError as e:
-            return "", f"Could not reach OpenAI.\n\n{e.reason}", False
+            return "", f"Could not reach OpenAI.\n\n{e.reason}", False, Usage()
         except (ValueError, OSError) as e:
-            return "", f"Could not read the reply.\n\n{e}", False
+            return "", f"Could not read the reply.\n\n{e}", False, Usage()
 
         try:
-            return body["choices"][0]["message"]["content"].strip(), "", False
+            return (body["choices"][0]["message"]["content"].strip(), "", False,
+                    Usage.from_response(body))
         except (KeyError, IndexError, AttributeError):
-            return "", "OpenAI returned an unexpected response shape.", False
+            return "", "OpenAI returned an unexpected response shape.", False, Usage()
 
     ## PANEL
 
@@ -279,14 +330,20 @@ class AIFallback(Plugin):
                 pass
 
         self.client.create_panel(
-            content=self.chat, width=520, edge="right",
+            content=self.chat, width=Panel.DEFAULT_WIDTH, edge="right",
             key="__ai_fallback", destroy_on_close=False, on_created=created,
         )
 
-    def _show(self, text: str, from_user: bool):
+    def _show(self, text: str, from_user: bool, usage: Usage = None):
+        # A request already in flight when the panel was dismissed still comes
+        # back. Without this it calls _ensure_panel() and the panel the user
+        # just tapped away reappears with the answer in it.
+        if self._dismissed:
+            return
         self._ensure_panel()
         if self.chat is not None:
-            self.chat.add_message(text, from_user)
+            self.chat.add_message(text, from_user, usage=usage)
+            self.chat.set_totals(self.usage.prompt, self.usage.completion)
         self._restart_timeout()
 
     def _set_status(self, text: str):
@@ -299,12 +356,95 @@ class AIFallback(Plugin):
         except Exception:
             pass
 
+    ## DISMISSAL
+
+    # Presses only. on_interaction also fires on every mouse move, and a panel
+    # that closed because the pointer crossed the page would be unreadable.
+    DISMISS_EVENTS = (QEvent.Type.MouseButtonPress, QEvent.Type.TouchBegin)
+
+    def on_interaction(self, event):
+        """
+        Tapping anywhere outside the panel ends the conversation.
+
+        Runs on the UI thread, synchronously, for every interaction in the
+        app - so it stays cheap and never raises. A handler that throws is
+        unsubscribed by iterate_event_callables(), which would silently
+        disable this for the rest of the session.
+        """
+        try:
+            panel = self.panel
+            if panel is None or not getattr(panel, "open", False):
+                return
+            if event is None or event.type() not in self.DISMISS_EVENTS:
+                return
+
+            # A dialog on top owns the tap. The plugin's own error alert is
+            # the common case, and tearing the transcript down behind it while
+            # the user is reading the error is not what "tapped outside" means.
+            if self.client.DIALOG.get() is not None:
+                return
+
+            point = self._global_point(event)
+            if point is None or self._inside(panel, point):
+                return
+
+            self.client.log("info", "[AIFallback] Tapped outside - closing panel.")
+            self.client.call_on_ui(self.close_panel)
+        except Exception as e:
+            self.client.log("warning", f"[AIFallback] Interaction check failed: {e}")
+
+    @staticmethod
+    def _global_point(event):
+        """Screen coordinates of an interaction, mouse or touch."""
+        try:
+            return event.globalPosition().toPoint()
+        except Exception:
+            pass
+        try:
+            points = event.points()
+            if points:
+                return points[0].globalPosition().toPoint()
+        except Exception:
+            pass
+        return None
+
+    @staticmethod
+    def _inside(widget, global_point) -> bool:
+        try:
+            return QRect(widget.mapToGlobal(QPoint(0, 0)),
+                         widget.size()).contains(global_point)
+        except RuntimeError:
+            # Panel deleted between the check above and here.
+            return False
+
     def close_panel(self):
+        """
+        Tear the whole conversation down: timeout, session, history, panel.
+
+        The session is the part that matters. Left open after the panel is
+        gone, the assistant is still listening for a follow-up to a
+        conversation that is no longer on screen - every phrase goes into the
+        session queue instead of being treated as a fresh command, so nothing
+        else responds until it times out.
+        """
         try:
             self.client.TIMEOUTS.cancel("__ai_fallback_panel")
         except Exception:
             pass
+
+        self._dismissed = True
+
+        session, self.session = self.session, None
+        if session is not None:
+            try:
+                # Releases the conversation thread blocked in
+                # wait_for_phrase() and puts the STT back into wake mode.
+                session.cancel()
+            except Exception as e:
+                self.client.log("warning", f"[AIFallback] Could not cancel session: {e}")
+
         panel, self.panel, self.chat = self.panel, None, None
         self.history = []
+        self.usage = Usage()
         if panel is not None:
             self.client.call_on_ui(panel.close_panel)

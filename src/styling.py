@@ -134,6 +134,7 @@ def get_styles_from_file(css_file_name: str) -> dict:
         found_style = False
         in_comment = False
         key = ""
+        pending = ""   #declaration text not yet terminated by a ';'
         for line in file.readlines():
             clean = line.strip()
 
@@ -164,16 +165,27 @@ def get_styles_from_file(css_file_name: str) -> dict:
                 key += head.strip()
                 found_styles[key] = {}
                 found_style = True
+                pending = ""
                 clean = rest
 
             if found_style:
+                # Declarations are terminated by ';', not by end of line. A
+                # value wrapped across two lines - a qlineargradient with its
+                # stops on the next line is the usual one - used to be stored
+                # as a truncated value plus a bogus property invented from the
+                # remainder, which Qt then discarded without a word.
                 if "}" in clean:
                     body, _, _trailing = clean.partition("}")
-                    _store_declarations(key, body)
+                    _store_declarations(key, f"{pending} {body}")
+                    pending = ""
                     found_style = False
                     key = ""
                 else:
-                    _store_declarations(key, clean)
+                    pending = f"{pending} {clean}".strip()
+                    if ";" in pending:
+                        complete, _, remainder = pending.rpartition(";")
+                        _store_declarations(key, complete)
+                        pending = remainder.strip()
 
     return found_styles
 

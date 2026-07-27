@@ -47,7 +47,10 @@ def _inline(text: str) -> str:
         ), out)
 
     out = _IMAGE.sub(
-        lambda m: stash(f'<img src="{m.group(2)}" alt="{m.group(1)}" width="360">'), out)
+        lambda m: stash(
+            f'<img src="{html.escape(m.group(2), quote=True)}" '
+            f'alt="{html.escape(m.group(1), quote=True)}">'
+        ), out)
 
     out = _LINK.sub(
         lambda m: stash(f'<a href="{m.group(2)}" style="color:{ACCENT};">{m.group(1)}</a>'), out)

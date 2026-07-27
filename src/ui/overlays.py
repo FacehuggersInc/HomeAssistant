@@ -60,13 +60,53 @@ class OverlayManager(QWidget):
         self._mask_timer.setSingleShot(True)
         self._mask_timer.setInterval(0)
         self._mask_timer.timeout.connect(self._recompute_mask)
+
+        # Decoration layer, for children that must never take a click.
+        #
+        # The mask below is what lets a click land on the page underneath, and
+        # a QWidget mask clips PAINTING as well as input - so a child kept out
+        # of the mask to stay click-through stops being drawn at all. Keeping
+        # WA_TransparentForMouseEvents children out of the mask fixed a dead
+        # zone over the page and made the voice bar invisible in the same
+        # stroke.
+        #
+        # They get their own host instead: a sibling of this widget that is
+        # itself WA_TransparentForMouseEvents, which Qt skips entirely during
+        # hit testing, so clicks reach whatever is below with no mask involved.
+        # It is kept below this widget in z, so a dialog or panel still covers
+        # it and the DIALOG-above-TOPMOST ordering survives. It is masked too,
+        # but to where its children CAN paint rather than to input - an
+        # unmasked full-window sibling that never clears its own background
+        # smears the page behind it.
+        self.passthrough = QWidget(self.parentWidget())
+        self.passthrough.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        self.passthrough.setAttribute(Qt.WidgetAttribute.WA_NoSystemBackground, True)
+        set_style(self.passthrough, "common", "transparent")
+        self.passthrough.setGeometry(self.geometry())
+        if self.parentWidget() is not None:
+            # Parentless only under a headless test harness, where showing it
+            # would pop a stray top-level window.
+            self.passthrough.show()
+
         self._recompute_mask()  # Empty mask — no children yet, all clicks pass through
 
     # ── Layer API ─────────────────────────────────────────────────────────────
 
+    def _host_for(self, widget: QWidget) -> QWidget:
+        """Where a widget should actually live: masked layer, or passthrough."""
+        if widget.testAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents):
+            return self.passthrough
+        return self
+
     def add(self, layer: LAYERS, widget: QWidget, update: bool = False) -> None:
         if widget not in self._layers[layer]:
-            widget.setParent(self)
+            host = self._host_for(widget)
+            widget.setParent(host)
+            if host is self.passthrough:
+                # childEvent() only sees this widget's own children, so the
+                # move/resize/show tracking that keeps the mask current has to
+                # be attached here instead.
+                widget.installEventFilter(self)
             self._layers[layer].append(widget)
             self._enforce_z_order()
             widget.show()
@@ -75,7 +115,10 @@ class OverlayManager(QWidget):
     def insert(self, layer: LAYERS, widget: QWidget,
                index: int = -1, update: bool = False) -> None:
         if widget not in self._layers[layer]:
-            widget.setParent(self)
+            host = self._host_for(widget)
+            widget.setParent(host)
+            if host is self.passthrough:
+                widget.installEventFilter(self)
             if index < 0 or index >= len(self._layers[layer]):
                 self._layers[layer].append(widget)
             else:
@@ -87,6 +130,7 @@ class OverlayManager(QWidget):
     def remove(self, layer: LAYERS, widget: QWidget, update: bool = False) -> None:
         if widget in self._layers[layer]:
             self._layers[layer].remove(widget)
+            widget.removeEventFilter(self)
             widget.setParent(None)   # type: ignore[arg-type]
             self._schedule_mask_update()
 
@@ -96,6 +140,12 @@ class OverlayManager(QWidget):
     # ── Z-order enforcement ───────────────────────────────────────────────────
 
     def _enforce_z_order(self) -> None:
+        # page_host < passthrough < OVERLAYS. build() reparents page_host,
+        # which puts it back on top of everything created before it, so the
+        # passthrough host has to reassert itself rather than being raised
+        # once at construction.
+        self.passthrough.raise_()
+        self.raise_()
         for layer_name in ("BACKGROUND", "FOREGROUND", "SYSTEM", "TOPMOST", "DIALOG"):
             for widget in self._layers[layer_name]:
                 widget.raise_()
@@ -104,8 +154,20 @@ class OverlayManager(QWidget):
 
     def update_geometry(self, w: int, h: int) -> None:
         self.setGeometry(0, 0, w, h)
+        self._enforce_z_order()
         self._schedule_mask_update()
 
+    def resizeEvent(self, event) -> None:  # type: ignore[override]
+        super().resizeEvent(event)
+        # build() and on_window_resized() both call setGeometry() straight on
+        # this widget, so the passthrough host is synced from the resize
+        # rather than from update_geometry().
+        self.passthrough.setGeometry(self.geometry())
+        self._schedule_mask_update()
+
+    def moveEvent(self, event) -> None:  # type: ignore[override]
+        super().moveEvent(event)
+        self.passthrough.setGeometry(self.geometry())
 
     def childEvent(self, event) -> None:  # type: ignore[override]
         super().childEvent(event)
@@ -141,18 +203,34 @@ class OverlayManager(QWidget):
             # clicks at all, so including a WA_TransparentForMouseEvents child
             # created a dead zone: the overlay took the click, childAt() found
             # nothing willing to handle it, and it never reached the page
-            # underneath. The voice bar sits bottom-centre, over exactly where
-            # page buttons tend to be.
+            # underneath. Those children live on the passthrough host instead,
+            # which is where they are still drawn - see __init__.
             if child.testAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents):
                 continue
             region += QRegion(child.geometry())
 
-        if region.isEmpty():
-            # Qt reads an empty QRegion as clearMask() -> full solid rect, which would
-            # swallow every click in the app. Use a 1x1 region outside our bounds.
-            region = QRegion(-1, -1, 1, 1)
+        self.setMask(self._safe_region(region))
+        self._recompute_passthrough_mask()
 
-        self.setMask(region)
+    def _recompute_passthrough_mask(self) -> None:
+        # Masked to where its children CAN paint - geometry, not visible
+        # content. Masking any tighter than that is how a widget ends up
+        # sliding open and drawing nothing.
+        region = QRegion()
+        for child in self.passthrough.findChildren(
+            QWidget, options=Qt.FindChildOption.FindDirectChildrenOnly
+        ):
+            if child.isVisible():
+                region += QRegion(child.geometry())
+        self.passthrough.setMask(self._safe_region(region))
+
+    @staticmethod
+    def _safe_region(region: QRegion) -> QRegion:
+        # Qt reads an empty QRegion as clearMask() -> full solid rect, which would
+        # swallow every click in the app. Use a 1x1 region outside our bounds.
+        if region.isEmpty():
+            return QRegion(-1, -1, 1, 1)
+        return region
 
 
 # ── Overlayed notification widget ─────────────────────────────────────────────
@@ -650,19 +728,30 @@ class Panel(QWidget):
         self,
         client:            "Client",
         width:             int  = None,
-        edge:              str  = "right",   # "right" or "left"
+        edge:              str  = "right",   # "right", "left", "top" or "bottom"
         bgcolor:           str  = "#1e1e1e", #fallback fill ONLY — used if a backdrop snapshot can't be captured
         animation_speed:   int  = 220,
         blur_radius:       int  = None,
         radius:            str  = None,      #CSS border-radius, e.g. "8px" — None means square corners
         key:               str  = None,
         destroy_on_close:  bool = False,
+        height:            int  = None,      #None fills the cross axis; set it for a panel that does not reach the far edge
+        margin:            int  = 0,         #inset from the screen edges — non-zero makes the panel float
     ):
         super().__init__(client.OVERLAYS)
         self.client            = client
         self.key               = key
-        self.edge              = edge
-        self.panel_width       = width if width is not None else self.DEFAULT_WIDTH
+        self.edge              = edge if edge in ("right", "left", "top", "bottom") else "right"
+        self.margin            = max(0, int(margin))
+        self.floating          = self.margin > 0
+        # None on either axis means "fill it, less the margin". A left/right
+        # panel still defaults to DEFAULT_WIDTH so existing callers are
+        # unchanged; a top/bottom one defaults to the full span instead,
+        # because a fixed width across the top is almost never what is wanted.
+        if width is None and self.edge in ("left", "right"):
+            width = self.DEFAULT_WIDTH
+        self.panel_width       = width
+        self.panel_height      = height
         self.blur_radius       = blur_radius if blur_radius is not None else self.BLUR_RADIUS
         self.destroy_on_close  = destroy_on_close   #see close_panel()/_destroy() below
         self._destroyed        = False
@@ -704,10 +793,21 @@ class Panel(QWidget):
     # ── Styling ───────────────────────────────────────────────────────────────
 
     def apply_frosted_style(self, radius: str = None) -> None:
-        inward_side = "border-left" if self.edge == "right" else "border-right"
-        override = {"*": {inward_side: "1px solid rgba(255,255,255,18)"}}
-        if radius:
-            override["*"]["border-radius"] = radius
+        line = "1px solid rgba(255,255,255,18)"
+        if self.floating:
+            # Away from the screen edges the panel reads as a card, so it needs
+            # an outline the whole way round rather than one seam.
+            override = {"*": {"border": line, "border-radius": radius or "14px"}}
+        else:
+            inward_side = {
+                "right":  "border-left",
+                "left":   "border-right",
+                "top":    "border-bottom",
+                "bottom": "border-top",
+            }[self.edge]
+            override = {"*": {inward_side: line}}
+            if radius:
+                override["*"]["border-radius"] = radius
         set_style(self, "panel", "panel-base",
                   object_tag=f"QWidget#{self.objectName()}", override=override)
 
@@ -715,7 +815,7 @@ class Panel(QWidget):
 
     def refresh_backdrop(self) -> None:
         page = getattr(self.client, "PAGE", None)
-        if page is None or self.panel_width <= 0 or self.height() <= 0:
+        if page is None or self.width() <= 0 or self.height() <= 0:
             self._backdrop = None
             return
 
@@ -776,14 +876,32 @@ class Panel(QWidget):
     def _sync_geometry(self) -> None:
         ov_w = self.client.OVERLAYS.width()
         ov_h = self.client.OVERLAYS.height()
-        self.setFixedSize(self.panel_width, ov_h)
+        m    = self.margin
 
+        w = self.panel_width  if self.panel_width  is not None else max(1, ov_w - m * 2)
+        h = self.panel_height if self.panel_height is not None else max(1, ov_h - m * 2)
+        w = max(1, min(w, ov_w))
+        h = max(1, min(h, ov_h))
+        self.setFixedSize(w, h)
+
+        # Hidden is always fully off its own edge, including the margin, so a
+        # floating panel does not leave a sliver parked on screen.
         if self.edge == "left":
-            self._hidden_pos = QPoint(-self.panel_width, 0)
-            self._shown_pos  = QPoint(0, 0)
+            y = m if self.panel_height is not None else max(0, (ov_h - h) // 2)
+            self._shown_pos  = QPoint(m, y)
+            self._hidden_pos = QPoint(-(w + m), y)
+        elif self.edge == "top":
+            x = max(0, (ov_w - w) // 2)
+            self._shown_pos  = QPoint(x, m)
+            self._hidden_pos = QPoint(x, -(h + m))
+        elif self.edge == "bottom":
+            x = max(0, (ov_w - w) // 2)
+            self._shown_pos  = QPoint(x, ov_h - h - m)
+            self._hidden_pos = QPoint(x, ov_h + m)
         else:  # "right" (default)
-            self._hidden_pos = QPoint(ov_w, 0)
-            self._shown_pos  = QPoint(ov_w - self.panel_width, 0)
+            y = m if self.panel_height is not None else max(0, (ov_h - h) // 2)
+            self._shown_pos  = QPoint(ov_w - w - m, y)
+            self._hidden_pos = QPoint(ov_w + m, y)
 
         if self.open:
             self.move(self._shown_pos)

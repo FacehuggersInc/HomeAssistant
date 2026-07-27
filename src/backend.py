@@ -1,4 +1,5 @@
 import os
+import hmac
 import time
 import shutil
 from threading import Thread
@@ -12,7 +13,10 @@ PORT = 5000
 
 def FlaskService(stop_event, client, flask):
 	from werkzeug.serving import make_server
-	server = make_server(ADDRESS, PORT, flask)
+	# threaded: this loop serves one request at a time, so a single slow
+	# endpoint - a pip install, an update download, /terminate's own wait -
+	# blocked every other caller until it finished.
+	server = make_server(ADDRESS, PORT, flask, threaded=True)
 	server.timeout = 1
 
 	while not stop_event.is_set():
@@ -31,7 +35,10 @@ def FlaskApp(client):
 		given = request.args.get("id", "").strip()
 		if not given:
 			return {"request": "Failed", "reason": "Missing required ?id= parameter"}, 401
-		if given != client.CLIENT_ID:
+		if not hmac.compare_digest(given, str(client.CLIENT_ID)):
+			# compare_digest, not !=: a plain comparison returns as soon as it
+			# finds a differing byte, which leaks the id one character at a
+			# time to anything that can measure the reply.
 			return {"request": "Failed", "reason": "Invalid client ID"}, 403
 		return None
 
@@ -51,8 +58,15 @@ def FlaskApp(client):
 		err = auth()
 		if err: return err
 		client.simple_notify("kill", "Termination", "Was asked to Terminate via API")
-		time.sleep(1)
-		client.call_on_ui(client.stop)
+
+		def shutdown():
+			# The delay is so the notification is on screen before the window
+			# goes. It belongs off the request thread - sleeping here held the
+			# reply open and, before the server was threaded, the whole API.
+			time.sleep(1)
+			client.call_on_ui(client.stop)
+
+		Thread(target=shutdown, name="__api_terminate", daemon=True).start()
 		return {"request": "Success"}
 
 	@app.route("/restart")
@@ -280,44 +294,168 @@ def FlaskApp(client):
 
 	@app.route("/settings/<path:path>", methods=["GET", "POST"])
 	def setting_set(path):
-		if path:
-			setting = client.SETTINGS.get_path(path)
-			if setting is not None:
-				if not request.args.get("v"):
-					return {"request": "Success", "setting": setting}, 200
-				else:
-					client.SETTINGS.set_path(path, request.args.get("v"))
-					return {"request": "Success", "setting": client.SETTINGS.get_path(path)}, 200
-			else:
-				return {"request": "Failed", "reason": f"No Setting at {path}"}, 404
-		else:
-			return {"request": "Failed", "reason": "No given Path"}, 404
-
-
-	## PLUGIN ENDPOINTS
-	@app.route("/plugins/<plugin_key>/<endpoint>", methods=["GET"])
-	def reload_plugin(plugin_key, endpoint):
 		log()
-		
-		if not client.BUILT: return {"request": "Failed", "reason": "The Application is still building..."}, 200
+		# This route reads AND writes every setting in the app, including the
+		# window geometry and the assistant configuration. It was the only
+		# endpoint of its kind with no auth check on it at all.
 		err = auth()
 		if err: return err
 
-		if plugin_key and endpoint:
-			if client.PLUGIN.has_plugin(plugin_key):
-				match endpoint:
-					case "reload":
-						client.call_on_ui(lambda: client.PLUGIN.reload_plugin(plugin_key))
-						return {"request": "Success", "message": "Reload queued."}, 200
-					case _: #! NOT BUILT YET
-						try:
-							return {"request":"Failed", "reason":f"There is no endpoint ({endpoint}) here ..."}, 404
-						except Exception as e:
-							return {"request":"Failed", "reason":f"There is no endpoint ({endpoint}) here AND it errored: {e}"}, 404
-			else:
-				return {"request": "Failed", "reason": f"No Plugin '{plugin_key}' loaded."}, 404
-		else:
+		if not path:
+			return {"request": "Failed", "reason": "No given Path"}, 404
+
+		setting = client.SETTINGS.get_path(path)
+		if setting is None:
+			return {"request": "Failed", "reason": f"No Setting at {path}"}, 404
+
+		# Presence, not truthiness: `?v=` with an empty value is a legitimate
+		# write, and testing the value meant a setting could never be cleared.
+		if "v" not in request.args:
+			return {"request": "Success", "setting": setting}, 200
+
+		client.SETTINGS.set_path(path, request.args.get("v"))
+		return {"request": "Success", "setting": client.SETTINGS.get_path(path)}, 200
+
+
+	## PLUGIN ENDPOINTS
+	@app.route("/plugins", methods=["GET"])
+	def list_plugins():
+		"""
+		What is loaded, what is waiting, and what can safely be removed.
+
+		There was no way to ask this at all, so every other plugin call was a
+		guess at a key.
+		"""
+		log()
+		if not client.BUILT:
+			return {"request": "Failed", "reason": "The Application is still building..."}, 503
+		err = auth()
+		if err: return err
+
+		loaded = []
+		for plugin, key in client.PLUGIN.get_plugins():
+			loaded.append({
+				"key":        key,
+				"name":       client.PLUGIN.plugin_name(key),
+				"loaded":     True,
+				"dependants": client.PLUGIN.get_dependants(key),
+				"can_unload": client.PLUGIN.can_unload(key),
+				"endpoints":  client.API_REGISTRY.endpoints_for(key),
+			})
+
+		pending = []
+		for item in client.PLUGIN.pending_plugins():
+			key = getattr(item, "key", None) or str(item)
+			pending.append({
+				"key":          key,
+				"loaded":       False,
+				"requirements": client.PLUGIN.plugin_requirements(key),
+			})
+
+		return {"request": "Success", "loaded": loaded, "pending": pending}, 200
+
+	@app.route("/plugins/<plugin_key>/<endpoint>", methods=["GET"])
+	def plugin_endpoint(plugin_key, endpoint):
+		log()
+
+		if not client.BUILT:
+			return {"request": "Failed", "reason": "The Application is still building..."}, 503
+		err = auth()
+		if err: return err
+
+		if not plugin_key or not endpoint:
 			return {"request": "Failed", "reason": "No Plugin Key Given!"}, 404
+
+		is_loaded  = client.PLUGIN.has_plugin(plugin_key)
+		is_pending = any(getattr(p, "key", None) == plugin_key
+						 for p in client.PLUGIN.pending_plugins())
+
+		# `load` and `install` act on plugins that are by definition NOT
+		# loaded, so the has_plugin() gate that used to wrap everything made
+		# them unreachable.
+		if not is_loaded and not is_pending:
+			return {"request": "Failed", "reason": f"No Plugin '{plugin_key}' loaded or pending."}, 404
+
+		def _threaded(name, work):
+			Thread(target=work, name=name, daemon=True).start()
+
+		match endpoint:
+			case "info":
+				if not is_loaded:
+					return {"request": "Success", "key": plugin_key, "loaded": False,
+							"pending": True,
+							"requirements": client.PLUGIN.plugin_requirements(plugin_key)}, 200
+				return {
+					"request":       "Success",
+					"key":           plugin_key,
+					"name":          client.PLUGIN.plugin_name(plugin_key),
+					"loaded":        True,
+					"dependencies":  client.PLUGIN.get_dependencies(plugin_key),
+					"dependants":    client.PLUGIN.get_dependants(plugin_key),
+					"can_unload":    client.PLUGIN.can_unload(plugin_key),
+					"registrations": client.PLUGIN.registration_count(plugin_key),
+					"endpoints":     client.API_REGISTRY.endpoints_for(plugin_key),
+					"requirements":  client.PLUGIN.plugin_requirements(plugin_key),
+				}, 200
+
+			case "reload":
+				if not is_loaded:
+					return {"request": "Failed", "reason": f"'{plugin_key}' is not loaded."}, 409
+				client.call_on_ui(lambda: client.PLUGIN.reload_plugin(plugin_key))
+				return {"request": "Success", "message": "Reload queued."}, 200
+
+			case "unload":
+				if not is_loaded:
+					return {"request": "Failed", "reason": f"'{plugin_key}' is not loaded."}, 409
+				dependants = client.PLUGIN.get_dependants(plugin_key)
+				if dependants and request.args.get("force") not in ("1", "true", "yes"):
+					# Unloading underneath a dependant leaves it calling into a
+					# module that is gone, so this is opt-in rather than silent.
+					return {"request": "Failed",
+							"reason": f"'{plugin_key}' is required by {dependants}. "
+									  "Pass ?force=1 to unload anyway.",
+							"dependants": dependants}, 409
+				client.call_on_ui(lambda: client.PLUGIN.unload_plugin(plugin_key))
+				return {"request": "Success", "message": "Unload queued."}, 200
+
+			case "load":
+				if is_loaded:
+					return {"request": "Failed", "reason": f"'{plugin_key}' is already loaded."}, 409
+				client.call_on_ui(lambda: client.PLUGIN.load_pending_plugin(plugin_key))
+				return {"request": "Success", "message": "Load queued."}, 200
+
+			case "install":
+				# pip, so it is slow and cannot run on the request thread.
+				def install_work():
+					ok, message = client.PLUGIN.install_pending(
+						plugin_key, log=lambda m: client.log("info", f"[API][install] {m}"))
+					client.simple_notify(
+						"check" if ok else "error",
+						f"Plugin: {plugin_key}",
+						message or ("Dependencies installed" if ok else "Install failed"))
+					if ok:
+						client.call_on_ui(lambda: client.PLUGIN.load_pending_plugin(plugin_key))
+
+				_threaded("__api_plugin_install", install_work)
+				return {"request": "Success", "message": "Dependency install started."}, 202
+
+			case "uninstall":
+				def uninstall_work():
+					ok, message = client.PLUGIN.uninstall_plugin_packages(
+						plugin_key, log=lambda m: client.log("info", f"[API][uninstall] {m}"))
+					client.simple_notify(
+						"check" if ok else "error",
+						f"Plugin: {plugin_key}",
+						message or ("Dependencies removed" if ok else "Uninstall failed"))
+
+				_threaded("__api_plugin_uninstall", uninstall_work)
+				return {"request": "Success", "message": "Dependency removal started."}, 202
+
+			case _:
+				known = ["info", "reload", "unload", "load", "install", "uninstall"]
+				return {"request": "Failed",
+						"reason": f"There is no endpoint ({endpoint}) here ...",
+						"available": known}, 404
 
 	@app.route("/public/<endpoint>", methods=["GET", "POST"])
 	def registered_endpoint_routing(endpoint):
@@ -334,10 +472,28 @@ def FlaskApp(client):
 					if err: return err
 
 				try:
-					return end.call(**request.args)
+					# `id` is ours, not the endpoint's. Forwarding request.args
+					# wholesale meant every authed endpoint was called with an
+					# unexpected id= keyword and raised TypeError, which landed
+					# here and read as "the endpoint is broken".
+					params = {k: v for k, v in request.args.items() if k != "id"}
+
+					# POST was accepted but the body was thrown away - only the
+					# query string ever reached the callback.
+					if request.method == "POST":
+						body = request.get_json(silent=True)
+						if isinstance(body, dict):
+							params.update(body)
+						elif request.form:
+							params.update(request.form.to_dict())
+
+					return end.call(**params)
+				except TypeError as e:
+					client.log("warning", f"[backend.registered_endpoint_routing] Bad arguments for '{endpoint}': {e}")
+					return {"request":"Failed", "reason":f"Bad arguments for '{endpoint}': {e}"}, 400
 				except Exception as e:
 					client.log("error", f"[backend.registered_endpoint_routing] Endpoint Call Failed: {e}")
-					return {"request":"Failed", "reason":f"Public endpoint failed due to: {e}"}, 200
+					return {"request":"Failed", "reason":f"Public endpoint failed due to: {e}"}, 500
 					
 			else:
 				log("warning", "Registry.None")

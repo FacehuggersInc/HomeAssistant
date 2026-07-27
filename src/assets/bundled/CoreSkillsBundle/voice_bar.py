@@ -52,7 +52,9 @@ class VoiceBar(QWidget):
         self.client = client
 
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
-        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
+        # NOT WA_TranslucentBackground - that is a top-level window attribute,
+        # and on a child it stops the background being cleared between paints.
+        self.setAttribute(Qt.WidgetAttribute.WA_NoSystemBackground, True)
         self.setFixedHeight(self.HEIGHT)
 
         self._status = "DORMANT"

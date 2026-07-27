@@ -33,19 +33,19 @@
         "wordnik_key": {
             "type": "secret",
             "env": "WORDNIK_KEY",
-            "value": " ",
+            "value": "",
             "description": "Wordnik API key, for the word of the day. Stored in .env, not here."
         },
         "spotify_client_id": {
             "type": "secret",
             "env": "SPOTIFY_CLIENT_ID",
-            "value": " ",
+            "value": "",
             "description": "Spotify application client ID. Stored in .env, not here."
         },
         "spotify_client_secret": {
             "type": "secret",
             "env": "SPOTIFY_CLIENT_SECRET",
-            "value": " ",
+            "value": "",
             "description": "Spotify application client secret. Stored in .env, not here."
         }
     }

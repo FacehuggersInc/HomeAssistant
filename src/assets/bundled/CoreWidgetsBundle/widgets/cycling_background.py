@@ -10,7 +10,6 @@ from PyQt6.QtGui import QPixmap, QPainter
 if TYPE_CHECKING:
     from src.main import Client
 
-from src.ui.controls.buttons import IconButton
 from src.ui.icons import Icons
 
 
@@ -66,9 +65,6 @@ class CyclingBackground(QWidget):
         self._sync_timer = QTimer(self)
         self._sync_timer.timeout.connect(self._sync_settings)
         self._sync_timer.start(5000)
-
-        self._pin_btn   = IconButton(Icons.PIN,     self.toggle_pin)
-        self._cycle_btn = IconButton(Icons.REFRESH, self.cycle)
 
         self._check_initial_pin()
         self.lower()
@@ -136,16 +132,20 @@ class CyclingBackground(QWidget):
 
     # ── Cycle ─────────────────────────────────────────────────────────────────
 
+    def is_pinned(self) -> bool:
+        return bool(self._pinned)
+
+    def can_cycle(self) -> bool:
+        return not self._pinned
+
     def toggle_pin(self, event=None) -> None:
         if self._pinned:
             self._pinned = False
             self.client.SETTINGS.home.pinned.value = ""
-            self._cycle_btn.setEnabled(True)
             self.client.simple_notify(Icons.PIN, "Home", "Wallpaper un-pinned")
         else:
             self._pinned = True
             self.client.SETTINGS.home.pinned.value = self._last_path
-            self._cycle_btn.setEnabled(False)
             self.client.simple_notify(
                 Icons.PIN, "Home",
                 f"Wallpaper '{Path(self._last_path).stem}' pinned"

@@ -32,7 +32,6 @@ class TileGrid(QWidget):
         self.margin    = 0
         self.origin_x  = 0
         self.origin_y  = 0
-        self.drawer_h  = 0   #reserved space at the bottom for the drawer handle
 
         self.dragging_tile: Optional[Tile] = None
         self.hover_col:     int = -1
@@ -76,9 +75,6 @@ class TileGrid(QWidget):
 
     ##LAYOUT
 
-    def set_drawer_height(self, h: int) -> None:
-        self.drawer_h = h
-
     def recalculate(self) -> None:
         margin = int(self.client.SETTINGS.home.widget_margin.value)
         self.margin = margin
@@ -86,7 +82,7 @@ class TileGrid(QWidget):
         #minimum gap before any stretching — keeps cells from touching
         base_gap = max(6, margin // 4)
 
-        bottom_reserve = max(self.drawer_h, margin)
+        bottom_reserve = margin   #was max(drawer_handle, margin); there is no drawer now
         available_w    = self.width()  - margin * 2
         available_h    = self.height() - margin - bottom_reserve
 

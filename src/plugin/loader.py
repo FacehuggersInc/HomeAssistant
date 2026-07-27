@@ -388,6 +388,10 @@ class PluginManager():
 
 			self.client.PAGES.unregister(plugin_key)
 
+			# Entries are descriptions, not widgets, so a stale one would keep
+			# rendering a button whose callback points into an unloaded module.
+			self.client.QUICK.unregister(plugin_key)
+
 			# etc b. Remove from plugin registry
 			del self.plugins[plugin_key]
 			self.client.SKILLS.un_register( plugin_key )

@@ -12,8 +12,6 @@ from src.ui.page import SubPageFramework
 from src.ui.widgets.tile import Tile
 from src.ui.widgets.tile_grid import TileGrid
 from src.ui.widgets.tile_panel import TilePanel
-from src.ui.controls.drawer import Drawer
-from src.ui.controls.buttons import IconButton
 from src.ui.icons import Icons
 from src.styling import set_style
 
@@ -133,7 +131,6 @@ class SubTilesPage(SubPageFramework):
 
         margin = int(client.SETTINGS.home.widget_margin.value)
         self.tile_grid = TileGrid(client, cols=16, rows=10)
-        #drawer height is set further below, once self.drawer exists
         self.tile_grid.setParent(self)
         self.tile_grid.setGeometry(0, 0, w, h)
         self.tile_grid.show()
@@ -146,20 +143,6 @@ class SubTilesPage(SubPageFramework):
         ## -- TRASH BIN
 
         self.trash_bin = TrashBin(self)
-
-        ## -- DRAWER
-
-        self.drawer = Drawer(client, position="bottom")
-        self.drawer.setParent(self)
-        self.drawer.place_on_page()
-        self.drawer.add_controls([
-            IconButton(Icons.SETTINGS,   lambda: client.goto("#settings")),
-            IconButton(Icons.FULLSCREEN, client.toggle_fullscreen),
-            IconButton(Icons.CLOSE,      client.stop),
-        ])
-
-        self.tile_grid.set_drawer_height(self.drawer.handle.height())
-
 
         self.panel_btn = QPushButton()
         self.panel_btn.setFixedSize(40, 40)
@@ -174,15 +157,12 @@ class SubTilesPage(SubPageFramework):
         ## -- Z-ORDER
 
         self.grid_bg.lower()
-        self.drawer.raise_()
         self.panel_btn.raise_()
         self.tile_panel.raise_()
 
         ## -- FEATURES
 
         self.add_features({
-            "add_drawer_controls":    self.drawer.insert_controls,
-            "remove_drawer_controls": self.drawer.remove_controls,
             "register_tile":          self.register_tile,
             "add_tile":               self.tile_grid.add_tile,
             "remove_tile":            self.tile_grid.remove_tile,
@@ -233,7 +213,6 @@ class SubTilesPage(SubPageFramework):
     ##TICK
 
     def tick(self) -> None:
-        self.drawer.tick()
         self.tile_grid.tick()
 
     ##RESIZE
@@ -243,7 +222,6 @@ class SubTilesPage(SubPageFramework):
         w, h = self.width(), self.height()
         self.grid_bg.setGeometry(0, 0, w, h)
         self.tile_grid.setGeometry(0, 0, w, h)
-        self.drawer.apply_parent_width()
         self.panel_btn.move(w - 56, 16)
         if self.tile_panel.open:
             self.tile_panel.setGeometry(w - TilePanel.WIDTH, 0, TilePanel.WIDTH, h)

@@ -5,26 +5,40 @@ if TYPE_CHECKING:
     from src.main import Client
 
 class APIEndpoint():
+    # Distinguishes "nothing cached yet" from a cached falsy value. Using the
+    # value's own truthiness meant an endpoint returning {} , [] or 0 re-ran
+    # its callback on every single request and never actually cached.
+    _NOTHING = object()
+
     def __init__(self, owner:str, key:str, authed:bool, cached:bool, callback:Callable):
         self.owner : str = owner
         self.key : str = key
         self.authed : bool = authed
         self.cached : bool = cached
         self.__callback : Callable = callback
-        self.data = None
+        self.data = self._NOTHING
+
+    def clear_cache(self) -> None:
+        self.data = self._NOTHING
 
     def call(self, *args, **kwargs) -> tuple[any, int]:
         data = self.__callback(*args, **kwargs)
-        if isinstance(data, tuple):
-            if self.cached:
-                if not self.data:
-                    self.data = data[0]
 
-                return self.data, data[1]
-            else:
-                return data
-        else:
-            return data, 0
+        # 200, not 0. A status of 0 is not a valid HTTP status: werkzeug writes
+        # the status line "HTTP/1.0 0 UNKNOWN" and every client rejects it, so
+        # any endpoint whose callback returned a bare value instead of a
+        # (body, status) tuple was unreachable over HTTP.
+        body, status = data if isinstance(data, tuple) else (data, 200)
+
+        if self.cached:
+            # Applied to every return shape. Caching used to live in the tuple
+            # branch alone, so cached=True on a callback returning a bare dict
+            # did nothing at all and gave no indication of it.
+            if self.data is self._NOTHING:
+                self.data = body
+            return self.data, status
+
+        return body, status
 
 
 class APIRegistry():

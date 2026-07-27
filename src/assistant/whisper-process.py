@@ -1,6 +1,8 @@
 from threading import Thread, Lock, Event as ThreadEvent
 import re
+import os
 import queue
+import signal
 import collections
 import time
 import string
@@ -8,6 +10,32 @@ import json
 import numpy as np
 from socket import socket, AF_INET, SOCK_STREAM, SOL_SOCKET, SO_REUSEADDR
 import sys, traceback
+
+try:
+    import psutil
+except Exception:
+    psutil = None
+
+
+def _pid_alive(pid: int) -> bool:
+    """Whether a process id is still running, as portably as possible."""
+    if not pid:
+        return True
+    if psutil is not None:
+        try:
+            return psutil.pid_exists(pid)
+        except Exception:
+            pass
+    try:
+        os.kill(pid, 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        # Alive, just not ours to signal.
+        return True
+    except OSError:
+        return True
 
 # Imported defensively so a missing audio stack produces a reportable message
 # instead of a traceback into a log file. sounddevice raises OSError (not
@@ -31,25 +59,106 @@ except Exception:
 
 # Whisper emits these on silence or noise with high confidence. They are not
 # transcription errors that better audio would fix - the model produces them
-# from nothing, and they otherwise register as a command.
+# from nothing, and they otherwise register as a command. Most are sign-offs
+# and channel furniture, because the subtitle corpora it was trained on are
+# full of them.
+#
+# Matching is on a flattened form (see _flatten), so punctuation, casing and
+# curly apostrophes do not need a separate entry each.
 HALLUCINATIONS = {
-	"", "you", "thank you", "thank you.", "thanks for watching",
-	"thanks for watching!", "thank you for watching", "bye", "bye.",
-	"subscribe", "please subscribe", ".", "..", "...", "?", "!",
+	"",
+	# Thanks and sign-offs
+	"you", "thank you", "thank you.", "thank you very much",
+	"thank you very much.", "thank you so much", "thanks", "thanks.",
+	"thanks a lot", "thank you all", "thank you all very much",
+	"thank you for watching", "thank you for watching!",
+	"thanks for watching", "thanks for watching!",
+	"thank you very much for watching", "thanks for watching everyone",
+	"thanks for listening", "thank you for listening",
+	"thanks again", "thank you again",
+	"bye", "bye.", "bye bye", "goodbye", "good bye",
+	"see you next time", "see you in the next video", "see you next video",
+	"i'll see you next time", "i'll see you in the next one",
+	"have a good day", "have a nice day", "take care",
+	# Channel furniture
+	"subscribe", "please subscribe", "like and subscribe",
+	"don't forget to subscribe", "please subscribe to my channel",
+	"thanks for watching and don't forget to subscribe",
+	"like comment and subscribe",
+	# Tags the model emits instead of words
+	".", "..", "...", "?", "!", "-", "\u2026",
 	"[blank_audio]", "[silence]", "(silence)", "[music]", "(music)",
+	"[music playing]", "(upbeat music)", "[applause]", "(applause)",
+	"[laughter]", "(laughter)", "[inaudible]", "(inaudible)",
+	"[no audio]", "[sound]", "(coughs)", "(sighs)",
+	# Watermarks carried over from the training corpora
 	"transcription by castingwords", "www.mooji.org",
+	"subtitles by the amara.org community", "amara.org",
+	"subs by www.zeoranger.co.uk", "transcribed by https://otter.ai",
+	"the end", "all rights reserved",
 }
+
+# How many identical repeats of one phrase mean the model is looping rather
+# than transcribing. Whisper falls into a repeat when it runs out of audio to
+# describe, and the result is a valid-looking transcript that is entirely
+# noise.
+REPEAT_LIMIT = 5
+
+# Curly quotes, ellipsis and dashes are not in string.punctuation, and Whisper
+# emits all of them.
+_STRIPPED = string.punctuation + "\u2026\u2018\u2019\u201c\u201d\u2013\u2014"
+_PUNCTUATION_TABLE = str.maketrans("", "", _STRIPPED)
+
+
+def _flatten(text: str) -> str:
+	"""Lowercase, unpunctuated, single-spaced. The form everything compares in."""
+	return " ".join(str(text or "").lower().translate(_PUNCTUATION_TABLE).split())
+
+
+_FLAT_HALLUCINATIONS = {_flatten(entry) for entry in HALLUCINATIONS}
+
+
+def _is_repeated_block(words: list, limit: int) -> bool:
+	"""Whether the whole phrase is one block of words tiled `limit`+ times."""
+	total = len(words)
+	if total < limit:
+		return False
+	for size in range(1, total // limit + 1):
+		if total % size or total // size < limit:
+			continue
+		block = words[:size]
+		if all(words[i:i + size] == block for i in range(0, total, size)):
+			return True
+	return False
+
+
+def repeated_phrase(text: str, limit: int = REPEAT_LIMIT) -> bool:
+	"""
+	True when one exact phrase accounts for `limit` or more of the transcript.
+
+	Two shapes, because the model produces both: punctuated repeats
+	("Okay. Okay. Okay. Okay. Okay.") and unpunctuated ones ("you you you you
+	you"). The first is caught by splitting on sentence punctuation and
+	counting; the second by checking whether the words tile evenly.
+	"""
+	counts = {}
+	for part in re.split(r"[.,;:!?\n]+", str(text or "")):
+		flat = _flatten(part)
+		if not flat:
+			continue
+		counts[flat] = counts.get(flat, 0) + 1
+		if counts[flat] >= limit:
+			return True
+	return _is_repeated_block(_flatten(text).split(), limit)
 
 
 def is_hallucination(text: str) -> bool:
-	stripped = text.strip().lower().strip(".,!?\u2026 ")
-	if not stripped:
+	flat = _flatten(text)
+	if not flat:
 		return True
-	if stripped in {h.strip(".,!? ") for h in HALLUCINATIONS}:
+	if flat in _FLAT_HALLUCINATIONS:
 		return True
-	# A single repeated word ("you you you you") is the other common failure.
-	words = stripped.split()
-	return len(words) > 3 and len(set(words)) == 1
+	return repeated_phrase(flat)
 
 
 class WakeWhisper:
@@ -72,6 +181,8 @@ class WakeWhisper:
 		max_wake_speech_extensions:int = 2,
 		use_noise_reduction:bool=True,
 		max_queue_size:int=8,
+		session_silence_ms:int = 800,
+		session_minimum_speech_ms:int = 150,
 		wake_words:list[str]=[],
 		input_device=None,
 		override_limits:bool = False,
@@ -108,6 +219,27 @@ class WakeWhisper:
 		self.audio_queue = queue.Queue(maxsize=max_queue_size)
 		self.context_windows_start = max(10, context_audio_windows_start) if not override_limits else context_audio_windows_start
 		self.context_windows_end = max(5, context_audio_windows_end) if not override_limits else context_audio_windows_end
+
+		# Session (passthrough) mode ends an utterance on its own silence
+		# threshold, which is much longer than wake mode's.
+		#
+		# Wake mode is answering "did they stop talking to the assistant", and
+		# a short window is right there. Session mode is answering "did they
+		# finish their sentence", and 5 windows - 150ms - is shorter than an
+		# ordinary breath or the pause before a comma. The result was a
+		# sentence chopped into fragments, each finalised, transcribed and sent
+		# as its own API call.
+		self.session_context_windows_end = max(
+			self.context_windows_end,
+			int(round(max(0, session_silence_ms) / window_duration_ms)),
+		)
+		# Detected speech, not buffered audio - the speech window already has
+		# context_windows_start of lead-in prepended, so its length says
+		# nothing about how much was actually spoken. A cough or a door click
+		# is one or two windows; "yes" is comfortably more.
+		self.session_minimum_speech_windows = max(
+			1, int(round(max(0, session_minimum_speech_ms) / window_duration_ms))
+		)
 		self.use_noise_reduction = use_noise_reduction
 		self.sample_rate = sample_rate #16000
 		self.window_duration_ms = window_duration_ms # 30 ms
@@ -237,7 +369,10 @@ class WakeWhisper:
 					# retrying silently every 5s into a log nobody reads.
 					if callable(self.on_audio_error):
 						self.on_audio_error(str(exc))
-				time.sleep(5)
+				# wait(), not sleep(): a stop arriving during the backoff used
+				# to be ignored for the full five seconds, which is long enough
+				# for the client to give up and terminate the process instead.
+				self.stop_event.wait(5)
 
 	def __wake_word_check(self, sample:bytes):
 		converted = np.frombuffer(sample, dtype=np.int16).astype(np.float32) / self.__PCM_NORM_FACTOR
@@ -278,9 +413,16 @@ class WakeWhisper:
 		#Always Stores a frame of audio each iteration, will be inserted at the beginning of the speech window when speech is first detected
 		pre_context = collections.deque(maxlen=self.context_windows_start)
 
-		end_context = collections.deque(maxlen=self.context_windows_end)
+		# Sized for whichever mode waits longest; each mode compares against
+		# its own threshold below.
+		end_context = collections.deque(
+			maxlen=max(self.context_windows_end, self.session_context_windows_end))
 
 		was_speech = False #the trigger var for capturing an entire phrase
+
+		#Windows of ACTUAL detected speech in the current utterance, used by
+		#session mode to tell a real phrase from a click or a cough.
+		speech_windows_seen = 0
 
 		ignore_timeout_call = False
 		timeout_called = False
@@ -298,6 +440,7 @@ class WakeWhisper:
 			nonlocal was_speech, last_speech_time, end_context, sample_window, speech_window
 			nonlocal ignore_timeout_call, timeout_called, extensions_added, speech_cutoff
 			nonlocal end_context_windows_accumulated
+			nonlocal speech_windows_seen
 			nonlocal self
 
 			was_speech = False
@@ -305,6 +448,7 @@ class WakeWhisper:
 			end_context.clear()
 			sample_window.clear()
 			speech_window.clear()
+			speech_windows_seen = 0
 			self.woke = False
 			self.speech_timeout_start = None
 			timeout_called = False
@@ -563,6 +707,7 @@ class WakeWhisper:
 							speech_window.extend( pre_context ) #add start context to speech window
 
 						#Build Speech
+						speech_windows_seen += 1
 						speech_window.append( audio_window )
 						end_context.clear() #for a clean context, always clear, there wont be any in-between silence
 
@@ -572,8 +717,21 @@ class WakeWhisper:
 							end_context.append( audio_window )
 
 							#If End Context is Full, Meaning All Context is There, Finalize Speech
-							if len(end_context) >= self.context_windows_end:
+							#session_context_windows_end, not context_windows_end: a
+							#sentence needs longer to be judged finished than a
+							#command does. See __init__.
+							if len(end_context) >= self.session_context_windows_end:
 								last_speech_time = time.time() # artificial reset the timer | used to prevent reset before speech_window can be processed
+
+								#Too little actual speech to be a phrase - a cough, a
+								#click, a chair. Dropping it here is what stops a
+								#stray noise becoming a transcription and then an API
+								#call with a session open.
+								if speech_windows_seen < self.session_minimum_speech_windows:
+									print(f"[Whisper]: Discarding {speech_windows_seen} "
+										  f"speech window(s) - below session minimum.")
+									reset_all()
+									continue
 
 								#Build Final Byte Window
 								speech_window.extend( end_context ) #add end context to speech window
@@ -625,32 +783,27 @@ class WakeWhisper:
 
 	## PROCESSING
 	def multi_phrase_check(self, text: str) -> bool:
-		# Split on common sentence boundaries
-		phrases = re.split(r'[.,;!?]\s*|\n', text)
-		phrases = [self.clean_text(phrase.lower()) for phrase in phrases if phrase.strip()]
+		"""
+		Reject a transcript that is the model looping rather than speech.
+
+		The phrase threshold used to be "appears more than once", which threw
+		away ordinary answers - "yes, yes" and "no, no" are things people
+		actually say. It is REPEAT_LIMIT now, in line with is_hallucination.
+		"""
+		if repeated_phrase(text, REPEAT_LIMIT):
+			return True
+
+		# A word that dominates the transcript without tiling it evenly -
+		# "hello there hello hello hello hello" - which repeated_phrase()
+		# cannot see, since the whole phrase is not one repeated block.
+		wake = {w.lower() for w in self.wake_words}
 		counts = {}
-
-		for phrase in phrases:
-			if not phrase or phrase in self.wake_words or phrase in [w.lower() for w in self.wake_words]:
+		for word in _flatten(text).split():
+			if not word or word in wake:
 				continue
-			if len(phrase.split()) < 2:  # Ignore very short phrases
-				continue
-			counts[phrase] = counts.get(phrase, 0) + 1
-
-		# If any phrase appears more than once, flag as hallucination
-		if any(count > 1 for count in counts.values()):
-			return True
-
-		# Check for long repeated single word (e.g., "hello hello hello hello")
-		words = text.lower().split()
-		word_counts = {}
-		for word in words:
-			word = self.clean_text(word)
-			if not word or word in [w.lower() for w in self.wake_words]:
-				continue
-			word_counts[word] = word_counts.get(word, 0) + 1
-		if any(count > 5 for count in word_counts.values()):  # Threshold can be tuned
-			return True
+			counts[word] = counts.get(word, 0) + 1
+			if counts[word] >= REPEAT_LIMIT:
+				return True
 
 		return False
 	
@@ -729,6 +882,9 @@ class STTServer:
 		wake_words = config.get("wake_words") or ["alexa"]
 		self.input_device = config.get("input_device")
 		self.model_name = config.get("model", "tiny.en")
+		# Set before the early return below, so the watchdog still works on a
+		# process that came up without an audio stack.
+		self.parent_pid = int(config.get("parent_pid") or 0)
 		self.import_error = _IMPORT_ERROR
 
 		if self.import_error:
@@ -745,6 +901,8 @@ class STTServer:
 			minimum_speech_windows = 20,
 			wake_timeout_seconds = 3.5,
 			use_noise_reduction=True,
+			session_silence_ms = int(config.get("session_silence_ms") or 800),
+			session_minimum_speech_ms = int(config.get("session_minimum_speech_ms") or 150),
 			wake_words = wake_words,
 			input_device = self.input_device
 		)
@@ -828,15 +986,29 @@ class STTServer:
 			s.setsockopt(SOL_SOCKET, SO_REUSEADDR, 1)
 			s.bind((self.host, self.ports["command"]))
 			s.listen(1)
+			# Timed accept, so `running` going False is noticed instead of the
+			# thread sitting in accept() forever waiting for a command that is
+			# never coming.
+			s.settimeout(0.5)
 			print("[STTServer]: Listening for commands...")
 			while self.running:
-				conn, addr = s.accept()
+				try:
+					conn, addr = s.accept()
+				except TimeoutError:
+					continue
+				except OSError:
+					break
 				with conn:
 					print("[STTServer]: Command connection from", addr)
 					try:
 						data = conn.recv(1024)
 						if not data:
-							break
+							# continue, NOT break. An empty connection - a port
+							# probe, a client that reconnected and dropped -
+							# used to kill this listener outright, after which
+							# STOP could never be delivered and the process
+							# survived every shutdown.
+							continue
 
 						raw = data.decode("utf-8").strip()
 						to, command = raw.split(":")
@@ -874,9 +1046,57 @@ class STTServer:
 				except Exception:
 					self.__close_connection("data")
 
+	def __watch_parent(self):
+		"""
+		Exit if the client goes away without sending STOP.
+
+		A crash, a kill, or a launcher restart leaves this process with nobody
+		to talk to - still holding the microphone and both ports, so the next
+		client cannot bind them and comes up with no audio at all. Nothing
+		else notices: the command listener just waits for a command that is
+		never coming.
+		"""
+		if not self.parent_pid:
+			return
+		while self.running:
+			if not _pid_alive(self.parent_pid):
+				print("[STTServer]: Parent process is gone - shutting down.")
+				self.shutdown()
+			time.sleep(2)
+
+	def __install_signals(self):
+		def handler(signum, _frame):
+			print(f"[STTServer]: Signal {signum} - shutting down.")
+			self.shutdown()
+		for sig in (signal.SIGTERM, signal.SIGINT):
+			try:
+				signal.signal(sig, handler)
+			except (ValueError, OSError, AttributeError):
+				# Not the main thread, or the platform has no such signal.
+				pass
+
+	def shutdown(self, code: int = 0):
+		"""Release everything and leave, without waiting on native threads."""
+		try:
+			self.stop()
+		except Exception as e:
+			print("[STTServer]: Error during stop:", e)
+		try:
+			sys.stdout.flush()
+		except Exception:
+			pass
+		# os._exit, not sys.exit: a normal interpreter shutdown joins at the C
+		# level on threads parked inside PortAudio or CTranslate2, which is
+		# exactly where they are when a transcription is in flight. That is
+		# what left the process alive after it had already said it was
+		# shutting down.
+		os._exit(code)
+
 	def run(self):
+		self.__install_signals()
 		Thread(target=self.__listen_for_commands, daemon=True).start()
 		Thread(target=self.__send_and_recv_data, daemon=True).start()
+		Thread(target=self.__watch_parent, daemon=True).start()
 
 		if self.whisper is None:
 			# Stay alive briefly so the client can connect and receive the
@@ -909,7 +1129,15 @@ class STTServer:
 		self.running = False
 
 		# Stop whisper threads
-		self.whisper.stop()
+		if self.whisper is not None:
+			# Guarded: on the import-error path there is no model to stop, and
+			# the AttributeError used to escape into the command handler's
+			# catch-all, which swallowed it and left the caller thinking the
+			# shutdown had run.
+			try:
+				self.whisper.stop()
+			except Exception as e:
+				print("[STTServer]: Error stopping Whisper:", e)
 
 		# Close sockets
 		self.__close_connection("command")
@@ -918,4 +1146,7 @@ class STTServer:
 
 if __name__ == "__main__":
 	server = STTServer()
-	server.run()
+	try:
+		server.run()
+	finally:
+		server.shutdown()

@@ -19,8 +19,6 @@ from src.mixins import mixin_target
 from src.settings import Settings, scrub_secrets
 from src.ui.page import PageFramework
 from src.ui.widget import WidgetFramework
-from src.ui.controls.drawer import Drawer
-from src.ui.controls.buttons import IconButton
 from src.ui.icons import Icons, icon, resolve_plugin_icon
 from src.styling import COLORS, SIZES, make_font, set_style, get_style_sheet
 from src.ui.keyboard import make_keyboard
@@ -761,24 +759,11 @@ class SettingsPage(PageFramework):
         self._content_scroll.setWidget(self._content_widget)
         bl.addWidget(self._content_scroll, stretch=1)
 
-        # ── Drawer ────────────────────────────────────────────────────────────
-        self.drawer = Drawer(client, position="bottom")
-        self.drawer.setParent(self)
-        self.drawer.place_on_page()
-        self.drawer.add_controls([
-            IconButton(Icons.HOME,       lambda: client.goto(client.DEFAULT_PAGE or "#root")),
-            IconButton(Icons.FULLSCREEN, client.toggle_fullscreen),
-            IconButton(Icons.CLOSE,      client.stop),
-        ])
-
-        # Raise order: grid < body < top_bar < drawer
+        # Raise order: grid < body < top_bar
         self._grid.lower()
-        self.drawer.raise_()
 
         # ── Features ─────────────────────────────────────────────────────────
         self.add_features({
-            "add_drawer_controls":    self.drawer.insert_controls,
-            "remove_drawer_controls": self.drawer.remove_controls,
             "new_category":           self.new_category,
             "new_subcategory":        self.new_subcategory,
             "insert_block":           self.insert_block,
@@ -1586,4 +1571,3 @@ class SettingsPage(PageFramework):
         self._grid.setGeometry(0, 0, w, h)
         self._top_bar.setGeometry(0, 0, w, BAR_H)
         self._body.setGeometry(0, BAR_H, w, h - BAR_H)
-        self.drawer.apply_parent_width()

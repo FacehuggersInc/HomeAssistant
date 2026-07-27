@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import os
 import sys
 import json
 import time
@@ -103,11 +104,15 @@ class Session():
 
 class STTProcessing():
 	def __init__(self, client, process:str = "whisper",
-				 input_device=None, model:str = "tiny.en", wake_words=None):
+				 input_device=None, model:str = "tiny.en", wake_words=None,
+				 session_silence_ms:int = 800):
 		self.client = client
 		self.input_device = input_device
 		self.model = model
 		self.wake_words = list(wake_words or [])
+		# How long a silence ends a phrase once a session is open. Wake mode
+		# keeps its own much shorter threshold.
+		self.session_silence_ms = int(session_silence_ms)
 		self.last_error : str = ""
 		self.process_type = process
 		self.__process_path = None
@@ -290,16 +295,19 @@ class STTProcessing():
 
 
 	## SOCKET
-	def send_command(self, command:str):
-		for _ in range(10):
+	def send_command(self, command:str, retries:int = 10):
+		for attempt in range(max(1, retries)):
 			try:
 				with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+					s.settimeout(1.0)
 					s.connect( (self.host, self.ports["command"]) )
 					s.sendall( f"server:{command}".encode("utf-8") )
-					return
-			except ConnectionRefusedError:
-				time.sleep(0.5)
+					return True
+			except (ConnectionRefusedError, OSError):
+				if attempt < retries - 1:
+					time.sleep(0.5)
 		self.client.log("error", "[STTProcessing] Could not connect to STT process to send command")
+		return False
 
 	def __listen_for_stt_data(self, stop_event):
 		while self.listening and not stop_event.is_set():
@@ -418,6 +426,11 @@ class STTProcessing():
 				"wake_words":   words,
 				"input_device": self.input_device,
 				"model":        self.model,
+				"session_silence_ms": self.session_silence_ms,
+				# So the process can notice the client dying without a STOP and
+				# leave on its own, instead of surviving as an orphan holding
+				# the microphone and both ports.
+				"parent_pid":   os.getpid(),
 			})
 			self.client.log("info", f"[STTProcessing] Starting STT: model={self.model} "
 									f"device={self.input_device} wake={words}")
@@ -428,25 +441,73 @@ class STTProcessing():
 			self.client.THREADS.create("__stt_receiver_thread", self.__listen_for_stt_data)
 			self.client.THREADS.start("__stt_receiver_thread")
 
+	# How long to give the process at each stage of shutting down. Short on
+	# purpose: this runs on the UI thread from Client.cleanup(), so the whole
+	# escalation has to fit inside a shutdown the user is watching.
+	STOP_TIMEOUT = 5.0
+	KILL_TIMEOUT = 2.0
+
 	def kill(self):
-		if self.process and self.process.poll() is None:
-			self.process.terminate()
-			self.listening = False
+		"""
+		Force the process down, escalating until it is actually gone.
+
+		terminate() alone is a request, not a guarantee - a process parked in a
+		native call may never act on it.
+		"""
+		self.listening = False
+		process, self.process = self.process, None
+		if process is None or process.poll() is not None:
+			return
+
+		for step, label in ((process.terminate, "terminate"), (process.kill, "kill")):
+			try:
+				step()
+				process.wait(timeout=self.KILL_TIMEOUT)
+				self.client.log("info", f"[STTProcessing] STT process ended by {label}.")
+				return
+			except subprocess.TimeoutExpired:
+				continue
+			except Exception as ex:
+				self.client.log("warning", f"[STTProcessing] {label} failed: {ex}")
+
+		self.client.log("error", "[STTProcessing] STT process would not die - it will "
+								 "keep holding the microphone and ports 65432/65433.")
 
 	def stop(self):
-		try:
-			self.send_command("STOP")
+		"""
+		Ask the STT process to exit, then confirm it did.
 
+		Sending STOP and walking away is what left a process behind: if the
+		command listener had already gone the message went nowhere, and nothing
+		ever checked. The survivor keeps the microphone and both ports, so the
+		next launch cannot bind them and comes up silent.
+		"""
+		self.listening = False
+
+		process = self.process
+		if process is None or process.poll() is not None:
+			self.process = None
+			return
+
+		try:
+			self.send_command("STOP", retries=2)
 			self.client.simple_notify(
 				"assistant",
 				"Assistant: STT",
 				"Stopping Process"
 			)
-			
-			self.listening = False
 		except Exception as ex:
-			self.client.simple_notify(
-				"assistant",
-				"Assistant: STOP ERROR",
-				str(ex)
-			)
+			self.client.log("warning", f"[STTProcessing] Error sending STOP: {ex}")
+
+		try:
+			process.wait(timeout=self.STOP_TIMEOUT)
+			self.process = None
+			self.client.log("info", "[STTProcessing] STT process exited cleanly.")
+			return
+		except subprocess.TimeoutExpired:
+			self.client.log("warning", "[STTProcessing] STT process ignored STOP - "
+									   "terminating.")
+		except Exception as ex:
+			self.client.log("warning", f"[STTProcessing] Error waiting on STT: {ex}")
+
+		self.kill()

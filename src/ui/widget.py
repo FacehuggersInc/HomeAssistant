@@ -773,7 +773,7 @@ class WidgetFramework(QWidget):
         Keep a widget inside the page margin, not merely on screen.
 
         The same padding the anchor zones use, so a floating widget cannot sit
-        flush against an edge - or half under the drawer - while every
+        flush against an edge while every
         anchored one keeps its margin.
         """
         view_w, view_h = self.visible_size()

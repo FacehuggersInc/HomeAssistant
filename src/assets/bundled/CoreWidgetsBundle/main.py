@@ -1,5 +1,6 @@
 from src.mixins import mixin
 from src.plugin.template import Plugin
+from src.ui.icons import Icons
 from src.plugin.carryover import PluginCarryover
 
 from .widgets.cycling_background import CyclingBackground
@@ -25,9 +26,6 @@ class CoreWidgetsBundle(Plugin):
             "sub.tiles": [],
             "sub.home":  [],
         }
-        self.drawer_btns = {
-            "sub.home": [],
-        }
         self.sub_pages = {
             "home": [],
         }
@@ -37,7 +35,6 @@ class CoreWidgetsBundle(Plugin):
 
     def load(self, carryover: PluginCarryover = None):
         self.client.public.expose("corewidgetsbundle", "cwb_widgets",   self.widgets)
-        self.client.public.expose("corewidgetsbundle", "cwb_drawer",    self.drawer_btns)
         self.client.public.expose("corewidgetsbundle", "cwb_sub_pages", self.sub_pages)
         self.client.API["weather"] = OpenMeteoAPI(self, self.client)
 
@@ -85,10 +82,8 @@ class CoreWidgetsBundle(Plugin):
                     self._background.stop()
                     self._background.setParent(None)
                     self._background = None
-                if sub_home.has_feature("remove_drawer_controls"):
-                    sub_home.features().remove_drawer_controls(
-                        self.drawer_btns.get("sub.home", [])
-                    )
+                self.client.public.unexpose("corewidgetsbundle", "cwb_wallpaper")
+                self.client.QUICK.unregister("corewidgetsbundle")
 
             if sub_tiles:
                 for widget in self.widgets.get("sub.tiles", []):
@@ -130,13 +125,23 @@ class CoreWidgetsBundle(Plugin):
         self._background.setParent(sub_home)
         self._background.lower()
 
-        # Drawer buttons from the background widget
-        self.drawer_btns["sub.home"] = [
-            (self._background._pin_btn,   0),
-            (self._background._cycle_btn, 1),
-        ]
-        if sub_home.has_feature("add_drawer_controls"):
-            sub_home.features().add_drawer_controls(self.drawer_btns["sub.home"])
+        # Wallpaper controls, published for the quick settings header. The
+        # panel hides them when this is absent, which is how they stay
+        # sub.home-only now that the panel itself is global.
+        self.client.public.expose("corewidgetsbundle", "cwb_wallpaper", {
+            "cycle":      self._background.cycle,
+            "toggle_pin": self._background.toggle_pin,
+            "is_pinned":  self._background.is_pinned,
+            "can_cycle":  self._background.can_cycle,
+        }, overwrite=True)
+
+        # The widgets panel was only reachable from this page. As a quick
+        # access entry it is reachable from anywhere.
+        self.client.QUICK.register(
+            "corewidgetsbundle", "widget_panel", "Widgets", Icons.EXTENSION,
+            on_press = lambda: sub_home.features().toggle_widget_panel(),
+            order    = 10,
+        )
 
         # Registered, not constructed-and-added: the saved layout decides what
         # sits on the page and what waits in the widgets panel, the same way

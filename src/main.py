@@ -33,6 +33,7 @@ from src.registries.api_registry import APIRegistry
 from src.registries.public_registry import PublicRegistry
 from src.registries.page_registry import PageRegistry
 from src.registries.secret_registry import SecretRegistry
+from src.registries.quick_access_registry import QuickAccessRegistry
 from src.backend import FlaskApp, FlaskService
 from src.assistant.skill import Skill, SkillIntentEngine
 from src.assistant.stt import STTProcessing
@@ -283,6 +284,7 @@ class Client:
         self.SWITCHING_PAGE = False
         self.PAGE           = None
         self.PAGES          = PageRegistry(self)
+        self.QUICK          = QuickAccessRegistry(self)
         self.DEFAULT_PAGE   = ""
 
         from src.pages.settings import SettingsPage
@@ -596,6 +598,8 @@ class Client:
 
         self.internal_build_setup()
 
+        self.build_quick_settings()
+
         self.window.show()
         self.BUILT = True
 
@@ -612,6 +616,43 @@ class Client:
         QTimer.singleShot(1200, self.prompt_for_plugin_dependencies)
         QTimer.singleShot(1600, self.start_assistant)
         self.subscribe_to_event("on_settings_saved", self.on_assistant_settings_saved)
+
+    ##QUICK SETTINGS
+
+    def build_quick_settings(self) -> None:
+        """
+        Global controls: the dimmer, the top-edge gesture and the panel.
+
+        Built once against the client rather than per page. These used to be a
+        drawer each page had to construct for itself, which meant a control
+        existed only where someone had remembered to add it.
+        """
+        from src.ui.dimmer import Dimmer
+        from src.ui.quick_settings import QuickSettings
+        from src.ui.controls.edge_swipe import TopEdgeSwipe
+
+        # Brightness stand-in. Added through the overlay manager rather than
+        # re-parented by hand: add() routes a WA_TransparentForMouseEvents
+        # child onto the passthrough layer AND installs the filter that keeps
+        # that layer's mask in step with it. Re-parenting directly skips the
+        # filter, and the dim would never appear.
+        self.DIMMER = Dimmer(self)
+        self.OVERLAYS.add("BACKGROUND", self.DIMMER)
+        self.DIMMER.sync_geometry()
+        self.DIMMER.hide()   # add() shows it; nothing to dim at full brightness
+
+        self.QUICK_SETTINGS = QuickSettings(self)
+
+        self.EDGE_SWIPE = TopEdgeSwipe(self, self.QUICK_SETTINGS.open_panel)
+        self.OVERLAYS.add("SYSTEM", self.EDGE_SWIPE)
+        self.EDGE_SWIPE.sync_geometry()
+
+        self.subscribe_to_event("on_interaction", self.QUICK_SETTINGS.on_interaction)
+
+    def toggle_quick_settings(self) -> None:
+        panel = getattr(self, "QUICK_SETTINGS", None)
+        if panel is not None:
+            panel.toggle()
 
     ##ASSISTANT
 
@@ -674,6 +715,7 @@ class Client:
             str(self.setting("assistant.input_device.value", "") or "").strip(),
             str(self.setting("assistant.model.value", "tiny.en") or "tiny.en"),
             self.wake_word,
+            int(self.setting("assistant.session_silence.value", 800)),
             bool(self.setting("assistant.tts_enabled.value", True)),
             # Whether a key exists, never the key. Entering one in Settings
             # should bring speech up without a manual restart.
@@ -803,6 +845,7 @@ class Client:
                 input_device = device,
                 model        = model,
                 wake_words   = [self.wake_word],
+                session_silence_ms = int(self.setting("assistant.session_silence.value", 800)),
             )
             self.STT.start()
             self.log("info", f"[Assistant] Listening on {audio.describe(device)} "
@@ -884,6 +927,15 @@ class Client:
         self.OVERLAYS.update_geometry(new_w, new_h)
         if self.PAGE:
             self.PAGE.setGeometry(0, 0, new_w, new_h)
+
+        # Both span the window and neither is laid out by anything, so they
+        # have to be told.
+        for widget in (getattr(self, "DIMMER", None), getattr(self, "EDGE_SWIPE", None)):
+            if widget is not None:
+                try:
+                    widget.sync_geometry()
+                except RuntimeError:
+                    pass
 
     ##BACKEND
 
