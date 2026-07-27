@@ -689,19 +689,29 @@ class Client:
         except (TypeError, ValueError):
             return 6.0
 
-    def check_for_update(self, quiet: bool = False) -> None:
+    def check_for_update(self, quiet: bool = False,
+                         on_result: Optional[Callable] = None) -> None:
         """
-        Run the check off the UI thread. `quiet` suppresses the "you are up to
-        date" reply, which is what the timer wants and a manual check does not.
+        Run the check off the UI thread.
+
+        `quiet` suppresses the "you are up to date" reply, which is what the
+        timer wants and a manual check does not. `on_result(available, commit,
+        error)` is handed the outcome on the UI thread for callers that want to
+        present it themselves rather than as a notification.
         """
+        def finish(available, commit, error):
+            if callable(on_result):
+                self.call_on_ui(lambda: on_result(available, commit, error))
+
         def work():
             from src import update_check
             try:
                 available, commit, reason = update_check.check()
             except Exception as e:
                 self.log("warning", f"[Update] Check failed: {e}")
-                if not quiet:
+                if not quiet and on_result is None:
                     self.simple_notify("warning", "Update check", str(e))
+                finish(False, None, e)
                 return
 
             self.log("info", f"[Update] {reason}")
@@ -709,22 +719,28 @@ class Client:
             self.UPDATE_COMMIT = commit
 
             if not available:
-                if not quiet:
+                if not quiet and on_result is None:
                     self.simple_notify("check", "Up to date",
                                        "This is the latest version.")
+                self.call_on_ui(self._refresh_update_button)
+                finish(False, commit, None)
                 return
 
             # Once per version. The timer keeps firing, and a panel that
             # re-notified every few hours about the same commit would be worse
-            # than not notifying at all.
-            if self._update_notified_sha != commit.sha:
-                self._update_notified_sha = commit.sha
+            # than not notifying at all. The flag is set either way, so a
+            # caller presenting its own dialog does not leave the timer free to
+            # announce the same commit again afterwards.
+            first_time = self._update_notified_sha != commit.sha
+            self._update_notified_sha = commit.sha
+            if first_time and on_result is None:
                 self.simple_notify(
                     "download", "Update available",
                     f"{commit.summary} - {commit.age()}",
                 )
 
             self.call_on_ui(self._refresh_update_button)
+            finish(True, commit, None)
 
         Thread(target=work, name="__update_check", daemon=True).start()
 

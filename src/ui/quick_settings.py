@@ -175,6 +175,7 @@ class QuickSettings(Panel):
             destroy_on_close = False,
         )
         self._built = False
+        self._checking_update = False
         self._tiles: list[QuickAccessButton] = []
 
         self._body = QWidget()
@@ -227,10 +228,6 @@ class QuickSettings(Panel):
         self._btn_full      = IconButton(Icons.FULLSCREEN, self._toggle_fullscreen, size=24)
         self._btn_settings  = IconButton(Icons.SETTINGS, self._open_settings, size=24)
         self._btn_quit      = IconButton(Icons.CLOSE, self._quit, size=24)
-
-        # Hidden until there is actually something to install, so its presence
-        # is the notification rather than a permanently-lit button nobody reads.
-        self._btn_update.hide()
 
         for button in (self._btn_update, self._btn_wallpaper, self._btn_pin,
                        self._btn_full, self._btn_settings, self._btn_quit):
@@ -404,24 +401,66 @@ class QuickSettings(Panel):
 
     ## -- updates
 
+    # Colour is the whole signal now that the button is always present: plain
+    # white for "nothing known", brand green once something is waiting.
+    UPDATE_IDLE_COLOR = "white"
+    UPDATE_READY_COLOR = "#2ff08e"
+
     def refresh_update_button(self) -> None:
         """Called both when the panel opens and when a background check lands."""
         try:
-            self._btn_update.setVisible(bool(getattr(self.client, "UPDATE_AVAILABLE", False)))
+            if self._checking_update:
+                return   # mid-check; leave the button as it is until it lands
+            ready = bool(getattr(self.client, "UPDATE_AVAILABLE", False))
+            self._btn_update.setEnabled(True)
+            self._btn_update.update_icon(
+                Icons.DOWNLOAD,
+                self.UPDATE_READY_COLOR if ready else self.UPDATE_IDLE_COLOR)
         except RuntimeError:
             pass
 
     def _show_update(self) -> None:
-        commit = getattr(self.client, "UPDATE_COMMIT", None)
-        if commit is None:
-            self.client.alert("Update", "No update information available yet.")
-            return
-
         self._restart_timeout()
 
+        commit = getattr(self.client, "UPDATE_COMMIT", None)
+        if getattr(self.client, "UPDATE_AVAILABLE", False) and commit is not None:
+            self._open_update_dialog(commit)
+            return
+
+        if self._checking_update:
+            return   # a second tap while one is already in flight
+
+        # Nothing known yet - the periodic check may not have run, or may have
+        # failed. Ask now rather than telling the user there is no update when
+        # the truth is that nobody has looked.
+        self._checking_update = True
+        try:
+            self._btn_update.setEnabled(False)
+            self._btn_update.update_icon(Icons.REFRESH, self.UPDATE_IDLE_COLOR)
+        except RuntimeError:
+            pass
+        self.client.check_for_update(quiet=True, on_result=self._update_checked)
+
+    def _update_checked(self, available, commit, error) -> None:
+        self._checking_update = False
+        self.refresh_update_button()
+
+        if error is not None:
+            self.client.simple_notify("warning", "Update check", str(error))
+            return
+
+        if available and commit is not None:
+            self._open_update_dialog(commit)
+        else:
+            self.client.simple_notify("check", "Up to date",
+                                      "This is the latest version.")
+
+    def _open_update_dialog(self, commit) -> None:
         body = (f"{commit.summary}\n\n"
                 f"by {commit.author}, {commit.age()}\n"
                 f"commit {commit.short}")
+        # Only when there is more than the summary - an expandable detail
+        # holding a copy of the line above it is just noise.
         detail = commit.message if commit.message != commit.summary else None
 
         def start():
