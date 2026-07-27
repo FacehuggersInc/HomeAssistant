@@ -21,6 +21,7 @@ from typing import Optional
 from src.constants import INSTALL_ROOT
 
 DOCS_DIR = INSTALL_ROOT / "docs"
+BUNDLED_DIR = INSTALL_ROOT / "src" / "assets" / "bundled"
 
 # Order in the sidebar. Anything on disk but not listed is appended after,
 # alphabetically, so a new file shows up without being registered here.
@@ -81,6 +82,48 @@ def resolve(name: str) -> Optional[Path]:
     if not candidate.is_file():
         return None
     return candidate
+
+
+def bundled_plugins() -> list:
+    """
+    [(slug, display, path)] for bundled plugins shipping a readme.
+
+    Read off disk rather than listed here, so a plugin added to the bundle
+    appears in the sidebar without anyone remembering to register it.
+    """
+    out = []
+    if not BUNDLED_DIR.is_dir():
+        return out
+    for directory in sorted(BUNDLED_DIR.iterdir()):
+        if not directory.is_dir() or directory.name.startswith((".", "__")):
+            continue
+        readme = next((directory / n for n in ("readme.md", "README.md")
+                       if (directory / n).is_file()), None)
+        if readme is None:
+            continue
+        out.append((directory.name.lower(), plugin_display(directory), readme))
+    return out
+
+
+def plugin_display(directory: Path) -> str:
+    """The name from plugin.toml, falling back to the folder."""
+    toml = directory / "plugin.toml"
+    if toml.is_file():
+        try:
+            for line in toml.read_text(encoding="utf-8").splitlines():
+                match = re.match(r'\s*name\s*=\s*"([^"]+)"', line)
+                if match:
+                    return match.group(1)
+        except OSError:
+            pass
+    return directory.name
+
+
+def resolve_plugin(slug: str) -> Optional[Path]:
+    for candidate, _, readme in bundled_plugins():
+        if candidate == slug.strip().strip("/").lower():
+            return readme
+    return None
 
 
 def nav_entries() -> list:
@@ -332,9 +375,115 @@ def render(markdown: str) -> tuple[str, list]:
     return "\n".join(out), toc
 
 
+## -- SYNTAX HIGHLIGHTING ------------------------------------------------------
+
+# Deliberately small. These are our own docs, in five known languages, and the
+# alternative is shipping a JS highlighter from a CDN - which fails on a
+# machine with no internet, which is exactly the machine reading local docs.
+#
+# Each spec is an ordered list of (token class, pattern). Order matters:
+# comments and strings come first so a '#' inside a string is not a comment
+# and a keyword inside a comment is not a keyword. An unknown language falls
+# through to plain escaped text rather than guessing.
+
+_PY_KEYWORDS = (
+    r"\b(?:def|class|return|if|elif|else|for|while|in|not|and|or|import|from|"
+    r"as|with|try|except|finally|raise|pass|lambda|yield|global|nonlocal|"
+    r"assert|del|is|await|async|break|continue)\b"
+)
+_PY_CONSTANTS = r"\b(?:None|True|False|self|cls)\b"
+_PY_BUILTINS = (
+    r"\b(?:print|len|str|int|float|bool|dict|list|set|tuple|range|open|"
+    r"isinstance|super|property|staticmethod|classmethod|Exception|enumerate|"
+    r"sorted|any|all|min|max|abs|round|type|getattr|setattr|hasattr)\b"
+)
+
+SYNTAX = {
+    "python": [
+        ("com", r"#[^\n]*"),
+        ("str", r"(?:[frbFRB]{0,2})(?:\"\"\".*?\"\"\"|\'\'\'.*?\'\'\'|\"(?:\\\\.|[^\"\\\\\n])*\"|\'(?:\\\\.|[^\'\\\\\n])*\')"),
+        ("dec", r"@[\w.]+"),
+        ("kw",  _PY_KEYWORDS),
+        ("con", _PY_CONSTANTS),
+        ("bui", _PY_BUILTINS),
+        ("num", r"\b\d+(?:\.\d+)?\b"),
+        ("fn",  r"\b[A-Za-z_]\w*(?=\()"),
+    ],
+    "bash": [
+        ("com", r"#[^\n]*"),
+        ("str", r"\"(?:\\\\.|[^\"\\\\])*\"|\'[^\']*\'"),
+        ("flg", r"(?<=\s)--?[A-Za-z][\w-]*"),
+        ("kw",  r"\b(?:if|then|else|fi|for|do|done|while|case|esac|function|export|source|cd|sudo)\b"),
+        ("fn",  r"^\s*(?:\./)?[\w./-]+(?=\s|$)"),
+        ("num", r"\b\d+\b"),
+    ],
+    "json": [
+        ("key", r"\"(?:\\\\.|[^\"\\\\])*\"(?=\s*:)"),
+        ("str", r"\"(?:\\\\.|[^\"\\\\])*\""),
+        ("con", r"\b(?:true|false|null)\b"),
+        ("num", r"-?\b\d+(?:\.\d+)?\b"),
+    ],
+    "toml": [
+        ("com", r"#[^\n]*"),
+        ("dec", r"^\s*\[[^\]\n]+\]"),
+        ("str", r"\"(?:\\\\.|[^\"\\\\])*\"|\'[^\']*\'"),
+        ("key", r"^\s*[\w.-]+(?=\s*=)"),
+        ("con", r"\b(?:true|false)\b"),
+        ("num", r"-?\b\d+(?:\.\d+)?\b"),
+    ],
+    "css": [
+        ("com", r"/\*.*?\*/"),
+        ("dec", r"^\s*[.#][\w-]+(?:::?[\w-]+)*"),
+        ("key", r"[\w-]+(?=\s*:)"),
+        ("str", r"\"(?:\\\\.|[^\"\\\\])*\"|\'[^\']*\'"),
+        ("num", r"-?\b\d+(?:\.\d+)?(?:px|em|rem|%|s|ms)?\b"),
+        ("fn",  r"\b[a-z-]+(?=\()"),
+    ],
+}
+SYNTAX["py"] = SYNTAX["python"]
+SYNTAX["sh"] = SYNTAX["shell"] = SYNTAX["bash"]
+
+_COMPILED = {
+    lang: re.compile(
+        "|".join(f"(?P<{cls}{i}>{pattern})" for i, (cls, pattern) in enumerate(spec)),
+        # S so a triple-quoted string or a /* */ comment can span lines;
+        # M so the line-anchored patterns match every line, not just the first.
+        # Both have to be flags here rather than inline (?ms) groups, which
+        # Python rejects anywhere but the start of a pattern.
+        re.S | re.M,
+    )
+    for lang, spec in SYNTAX.items()
+}
+_CLASS_OF = {
+    lang: {f"{cls}{i}": cls for i, (cls, _) in enumerate(spec)}
+    for lang, spec in SYNTAX.items()
+}
+
+
+def highlight(code: str, language: str) -> str:
+    """Escaped HTML for a code block, with spans where we recognise the language."""
+    lang = (language or "").strip().lower()
+    pattern = _COMPILED.get(lang)
+    if pattern is None:
+        return html.escape(code, quote=False)
+
+    classes = _CLASS_OF[lang]
+    out = []
+    cursor = 0
+    for match in pattern.finditer(code):
+        if match.start() > cursor:
+            out.append(html.escape(code[cursor:match.start()], quote=False))
+        name = match.lastgroup
+        out.append(f'<span class="t-{classes[name]}">'
+                   f"{html.escape(match.group(), quote=False)}</span>")
+        cursor = match.end()
+    out.append(html.escape(code[cursor:], quote=False))
+    return "".join(out)
+
+
 def code_block(code: str, language: str) -> str:
     label = html.escape(language or "text", quote=True)
-    body = html.escape(code, quote=False)
+    body = highlight(code, language)
     return (f'<div class="code" data-lang="{label}">'
             f'<div class="code-bar"><span>{label}</span>'
             f'<button class="copy" type="button">copy</button></div>'
@@ -344,6 +493,9 @@ def code_block(code: str, language: str) -> str:
 ## -- PAGE --------------------------------------------------------------------
 
 def page(slug: str) -> Optional[str]:
+    if slug.startswith("plugin/"):
+        return plugin_page(slug[len("plugin/"):])
+
     path = resolve(slug)
     if path is None:
         return None
@@ -356,6 +508,24 @@ def page(slug: str) -> Optional[str]:
 
     body, toc = render(markdown)
     return shell(title_of(path), body, toc_html(toc), path.stem)
+
+
+def plugin_page(slug: str) -> Optional[str]:
+    path = resolve_plugin(slug)
+    if path is None:
+        return None
+    try:
+        markdown = path.read_text(encoding="utf-8")
+    except OSError as e:
+        return None
+
+    body, toc = render(markdown)
+    # A note above the readme, because a plugin readme is written by whoever
+    # wrote the plugin and does not necessarily follow the house style.
+    intro = ('<p class="note">Shipped readme for this bundled plugin. '
+             'See <a href="/docs/bundled-plugins">Bundled plugins</a> for how '
+             'it fits with the rest.</p>')
+    return shell(title_of(path), intro + body, toc_html(toc), f"plugin/{slug}")
 
 
 def toc_html(toc: list) -> str:
@@ -376,6 +546,16 @@ def sidebar_html(current: str) -> str:
     for slug, title, _ in nav_entries():
         active = ' class="active"' if slug == current else ""
         rows.append(f'<a href="/docs/{slug}"{active}>{html.escape(title)}</a>')
+
+        # Each bundled plugin's own readme, nested under the page describing
+        # them. Only rendered where that page sits, so the sidebar keeps one
+        # obvious reading order.
+        if slug == "bundled-plugins":
+            for plugin_slug, display, _readme in bundled_plugins():
+                target = f"plugin/{plugin_slug}"
+                sub_active = " active" if target == current else ""
+                rows.append(f'<a class="sub{sub_active}" href="/docs/{target}">'
+                            f"{html.escape(display)}</a>")
     return "".join(rows)
 
 
@@ -408,6 +588,12 @@ STYLE = """
 :root {
   --bg:#151517; --panel:#1c1c1f; --line:#2c2c31; --text:#e6e6e8;
   --muted:#9a9aa2; --accent:#2ff08e; --accent-dim:#1faf68; --code:#111114;
+  --inline:#7fe0b0;
+  /* Syntax tokens. Kept away from the accent green so a keyword is never
+     mistaken for a link. */
+  --t-kw:#8ab4ff; --t-str:#e3b673; --t-num:#d7a3ea; --t-com:#6f6f78;
+  --t-bui:#5ed4a8; --t-fn:#f0d67a; --t-dec:#c69cf0; --t-con:#e88f8f;
+  --t-key:#8ab4ff; --t-flg:#e3b673;
 }
 * { box-sizing:border-box; }
 body {
@@ -437,6 +623,18 @@ a:hover { text-decoration:underline; }
 }
 .nav a:hover { background:#26262b; color:var(--text); text-decoration:none; }
 .nav a.active { background:#26262b; color:var(--text); border-left-color:var(--accent); }
+.nav a.sub {
+  font-size:13.5px; padding-left:22px; color:#7f7f88;
+  border-left:2px solid var(--line); margin-left:9px; border-radius:0 7px 7px 0;
+}
+.nav a.sub:hover { color:var(--text); }
+.nav a.sub.active { color:var(--text); border-left-color:var(--accent); background:#26262b; }
+
+.note {
+  padding:9px 14px; margin:0 0 20px; border-radius:8px;
+  background:#1a1a1e; border:1px solid var(--line); color:var(--muted);
+  font-size:14px;
+}
 
 main { min-width:0; padding:44px 52px 96px; }
 article { max-width:820px; }
@@ -444,11 +642,15 @@ article { max-width:820px; }
 h1,h2,h3,h4 { line-height:1.25; scroll-margin-top:24px; }
 h1 { font-size:32px; margin:0 0 6px; }
 h2 { font-size:23px; margin:44px 0 12px; padding-top:20px; border-top:1px solid var(--line); }
+/* Sections separated by an explicit "---" already have a rule above them; the
+   heading must not draw a second one directly under it. */
+hr + h2 { border-top:none; padding-top:0; margin-top:34px; }
 h3 { font-size:18px; margin:28px 0 8px; color:#d2d2d6; }
 .anchor { color:var(--line); margin-left:-20px; padding-right:8px; opacity:0; font-weight:400; }
 h2:hover .anchor, h3:hover .anchor { opacity:1; }
 
 p { margin:0 0 15px; }
+strong { color:#f2f2f4; font-weight:600; }
 ul,ol { margin:0 0 15px; padding-left:22px; }
 li { margin:4px 0; }
 hr { border:0; border-top:1px solid var(--line); margin:34px 0; }
@@ -459,7 +661,13 @@ blockquote {
 code {
   background:#26262b; padding:2px 6px; border-radius:4px; font-size:13.5px;
   font-family:"JetBrains Mono", "SF Mono", Consolas, monospace;
+  color:var(--inline); border:1px solid #303036;
 }
+/* Inside a link the link colour wins, or an inline-code link stops looking
+   clickable. Same in headings, where the heading colour carries the weight. */
+a code { color:inherit; border-color:transparent; }
+h1 code, h2 code, h3 code { color:inherit; font-size:0.92em; }
+th code { color:var(--inline); }
 
 .code { margin:0 0 18px; border:1px solid var(--line); border-radius:9px; overflow:hidden; }
 .code-bar {
@@ -474,7 +682,20 @@ code {
 .copy:hover { color:var(--text); border-color:var(--muted); }
 .copy.done { color:var(--accent); border-color:var(--accent-dim); }
 .code pre { margin:0; padding:14px 16px; overflow-x:auto; background:var(--code); }
-.code pre code { background:none; padding:0; font-size:13.5px; line-height:1.55; }
+.code pre code {
+  background:none; padding:0; border:none; color:var(--text);
+  font-size:13.5px; line-height:1.55;
+}
+.t-kw  { color:var(--t-kw); }
+.t-str { color:var(--t-str); }
+.t-num { color:var(--t-num); }
+.t-com { color:var(--t-com); font-style:italic; }
+.t-bui { color:var(--t-bui); }
+.t-fn  { color:var(--t-fn); }
+.t-dec { color:var(--t-dec); }
+.t-con { color:var(--t-con); }
+.t-key { color:var(--t-key); }
+.t-flg { color:var(--t-flg); }
 
 .table-wrap { overflow-x:auto; margin:0 0 18px; }
 table { border-collapse:collapse; width:100%; font-size:14.5px; }
