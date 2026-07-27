@@ -78,6 +78,7 @@ UPDATE_PRESERVE = {
     "startup.log",
     ".update-staging",
     ".update-backup",
+    ".update-version.json",
 }
 
 UPDATE_MERGE_GLOBS = (

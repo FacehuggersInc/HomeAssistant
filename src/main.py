@@ -599,6 +599,7 @@ class Client:
         self.internal_build_setup()
 
         self.build_quick_settings()
+        self.build_update_checker()
 
         self.window.show()
         self.BUILT = True
@@ -653,6 +654,119 @@ class Client:
         panel = getattr(self, "QUICK_SETTINGS", None)
         if panel is not None:
             panel.toggle()
+
+    ##UPDATES
+
+    UPDATE_CHECK_STARTUP_DELAY_MS = 20_000   # let the app settle before a network call
+
+    def build_update_checker(self) -> None:
+        """
+        Poll GitHub for a newer commit and tell the user once when there is one.
+
+        Deliberately not `updater.stage()` on a timer - that downloads the whole
+        branch. This is one small API call, and nothing is fetched until the
+        user actually asks for it.
+        """
+        self.UPDATE_AVAILABLE = False
+        self.UPDATE_COMMIT = None
+        self._update_notified_sha = None
+
+        self._update_timer = QTimer()
+        self._update_timer.timeout.connect(lambda: self.check_for_update(quiet=True))
+
+        hours = self.update_check_hours()
+        if hours <= 0:
+            self.log("info", "[Update] Automatic update checks are turned off.")
+            return
+
+        self._update_timer.start(int(hours * 3600 * 1000))
+        QTimer.singleShot(self.UPDATE_CHECK_STARTUP_DELAY_MS,
+                          lambda: self.check_for_update(quiet=True))
+
+    def update_check_hours(self) -> float:
+        try:
+            return float(self.setting("application.updates.check_interval.value", 6))
+        except (TypeError, ValueError):
+            return 6.0
+
+    def check_for_update(self, quiet: bool = False) -> None:
+        """
+        Run the check off the UI thread. `quiet` suppresses the "you are up to
+        date" reply, which is what the timer wants and a manual check does not.
+        """
+        def work():
+            from src import update_check
+            try:
+                available, commit, reason = update_check.check()
+            except Exception as e:
+                self.log("warning", f"[Update] Check failed: {e}")
+                if not quiet:
+                    self.simple_notify("warning", "Update check", str(e))
+                return
+
+            self.log("info", f"[Update] {reason}")
+            self.UPDATE_AVAILABLE = available
+            self.UPDATE_COMMIT = commit
+
+            if not available:
+                if not quiet:
+                    self.simple_notify("check", "Up to date",
+                                       "This is the latest version.")
+                return
+
+            # Once per version. The timer keeps firing, and a panel that
+            # re-notified every few hours about the same commit would be worse
+            # than not notifying at all.
+            if self._update_notified_sha != commit.sha:
+                self._update_notified_sha = commit.sha
+                self.simple_notify(
+                    "download", "Update available",
+                    f"{commit.summary} - {commit.age()}",
+                )
+
+            self.call_on_ui(self._refresh_update_button)
+
+        Thread(target=work, name="__update_check", daemon=True).start()
+
+    def _refresh_update_button(self) -> None:
+        panel = getattr(self, "QUICK_SETTINGS", None)
+        if panel is not None:
+            try:
+                panel.refresh_update_button()
+            except RuntimeError:
+                pass
+
+    def begin_update(self, on_staged: Optional[Callable] = None) -> None:
+        """
+        Download, stage, then restart into the update.
+
+        Shared by the API endpoint and the quick settings button so there is
+        one code path that can be got wrong instead of two.
+        """
+        from src import updater
+
+        def staging_thread():
+            self.simple_notify("download", "Update", "Downloading update...")
+            try:
+                manifest = updater.stage(log=lambda m: self.log("info", f"[Update] {m}"))
+            except updater.UpdateError as e:
+                self.simple_notify("error", "Update Failed", str(e))
+                self.log("error", f"[Client.begin_update] {e}")
+                return
+            self.simple_notify(
+                "check", "Update",
+                f"{manifest['file_count']} files staged. Restarting..."
+            )
+            if callable(on_staged):
+                try:
+                    on_staged(manifest)
+                except Exception:
+                    pass
+            time.sleep(2)
+            self.UPDATE = True
+            self.call_on_ui(self.stop)
+
+        Thread(target=staging_thread, name="__update_staging", daemon=True).start()
 
     ##ASSISTANT
 

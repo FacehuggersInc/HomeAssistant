@@ -196,6 +196,13 @@
             "description": "Time of inactivity (no clicks/touches anywhere) before Client fires on_interaction_timeout. Used in the settings page to go home when no interaction has happened for a while."
         },
         "updates": {
+            "check_interval": {
+                "type": "int",
+                "default": 6,
+                "value": 6,
+                "suffix": "hrs",
+                "description": "How often to ask GitHub whether a newer version exists. This is a single small request, not a download - nothing is fetched until you choose to update. Set to 0 to never check automatically."
+            },
             "restart_on_crash": {
                 "type": "bool",
                 "default": true,

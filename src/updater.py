@@ -3,6 +3,7 @@ from __future__ import annotations
 import io
 import os
 import json
+from datetime import datetime, timezone
 import fnmatch
 import shutil
 import zipfile
@@ -182,8 +183,23 @@ def stage(url: str = REPO_ZIP_URL, log: Callable[[str], None] = _noop,
                 if not is_preserved(r):
                     files.append(r)
 
+        # Captured here, not at apply time: this is the moment the payload was
+        # actually pulled, and the branch head may move before the restart.
+        sha = ""
+        commit_info = {}
+        try:
+            from src import update_check
+            commit = update_check.latest_commit(timeout=10)
+            sha = commit.sha
+            commit_info = commit.as_dict()
+        except Exception as e:
+            log(f"Could not record the source commit ({e}); "
+                "the next update check will re-baseline.")
+
         manifest = {
             "source": url,
+            "sha": sha,
+            "commit": commit_info,
             "file_count": len(files),
             "files": files,
         }
@@ -260,10 +276,34 @@ def apply(log: Callable[[str], None] = _noop) -> dict:
         "added": added,
     }, indent=2))
 
+    _record_applied_version(manifest, log)
+
     clear_staging()
     log(f"Applied {copied} files ({merged} merged, {skipped} preserved).")
     return {"copied": copied, "merged": merged, "skipped": skipped,
             "replaced": len(backed_up), "added": len(added)}
+
+
+def _record_applied_version(manifest: dict, log: Callable[[str], None]) -> None:
+    """
+    Stamp the install with the commit it now contains.
+
+    Without this the checker has nothing to compare against and would keep
+    re-baselining after every update - which means the first check following an
+    update always says "up to date", whether it is or not.
+    """
+    commit = (manifest or {}).get("commit") or {}
+    if not commit.get("sha"):
+        return
+    try:
+        from src import update_check
+        payload = dict(commit)
+        payload["recorded_at"] = datetime.now(timezone.utc).isoformat()
+        payload["note"] = "applied by the updater"
+        update_check.VERSION_FILE.write_text(json.dumps(payload, indent=2))
+        log(f"Recorded installed version {commit['sha'][:7]}.")
+    except Exception as e:
+        log(f"Could not record the installed version: {e}")
 
 
 ## -- ROLLBACK ---------------------------------------------------------------

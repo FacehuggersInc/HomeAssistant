@@ -85,26 +85,30 @@ def FlaskApp(client):
 		if not client.BUILT:
 			return {"request": "Failed", "reason": "Wait until the Program has started fully."}
 
-		from src import updater
-
-		def staging_thread():
-			client.simple_notify("download", "Update", "Downloading update...")
-			try:
-				manifest = updater.stage(log=lambda m: client.log("info", f"[Update] {m}"))
-			except updater.UpdateError as e:
-				client.simple_notify("error", "Update Failed", str(e))
-				client.log("error", f"[backend.update_client] {e}")
-				return
-			client.simple_notify(
-				"check", "Update",
-				f"{manifest['file_count']} files staged. Restarting..."
-			)
-			time.sleep(2)
-			client.UPDATE = True
-			client.call_on_ui(client.stop)
-
-		Thread(target=staging_thread, name="__update_staging", daemon=True).start()
+		# Same path the quick settings button takes. Two copies of the
+		# stage-then-restart dance is two places to get it wrong.
+		client.begin_update()
 		return {"request": "Success", "message": "Update staging started."}
+
+	@app.route("/update/check")
+	def update_check_route():
+		"""Whether one is waiting, without downloading anything."""
+		err = auth()
+		if err: return err
+
+		from src import update_check
+		try:
+			available, commit, reason = update_check.check()
+		except Exception as e:
+			return {"request": "Failed", "reason": str(e)}, 502
+
+		return {
+			"request":   "Success",
+			"available": available,
+			"reason":    reason,
+			"installed": update_check.installed_sha(),
+			"latest":    commit.as_dict() if commit else None,
+		}, 200
 
 	@app.route("/notify/", methods=["GET"])
 	def redirects_bad_endpoint():
@@ -113,8 +117,12 @@ def FlaskApp(client):
 	@app.route("/notify", methods=["GET"])
 	def backend_notify():
 		try:
-			__ico = request.args.get("icon")
-			icon  = __ico.split(".")[-1]
+			# Read all three before touching any of them. Calling .split() on a
+			# missing icon raised AttributeError straight past the check below,
+			# so a request with no icon returned a 500 about NoneType instead
+			# of the "missing ->" reply that was written for it.
+			raw_icon = request.args.get("icon") or ""
+			icon  = raw_icon.split(".")[-1]
 			title = request.args.get("title")
 			body  = request.args.get("body")
 			if icon and title and body:

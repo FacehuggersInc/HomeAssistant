@@ -221,14 +221,19 @@ class QuickSettings(Panel):
         header.addStretch()
 
         # The controls that used to sit in every page's drawer.
+        self._btn_update    = IconButton(Icons.DOWNLOAD, self._show_update, size=24)
         self._btn_wallpaper = IconButton(Icons.IMAGE, self._cycle_wallpaper, size=24)
         self._btn_pin       = IconButton(Icons.PIN, self._pin_wallpaper, size=24)
         self._btn_full      = IconButton(Icons.FULLSCREEN, self._toggle_fullscreen, size=24)
         self._btn_settings  = IconButton(Icons.SETTINGS, self._open_settings, size=24)
         self._btn_quit      = IconButton(Icons.CLOSE, self._quit, size=24)
 
-        for button in (self._btn_wallpaper, self._btn_pin, self._btn_full,
-                       self._btn_settings, self._btn_quit):
+        # Hidden until there is actually something to install, so its presence
+        # is the notification rather than a permanently-lit button nobody reads.
+        self._btn_update.hide()
+
+        for button in (self._btn_update, self._btn_wallpaper, self._btn_pin,
+                       self._btn_full, self._btn_settings, self._btn_quit):
             header.addWidget(button)
 
         self._layout.addLayout(header)
@@ -339,6 +344,8 @@ class QuickSettings(Panel):
         return bool(self.client.public.has("cwb_wallpaper"))
 
     def _refresh_header(self) -> None:
+        self.refresh_update_button()
+
         # Hidden off sub.home: these act on the cycling background, and the
         # publication only exists while that page is built.
         on_home = self._on_sub_home()
@@ -394,6 +401,43 @@ class QuickSettings(Panel):
     def _quit(self) -> None:
         self.close_panel()
         self.client.stop()
+
+    ## -- updates
+
+    def refresh_update_button(self) -> None:
+        """Called both when the panel opens and when a background check lands."""
+        try:
+            self._btn_update.setVisible(bool(getattr(self.client, "UPDATE_AVAILABLE", False)))
+        except RuntimeError:
+            pass
+
+    def _show_update(self) -> None:
+        commit = getattr(self.client, "UPDATE_COMMIT", None)
+        if commit is None:
+            self.client.alert("Update", "No update information available yet.")
+            return
+
+        self._restart_timeout()
+
+        body = (f"{commit.summary}\n\n"
+                f"by {commit.author}, {commit.age()}\n"
+                f"commit {commit.short}")
+        detail = commit.message if commit.message != commit.summary else None
+
+        def start():
+            # The panel goes away with the restart, so close it first rather
+            # than leaving it animating over a dying window.
+            self.close_panel()
+            self.client.begin_update()
+
+        self.client.confirm(
+            "Update available",
+            body,
+            on_confirm  = start,
+            confirm_text= "Update now",
+            cancel_text = "Later",
+            detail      = detail,
+        )
 
     ## -- sliders
 
