@@ -6,30 +6,33 @@ There are two kinds.
 
 ## Client events
 
-A fixed set of built-in events the Client fires itself, at predictable moments:
+A fixed set of built-in events the Client fires itself, at predictable moments.
 
-```text
-initialized
-on_focus
-on_un_focus
-on_visit
-on_leave
-on_update
-on_minimize
-on_maximize
-on_fullscreen
-on_state_change
-on_close
-on_settings_saved
-on_woke_assistant
-on_assistant_transcribed
-on_plugin_reloading
-on_plugin_unload
-on_interaction
-on_fresh_interaction
-on_interaction_timeout
-on_collection
-```
+| Event | Fires when | `event` is |
+|---|---|---|
+| `initialized` | Once, after every plugin's `built()` has run. | `None` |
+| `on_visit` | A page has been shown. | `{"page": {"name", "data"}}` |
+| `on_leave` | A page is about to be torn down. | `{"from": {...}, "to": {...}}` |
+| `on_update` | Every client tick. | `None` |
+| `on_collection` | Periodically, for plugins to clean up after themselves. | `None` |
+| `on_focus` | The window gained focus. | The Qt event |
+| `on_un_focus` | The window lost focus. | The Qt event |
+| `on_minimize` | The window was minimised. | The Qt event |
+| `on_maximize` | The window was maximised. | The Qt event |
+| `on_fullscreen` | Fullscreen was entered or left. | The Qt event |
+| `on_close` | The window is closing. | The Qt event |
+| `on_key` | A key was pressed. | The Qt event |
+| `on_state_change` | `set_state()` changed a value. | The state name |
+| `on_settings_saved` | The Settings page was saved. | `None` |
+| `on_interaction` | Any mouse or touch interaction. | The raw Qt event |
+| `on_fresh_interaction` | Interaction resumed after idleness. | The raw Qt event |
+| `on_interaction_timeout` | Idleness began. | `None` |
+| `on_woke_assistant` | The wake word was heard. | The wake word |
+| `on_assistant_transcribed` | A phrase was transcribed. | The transcript |
+| `on_assistant_cancelled` | The user cancelled mid-conversation. | `None` |
+| `on_assistant_fallback` | A phrase matched no skill. | The transcript |
+| `on_plugin_reloading` | A plugin is about to reload. | The plugin key |
+| `on_plugin_unload` | A plugin is unloading. | The plugin key |
 
 Subscribe with `subscribe_to_event` / unsubscribe with `unsubscribe_from_event`:
 
@@ -41,7 +44,137 @@ self.client.subscribe_to_event("on_visit", my_handler)
 self.client.unsubscribe_from_event("on_visit", my_handler)
 ```
 
-Each handler receives one `event` argument — its shape depends on which event fired (some pass a dict with context, some pass a single value, some pass `None`).
+Each handler receives one `event` argument — its shape is in the table above.
+
+**A handler that raises is unsubscribed.** The event bus drops it rather than
+letting it throw on every future fire, so an exception in a handler silently
+disables it for the rest of the session. Wrap anything that can fail.
+
+Always unsubscribe in `unload()`. A handler pointing into an unloaded module
+is an exception the first time the event fires.
+
+---
+
+## Examples
+
+### `initialized`
+
+Everything exists. This is the latest safe point to touch anything.
+
+```python
+def load(self, carryover=None):
+    self.client.subscribe_to_event("initialized", self.on_ready)
+
+def on_ready(self, event=None):
+    self.client.log("info", f"[MyPlugin] {len(self.client.get_pages())} pages registered.")
+```
+
+### `on_visit` / `on_leave`
+
+```python
+def on_visit(self, event):
+    if event["page"]["name"] == "#myhome":
+        self.start_polling()
+
+def on_leave(self, event):
+    self.client.log("debug",
+        f"[MyPlugin] {event['from']['name']} -> {event['to']['name']}")
+    self.stop_polling()
+```
+
+`on_leave` fires *before* the old page is destroyed, so its widgets are still
+valid. `on_visit` fires after the new one is up.
+
+### `on_update`
+
+Every tick, on the UI thread. Do almost nothing here.
+
+```python
+def on_update(self, event=None):
+    if self._dirty:
+        self._dirty = False
+        self.refresh_label()
+```
+
+Guard the work behind a flag. An unconditional body here runs at tick rate
+forever.
+
+### `on_settings_saved`
+
+Fires once per save, not per field. Re-read what you care about.
+
+```python
+def on_saved(self, event=None):
+    self.interval = int(self.option("general.poll_interval", 30))
+    self.client.log("info", f"[MyPlugin] Interval now {self.interval}s")
+```
+
+### `on_state_change`
+
+```python
+def on_state(self, state_name):
+    if state_name == "home_page_setup":
+        self.attach_to_home()
+```
+
+### `on_key`
+
+```python
+from PyQt6.QtCore import Qt
+
+def on_key(self, event):
+    if event.key() == Qt.Key.Key_F5:
+        self.refresh()
+```
+
+### `on_focus` / `on_un_focus` / `on_minimize` / `on_maximize` / `on_fullscreen` / `on_close`
+
+Window state. Useful for pausing work nobody is looking at.
+
+```python
+def on_un_focus(self, event):
+    self.client.THREADS.stop("myplugin_poller")
+
+def on_focus(self, event):
+    self.client.THREADS.start("myplugin_poller")
+```
+
+`on_close` fires as the window goes. Treat it as a last chance to flush, not a
+place to start anything.
+
+### `on_woke_assistant` / `on_assistant_transcribed` / `on_assistant_cancelled`
+
+```python
+def on_woke(self, wake_word):
+    self.dim_music()
+
+def on_transcribed(self, phrase):
+    self.client.log("debug", f"[MyPlugin] Heard: {phrase}")
+
+def on_cancelled(self, event=None):
+    self.restore_music()
+```
+
+### `on_assistant_fallback`
+
+Nothing matched. This is where the AI fallback plugin hooks in, and where you
+would put your own catch-all.
+
+```python
+def on_fallback(self, phrase):
+    if "porch" in phrase.lower():
+        self.porch_on()
+```
+
+### `on_plugin_reloading` / `on_plugin_unload`
+
+Another plugin is going away. React if you were depending on it.
+
+```python
+def on_other_unload(self, plugin_key):
+    if plugin_key == "weather":
+        self.reading.setText("Weather plugin unloaded.")
+```
 
 ### `on_plugin_reloading`
 

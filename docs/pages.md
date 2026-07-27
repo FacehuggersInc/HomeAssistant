@@ -40,6 +40,116 @@ everything else in the registry is a class waiting to be built.
 
 ---
 
+## A complete page
+
+Everything a page needs, and nothing it does not.
+
+```python
+from PyQt6.QtWidgets import QVBoxLayout, QLabel, QPushButton
+from PyQt6.QtCore import Qt
+
+from src.ui.page import PageFramework
+from src.styling import make_font, SIZES, set_style
+
+
+class WeatherPage(PageFramework):
+
+    def __init__(self, client, data=None):
+        super().__init__(client=client, key="#weather", data=data)
+
+        set_style(self, "common", "page-background")
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(40, 40, 40, 40)
+        layout.setSpacing(12)
+        layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        self.title = QLabel("Weather")
+        self.title.setFont(make_font(SIZES.L1, bold=True))
+        set_style(self.title, "common", "text-strong")
+        layout.addWidget(self.title)
+
+        self.reading = QLabel("...")
+        self.reading.setFont(make_font(SIZES.M2))
+        set_style(self.reading, "common", "text-muted")
+        layout.addWidget(self.reading)
+
+        back = QPushButton("Back")
+        back.setFixedHeight(44)
+        back.clicked.connect(lambda: client.goto(client.DEFAULT_PAGE or "#root"))
+        layout.addWidget(back)
+
+        # What plugins are allowed to do to this page.
+        self.add_features({
+            "set_reading": self.set_reading,
+            "title_label": self.title,
+        })
+
+    ## -- features
+
+    def set_reading(self, text: str) -> None:
+        self.reading.setText(str(text))
+
+    ## -- lifecycle
+
+    def start(self) -> None:
+        """Called by goto() once the page is on screen."""
+        self.refresh()
+
+    def stop(self) -> None:
+        """Called by goto() before the page is torn down."""
+        self.client.TIMEOUTS.cancel("weather_page_refresh")
+
+    def tick(self) -> None:
+        """Called on the client tick. Keep it cheap - this is the UI thread."""
+        pass
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        # Nothing lays a page out for you. Anything positioned by hand rather
+        # than by a layout has to be re-applied here.
+
+    ## -- work
+
+    def refresh(self) -> None:
+        api = self.client.API.get("weather")
+        if api is None:
+            self.set_reading("Weather plugin not loaded.")
+            return
+
+        def work(stop_event):
+            try:
+                data = api.get_current_weather()
+                text = f"{int(data['temperature_2m'])} degrees"
+            except Exception as e:
+                self.client.log("warning", f"[WeatherPage] Fetch failed: {e}")
+                text = "unavailable"
+            # Back to the UI thread before touching a widget.
+            self.client.call_on_ui(lambda: self.set_reading(text))
+
+        self.client.THREADS.create("weather_page_fetch", work)
+        self.client.THREADS.start("weather_page_fetch")
+```
+
+Registered from a plugin:
+
+```python
+class WeatherPlugin(Plugin):
+    def load(self, carryover=None):
+        self.client.add_page("#weather", "Weather", WeatherPage, owner="weather")
+```
+
+Four things in there are the whole pattern:
+
+* **`add_features()` in `__init__`.** A plugin cannot reach into the page's
+  widgets, only through what the page chose to expose.
+* **`start()` / `stop()`.** Optional. `goto()` calls them if they exist, which
+  is where subscriptions and timers belong.
+* **`resizeEvent()`.** The window can change size at runtime.
+* **`call_on_ui`.** The fetch is on a worker thread; the `setText` is not.
+
+---
+
 ## Sub-pages
 
 A page can own a grid of sub-pages navigated by swiping. `HomePage` does this:
@@ -55,15 +165,54 @@ class MySubPage(SubPageFramework):
 `coord` is `(x, y)`. `(0, 0)` is the origin, and a swipe left moves to
 `(1, 0)`. A direction with nothing in it is a no-op, so gaps are fine.
 
-Sub-pages are added through the parent's features rather than the page
-registry:
+### Adding one
+
+Sub-pages are added through the parent page's features, not the page registry.
+The parent has to exist first, so this belongs in `built()` or in a mixin on
+the parent's `__init__`:
 
 ```python
-home.features().add_sub_page(MySubPage)
+class MyPlugin(Plugin):
+
+    def built(self):
+        home = self.client.get_page("#cwb_home_page")
+        if home and home.instance and home.instance.has_feature("add_sub_page"):
+            home.instance.features().add_sub_page("mysub", MySubPage)
+
+    def unload(self, carryover=None):
+        home = self.client.get_page("#cwb_home_page")
+        if home and home.instance and home.instance.has_feature("remove_sub_page"):
+            home.instance.features().remove_sub_page("mysub")
 ```
 
-A sub-page's own features are exposed under its name, so
-`sub.home.register_widget` reaches `SubHomePage`.
+`add_sub_page(key, page_class)` applies mixins to the class, constructs it,
+sizes it to the parent and moves it to `coord * size`. The key is what
+`remove_sub_page()` takes.
+
+Cleaning up in `unload()` matters here. The parent page outlives your plugin,
+so a sub-page left behind is a page the user can still swipe to, built from a
+module that no longer exists.
+
+### Adding one to your own page
+
+Any page can host sub-pages — `HomePage` is not special. Copy its pattern:
+keep a dict of sub-pages by key, give each a `coord`, position them at
+`coord * page size`, and move the container on swipe.
+
+The features to expose are `add_sub_page` and `remove_sub_page`, named exactly
+that, so a plugin written against `HomePage` works against yours unchanged.
+
+### Features from a sub-page
+
+A sub-page's own features are re-exposed on the parent under the sub-page's
+name, so a plugin reaches them through the parent it already has:
+
+```python
+self.client.action("sub.home.register_widget", MyWidget)
+```
+
+That is why the key is `sub.home.register_widget` and not just
+`register_widget` — the prefix is the sub-page.
 
 ---
 

@@ -1,0 +1,126 @@
+# Logging
+
+One call, from anywhere, on any thread.
+
+```python
+self.client.log("info", "[MyPlugin] Loaded 4 feeds.")
+```
+
+---
+
+## Levels
+
+| Level | For |
+|---|---|
+| `debug` | Numbers you would want when something looks wrong on screen. |
+| `info` | Normal lifecycle: loaded, registered, connected, navigated. |
+| `warning` | Something failed and was handled. The app carries on. |
+| `error` | Something failed and a feature is now broken. |
+| `critical` | The app cannot continue. |
+
+The distinction that matters is `warning` versus `error`: a warning means the
+degradation is contained, an error means a user will notice something missing.
+"Could not reach the weather API, using the last reading" is a warning.
+"Could not start the STT process" is an error.
+
+---
+
+## Format
+
+```
+[2026/7/27 14:32:05][INFO] [MyPlugin] Loaded 4 feeds.
+```
+
+Timestamp, four-letter level, message. Everything goes to stdout, and to the
+log file when file logging is on.
+
+**Prefix your messages with `[YourPlugin]`.** Everything in this codebase does,
+and it is the only thing making a shared log readable — the level tells you how
+bad it is, the prefix tells you who to blame.
+
+### Extra arguments
+
+```python
+self.client.log("error", f"[MyPlugin] Fetch failed: {e}", include_traceback=True)
+self.client.log("debug", "[MyPlugin] Layout pass", pointer=self)
+```
+
+`include_traceback` appends the current traceback, to stdout and the file both.
+Use it in an `except` block where the exception type alone will not be enough.
+
+`pointer` appends `FRM <object>`, for when several instances of the same class
+are logging and you need to tell them apart.
+
+---
+
+## Files
+
+Logs go to `logs/` at the install root.
+
+`logs/latest.log` is the current run. On startup the previous `latest.log` is
+renamed to its own start timestamp — `2026-7-27-14-32.log` — so every run keeps
+its own file and the newest is always at a fixed path you can `tail`.
+
+The file is opened lazily on the first log call, and flushed after every write.
+An app that dies mid-operation still has the line that describes what it was
+doing, which is the entire reason for flushing every time rather than buffering.
+
+`logs/` is in `UPDATE_PRESERVE`, so an update does not take the log of the run
+that prompted it.
+
+It is also registered as an asset under the key `logs`, which means it is
+readable over the API:
+
+```
+GET /asset/logs?id=...
+GET /asset/logs/latest.log?id=...
+```
+
+That is how you read a wall panel's log without a keyboard attached to it.
+
+---
+
+## What to log
+
+**Log decisions, not progress.** "Chose backend wpctl", "Default page not
+registered, showing RootPage", "Skipped 3 preserved files" — each explains
+something a reader would otherwise have to guess.
+
+**Log the numbers behind anything geometric.** Layout problems are close to
+impossible to reason about from a screenshot and trivial from a line that says
+page, window, viewport and device pixel ratio. The widget framework logs a
+full set at `debug` on every pass for exactly this reason.
+
+**Never log a secret.** `client.SECRETS.masked(key)` exists for when you need
+to show that a key is present. The API's own request logger replaces `id` with
+`***` before writing the line, and anything you write should do the same.
+
+**Do not log in a tight loop.** Every call writes and flushes. A `debug` line
+per frame will dominate the file and slow the loop it is describing. Log the
+first occurrence, and then every hundredth:
+
+```python
+self._overflows += 1
+if self._overflows in (1, 10, 100) or self._overflows % 500 == 0:
+    self.client.log("warning", f"[Audio] Overflow x{self._overflows}")
+```
+
+---
+
+## Threading
+
+`log()` is safe from any thread — it prints and appends, and holds nothing that
+a page or widget could be mid-rebuild on. Subsystems that run off the UI thread
+log freely, including the STT process, which prints to its own stdout and is
+captured separately.
+
+---
+
+## Reading it back
+
+`client.show_runtime_state()` dumps live threads and their daemon status to
+stdout. Useful when something has not shut down and you need to know what is
+still holding on.
+
+For the Qt side, the `debug` level is where geometry lives — turn it up when a
+layout is wrong before reaching for a theory.

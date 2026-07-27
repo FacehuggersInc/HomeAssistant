@@ -17,8 +17,9 @@ If you are setting the panel up for the first time, read
 If you are writing a plugin, read [Architecture](architecture.md) for the shape
 of the thing, then [Plugins](plugins.md) for the lifecycle, then whichever of
 [Widgets](widgets.md), [Pages](pages.md) or [Features](features.md) matches
-what you are building. [Threading](threading.md) is worth reading before you
-write any background work - it is the rule most easily broken by accident.
+what you are building. [Application lifecycle](lifecycle.md) explains when
+each of your hooks runs, and [Threading](threading.md) is worth reading before
+you write any background work - it is the rule most easily broken by accident.
 
 [Bundled plugins](bundled-plugins.md) describes the five that ship. They are
 ordinary plugins with no special privileges, so they are the worked examples
@@ -64,23 +65,26 @@ can subscribe to.
 | Page | What is in it |
 |---|---|
 | [Installation](installation.md) | Getting it running. |
+| [Application lifecycle](lifecycle.md) | Startup, page switching, default page, shutdown. |
 | [Updating](updating.md) | Update checks, staging, rollback, exit codes. |
 | [Architecture](architecture.md) | How the client, backend and plugins fit together. |
 | [Plugins](plugins.md) | `plugin.toml`, `main.py`, and the full lifecycle. |
 | [Bundled plugins](bundled-plugins.md) | The five that ship, and what each provides. |
-| [Pages](pages.md) | Registering a page, sub-pages, what a page owns. |
+| [Pages](pages.md) | Registering a page, a full example, sub-pages. |
 | [Widgets](widgets.md) | The widget framework, layout, dragging, persistence. |
 | [Features](features.md) | Exposing and calling page features. |
 | [Registries](registries.md) | API, page, public, secret and quick access registries. |
 | [Quick settings](quick-settings.md) | The global controls panel and its registry. |
-| [Events](events.md) | Client events and custom events. |
+| [Events](events.md) | Every client event, with examples. |
 | [Settings](settings.md) | Declaring settings, types, migration. |
 | [Threading](threading.md) | `call_on_ui`, background threads, timeouts. |
+| [Logging](logging.md) | Levels, log files, what is worth logging. |
 | [Styling](styling.md) | `set_style`, fonts, colours, stylesheet conventions. |
 | [Notifications, state, assets](notifications.md) | Toasts, shared state, registered files. |
 | [Dialogs and overlays](dialogs.md) | Overlay layers, masks, dialogs, panels. |
 | [On-screen keyboard](keyboard.md) | The touch keyboard. |
-| [Voice assistant](assistant.md) | Skills, intent matching, STT, TTS. |
+| [Voice assistant](assistant.md) | Intent matching, STT, TTS. |
+| [Writing skills](skills.md) | Declaring skills, arguments, follow-up questions. |
 | [Mixins](mixins.md) | Extending existing methods from a plugin. |
 | [Backend API](api.md) | Every endpoint, and the `hactl.py` CLI. |
 | [Development philosophy](philosophy.md) | Why it is built the way it is. |
