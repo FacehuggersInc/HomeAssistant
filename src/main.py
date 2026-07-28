@@ -388,6 +388,34 @@ class Client:
         if was_idle:
             self.iterate_event_callables("on_fresh_interaction", event, True)
 
+    def reset_interaction_timeout(self, wake: bool = True) -> None:
+        """
+        Treat now as the last interaction, without there having been one.
+
+        For something the panel did that a person is expected to look at - a
+        timer finishing, an alarm - where the idle clock would otherwise be
+        measuring the wrong thing. Nobody has touched the screen, but the panel
+        going to sleep over the answer it just produced is not what anyone
+        wants.
+
+        `wake` also brings it out of idle if it is already there, so an idle
+        plugin's screensaver is dismissed rather than left covering the thing
+        that just happened.
+
+        Safe from any thread: the event is marshalled, because
+        `on_fresh_interaction` subscribers close panels and touch widgets and
+        this is reachable from the update thread.
+        """
+        was_idle = self._interaction_idle
+        self._last_interaction_time = time.time()
+        if not wake:
+            return
+        self._interaction_idle = False
+        if was_idle:
+            self.call_on_ui(
+                lambda: self.iterate_event_callables(
+                    "on_fresh_interaction", None, True))
+
     def _check_interaction_timeout(self) -> None:
         if self._interaction_idle:
             return

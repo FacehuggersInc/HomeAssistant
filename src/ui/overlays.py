@@ -38,6 +38,53 @@ _LAYER_Z = {
 
 # ── Overlay Manager ───────────────────────────────────────────────────────────
 
+def _blur_pixmap(snapshot: QPixmap, radius: float,
+                 scale: int = 3) -> Optional[QPixmap]:
+    """
+    Blur a snapshot, doing the work at a fraction of the size.
+
+    A gaussian blur costs roughly its pixel count, and a full-width panel on a
+    1080p screen is around 640,000 pixels - paid on every open, on the UI
+    thread, before the panel can appear. Blurring a third-size copy and
+    scaling it back is about nine times less work, and the result is a blur
+    either way: the detail being thrown away is exactly the detail the blur
+    exists to destroy.
+
+    The radius is scaled with it, or the small version comes back sharper.
+    """
+    if snapshot.isNull():
+        return None
+
+    full = snapshot.size()
+    working = snapshot
+    factor = 1
+    if scale > 1 and full.width() > scale * 8 and full.height() > scale * 8:
+        factor = scale
+        working = snapshot.scaled(
+            max(1, full.width() // factor), max(1, full.height() // factor),
+            Qt.AspectRatioMode.IgnoreAspectRatio,
+            Qt.TransformationMode.SmoothTransformation)
+
+    scene = QGraphicsScene()
+    item  = QGraphicsPixmapItem(working)
+    blur  = QGraphicsBlurEffect()
+    blur.setBlurRadius(max(1.0, float(radius) / factor))
+    item.setGraphicsEffect(blur)
+    scene.addItem(item)
+
+    blurred = QPixmap(working.size())
+    blurred.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(blurred)
+    scene.render(painter, QRectF(blurred.rect()), QRectF(working.rect()))
+    painter.end()
+
+    if factor > 1:
+        blurred = blurred.scaled(
+            full, Qt.AspectRatioMode.IgnoreAspectRatio,
+            Qt.TransformationMode.SmoothTransformation)
+    return blurred
+
+
 class OverlayManager(QWidget):
 
     def __init__(self, client: "Client"):
@@ -62,6 +109,13 @@ class OverlayManager(QWidget):
         self._mask_timer.setSingleShot(True)
         self._mask_timer.setInterval(0)
         self._mask_timer.timeout.connect(self._recompute_mask)
+
+        # Held while a panel is animating - see hold_mask().
+        self._mask_holds = 0
+        self._mask_sweep = None      # ground an animation will cover
+        self._mask_watchdog = QTimer(self)
+        self._mask_watchdog.setSingleShot(True)
+        self._mask_watchdog.timeout.connect(self._mask_hold_expired)
 
         # Decoration layer, for children that must never take a click.
         #
@@ -190,8 +244,58 @@ class OverlayManager(QWidget):
         return super().eventFilter(obj, event)
 
     def _schedule_mask_update(self) -> None:
+        if self._mask_holds:
+            return
         if not self._mask_timer.isActive():
             self._mask_timer.start()
+
+    def hold_mask(self, sweep: QRect = None, timeout_ms: int = 1500) -> None:
+        """
+        Stop recomputing the hit mask until release_mask().
+
+        A sliding panel emits a Move event every frame, and each one used to
+        schedule a full recompute: findChildren over the overlay, a QRegion
+        union, and setMask on a full-screen widget - which forces everything
+        composited above the page to repaint. Thirteen times across a 220ms
+        slide, while the page underneath is also repainting.
+
+        `sweep` is the ground the animation will cover, and it is not optional
+        in practice. **A QWidget mask clips painting as well as input**, so
+        freezing the mask at the panel's starting position means the panel is
+        masked out of every frame it moves through - it slides in drawing
+        nothing and only appears once the mask catches up at the end. The
+        swept rect is added to the mask before it is held, so the whole path
+        is paintable for the length of the animation.
+
+        Held with a watchdog rather than a bare flag: a hold whose release is
+        lost - an animation interrupted, an exception on the way out - would
+        otherwise freeze both painting and hit testing for the life of the
+        process.
+        """
+        if sweep is not None and not sweep.isEmpty():
+            self._mask_sweep = (self._mask_sweep.united(sweep)
+                                if self._mask_sweep is not None else QRect(sweep))
+        # Recomputed once, now, so the sweep is actually in the mask before
+        # updates stop.
+        self._recompute_mask()
+        self._mask_holds += 1
+        self._mask_watchdog.start(max(200, int(timeout_ms)))
+
+    def release_mask(self) -> None:
+        if self._mask_holds > 0:
+            self._mask_holds -= 1
+        if not self._mask_holds:
+            self._mask_watchdog.stop()
+            self._mask_sweep = None
+            self._recompute_mask()
+
+    def _mask_hold_expired(self) -> None:
+        self.client.log("warning",
+                        "[Overlays] Mask hold expired without a release - "
+                        "recomputing anyway.")
+        self._mask_holds = 0
+        self._mask_sweep = None
+        self._recompute_mask()
 
     def _recompute_mask(self) -> None:
         region = QRegion()
@@ -210,6 +314,12 @@ class OverlayManager(QWidget):
             if child.testAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents):
                 continue
             region += QRegion(child.geometry())
+
+        # The ground a running animation covers. A mask clips painting, so
+        # without this a panel sliding in is masked out of every frame it
+        # moves through and only appears once it stops.
+        if self._mask_sweep is not None and not self._mask_sweep.isEmpty():
+            region += QRegion(self._mask_sweep)
 
         self.setMask(self._safe_region(region))
         self._recompute_passthrough_mask()
@@ -702,22 +812,10 @@ class BaseDialog(QFrame):
                                        rect.y() - top_left.y())
 
         snapshot = page.grab(rect)
-        if snapshot.isNull():
+        blurred = _blur_pixmap(snapshot, self.blur_radius)
+        if blurred is None:
             self._backdrop = None
             return
-
-        scene = QGraphicsScene()
-        item  = QGraphicsPixmapItem(snapshot)
-        blur  = QGraphicsBlurEffect()
-        blur.setBlurRadius(self.blur_radius)
-        item.setGraphicsEffect(blur)
-        scene.addItem(item)
-
-        blurred = QPixmap(snapshot.size())
-        blurred.fill(Qt.GlobalColor.transparent)
-        painter = QPainter(blurred)
-        scene.render(painter, QRectF(blurred.rect()), QRectF(snapshot.rect()))
-        painter.end()
 
         self._backdrop = blurred
         self.update()
@@ -952,6 +1050,8 @@ class Panel(QWidget):
         self.destroy_on_close  = destroy_on_close   #see close_panel()/_destroy() below
         self._destroyed        = False
         self._close_connected  = False
+        self._slide_connected  = False
+        self._mask_held        = False
         self._fallback_bg = QColor(bgcolor)
         self._backdrop: Optional[QPixmap] = None
         self.open         = False
@@ -1022,22 +1122,10 @@ class Panel(QWidget):
             return
 
         snapshot = page.grab(rect)
-        if snapshot.isNull():
+        blurred = _blur_pixmap(snapshot, self.blur_radius)
+        if blurred is None:
             self._backdrop = None
             return
-
-        scene = QGraphicsScene()
-        item  = QGraphicsPixmapItem(snapshot)
-        blur  = QGraphicsBlurEffect()
-        blur.setBlurRadius(self.blur_radius)
-        item.setGraphicsEffect(blur)
-        scene.addItem(item)
-
-        blurred = QPixmap(snapshot.size())
-        blurred.fill(Qt.GlobalColor.transparent)
-        painter = QPainter(blurred)
-        scene.render(painter, QRectF(blurred.rect()), QRectF(snapshot.rect()))
-        painter.end()
 
         if blurred.size() != self.size():
             padded = QPixmap(self.size())
@@ -1108,6 +1196,37 @@ class Panel(QWidget):
 
     # ── Show / hide ───────────────────────────────────────────────────────────
 
+    def _hold_mask(self) -> None:
+        """
+        Balanced, so a double open or a re-entered close cannot leak one.
+
+        The swept rect is the union of where the panel is and where it is
+        going, so every frame of the slide is inside the mask and therefore
+        paintable - a mask clips painting, not just clicks.
+        """
+        if self._mask_held:
+            return
+        try:
+            sweep = QRect(self.pos(), self.size()).united(
+                QRect(self._shown_pos, self.size())).united(
+                QRect(self._hidden_pos, self.size()))
+            self.client.OVERLAYS.hold_mask(sweep)
+            self._mask_held = True
+        except Exception:
+            pass
+
+    def _release_mask(self) -> None:
+        if not self._mask_held:
+            return
+        self._mask_held = False
+        try:
+            self.client.OVERLAYS.release_mask()
+        except Exception:
+            pass
+
+    def _on_slide_finished(self) -> None:
+        self._release_mask()
+
     def toggle(self) -> None:
         self.close_panel() if self.open else self.open_panel()
 
@@ -1123,6 +1242,13 @@ class Panel(QWidget):
         self.refresh_backdrop()
         self.show()
         self.raise_()
+
+        # Held across the slide: every frame of it is a Move event, and each
+        # one would otherwise recompute the overlay's hit mask.
+        self._hold_mask()
+        if not self._slide_connected:
+            self._anim.finished.connect(self._on_slide_finished)
+            self._slide_connected = True
 
         self._anim.stop()
         self._anim.setEasingCurve(QEasingCurve.Type.OutCubic)
@@ -1143,6 +1269,11 @@ class Panel(QWidget):
         self._closing           = True
         self._destroy_after_close = should_destroy
 
+        self._hold_mask()
+        if not self._slide_connected:
+            self._anim.finished.connect(self._on_slide_finished)
+            self._slide_connected = True
+
         self._anim.stop()
         self._anim.setEasingCurve(QEasingCurve.Type.InCubic)
         self._anim.setStartValue(self.pos())
@@ -1161,6 +1292,7 @@ class Panel(QWidget):
             return
         self.hide()
         self._closing = False
+        self._release_mask()
         self._release_backdrop()
         if getattr(self, "_destroy_after_close", False):
             self._destroy_after_close = False
@@ -1180,6 +1312,7 @@ class Panel(QWidget):
         if self._destroyed:
             return
         self._destroyed = True
+        self._release_mask()
         self._release_backdrop()
         try:
             self.client.OVERLAYS.removeEventFilter(self)

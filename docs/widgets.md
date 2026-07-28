@@ -437,6 +437,27 @@ and keeps ticking, from a module that is gone.
 
 ---
 
+## Transient widgets
+
+A widget placed by something happening rather than by the person arranging
+their screen - a running timer, a note an API call asked for. They are placed
+at an exact point or at random inside a quadrant, never overlap anything
+already there, can dismiss themselves on a timeout, and are **never written to
+`widget_layout.json`**: a widget that exists only while its reason exists must
+not come back on the next launch.
+
+```python
+widget = framework.make_transient("sticky-note", text="Back at 6")
+sub_home.features().show_transient(widget, quadrant="top-left", timeout=600)
+```
+
+The delete handle on one does not file it in the widgets panel - there is no
+entry there to go back to. It calls `on_dismissed()` on the widget instead, so
+whatever placed it can react; a timer uses that to stop the real countdown.
+
+Provided by `corewidgetsbundle`. Full detail, and the timer service built on
+it, are in that plugin's own documentation.
+
 ## Masks and hit testing
 
 A `QWidget` mask clips **painting** as well as input. Mask a widget to only

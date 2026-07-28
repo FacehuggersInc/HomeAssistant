@@ -260,6 +260,117 @@ class ChoiceDialog(BaseDialog):
             self._on_cancel()
 
 
+class DurationPickerDialog(BaseDialog):
+    """
+    A length of time, as steppers rather than a list of presets.
+
+    The same control the calendar uses for a time of day, asking a different
+    question: a preset list can only ever offer what somebody guessed in
+    advance, and "seven minutes" is not an unreasonable thing to want.
+
+    Sized to its content - three steppers and a row of buttons do not need a
+    screen-wide dialog, and stretching them apart separates the numbers being
+    compared.
+    """
+
+    WIDTH = 560
+    MINUTE_STEP = 1
+
+    def __init__(self, client: "Client", title: str = "How long?",
+                 body: str = "", seconds: float = 300,
+                 on_chosen: Callable = None, choose_text: str = "Start",
+                 show_seconds: bool = True):
+        super().__init__(client, title, body)
+        self.on_chosen = on_chosen
+
+        total = max(0, int(seconds or 0))
+        hours, rest = divmod(total, 3600)
+        minutes, secs = divmod(rest, 60)
+
+        from src.ui.controls.stepper import Stepper
+
+        row = QHBoxLayout()
+        row.setSpacing(18)
+        row.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        self.hours = Stepper("Hours", min(23, hours), 0, 23, wrap=False,
+                             on_change=lambda _: self._update_readout())
+        self.minutes = Stepper("Minutes", minutes, 0, 59,
+                               on_change=lambda _: self._update_readout(),
+                               step=self.MINUTE_STEP)
+        row.addWidget(self.hours)
+        row.addWidget(self._colon())
+        row.addWidget(self.minutes)
+
+        self.seconds = None
+        if show_seconds:
+            self.seconds = Stepper("Seconds", secs, 0, 59,
+                                   on_change=lambda _: self._update_readout(),
+                                   step=5)
+            row.addWidget(self._colon())
+            row.addWidget(self.seconds)
+
+        holder = QWidget()
+        set_style(holder, "common", "transparent")
+        holder.setLayout(row)
+        self.content.addWidget(holder)
+
+        self.readout = QLabel("")
+        self.readout.setFont(make_font(SIZES.S2))
+        self.readout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        set_style(self.readout, "common", "text-muted")
+        self.content.addWidget(self.readout)
+
+        self.add_button("Cancel", self.close, "secondary")
+        self._confirm = self.add_button(choose_text, self._choose, "primary")
+        self._update_readout()
+
+    def _colon(self) -> QLabel:
+        colon = QLabel(":")
+        colon.setFont(make_font(SIZES.L1, bold=True))
+        set_style(colon, "common", "text-muted")
+        return colon
+
+    def total_seconds(self) -> int:
+        total = self.hours.value * 3600 + self.minutes.value * 60
+        if self.seconds is not None:
+            total += self.seconds.value
+        return int(total)
+
+    def _update_readout(self) -> None:
+        total = self.total_seconds()
+        if total <= 0:
+            self.readout.setText("Set a length above zero.")
+        else:
+            self.readout.setText(_describe_duration(total))
+        # Disabling it says why nothing happens on a tap, where a dialog that
+        # simply refused to close would not.
+        button = getattr(self, "_confirm", None)
+        if button is not None:
+            button.setEnabled(total > 0)
+
+    def _choose(self) -> None:
+        total = self.total_seconds()
+        if total <= 0:
+            return
+        self.close()
+        if callable(self.on_chosen):
+            self.on_chosen(total)
+
+
+def _describe_duration(seconds: int) -> str:
+    hours, rest = divmod(int(seconds), 3600)
+    minutes, secs = divmod(rest, 60)
+    parts = []
+    if hours:
+        parts.append(f"{hours} hour" + ("s" if hours != 1 else ""))
+    if minutes:
+        parts.append(f"{minutes} minute" + ("s" if minutes != 1 else ""))
+    if secs:
+        parts.append(f"{secs} second" + ("s" if secs != 1 else ""))
+    return " ".join(parts) or "0 seconds"
+
+
 class ProgressDialog(BaseDialog):
 
     def __init__(self, client: "Client", title: str, body: str = ""):

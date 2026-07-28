@@ -479,6 +479,46 @@ def cmd_public(args, config):
     return report(status, body, args.json)
 
 
+def cmd_goto(args, config):
+    target = resolve_target(args, config)
+    key = args.page if args.page.startswith("#") else f"#{args.page}"
+    params = parse_pairs(args.params)
+    if args.override:
+        params["override"] = "true"
+    # The '#' is percent-encoded, or everything after it is a URL fragment the
+    # server never sees.
+    status, body = call(target, "/goto/" + urllib.parse.quote(key, safe=""),
+                        params, timeout=args.timeout)
+    return report(status, body, args.json)
+
+
+def cmd_pages(args, config):
+    target = resolve_target(args, config)
+    status, body = call(target, "/pages", {}, timeout=args.timeout)
+    if not args.json and isinstance(body, dict) and body.get("pages"):
+        current = body.get("current")
+        for page in body["pages"]:
+            print(f"{'*' if page == current else ' '} {page}")
+        return EXIT_OK
+    return report(status, body, args.json)
+
+
+def cmd_clipboard(args, config):
+    target = resolve_target(args, config)
+    if args.action == "clear":
+        status, body = call(target, "/clipboard/clear", {}, timeout=args.timeout)
+        return report(status, body, args.json)
+    if args.action == "set":
+        status, body = call(target, "/clipboard", {"text": args.text},
+                            timeout=args.timeout)
+        return report(status, body, args.json)
+    status, body = call(target, "/clipboard", {}, timeout=args.timeout)
+    if not args.json and isinstance(body, dict) and "text" in body:
+        print(body["text"])
+        return EXIT_OK
+    return report(status, body, args.json)
+
+
 def cmd_raw(args, config):
     target = resolve_target(args, config)
     params = parse_pairs(args.params)
@@ -580,6 +620,23 @@ def build_parser() -> argparse.ArgumentParser:
     raw.add_argument("params", nargs="*", metavar="key=value")
     raw.add_argument("-X", "--method", default="GET")
 
+    goto = sub.add_parser("goto", help="switch the panel to a page")
+    goto.add_argument("page", help="page key, with or without the leading '#'")
+    goto.add_argument("params", nargs="*", metavar="key=value",
+                      help="passed to the page as its data")
+    goto.add_argument("--override", action="store_true",
+                      help="rebuild even if that page is already showing")
+
+    sub.add_parser("pages", help="list the pages the panel can show")
+
+    clip = sub.add_parser("clipboard", help="read, set or clear the clipboard")
+    clip_sub = clip.add_subparsers(dest="action")
+    clip_sub.required = False
+    clip_set = clip_sub.add_parser("set", help="put text on the clipboard")
+    clip_set.add_argument("text")
+    clip_sub.add_parser("clear", help="empty it")
+    clip_sub.add_parser("get", help="print what is on it")
+
     return parser
 
 
@@ -594,6 +651,9 @@ HANDLERS = {
     "plugins": cmd_plugins,
     "public": cmd_public,
     "raw": cmd_raw,
+    "goto": cmd_goto,
+    "pages": cmd_pages,
+    "clipboard": cmd_clipboard,
 }
 
 

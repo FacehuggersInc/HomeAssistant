@@ -200,3 +200,37 @@ other side panels — several places share it, and a literal will drift.
 `open_panel()`, `close_panel()` and `toggle()` drive it. The frosted effect is
 a blurred snapshot of the page behind, refreshed on open and on resize, so it
 costs nothing while the panel is closed.
+
+### What a slide costs
+
+Two things made opening a panel slower than it looks, and both are worth
+knowing if you add another animated overlay.
+
+**The blur is done at a third scale.** A gaussian blur costs roughly its pixel
+count, and a full-width panel on a 1080p screen is about 640,000 pixels - paid
+on the UI thread before the panel can appear. `_blur_pixmap()` shrinks the
+snapshot, blurs that, and scales it back: nine times less work, and the detail
+it throws away is exactly what the blur exists to destroy.
+
+**The hit mask is held for the length of the slide.** A `QPropertyAnimation` on
+`pos` emits a Move event every frame, and each one scheduled a full mask
+recompute - `findChildren` across the overlay, a `QRegion` union, and `setMask`
+on a full-screen widget, which forces everything above the page to repaint.
+Thirteen times across a 220ms slide.
+
+`OVERLAYS.hold_mask(sweep)` / `release_mask()` suppress that, and `Panel`
+already brackets its own animations with them.
+
+**Pass the swept rect.** A mask clips painting as well as input, so freezing
+the mask at the panel's starting position masks the panel out of every frame it
+moves through - it slides in drawing nothing and appears only when the mask
+catches up at the end. `sweep` is the union of where the widget is and where it
+is going; it is added to the mask before updates stop, so the whole path stays
+paintable.
+
+Holds are counted, so overlapping panels behave, and a watchdog releases a hold
+whose owner never did - a lost release would otherwise freeze painting and hit
+testing for the life of the process.
+
+If you animate something of your own on the overlay layer, bracket it the same
+way and pass the ground it covers.

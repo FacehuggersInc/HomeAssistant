@@ -197,6 +197,162 @@ def FlaskApp(client):
 		else:
 			return {"request": "Failed", "reason": "No Query(q) Given!"}, 404
 
+	## NAVIGATION
+
+	def _coerce(value: str):
+		"""
+		A query string is all strings; page data is not.
+
+		`bool("false")` is True, so `?lock_address=false` would lock the
+		address bar rather than leave it alone - the exact opposite of what
+		was asked for, silently. Only the words that unambiguously mean a
+		boolean become one; a bare 1 or 0 stays a number, because `zoom=1`
+		is a number and `lock_address=1` is still truthy either way.
+		"""
+		text = (value or "").strip()
+		low = text.lower()
+		if low in ("true", "yes", "on"):
+			return True
+		if low in ("false", "no", "off"):
+			return False
+		try:
+			return int(text)
+		except ValueError:
+			pass
+		try:
+			return float(text)
+		except ValueError:
+			pass
+		return text
+
+	def _page_data() -> dict:
+		"""Every query parameter except the ones that belong to the API."""
+		reserved = ("token", "id", "override")
+		data = {k: _coerce(v) for k, v in request.args.items() if k not in reserved}
+		if request.method == "POST":
+			body = request.get_json(silent=True) or request.form.to_dict()
+			for key, value in (body or {}).items():
+				if key in reserved:
+					continue
+				data[key] = _coerce(value) if isinstance(value, str) else value
+		return data
+
+	@app.route("/goto/<path:page>", methods=["GET", "POST"])
+	def goto_page(page):
+		"""
+		Switch pages, with the query string as the page's `data`.
+
+		GET /goto/%23webpage?token=...&url=https://example.com&lock_address=true
+
+		The leading '#' has to be percent-encoded in a URL or everything after
+		it is a fragment the server never sees, so a bare key is accepted and
+		the '#' put back.
+		"""
+		err = auth()
+		if err: return err
+		if not client.BUILT:
+			return {"request": "Failed",
+					"reason": "Wait until the Program has started fully."}, 409
+
+		key = page.strip()
+		if not key.startswith("#"):
+			key = f"#{key}"
+
+		if not client.has_page(key):
+			return {"request": "Failed",
+					"reason": f"No page registered as '{key}'.",
+					"pages": sorted(client.get_pages())}, 404
+
+		data = _page_data()
+		override = _coerce(request.args.get("override", "false")) is True
+
+		# goto() builds and destroys widgets, so it belongs on the UI thread -
+		# this is a Flask worker.
+		client.call_on_ui(lambda: client.goto(key, data=data, override=override))
+		return {"request": "Success", "page": key, "data": data}, 200
+
+	@app.route("/pages", methods=["GET"])
+	def list_pages():
+		"""What /goto will accept, and what is on screen now."""
+		err = auth()
+		if err: return err
+		current = getattr(client.PAGE, "name", None) if client.PAGE else None
+		return {"request": "Success",
+				"current": current,
+				"pages": sorted(client.get_pages())}, 200
+
+	## CLIPBOARD
+
+	def _on_ui_result(fn, timeout: float = 2.0):
+		"""
+		Run something on the UI thread and wait for what it returns.
+
+		call_on_ui is fire and forget, which is fine for setting a value and
+		useless for reading one. The clipboard belongs to the GUI thread, so
+		reading it from a Flask worker is not an option.
+		"""
+		from threading import Event
+		box = {}
+		done = Event()
+
+		def run():
+			try:
+				box["value"] = fn()
+			except Exception as e:
+				box["error"] = e
+			finally:
+				done.set()
+
+		client.call_on_ui(run)
+		if not done.wait(timeout):
+			raise TimeoutError("the UI thread did not answer in time")
+		if "error" in box:
+			raise box["error"]
+		return box.get("value")
+
+	@app.route("/clipboard", methods=["GET", "POST"])
+	def clipboard():
+		"""
+		GET  /clipboard?token=...            read what is on it
+		GET  /clipboard?token=...&text=...   put something on it
+		POST /clipboard  {"text": "..."}     the same, for anything long
+		"""
+		err = auth()
+		if err: return err
+		if not client.BUILT:
+			return {"request": "Failed",
+					"reason": "Wait until the Program has started fully."}, 409
+
+		text = request.args.get("text")
+		if text is None and request.method == "POST":
+			body = request.get_json(silent=True) or request.form.to_dict()
+			text = (body or {}).get("text")
+
+		try:
+			if text is None:
+				current = _on_ui_result(lambda: client.app.clipboard().text())
+				return {"request": "Success", "text": current or "",
+						"length": len(current or "")}, 200
+
+			_on_ui_result(lambda: client.app.clipboard().setText(str(text)))
+			return {"request": "Success", "text": str(text),
+					"length": len(str(text))}, 200
+		except Exception as e:
+			return {"request": "Failed", "reason": str(e)}, 500
+
+	@app.route("/clipboard/clear", methods=["GET", "POST"])
+	def clipboard_clear():
+		err = auth()
+		if err: return err
+		if not client.BUILT:
+			return {"request": "Failed",
+					"reason": "Wait until the Program has started fully."}, 409
+		try:
+			_on_ui_result(lambda: client.app.clipboard().clear())
+			return {"request": "Success", "text": ""}, 200
+		except Exception as e:
+			return {"request": "Failed", "reason": str(e)}, 500
+
 
 	## ASSET MANAGEMENT ENDPOINTS
 	@app.route("/upload", methods=["GET"])

@@ -20,6 +20,12 @@ PRIMARY_THRESHOLD = 0.70
 # do the wrong thing, so the highest threshold with zero misfires wins.
 FALLBACK_DEFAULT_RULE_SCORE = 0.55
 
+# Above this, a Matcher hit is taken without consulting the rule phase. Below
+# it, the rule phase gets to contest - a pattern can only ever match the words
+# somebody wrote into an example, so a phrase carrying an arbitrary name or an
+# unanticipated determiner reaches the Matcher as a weak partial hit at best.
+MATCHER_CONFIDENT_SCORE = 0.75
+
 # Words that carry no intent and vary freely between speakers. Made optional
 # in generated patterns so their presence or absence never decides a match.
 # Rule-phase tuning. FUZZY_MIN_RATIO is deliberately generous: the phase only
@@ -472,20 +478,58 @@ class SkillIntentEngine:
 
 		for skill in candidates:
 			for example_lemmas in skill.lemmas:
-				# Normalised by example length: raw overlap favoured skills
-				# with the wordiest examples regardless of how well they fit.
+				# Both coverages, not just one. Dividing the overlap by the
+				# example length alone gives a one-word example a perfect score
+				# whenever that word appears anywhere in the utterance - so
+				# "cancel the 5 minute timer" scored 1.0 against the nevermind
+				# skill's "cancel", tied with the timer skill's own example,
+				# and won the tie by sitting earlier in the sentence. Backing
+				# out of the assistant ate every targeted cancel there was.
+				#
+				# The harmonic mean asks the second question too: how much of
+				# what was said does this example actually account for? This is
+				# the same formula the rule phase already used, for the same
+				# reason.
+				if not example_lemmas:
+					continue
 				overlap = len(input_lemmas & example_lemmas)
-				score = overlap / max(1, len(example_lemmas))
+				if not overlap:
+					continue
+				recall    = overlap / len(example_lemmas)
+				precision = overlap / max(1, len(input_lemmas))
+				score = (2 * recall * precision / (recall + precision)
+				         if (recall + precision) else 0.0)
 				if score > best_score:
 					best_score = score
 					best_skill = skill
 
-		if not best_skill:
-			# The rule phase. self.phases has listed "rule" since the engine was
-			# written but nothing ever ran it, so a phrase the matcher missed
-			# was simply dropped - which is most phrasings, given how literal
-			# the old patterns were.
-			best_skill, best_score = self.rule_match(input_content)
+		if best_skill is None and candidates:
+			# A pattern matched on something that is not a lemma - a number, a
+			# part of speech - so there was nothing to score against, but the
+			# match itself is real. Kept, because the old scoring accepted
+			# these by accident (0 beat its -1 starting value) and dropping
+			# them now would be a silent regression.
+			best_skill, best_score = candidates[0], 0.0
+
+		if not best_skill or best_score < MATCHER_CONFIDENT_SCORE:
+			# The rule phase, which used to run only when the Matcher found
+			# nothing at all. That was the wrong condition: a catch-all skill
+			# with one-word examples is a candidate for anything containing
+			# that word, so it "won" uncontested and the rule phase never ran.
+			#
+			# "stop the eggs timer" is the shape that exposed it. No pattern
+			# can match an arbitrary name - the examples compile "pasta"
+			# literally - so the only candidate was the nevermind skill's
+			# "stop", at 0.40, and cancelling a named timer routed to backing
+			# out of the assistant instead.
+			#
+			# A confident Matcher hit is still taken as-is; a weak one now has
+			# to beat the rule phase, which scores against content words with
+			# their discriminating weight.
+			rule_skill, rule_score = self.rule_match(input_content)
+			if rule_skill is not None and rule_score > best_score:
+				best_skill, best_score = rule_skill, rule_score
+
 
 		if not best_skill:
 			self.client.log("info", f"[SkillIntentEngine] Matcher found Nothing : {round(time.time() - start, 3)}s")

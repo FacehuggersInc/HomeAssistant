@@ -44,7 +44,11 @@ class SubHomePage(SubPageFramework):
             "remove_widget":          self.widget_manager.remove,
             "toggle_widget_panel":    self.widget_manager.toggle_panel,
             "widget_framework":       self.widget_manager,
-            "remove_widget":          self.widget_manager.remove,
+            # Widgets placed by something happening rather than by the person
+            # arranging their screen - see WidgetFramework.show_transient.
+            "show_transient":         self.widget_manager.show_transient,
+            "dismiss_transient":      self.widget_manager.dismiss_transient,
+            "transient_widgets":      self.widget_manager.transient_widgets,
         })
 
     def resizeEvent(self, event) -> None:

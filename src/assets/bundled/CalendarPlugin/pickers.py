@@ -16,6 +16,9 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QPixmap, QPainter, QColor
 
 from src.ui.controls.buttons import IconButton
+# Moved to the client so the timer picker can use the same control - two
+# copies of a stepper would drift apart.
+from src.ui.controls.stepper import Stepper as _Stepper
 from src.ui.icons import icon
 from src.styling import make_font, SIZES, set_style
 
@@ -212,56 +215,6 @@ class MapView(QWidget):
         self.fallback.setText(
             f"The map needs a browser engine.\n\n{reason}\n\n"
             "pip install PyQt6-WebEngine")
-
-class _Stepper(QWidget):
-    """A big number with up and down. Sized for a finger, not a spinbox."""
-
-    def __init__(self, label: str, value: int, low: int, high: int,
-                 wrap: bool = True, on_change: Callable = None, pad: bool = True):
-        super().__init__()
-        self.low, self.high, self.wrap = low, high, wrap
-        self.value = value
-        self.pad = pad
-        self.on_change = on_change
-
-        column = QVBoxLayout(self)
-        column.setSpacing(4)
-        column.setAlignment(Qt.AlignmentFlag.AlignCenter)
-
-        caption = QLabel(label)
-        caption.setFont(make_font(SIZES.S1))
-        caption.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        set_style(caption, "common", "text-muted")
-
-        self.up = IconButton("mdi.chevron-up", lambda: self.step(1), size=22)
-        self.down = IconButton("mdi.chevron-down", lambda: self.step(-1), size=22)
-
-        self.display = QLabel("")
-        self.display.setFont(make_font(SIZES.L1, bold=True))
-        self.display.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.display.setFixedWidth(110)
-        set_style(self.display, "common", "text-strong")
-
-        column.addWidget(caption)
-        column.addWidget(self.up, alignment=Qt.AlignmentFlag.AlignHCenter)
-        column.addWidget(self.display)
-        column.addWidget(self.down, alignment=Qt.AlignmentFlag.AlignHCenter)
-        self._show()
-
-    def step(self, by: int) -> None:
-        value = self.value + by
-        if value > self.high:
-            value = self.low if self.wrap else self.high
-        elif value < self.low:
-            value = self.high if self.wrap else self.low
-        self.value = value
-        self._show()
-        if callable(self.on_change):
-            self.on_change(value)
-
-    def _show(self) -> None:
-        self.display.setText(f"{self.value:02d}" if self.pad else str(self.value))
-
 
 class TimePickerDialog(_WideDialog):
     """

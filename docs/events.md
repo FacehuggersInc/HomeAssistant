@@ -250,6 +250,20 @@ def on_gone_idle(event):
 self.client.subscribe_to_event("on_interaction_timeout", on_gone_idle)
 ```
 
+### Resetting the clock without an interaction
+
+`client.reset_interaction_timeout()` treats now as the last interaction, for
+something the panel did that a person is expected to look at - a timer
+finishing, an alarm. Nobody has touched the screen, but going to sleep over the
+answer it just produced is not what anyone wants.
+
+By default it also brings the panel **out** of idle if it is already there,
+firing `on_fresh_interaction` so an idle plugin dismisses whatever it was
+showing. Pass `wake=False` to push the clock without waking anything.
+
+Safe from any thread - the event is marshalled, because `on_fresh_interaction`
+subscribers close panels and touch widgets.
+
 ### `on_collection`
 
 Fired once an hour, right before `gc.collect()` runs as part of the update thread's own housekeeping. `event` is always `None`.

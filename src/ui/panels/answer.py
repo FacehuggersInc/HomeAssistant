@@ -32,8 +32,14 @@ class AnswerPanel(Panel):
     sooner than that.
     """
 
-    WIDTH_RATIO = 0.42
-    MIN_WIDTH   = 460
+    # A card, not a full-height drawer. edge="right" with no height fills the
+    # cross axis, which gave a screen-tall slab holding two lines of text.
+    WIDTH_RATIO = 0.30
+    MIN_WIDTH   = 380
+    MAX_WIDTH   = 620
+    MIN_HEIGHT  = 140
+    MAX_RATIO   = 0.55        # of the screen height, for a long answer
+    MARGIN      = 22          # non-zero, so it floats as a card
     TIMEOUT     = 30
 
     def __init__(self, client: "Client", icon_name: str, title: str,
@@ -47,9 +53,13 @@ class AnswerPanel(Panel):
         except Exception:
             pass
 
+        width = min(width, self.MAX_WIDTH)
+
+        # uuid, not hash(): hash() is randomised per process and two answers
+        # with different titles can collide inside one run.
         super().__init__(client, width=width, edge="right",
-                         key=f"__answer_{abs(hash(title)) % 10 ** 8}",
-                         destroy_on_close=True)
+                         key=f"__answer_{client.uuid()}",
+                         margin=self.MARGIN, destroy_on_close=True)
         self.tint = QColor(tint)
 
         body = QWidget()
@@ -89,8 +99,18 @@ class AnswerPanel(Panel):
             layout.addWidget(label)
 
         layout.addStretch()
-        body.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        body.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         self.add_content(body)
+
+        # Every tap inside lands on the panel rather than on a label, so
+        # tap-anywhere-to-dismiss is reliable. A QLabel ignores mouse events
+        # and they propagate, but a drop shadow effect and the stretch area
+        # made that less dependable than simply not accepting them at all.
+        for child in body.findChildren(QWidget):
+            child.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        body.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+
+        self._fit_to_content(body)
 
         seconds = self.TIMEOUT if timeout is None else timeout
         if seconds > 0:
@@ -101,6 +121,24 @@ class AnswerPanel(Panel):
             client.TIMEOUTS.add(seconds, self.close_panel, self._timeout_key,
                                 transient=True)
             client.TIMEOUTS.start(self._timeout_key)
+
+    def _fit_to_content(self, body: QWidget) -> None:
+        """
+        Height from what is actually in it, capped to the screen.
+
+        Without this the panel is as tall as the display whatever it holds,
+        and an answer of two lines reads as a wall.
+        """
+        try:
+            wanted = body.sizeHint().height() + 8
+            ceiling = self.MIN_HEIGHT
+            host = self.client.OVERLAYS
+            if host is not None and host.height() > 0:
+                ceiling = max(self.MIN_HEIGHT, int(host.height() * self.MAX_RATIO))
+            self.panel_height = max(self.MIN_HEIGHT, min(wanted, ceiling))
+            self._sync_geometry()
+        except Exception as e:
+            self.client.log("debug", f"[AnswerPanel] Could not fit to content: {e}")
 
     def close_panel(self, destroy: bool = None) -> None:
         key = getattr(self, "_timeout_key", "")
@@ -118,6 +156,12 @@ class AnswerPanel(Panel):
         painter.fillRect(self.rect(), QBrush(gradient))
         painter.end()
 
+    def mousePressEvent(self, event) -> None:
+        # Accepted here so the release below is delivered to this widget. A
+        # press that propagates away takes its release with it, which is what
+        # made tapping an answer to dismiss it unreliable.
+        event.accept()
+
     def mouseReleaseEvent(self, event) -> None:
-        super().mouseReleaseEvent(event)
+        event.accept()
         self.close_panel()

@@ -13,7 +13,7 @@ _REGISTRY: dict[str, str] = {
     "close":           "mdi.close",
     "window-close":    "mdi.close",
     "minimize":        "mdi.minus",
-    "maximize":        "mdi.maximize",
+    "maximize":        "mdi.window-maximize",
     "fullscreen":      "mdi.fullscreen",
     "arrows-maximize": "mdi.fullscreen",
     "fullscreen-exit": "mdi.fullscreen-exit",
@@ -185,12 +185,58 @@ class Icons:
 
 # ── Public API ─────────────────────────────────────────────────────────────────
 
-def resolve(name: str) -> str:
+#Every prefix qtawesome ships. A name carrying one of these is passed through
+#as written rather than being treated as an unregistered alias.
+_FONT_PREFIXES = ("mdi.", "mdi6.", "fa.", "fa5.", "fa5s.", "fa5b.", "fa5r.",
+                  "fa6.", "fa6s.", "fa6b.", "fa6r.", "ei.", "msc.", "ph.",
+                  "ri.")
+
+
+def candidates(name: str) -> list:
+    """
+    Every font name worth trying for `name`, best first.
+
+    Three things used to fall through to the question mark:
+
+    * a bare name that is a perfectly good icon - `robot`, `calendar-month`.
+      resolve() only accepted registered aliases or an explicit `mdi.` prefix,
+      so a plugin.toml saying `icon = "robot"` got the fallback.
+    * an `mdi.` name that only exists in Material Design Icons **6**.
+      qtawesome's `mdi` prefix is 5.9.55; `timer-plus-outline` and a few
+      hundred others arrived in 6.x, and asking `mdi.` for one raises.
+    * an `mdi6.` name, which did not start with "mdi." and so resolved to
+      nothing at all.
+    """
+    name = (name or "").strip()
+    if not name:
+        return []
+
+    out = []
+
+    def add(value):
+        if value and value not in out:
+            out.append(value)
+
     if name in _REGISTRY:
-        return _REGISTRY[name]
-    if name.startswith("mdi."):
-        return name
-    return None
+        add(_REGISTRY[name])
+
+    if name.startswith(_FONT_PREFIXES):
+        add(name)
+        # An mdi. name that is 6-only still works if asked for by its right
+        # prefix, so try that before giving up on it.
+        if name.startswith("mdi."):
+            add("mdi6." + name[4:])
+    else:
+        add(f"mdi.{name}")
+        add(f"mdi6.{name}")
+
+    return out
+
+
+def resolve(name: str) -> str:
+    """The first candidate, for callers that only want a name."""
+    found = candidates(name)
+    return found[0] if found else None
 
 
 def icon(
@@ -202,23 +248,20 @@ def icon(
 ) -> QIcon:
     import qtawesome as qta
 
-    mdi_name = resolve(name)
-    if mdi_name is None:
-        mdi_name = "mdi.help-circle"
-
     options: dict = {"color": color, "scale_factor": scale_factor}
     if color_active:
         options["color_active"] = color_active
 
-    try:
-        q_icon = qta.icon(mdi_name, **options)
-    except Exception:
+    for candidate in candidates(name):
         try:
-            q_icon = qta.icon("mdi.help-circle", color=color)
+            return qta.icon(candidate, **options)
         except Exception:
-            q_icon = QIcon()
+            continue    # wrong font set, or no such glyph - try the next
 
-    return q_icon
+    try:
+        return qta.icon("mdi.help-circle", color=color)
+    except Exception:
+        return QIcon()
 
 
 def register(name: str, mdi_name: str) -> None:

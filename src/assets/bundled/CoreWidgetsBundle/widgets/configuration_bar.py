@@ -61,14 +61,51 @@ class ConfigurationBar(Widget):
         self._widgets_btn.setFixedSize(self.BUTTON, self.BUTTON)
         row.addWidget(self._widgets_btn)
 
+        # A timer without saying anything to the assistant. The voice route
+        # exists, but a panel is a shared screen and not everyone wants to
+        # talk to it.
+        self._timer_btn = IconButton("mdi.timer-plus-outline",
+                                     self._new_timer, size=self.BUTTON // 2)
+        self._timer_btn.setFixedSize(self.BUTTON, self.BUTTON)
+        row.addWidget(self._timer_btn)
+
         # An explicit size, not adjustSize(): the bar goes into a graphics
         # proxy before its layout has run, so leaving it to size itself left
         # the buttons clipped by a box smaller than its own contents.
         inner_h = max(self.notifications.height(), self.BUTTON)
         self.setFixedSize(
-            10 + self.notifications.width() + 8 + self.BUTTON + 10,
+            10 + self.notifications.width() + 8 + self.BUTTON
+            + 8 + self.BUTTON + 10,
             inner_h + 16,
         )
+
+    ## -- timers
+
+    def _new_timer(self) -> None:
+        if not self.client.public.has("timers"):
+            self.client.simple_notify("mdi.timer-off-outline", "Timers",
+                                      "The timer service is not available.")
+            return
+        # A picker, not a preset list. A list can only offer what somebody
+        # guessed in advance, and "seven minutes" is not unreasonable to want.
+        from src.ui.dialogs import DurationPickerDialog
+        self.client.dialog(DurationPickerDialog(
+            self.client, title="New timer", seconds=300,
+            on_chosen=self._start_timer, choose_text="Start"))
+
+    def _start_timer(self, seconds) -> None:
+        try:
+            seconds = float(seconds)
+        except (TypeError, ValueError):
+            return
+        if seconds <= 0:
+            return
+        try:
+            self.client.public.timers["start"](seconds)
+        except Exception as e:
+            self.client.log("warning", f"[ConfigurationBar] Timer failed: {e}")
+            self.client.simple_notify("mdi.timer-off-outline", "Timers",
+                                      "Could not start that timer.")
 
     def _open_widgets_panel(self) -> None:
         framework = self._framework()

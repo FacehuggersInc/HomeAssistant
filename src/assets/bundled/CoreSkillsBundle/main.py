@@ -13,6 +13,16 @@ from src.styling import make_font, SIZES, set_style
 from .voice_bar import VoiceBar
 
 
+# Words that may sit immediately before "timer" without being its name.
+# Shared by set-timer and cancel-timer: two copies would drift, and the whole
+# point is that "a 5 minute timer" is not a timer called "minute".
+TIMER_NAME_STOPWORDS = [
+    "timer", "timers",
+    "second", "seconds", "minute", "minutes", "hour", "hours", "day", "days",
+    "all", "every", "running", "remaining", "new", "another", "other",
+]
+
+
 class CoreSkills(Plugin):
 
     ## CORE
@@ -183,6 +193,14 @@ class CoreSkills(Plugin):
                     "can you make a timer called Cooking for 5 minutes",
                     "start a new timer for 10 minutes and call it Eggs",
                     "make a timer named Spaghetti for 5 minutes",
+                    # The name in front of the word, which is how people
+                    # actually say it - "an eggs timer", not "a timer called
+                    # eggs".
+                    "create an eggs timer for 5 minutes",
+                    "set a spaghetti timer for 1 hour",
+                    "start a laundry timer for 40 minutes",
+                    "make a bread timer for 25 minutes",
+                    "put a coffee timer on for 4 minutes",
                 ],
                 arguments={
                     # LEMMA, not LOWER: one entry covers singular and plural.
@@ -199,9 +217,71 @@ class CoreSkills(Plugin):
                          {"LOWER": "it", "OP": "?"},
                          {"POS": "DET", "OP": "?"},
                          {"IS_ALPHA": True, "IS_STOP": False}],
+                        # "an eggs timer" - the word immediately before
+                        # "timer". Units and quantifiers are excluded or
+                        # "a 5 minute timer" would come back named "minute",
+                        # and determiners are stop words so "a timer" is safe.
+                        [{"IS_ALPHA": True, "IS_STOP": False,
+                          "LOWER": {"NOT_IN": TIMER_NAME_STOPWORDS}},
+                         {"LOWER": {"IN": ["timer", "timers"]}}],
                     ],
                 },
                 func=self.start_timer,
+            ),
+            Skill(
+                wake_word=wake, skill_key="cancel-timer", plugin_key=key,
+                examples=[
+                    # All of them
+                    "cancel my timers", "stop all timers", "clear my timers",
+                    "cancel all of my timers", "turn off my timers",
+                    "stop all my timers", "cancel the timer",
+                    "stop the timer", "end the timer", "kill the timer",
+                    "get rid of the timer", "remove the timer",
+                    # One, by name
+                    "cancel the eggs timer", "stop the pasta timer",
+                    "cancel the timer called eggs",
+                    "stop the timer named laundry",
+                    "end the bread timer",
+                    # One, by how long it was set for. Determiners vary, and a
+                    # pattern compiles the one it was given - so the shapes
+                    # differ rather than repeating "the" three times.
+                    "cancel the 5 minute timer", "stop the 10 minute timer",
+                    "cancel my 30 second timer", "stop the 30 second timer",
+                    "cancel the 1 hour timer",
+                ],
+                arguments={
+                    # LEMMA covers singular and plural in one entry, and
+                    # normalize.expand_units has already turned "mins" into
+                    # "minutes" by the time this runs.
+                    "time": [
+                        [{"LIKE_NUM": True},
+                         {"LEMMA": {"IN": ["second", "minute", "hour"]}}],
+                    ],
+                    "name": [
+                        # "called eggs" / "named laundry"
+                        [{"LOWER": {"IN": ["call", "called", "name", "named"]}},
+                         {"LOWER": "it", "OP": "?"},
+                         {"POS": "DET", "OP": "?"},
+                         {"IS_ALPHA": True, "IS_STOP": False}],
+                        # "the eggs timer" - the word immediately before
+                        # "timer", as long as it is not a unit or a quantifier.
+                        # Without the exclusion "the five minute timer" would
+                        # hand back a timer named "minute".
+                        [{"IS_ALPHA": True, "IS_STOP": False,
+                          "LOWER": {"NOT_IN": TIMER_NAME_STOPWORDS}},
+                         {"LOWER": {"IN": ["timer", "timers"]}}],
+                    ],
+                },
+                func=self.cancel_timers,
+            ),
+            Skill(
+                wake_word=wake, skill_key="check-timers", plugin_key=key,
+                examples=[
+                    "how long is left on my timer", "how much time is left",
+                    "check my timers", "what timers are running",
+                    "how long until my timer is done", "how long on the timer",
+                ],
+                func=self.check_timers,
             ),
             # The calendar skills live in the Calendar plugin, against its own
             # registry. Two skills claiming "what is my next event" is the
@@ -452,8 +532,110 @@ class CoreSkills(Plugin):
                            speak=f"{temperature} degrees.")
 
     def start_timer(self, time: str = None, name: str = None):
-        label = f" called {name}" if name else ""
-        self._respond(f"Timers aren't implemented yet. You asked for {time}{label}.")
+        """
+        "set a timer for 10 minutes", "make a timer called Eggs for 5 minutes".
+
+        `time` arrives as spoken text - "10 minutes", "1 hour" - because a
+        transcript is untrusted and normalisation converts most spoken numbers
+        but is not a guarantee. Parsed here rather than trusted.
+        """
+        seconds = _spoken_duration(time)
+        if not seconds:
+            self._respond("I did not catch how long for. Try 'set a timer for "
+                          "five minutes'.")
+            return
+
+        if not self.client.public.has("timers"):
+            # Provided by corewidgetsbundle. Disable that and timers go with
+            # it, so this says so rather than failing silently.
+            self._respond("Timers need the Core Widgets plugin, which is not "
+                          "loaded.")
+            return
+
+        timer = self.client.public.timers["start"](seconds, name=name or "")
+        if timer is None:
+            self._respond("I could not start that timer.")
+            return
+
+        from src.assets.bundled.CoreWidgetsBundle.timers import describe
+        label = f" for {name}" if name else ""
+        self._respond(f"{describe(seconds)}{label}, starting now.")
+
+    def cancel_timers(self, time: str = None, name: str = None):
+        """
+        "cancel my timers", "cancel the eggs timer", "cancel the 5 minute timer".
+
+        With neither argument this means all of them. With either, it means the
+        ones that match - and saying so when nothing does, rather than silently
+        cancelling everything, which is the failure that would actually cost
+        somebody their dinner.
+        """
+        if not self.client.public.has("timers"):
+            self._respond("There are no timers running.")
+            return
+
+        api = self.client.public.timers
+        running = api["running"]()
+        if not running:
+            self._respond("There are no timers running.")
+            return
+
+        seconds = _spoken_duration(time) if time else 0
+        wanted = (name or "").strip()
+
+        # Nothing to narrow by: all of them.
+        if not seconds and not wanted:
+            stopped = api["cancel_all"]()
+            self._respond(f"Stopped {stopped} timer" + ("s." if stopped != 1 else "."))
+            return
+
+        matched = api["cancel_matching"](name=wanted, seconds=seconds)
+
+        if not matched:
+            self._respond(f"I could not find that timer. {self._running_summary(running)}")
+            return
+
+        if len(matched) == 1:
+            timer = matched[0]
+            if timer.name:
+                self._respond(f"Stopped the {timer.name} timer.")
+            else:
+                # "the 30 minutes timer" reads wrong - describe() gives a
+                # noun phrase, not an adjective, so it goes after the noun.
+                from src.assets.bundled.CoreWidgetsBundle.timers import describe
+                self._respond(
+                    f"Stopped the timer set for {describe(timer.duration)}.")
+            return
+
+        self._respond(f"Stopped {len(matched)} timers.")
+
+    def _running_summary(self, running: list) -> str:
+        """What is actually on, for when a request matched nothing."""
+        from src.assets.bundled.CoreWidgetsBundle.timers import describe
+        if not running:
+            return "Nothing is running."
+        names = []
+        for timer in running:
+            names.append(timer.name if timer.name else describe(timer.duration))
+        if len(names) == 1:
+            return f"The only one running is {names[0]}."
+        return "Running: " + ", ".join(names) + "."
+
+    def check_timers(self):
+        if not self.client.public.has("timers"):
+            self._respond("There are no timers running.")
+            return
+        running = self.client.public.timers["running"]()
+        if not running:
+            self._respond("There are no timers running.")
+            return
+
+        from src.assets.bundled.CoreWidgetsBundle.timers import describe
+        lines = [f"{t.label()}: {describe(t.remaining())} left" for t in running]
+        spoken = "; ".join(lines)
+        self.client.answer("mdi.timer-outline",
+                           f"{len(running)} timer" + ("s" if len(running) != 1 else ""),
+                           lines, tint="#3f7fbf", speak=spoken)
 
     ## HELPERS
 
@@ -463,3 +645,70 @@ class CoreSkills(Plugin):
         # broken one.
         if not self.client.say(text, thread=False):
             self.client.simple_notify("assistant", "Assistant", text)
+
+
+def _spoken_duration(text: str) -> float:
+    """
+    Seconds from a phrase like "10 minutes" or "1 hour 30 minutes".
+
+    Transcript normalisation turns most spoken numbers into digits before this
+    sees them, but not all of it - so a small word list covers what is left
+    rather than trusting that every "five" arrived as a "5".
+    """
+    import re
+
+    if not text:
+        return 0.0
+
+    # "a"/"an" are a soft one: they only count when nothing else is pending,
+    # or "half an hour" reads as "half", then "an" overwriting it with 1, then
+    # an hour - and a thirty minute timer becomes a sixty minute one.
+    soft = {"a", "an", "the"}
+    words = {
+        "one": 1, "two": 2, "three": 3, "four": 4, "five": 5,
+        "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10, "eleven": 11,
+        "twelve": 12, "fifteen": 15, "twenty": 20, "thirty": 30, "forty": 40,
+        "forty-five": 45, "fortyfive": 45, "fifty": 50, "sixty": 60,
+        "half": 0.5, "quarter": 0.25,
+    }
+    units = {
+        "second": 1, "seconds": 1, "sec": 1, "secs": 1,
+        "minute": 60, "minutes": 60, "min": 60, "mins": 60,
+        "hour": 3600, "hours": 3600, "hr": 3600, "hrs": 3600,
+    }
+
+    tokens = re.findall(r"[a-z0-9\-\.]+", str(text).lower())
+    total = 0.0
+    pending = None
+
+    for token in tokens:
+        if token in units:
+            # A unit with no number in front of it means one of them:
+            # "set a timer for an hour" arrives here as just "hour".
+            total += (1.0 if pending is None else pending) * units[token]
+            pending = None
+            continue
+        try:
+            pending = float(token)
+            continue
+        except ValueError:
+            pass
+        if token in soft:
+            if pending is None:
+                pending = 1
+            continue
+        if token in words:
+            value = words[token]
+            # "twenty five" is one number, not two. normalize.py usually joins
+            # compounds before a skill sees them, but not always, and losing
+            # the tens turns a 25 minute timer into a 5 minute one.
+            if (pending is not None and pending >= 20
+                    and pending % 10 == 0 and value < 10):
+                pending += value
+            else:
+                pending = value
+
+    # "set a timer for 10" with no unit at all - minutes is what people mean.
+    if total == 0 and pending:
+        total = pending * 60
+    return float(total)

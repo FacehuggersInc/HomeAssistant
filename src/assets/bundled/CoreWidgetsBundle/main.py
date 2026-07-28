@@ -31,6 +31,7 @@ class CoreWidgetsBundle(Plugin):
             "home": [],
         }
         self._background = None
+        self.timers = None      #TimerService, built in load()
 
     ## CORE
 
@@ -43,6 +44,28 @@ class CoreWidgetsBundle(Plugin):
         self.client.add_page("#cwb_home_page", "Home Page", HomePage, owner="corewidgetsbundle")
         self.client.DEFAULT_PAGE = "#cwb_home_page"
 
+        # Timers. The service owns the countdowns; the widget only draws one.
+        from .timers import TimerService
+        self.timers = TimerService(self)
+        self.timers.start_watching()
+
+        # Declared before anything can subscribe - subscribe_to_event indexes
+        # straight into the event table, so a name that has not been created
+        # is a KeyError rather than a quiet no-op.
+        if "on_timer_finished" not in self.client.EVENTS["on_call"]:
+            self.client.create_on_call_event("on_timer_finished")
+
+        self.client.public.expose("corewidgetsbundle", "timers", {
+            "start":       self.timers.start,
+            "cancel":      self.timers.cancel,
+            "cancel_all":  self.timers.cancel_all,
+            "cancel_matching": self.timers.cancel_matching,
+            "find":        self.timers.find,
+            "get":         self.timers.get,
+            "running":     self.timers.running,
+            "all":         self.timers.all_timers,
+        })
+
         #Register API
         api_endpoint, registered_flag = self.client.API_REGISTRY.register(
             "corewidgetsbundle",
@@ -52,6 +75,27 @@ class CoreWidgetsBundle(Plugin):
             False
         )
 
+        self.client.API_REGISTRY.register(
+            "corewidgetsbundle", "timer_start", self.api_timer_start,
+            requires_auth=True, action="Start a 5 minute timer",
+            description="Start a timer. seconds= or minutes=, optional name=.")
+        self.client.API_REGISTRY.register(
+            "corewidgetsbundle", "timer_list", self.api_timer_list,
+            requires_auth=True,
+            description="Every timer the panel is counting.")
+        self.client.API_REGISTRY.register(
+            "corewidgetsbundle", "timer_cancel", self.api_timer_cancel,
+            requires_auth=True,
+            description="Cancel one timer by key, or all of them.")
+        self.client.API_REGISTRY.register(
+            "corewidgetsbundle", "widget_show", self.api_widget_show,
+            requires_auth=True,
+            description="Place a transient widget on the home screen.")
+        self.client.API_REGISTRY.register(
+            "corewidgetsbundle", "widget_dismiss", self.api_widget_dismiss,
+            requires_auth=True,
+            description="Take a transient widget away again.")
+
         self.client.log("info", "[CoreWidgetsBundle] Loaded.")
 
     def reload(self, carryover: PluginCarryover = None):
@@ -60,6 +104,12 @@ class CoreWidgetsBundle(Plugin):
 
     def unload(self, carryover: PluginCarryover = None):
         current_page = self.client.PAGE
+
+        # First: it is subscribed to on_update and owns transient widgets on a
+        # page this is about to stop owning. A handler left on the bus fires
+        # into a module that is gone.
+        if getattr(self, "timers", None) is not None:
+            self.timers.stop_watching()
 
         if carryover and current_page and current_page.name == "#cwb_home_page":
             carryover.set("was_on_plugin_page", (True, "#cwb_home_page"))
@@ -100,6 +150,138 @@ class CoreWidgetsBundle(Plugin):
 
     def panel_callback(self, panel):
         self.client.TIMEOUTS.add(15, panel.close_panel, "api_request_open_panel", True)
+
+    ## TIMER API
+
+    def api_timer_start(self, seconds=None, minutes=None, hours=None,
+                        name: str = "", quadrant: str = "", x=None, y=None):
+        """
+        GET /public/timer_start?token=...&minutes=5&name=Eggs
+
+        seconds, minutes and hours add up, so `minutes=90` and `hours=1&minutes=30`
+        are the same request.
+        """
+        total = 0.0
+        for value, scale in ((seconds, 1), (minutes, 60), (hours, 3600)):
+            if value in (None, ""):
+                continue
+            try:
+                total += float(value) * scale
+            except (TypeError, ValueError):
+                return {"request": "Failed",
+                        "reason": f"'{value}' is not a number."}, 400
+        if total <= 0:
+            return {"request": "Failed",
+                    "reason": "Pass seconds=, minutes= or hours=."}, 400
+
+        center = None
+        if x not in (None, "") and y not in (None, ""):
+            try:
+                center = (int(x), int(y))
+            except (TypeError, ValueError):
+                return {"request": "Failed", "reason": "x and y must be whole numbers."}, 400
+
+        timer = self.timers.start(total, name=name, quadrant=quadrant, center=center)
+        if timer is None:
+            return {"request": "Failed", "reason": "Could not start that timer."}, 400
+        return {"request": "Success", "timer": timer.as_dict()}, 200
+
+    def api_timer_list(self):
+        return {"request": "Success",
+                "timers": [t.as_dict() for t in self.timers.all_timers()]}, 200
+
+    def api_timer_cancel(self, key: str = "", all=None):
+        if all not in (None, "") or key.strip().lower() == "all":
+            return {"request": "Success", "cancelled": self.timers.cancel_all()}, 200
+        if not key:
+            return {"request": "Failed", "reason": "Pass key= or all=1."}, 400
+        if not self.timers.cancel(key):
+            return {"request": "Failed", "reason": f"No timer '{key}'."}, 404
+        return {"request": "Success", "cancelled": 1}, 200
+
+    ## TRANSIENT WIDGET API
+
+    def _sub_home(self):
+        entry = self.client.PAGES.get_entry("#cwb_home_page")
+        if entry is None or getattr(entry, "instance", None) is None:
+            return None
+        return entry.instance.sub_page_dict.get("home")
+
+    def api_widget_show(self, widget: str = "", quadrant: str = "",
+                        x=None, y=None, timeout=0, **extra):
+        """
+        GET /public/widget_show?token=...&widget=sticky-note&quadrant=top-left&timeout=120
+
+        `widget` is a KEY already registered on sub.home. Anything else in the
+        query string is handed to the widget, so a note can arrive with its
+        text on it.
+        """
+        sub_home = self._sub_home()
+        if sub_home is None or not sub_home.has_feature("show_transient"):
+            return {"request": "Failed",
+                    "reason": "The home page is not on screen."}, 409
+
+        key = (widget or "").strip()
+        if not key:
+            return {"request": "Failed", "reason": "Pass widget=<key>."}, 400
+
+        framework = sub_home.features().widget_framework
+        template = framework.registry.get(key) or framework.templates.get(key)
+        if template is None:
+            return {"request": "Failed",
+                    "reason": f"No widget registered as '{key}'.",
+                    "widgets": sorted(set(framework.registry) | set(framework.templates))}, 404
+
+        center = None
+        if x not in (None, "") and y not in (None, ""):
+            try:
+                center = (int(x), int(y))
+            except (TypeError, ValueError):
+                return {"request": "Failed", "reason": "x and y must be whole numbers."}, 400
+
+        try:
+            seconds = float(timeout or 0)
+        except (TypeError, ValueError):
+            seconds = 0.0
+
+        done = {}
+
+        def place():
+            try:
+                made = framework.make_transient(key, **extra)
+                if made is None:
+                    done["error"] = f"'{key}' could not be built."
+                    return
+                sub_home.features().show_transient(
+                    made, center=center, quadrant=quadrant, timeout=seconds)
+                done["key"] = made.KEY
+            except Exception as e:
+                done["error"] = str(e)
+
+        self.client.call_on_ui(place)
+        # Answered without waiting: this is a Flask worker and the UI thread
+        # may be mid-frame. The caller gets the key it will have.
+        return {"request": "Success", "widget": key,
+                "quadrant": quadrant or "bottom-right",
+                "timeout": seconds}, 200
+
+    def api_widget_dismiss(self, key: str = "", all=None):
+        sub_home = self._sub_home()
+        if sub_home is None or not sub_home.has_feature("dismiss_transient"):
+            return {"request": "Failed",
+                    "reason": "The home page is not on screen."}, 409
+
+        if all not in (None, ""):
+            widgets = sub_home.features().transient_widgets()
+            keys = [w.KEY for w in widgets]
+            for k in keys:
+                self.client.call_on_ui(lambda kk=k: sub_home.features().dismiss_transient(kk))
+            return {"request": "Success", "dismissed": len(keys)}, 200
+
+        if not key:
+            return {"request": "Failed", "reason": "Pass key= or all=1."}, 400
+        self.client.call_on_ui(lambda: sub_home.features().dismiss_transient(key))
+        return {"request": "Success", "dismissed": 1}, 200
 
     ## MIXINS
     @mixin("home.__init__", "corewidgetsbundle", "after")

@@ -43,9 +43,93 @@ revoked on its own.
 | `POST /access/request?name=` | Ask to be allowed. No auth, by definition. |
 | `GET /access/state?token=` | Whether that request has been answered. |
 | `GET /process?...` | Run an assistant intent. |
+| `GET /pages` | Every registered page key, and which is on screen. |
+| `GET|POST /goto/<page>` | Switch pages. Query parameters become the page's data. |
+| `GET|POST /clipboard` | Read the clipboard, or set it with `?text=`. |
+| `GET /clipboard/clear` | Empty it. |
 
 `/update` returns as soon as staging starts - the download and restart happen
 in the background. Poll `/plugins` to tell when the panel is back.
+
+---
+
+## Navigation
+
+```
+GET /pages?token=...
+GET /goto/<page>?token=...&<anything else>
+```
+
+Everything in the query string except `token`, `id` and `override` is handed to
+the page as its `data` - the same dict a plugin passes to `client.goto()`. So
+the built-in [web page](webpage.md) is driveable from anywhere:
+
+```bash
+curl "http://panel:5000/goto/%23webpage?token=...\
+&url=https://example.com/docs\
+&home=https://example.com/docs\
+&lock_base=https://example.com\
+&lock_address=true"
+```
+
+Or through the CLI, which encodes the `#` for you:
+
+```bash
+./hactl.py goto webpage url=https://example.com/docs lock_address=true
+./hactl.py pages
+```
+
+**The `#` must be percent-encoded** (`%23`) in a raw URL, or everything after it
+is a fragment the server never sees. A key with no `#` at all is accepted and
+the `#` put back, so `/goto/webpage` and `/goto/%23webpage` are the same request.
+
+### Values are converted
+
+A query string is all strings, and page data is not. `true`, `yes` and `on`
+become `True`; `false`, `no` and `off` become `False`; digits become numbers;
+everything else stays a string.
+
+That conversion is load-bearing rather than tidy. `#webpage` reads its locks
+with `bool(data.get("lock_address"))`, and `bool("false")` is `True` — so
+without it, asking for an unlocked address bar would lock it, silently and
+exactly backwards.
+
+A bare `1` or `0` stays a number, since `zoom=1` is a number and
+`lock_address=1` is truthy either way.
+
+`POST` bodies (JSON or form) are merged on top of the query string, which is
+where anything long or awkward to escape belongs.
+
+`override=true` rebuilds the page even if it is already the current one -
+`goto()` returns immediately otherwise.
+
+Unregistered keys return **404** with the list of pages that do exist, rather
+than failing silently the way `goto()` does on its own.
+
+---
+
+## Clipboard
+
+```
+GET  /clipboard?token=...              read it
+GET  /clipboard?token=...&text=Hello   set it
+POST /clipboard   {"text": "..."}      set it, for anything long
+GET  /clipboard/clear?token=...        empty it
+```
+
+```bash
+./hactl.py clipboard set "https://example.com/very/long/thing"
+./hactl.py clipboard          # prints what is on it
+./hactl.py clipboard clear
+```
+
+This is the app's clipboard, which is the system clipboard - the on-screen
+keyboard's paste key reads the same thing, so this is how a URL gets from a
+phone into a text field on the panel without typing it on a touch keyboard.
+
+The clipboard belongs to the UI thread and these arrive on a Flask worker, so
+the read is marshalled and waits for an answer. If the UI thread is wedged the
+endpoint returns **500** with the reason rather than hanging the request.
 
 ---
 
@@ -172,6 +256,23 @@ always the same.
 
 ---
 
+## Endpoints the bundled plugins add
+
+Registered like any other plugin endpoint, and served under `/public/`.
+
+| Endpoint | From | Does |
+|---|---|---|
+| `timer_start` | Core Widgets | Start a timer. `seconds=`, `minutes=`, `hours=` add up. |
+| `timer_list` | Core Widgets | Every timer the panel is counting. |
+| `timer_cancel` | Core Widgets | Cancel one by `key=`, or `all=1`. |
+| `widget_show` | Core Widgets | Place a transient widget on the home screen. |
+| `widget_dismiss` | Core Widgets | Take one away. |
+| `calendar_add` | Calendar | Add an event. |
+| `calendar_upcoming` | Calendar | The next few events. |
+| `calendar_sync` | Calendar | Refresh every subscribed feed. |
+
+See each plugin's own documentation for the full argument list.
+
 ## Plugin-served pages
 
 An endpoint may return HTML rather than JSON, which is how a plugin ships a
@@ -234,6 +335,9 @@ without saving.
 | `terminate [-y]` | Shut down. |
 | `notify ICON TITLE BODY` | Show a notification. |
 | `settings PATH [VALUE]` | Read or write. |
+| `pages` | List pages; a `*` marks the one on screen. |
+| `goto PAGE [k=v ...]` | Switch pages, passing data. |
+| `clipboard [get\|set TEXT\|clear]` | Read, set or empty the clipboard. |
 | `plugins ...` | Everything under `/plugins`. |
 | `public ENDPOINT [k=v ...]` | Call a registered endpoint. |
 | `raw PATH [k=v ...]` | Anything else. |

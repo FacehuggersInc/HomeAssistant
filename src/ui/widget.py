@@ -79,6 +79,13 @@ class Widget(QWidget):
         self.placed: bool = True
         self.template_key: str = ""
 
+        # A transient widget is placed by something happening rather than by
+        # the person arranging their home screen - a running timer, a sticker
+        # an API call asked for. It is deliberately kept out of the saved
+        # layout: a widget that only exists while its reason exists must not
+        # come back as a ghost on the next launch.
+        self.transient: bool = False
+
         # A nudge from wherever the anchor puts this widget. Anchored widgets
         # are laid out by their zone, so this is the only way to fine-tune one
         # without giving up its anchor.
@@ -712,6 +719,14 @@ class WidgetFramework(QWidget):
         # everything that was there.
         page = dict(data.get(self.page_key, {}))
         for widget in self.registry.values():
+            if getattr(widget, "transient", False):
+                # Never written, and any entry left by an earlier run is
+                # cleared. The merge above deliberately keeps keys belonging to
+                # widgets this framework has not registered yet, so without
+                # this a transient widget saved once would sit in the file for
+                # good and be restored as a widget with nothing behind it.
+                page.pop(widget.KEY, None)
+                continue
             state = widget.layout_state()
             if widget.template_key:
                 state["template"] = widget.template_key
@@ -1251,12 +1266,40 @@ class WidgetFramework(QWidget):
         Not a delete: unplace() keeps the instance, so a sticky note keeps its
         text and dragging it back out restores it exactly. That is why this is
         a single tap with no confirmation - the worst case is one drag to undo.
+
+        A transient widget is the exception. It has no entry in the panel to go
+        back to, and it stands for something still happening - so removing one
+        has to reach whatever put it there. A timer whose widget was filed away
+        while the countdown kept running would announce itself minutes later
+        from nowhere.
         """
         widget = self.active
         if widget is None or not widget.REMOVABLE:
             return
 
         name = widget.display_name()
+
+        if getattr(widget, "transient", False):
+            key = widget.KEY
+            handled = False
+            hook = getattr(widget, "on_dismissed", None)
+            if callable(hook):
+                try:
+                    handled = bool(hook())
+                except Exception as e:
+                    self.client.log("warning",
+                                    f"[Widgets] {key} on_dismissed failed: {e}",
+                                    include_traceback=True)
+            self.active = None
+            self._mode = ""
+            self._chrome.hide()
+            if not handled:
+                # The hook did not take responsibility, so this is an ordinary
+                # dismissal. Idempotent either way - dismiss_transient on an
+                # already-removed key is a no-op.
+                self.dismiss_transient(key)
+            return
+
         self.unplace(widget)
         self.active = None
         self._mode = ""
@@ -1516,6 +1559,230 @@ class WidgetFramework(QWidget):
             # content changed while suspended is otherwise visibly misfitted
             # for the first second after the page comes back.
             self.tick_widgets()
+
+    ## TRANSIENT WIDGETS
+
+    # Fractions of the page. "center" is a band rather than a point so a
+    # random pick inside it still has somewhere to go.
+    QUADRANTS = {
+        "top-left":     (0.00, 0.00, 0.50, 0.50),
+        "top-right":    (0.50, 0.00, 1.00, 0.50),
+        "bottom-left":  (0.00, 0.50, 0.50, 1.00),
+        "bottom-right": (0.50, 0.50, 1.00, 1.00),
+        "top":          (0.00, 0.00, 1.00, 0.40),
+        "bottom":       (0.00, 0.60, 1.00, 1.00),
+        "left":         (0.00, 0.00, 0.40, 1.00),
+        "right":        (0.60, 0.00, 1.00, 1.00),
+        "center":       (0.25, 0.25, 0.75, 0.75),
+    }
+
+    #keep-out distance between a transient widget and anything already placed
+    TRANSIENT_GAP = 12
+    #how many random positions to try inside a quadrant before giving up on
+    #randomness and taking the first free slot found by scanning
+    TRANSIENT_TRIES = 40
+
+    def show_transient(self, widget: Widget, center=None, quadrant: str = "",
+                       timeout: float = 0, bundle: bool = True) -> Widget:
+        """
+        Place a widget that exists because something happened.
+
+        `center` is an exact (x, y) in page pixels; `quadrant` picks a random
+        spot inside one of QUADRANTS instead. Either way the result never
+        overlaps anything already on the page - a timer that lands on top of
+        the clock is worse than one a few pixels from where it was asked for.
+
+        `timeout` in seconds dismisses it again. Nothing else happens on
+        expiry: whatever asked for the widget is responsible for saying so.
+        """
+        widget.transient = True
+        widget.floating = True
+        widget.anchor = FLOATING
+        if widget.KEY not in self.registry:
+            self.registry[widget.KEY] = widget
+
+        point = self._transient_position(widget, center, quadrant, bundle)
+        widget.float_x, widget.float_y = point
+
+        if widget in self._widgets:
+            widget.move(*point)
+        else:
+            self.place(widget, save=False)
+
+        widget.raise_()
+        self._chrome.raise_()
+
+        if timeout and timeout > 0:
+            key = f"transient:{self.page_key}:{widget.KEY}"
+            self.client.TIMEOUTS.add(float(timeout),
+                                     lambda k=widget.KEY: self.dismiss_transient(k),
+                                     key, transient=True)
+            self.client.TIMEOUTS.start(key)
+        return widget
+
+    def make_transient(self, key: str, **kwargs):
+        """
+        A fresh instance of a registered widget, for transient placement.
+
+        A registered widget is a singleton under its KEY, so a transient copy
+        needs its own - otherwise dismissing the copy would take the real one
+        off the page with it. `MULTIPLE` templates already work this way; this
+        does the same for anything else that can be built without arguments.
+        """
+        entry = self.templates.get(key)
+        if entry is not None:
+            widget_class, args, kw = entry
+            merged = {**kw, **kwargs}
+        else:
+            existing = self.registry.get(key)
+            if existing is None:
+                return None
+            widget_class, args, merged = existing.__class__, (), dict(kwargs)
+
+        index = 1
+        while f"{key}~t{index}" in self.registry:
+            index += 1
+        instance_key = f"{key}~t{index}"
+
+        try:
+            widget = widget_class(self.client, *args, **merged)
+        except Exception as e:
+            self.client.log("warning",
+                            f"[WidgetFramework] Could not build a transient "
+                            f"'{key}': {e}")
+            return None
+
+        widget.KEY = instance_key
+        widget.template_key = key
+        widget.transient = True
+        self.registry[instance_key] = widget
+        return widget
+
+    def dismiss_transient(self, key: str) -> bool:
+        widget = self.registry.get(key)
+        if widget is None or not getattr(widget, "transient", False):
+            return False
+        try:
+            self.client.TIMEOUTS.discard(f"transient:{self.page_key}:{key}")
+        except Exception:
+            pass
+        # remove() runs teardown, stops the tick and detaches. save_layout()
+        # inside it is what clears any stale entry for this key.
+        self.remove(key)
+        return True
+
+    def transient_widgets(self) -> list:
+        return [w for w in self._widgets if getattr(w, "transient", False)]
+
+    def _occupied_rects(self, exclude: Widget = None) -> list:
+        """Where a transient widget may not land, with its keep-out gap."""
+        gap = self.TRANSIENT_GAP
+        rects = []
+        for other in self._widgets:
+            if other is exclude:
+                continue
+            try:
+                if not other.isVisible() and other is not exclude:
+                    pass
+                pos = self._frame_pos(other)
+                rects.append(QRect(pos.x() - gap, pos.y() - gap,
+                                   other.width() + gap * 2,
+                                   other.height() + gap * 2))
+            except RuntimeError:
+                continue
+        return rects
+
+    def _fits(self, x: int, y: int, w: int, h: int, blocked: list,
+              page_w: int, page_h: int) -> bool:
+        if x < self.padding or y < self.padding:
+            return False
+        if x + w > page_w - self.padding or y + h > page_h - self.padding:
+            return False
+        candidate = QRect(x, y, w, h)
+        return not any(candidate.intersects(r) for r in blocked)
+
+    def _transient_position(self, widget: Widget, center, quadrant: str,
+                            bundle: bool) -> tuple:
+        import random
+
+        page_w, page_h = self.visible_size()
+        w, h = max(1, widget.width()), max(1, widget.height())
+        blocked = self._occupied_rects(exclude=widget)
+
+        def clamp(x, y):
+            return (max(self.padding, min(int(x), page_w - w - self.padding)),
+                    max(self.padding, min(int(y), page_h - h - self.padding)))
+
+        # 1. An exact centre was asked for. Honoured if it is free, and
+        #    otherwise pushed outwards in a ring until it is - moving it is
+        #    better than dropping it on top of something.
+        if center is not None:
+            try:
+                cx, cy = int(center[0]), int(center[1])
+            except (TypeError, ValueError, IndexError):
+                cx = cy = None
+            if cx is not None:
+                x, y = clamp(cx - w // 2, cy - h // 2)
+                if self._fits(x, y, w, h, blocked, page_w, page_h):
+                    return (x, y)
+                found = self._spiral_out(x, y, w, h, blocked, page_w, page_h)
+                if found:
+                    return found
+                return (x, y)     # nowhere free; honour what was asked for
+
+        # 2. Bundle with the transient widgets already up, so several timers
+        #    read as a group rather than scattered across the screen.
+        if bundle:
+            siblings = [t for t in self.transient_widgets() if t is not widget]
+            if siblings:
+                last = siblings[-1]
+                pos = self._frame_pos(last)
+                gap = self.TRANSIENT_GAP
+                for dx, dy in ((0, last.height() + gap),
+                               (last.width() + gap, 0),
+                               (0, -(h + gap)),
+                               (-(w + gap), 0)):
+                    x, y = clamp(pos.x() + dx, pos.y() + dy)
+                    if self._fits(x, y, w, h, blocked, page_w, page_h):
+                        return (x, y)
+
+        # 3. Random inside the quadrant, retried until something is free.
+        left, top, right, bottom = self.QUADRANTS.get(
+            (quadrant or "").strip().lower(), self.QUADRANTS["bottom-right"])
+        x0, y0 = int(page_w * left), int(page_h * top)
+        x1, y1 = int(page_w * right) - w, int(page_h * bottom) - h
+
+        for _ in range(self.TRANSIENT_TRIES):
+            x = random.randint(min(x0, x1), max(x0, x1))
+            y = random.randint(min(y0, y1), max(y0, y1))
+            x, y = clamp(x, y)
+            if self._fits(x, y, w, h, blocked, page_w, page_h):
+                return (x, y)
+
+        # 4. Nothing random worked. Scan for the first free slot anywhere
+        #    before giving up and stacking - a busy page should still land
+        #    somewhere sensible rather than on top of the clock.
+        step = 24
+        for y in range(self.padding, max(self.padding + 1, page_h - h), step):
+            for x in range(self.padding, max(self.padding + 1, page_w - w), step):
+                if self._fits(x, y, w, h, blocked, page_w, page_h):
+                    return (x, y)
+
+        return clamp(x0, y0)
+
+    def _spiral_out(self, x: int, y: int, w: int, h: int, blocked: list,
+                    page_w: int, page_h: int):
+        """Nearest free position to (x, y), searched in widening rings."""
+        step = 16
+        for ring in range(1, 40):
+            radius = ring * step
+            for dx, dy in ((radius, 0), (-radius, 0), (0, radius), (0, -radius),
+                           (radius, radius), (-radius, radius),
+                           (radius, -radius), (-radius, -radius)):
+                cx, cy = x + dx, y + dy
+                if self._fits(cx, cy, w, h, blocked, page_w, page_h):
+                    return (cx, cy)
+        return None
 
     ## PANEL
 

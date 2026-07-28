@@ -92,9 +92,17 @@ This generalisation is what lets one example cover a family of phrasings.
 the determiner is optional, and the number is any number rather than the
 literal `10`.
 
-When the Matcher finds nothing, a **rule phase** scores the utterance's
-content lemmas against every skill's examples and takes the best, provided it
-clears `FALLBACK_DEFAULT_RULE_SCORE`. The threshold matters: scoring every
+When the Matcher finds nothing **or is not confident**, a **rule phase** scores
+the utterance's content lemmas against every skill's examples and takes the
+best, provided it clears `FALLBACK_DEFAULT_RULE_SCORE`.
+
+Running it only when the Matcher found *nothing* was too narrow. A pattern can
+only ever match words somebody wrote into an example, so a phrase carrying an
+arbitrary name reaches the Matcher as a weak partial hit at best - "stop the
+eggs timer" matched only the nevermind skill's one-word "stop", which then won
+uncontested and the rule phase never ran. A Matcher hit below
+`MATCHER_CONFIDENT_SCORE` now has to beat the rule phase rather than being
+taken on its own. The threshold matters: scoring every
 skill against every phrase will always produce a nearest match, and "nothing
 matched" has to stay a possible answer.
 
@@ -103,6 +111,20 @@ rule phase scores against - but they do not need to enumerate every
 determiner and number.
 
 ### Scoring
+
+**Both phases score on two coverages, not one.** How much of the example the
+utterance covers, and how much of the utterance the example accounts for,
+combined as a harmonic mean.
+
+Measuring only the first is what let a one-word example win any utterance
+containing that word: `"cancel the 5 minute timer"` scored a perfect 1.0
+against the `nevermind` skill's `"cancel"`, tied with the timer skill's own
+example, and took the tie by appearing earlier in the sentence. Every targeted
+cancel was eaten by backing out of the assistant.
+
+An example only wins now if it explains most of what was said, so a short
+catch-all cannot outrank a specific phrase - while a bare "cancel" still
+reaches `nevermind`, because there the example accounts for the whole thing.
 
 The rule phase weights words by how discriminating they are: a lemma used by
 one skill counts for more than one every skill shares. Weighting every word
