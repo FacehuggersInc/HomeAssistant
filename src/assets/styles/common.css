@@ -1,6 +1,9 @@
 /* Shared classes pulled in from almost every widget file */
 
 .transparent {
+    /* Applies to the children too. A holder marked transparent whose labels
+       and buttons still paint the palette default is the same problem one
+       level down, and every caller was having to mark each child by hand. */
     background: transparent;
 }
 
@@ -85,4 +88,10 @@
 
 .load-bar::chunk {
     background: #2ff08e;
+}
+
+.transparent QLabel,
+.transparent QPushButton,
+.transparent QWidget {
+    background: transparent;
 }

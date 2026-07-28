@@ -1,0 +1,80 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Waiting for approval</title>
+<style>
+ :root{--bg:#151517;--card:#1c1c1f;--line:#2c2c31;--text:#e6e6e8;
+       --muted:#9a9aa2;--accent:#2ff08e;--bad:#e08a8a}
+ *{box-sizing:border-box}
+ body{margin:0;min-height:100vh;display:flex;align-items:center;
+      justify-content:center;background:var(--bg);color:var(--text);
+      font:16px/1.6 -apple-system,"Segoe UI",Roboto,sans-serif;padding:24px}
+ .card{background:var(--card);border:1px solid var(--line);border-radius:16px;
+       padding:32px;max-width:460px;width:100%;text-align:center}
+ h1{font-size:22px;margin:0 0 8px}
+ p{color:var(--muted);margin:0 0 20px}
+ .dots{font-size:26px;letter-spacing:4px;color:var(--accent);height:32px}
+ .bad{color:var(--bad)}
+ a{color:var(--accent)}
+</style></head>
+<body>
+<div class="card">
+  <h1 id="head">Waiting for approval</h1>
+  <p id="body">A dialog is open on the panel. Allow this device there and this
+     page will carry on by itself.</p>
+  <div class="dots" id="dots">&middot;</div>
+</div>
+<script>
+ var token = {{ token|tojson }};
+ var next  = {{ next|tojson }};
+
+ // Kept, so a return visit does not queue a second approval request for a
+ // device that has already been allowed once.
+ try { localStorage.setItem('ha-token', token); } catch (e) {}
+
+ var dots = document.getElementById('dots');
+ var ticks = 0;
+
+ function go() {
+   var join = next.indexOf('?') === -1 ? '?' : '&';
+   // Trailing '?' is what Flask's full_path leaves on a query-less URL.
+   if (next.slice(-1) === '?') { next = next.slice(0, -1); join = '?'; }
+   location.replace(next + join + 'token=' + encodeURIComponent(token));
+ }
+
+ function poll() {
+   fetch('/access/state?token=' + encodeURIComponent(token))
+     .then(function (r) { return r.json(); })
+     .then(function (body) {
+       if (body.state === 'approved') {
+         // Named first, if the panel handed that decision over.
+         if (body.needs_name) {
+           location.replace('/access/name?token=' + encodeURIComponent(token) +
+                            '&next=' + encodeURIComponent(next));
+           return;
+         }
+         go(); return;
+       }
+       if (body.state === 'denied') {
+         document.getElementById('head').textContent = 'Not allowed';
+         document.getElementById('head').className = 'bad';
+         document.getElementById('body').textContent =
+           'The panel denied this device. Ask again by reloading this page.';
+         dots.textContent = '';
+         return;
+       }
+       if (body.state === 'unknown') {
+         // The request timed out on the panel. Asking again is better than
+         // sitting here forever on a token nobody remembers.
+         location.replace('/access/wait?next=' + encodeURIComponent(next));
+         return;
+       }
+       ticks = (ticks + 1) % 4;
+       dots.textContent = '\u00b7'.repeat(ticks + 1);
+       setTimeout(poll, 1500);
+     })
+     .catch(function () { setTimeout(poll, 3000); });
+ }
+ poll();
+</script>
+</body></html>

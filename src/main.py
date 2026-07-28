@@ -666,6 +666,35 @@ class Client:
         QTimer.singleShot(1600, self.start_assistant)
         self.subscribe_to_event("on_settings_saved", self.on_assistant_settings_saved)
 
+    def answer(self, icon: str, title: str, lines: list = None,
+               tint: str = "#4f9de0", timeout: int = None,
+               speak: str = None) -> None:
+        """
+        Show an answer, and say it.
+
+        The panel is what a skill uses when it has something to show; a
+        notification is for something to report. Both go through here so a
+        skill never has to know which UI class does it.
+        """
+        if speak:
+            try:
+                self.say(speak)
+            except Exception:
+                pass
+
+        def build():
+            try:
+                from src.ui.panels.answer import AnswerPanel
+                panel = AnswerPanel(self, icon, title, lines, tint, timeout)
+                panel.open_panel()
+            except Exception as e:
+                # Falls back rather than losing the answer - a spoken reply
+                # with nothing on screen is worse than a notification.
+                self.log("warning", f"[Client] Answer panel failed: {e}")
+                self.simple_notify(icon, title, " ".join(str(l) for l in (lines or [])))
+
+        self.call_on_ui(build)
+
     ##USERS
 
     def build_user_approvals(self) -> None:
@@ -691,9 +720,15 @@ class Client:
         self._approval_open = True
 
         def approve():
-            self.USERS.approve(request.token)
+            # Approved and held for naming in one step.
+            #
+            # The device polls every second and a half, so approving without
+            # the flag meant it was told "you're in" and had navigated away
+            # before anybody answered the second dialog. Held by default and
+            # released by whichever end supplies a name.
+            self.USERS.approve(request.token, let_user_name=True)
             self._approval_open = False
-            self.simple_notify("check", "Users", f"'{request.name}' can now connect.")
+            self._ask_for_name(request)
 
         def deny():
             self.USERS.deny(request.token)
@@ -709,6 +744,50 @@ class Client:
             detail       = ("It will be able to read and change anything the API "
                             "exposes, including settings and the calendar. You can "
                             "revoke it later under Settings, Users."),
+        )
+
+    def _ask_for_name(self, request) -> None:
+        """
+        Name the device that was just let in.
+
+        The device announced itself as something like "Firefox on Linux",
+        which says what it is and nothing about whose it is. Whoever is at the
+        panel usually knows; when they do not, the device is asked instead.
+        """
+        def name_here():
+            from src.ui.keyboard import KeyboardDialog
+            from PyQt6.QtWidgets import QLineEdit
+
+            holder = QLineEdit(request.name)
+
+            def done(text: str):
+                if text.strip():
+                    # rename() clears awaiting_name, which is what lets the
+                    # device through on its next poll.
+                    self.USERS.rename(request.token, text.strip())
+                    self.simple_notify("check", "Users",
+                                       f"'{text.strip()}' can now connect.")
+                else:
+                    self.simple_notify("account-question", "Users",
+                                       "No name given - the device will be asked.")
+
+            self.dialog(KeyboardDialog(self, holder, mode="text",
+                                       label="Name for this user", on_done=done))
+
+        def let_them():
+            # Already held; this only says so out loud.
+            self.simple_notify("account-question", "Users",
+                               "Asked the device to name itself.")
+
+        self.confirm(
+            "Who is this?",
+            f"{request.name} can now connect. Give them a name, or let them "
+            f"choose one themselves.",
+            on_confirm   = name_here,
+            on_cancel    = let_them,
+            confirm_text = "Name them",
+            cancel_text  = "Let them decide",
+            detail       = "You can rename anyone later under Settings, Users.",
         )
 
     ##QUICK SETTINGS

@@ -78,6 +78,18 @@ class MixinManager:
 			is_instance  = not isinstance(obj_or_cls, type)  # instance vs class
 			wrapper = self._make_wrapper(attr, hooks, is_instance)
 
+			# Logged, because a mixin that never fires is otherwise completely
+			# silent - there is no error, no warning, and nothing on screen.
+			# Whether a target was wrapped at all, and with how many hooks, is
+			# the first thing anybody needs to know.
+			try:
+				owners = [k for _, k in hooks["before"] + hooks["after"]]
+				self.client.log("debug",
+					f"[Mixins] wrapped {attr._mixin_key} "
+					f"({len(owners)} hook(s): {', '.join(owners) or 'none'})")
+			except Exception:
+				pass
+
 			setattr(obj_or_cls, attr_name, wrapper)
 			self._patched_targets[(obj_or_cls, attr_name)] = attr
 		

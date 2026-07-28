@@ -10,11 +10,23 @@ class APIEndpoint():
     # its callback on every single request and never actually cached.
     _NOTHING = object()
 
-    def __init__(self, owner:str, key:str, authed:bool, cached:bool, callback:Callable):
+    def __init__(self, owner:str, key:str, authed:bool, cached:bool, callback:Callable,
+                 gui:str = "", description:str = "", action:str = "",
+                 danger:bool = False):
         self.owner : str = owner
         self.key : str = key
         self.authed : bool = authed
         self.cached : bool = cached
+        # A label, if this endpoint returns a page a person would open rather
+        # than data a script would read. Empty means it is not listed on the
+        # index - most endpoints are not something to click.
+        self.gui : str = gui
+        self.description : str = description
+        # A button on the index rather than a page. Same endpoint either way -
+        # the difference is whether opening it is the point, or whether the
+        # point is that it ran.
+        self.action : str = action
+        self.danger : bool = danger
         self.__callback : Callable = callback
         self.data = self._NOTHING
 
@@ -68,6 +80,24 @@ class APIRegistry():
         
         return False
 
+    def gui_endpoints(self) -> list:
+        """Every endpoint that said it is a page, for the index."""
+        out = []
+        for owner, endpoints in self.__store.items():
+            for key, endpoint in endpoints.items():
+                if endpoint.gui:
+                    out.append(endpoint)
+        return sorted(out, key=lambda e: e.gui.lower())
+
+    def action_endpoints(self) -> list:
+        """Every endpoint that said it is a button, for the index."""
+        out = []
+        for owner, endpoints in self.__store.items():
+            for key, endpoint in endpoints.items():
+                if endpoint.action:
+                    out.append(endpoint)
+        return sorted(out, key=lambda e: e.action.lower())
+
     def get_endpoint(self, endpoint:str) -> tuple[str, APIEndpoint]:
         for plugin_key in self.__store:
             if endpoint in self.__store[plugin_key]:
@@ -84,7 +114,7 @@ class APIRegistry():
                 del self.__store[plugin_key]
                 self.client.log("info", f"[APIRegistry] '{plugin_key}' had it API endpoints unloaded")
 
-    def register(self, plugin_key:str, endpoint:str, callback: Callable, requires_auth:bool, cached:bool = False) -> tuple[APIEndpoint, bool]:
+    def register(self, plugin_key:str, endpoint:str, callback: Callable, requires_auth:bool, cached:bool = False, gui:str = "", description:str = "", action:str = "", danger:bool = False) -> tuple[APIEndpoint, bool]:
         if not self.plugin_has_registered(plugin_key):
             self.__store.setdefault(plugin_key, {})
 
@@ -99,7 +129,13 @@ class APIRegistry():
         
         
 
-        api_endpoint = APIEndpoint(plugin_key, endpoint, requires_auth, cached, callback)
+        # gui/description threaded through - the constructor took them but
+        # register() was still building the endpoint without them, so every
+        # page a plugin declared arrived with an empty label and was filtered
+        # straight back out of the index.
+        api_endpoint = APIEndpoint(plugin_key, endpoint, requires_auth, cached,
+                                   callback, gui=gui, description=description,
+                                   action=action, danger=danger)
         self.__store[plugin_key][endpoint] = api_endpoint
         self.client.log("info", f"[APIRegistry] Endpoint '{endpoint}' is registered under ownership of '{plugin_key}'")
         return api_endpoint, True

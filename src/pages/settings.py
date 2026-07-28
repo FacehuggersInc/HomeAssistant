@@ -39,10 +39,16 @@ def deps_venv_path() -> str:
 
 
 def format_name(name: str) -> str:
+    # An empty name is a real case: a SettingBlock holding a plugin's own
+    # widget has no setting and no key, and w[0] on the empty string it split
+    # into raised IndexError - which the caller swallowed, so the block simply
+    # never appeared and said nothing about why.
+    if not name:
+        return ""
     for sep in ("_", "-"):
         if sep in name:
             return " ".join(w.capitalize() for w in name.split(sep))
-    return " ".join(f"{w[0].upper()}{w[1:]}" for w in name.split(" "))
+    return " ".join(f"{w[0].upper()}{w[1:]}" for w in name.split(" ") if w)
 
 
 class GridBackground(QWidget):
@@ -650,12 +656,36 @@ def _build_users_page(client) -> list:
 
         import datetime as _dt
         seen = _dt.datetime.fromtimestamp(user.last_seen).strftime("%d %b, %H:%M")
-        detail = QLabel(f"{user.address or 'unknown address'}  ·  last seen {seen}")
+        # Said out loud, because a device showing its browser name is a device
+        # nobody has named yet - and that is a thing to finish, not a state.
+        waiting = "  ·  choosing their own name" if user.awaiting_name else ""
+        detail = QLabel(
+            f"{user.address or 'unknown address'}  ·  last seen {seen}{waiting}")
         detail.setFont(make_font(SIZES.S1))
         set_style(detail, "common", "text-muted")
         column.addWidget(detail)
 
         row.addLayout(column, stretch=1)
+
+        rename = QPushButton("Rename")
+        rename.setFont(make_font(SIZES.S1, bold=True))
+        rename.setFixedHeight(38)
+        rename.setCursor(Qt.CursorShape.PointingHandCursor)
+        set_style(rename, "overlays", "dialog-button-secondary")
+
+        def _rename(token=user.token, current=user.name):
+            from src.ui.keyboard import KeyboardDialog
+            holder = QLineEdit(current)
+
+            def done(text: str):
+                if text.strip():
+                    client.USERS.rename(token, text.strip())
+
+            client.dialog(KeyboardDialog(client, holder, mode="text",
+                                         label="Name", on_done=done))
+
+        rename.clicked.connect(lambda _=False, fn=_rename: fn())
+        row.addWidget(rename)
 
         revoke = QPushButton("Revoke")
         revoke.setFont(make_font(SIZES.S1, bold=True))
@@ -916,6 +946,7 @@ class SettingsPage(PageFramework):
             "new_category":           self.new_category,
             "new_subcategory":        self.new_subcategory,
             "insert_block":           self.insert_block,
+            "insert_plugin_block":    self.insert_plugin_block,
             "new_settings_list":      self.builder,
         })
 
@@ -961,6 +992,37 @@ class SettingsPage(PageFramework):
         if entry:
             entry["content"].insert(index, SettingBlock(self.client, content=content))
 
+    def insert_plugin_block(self, plugin_key: str, index: int,
+                            content: QWidget) -> None:
+        """
+        Add a widget to a plugin's own settings section.
+
+        A plugin's settings are a *subcategory* under "plugins", not a
+        top-level category - so insert_block() could never reach one, and a
+        plugin addressing its own section by name was silently dropped.
+        """
+        parent = self.categories.get("plugins")
+        if not parent:
+            self.client.log("warning",
+                            "[SettingsPage] insert_plugin_block: no 'plugins' "
+                            "category - nothing to insert into.")
+            return
+
+        entry = parent["subs"].get(plugin_key)
+        if not entry:
+            # Named, because the alternative is a widget that silently never
+            # appears and no way to tell which key was wrong.
+            self.client.log(
+                "warning",
+                f"[SettingsPage] insert_plugin_block: no section for "
+                f"'{plugin_key}'. Sections are: {sorted(parent['subs'])}")
+            return
+
+        entry["content"].insert(index, SettingBlock(self.client, content=content))
+        self.client.log("debug",
+                        f"[SettingsPage] Added a block to '{plugin_key}' "
+                        f"({len(entry['content'])} item(s) now).")
+
     def builder(self, pointer, data: dict, filter_key: str = "", path: str = "") -> list:
         group = []
         if not isinstance(data, dict):
@@ -972,6 +1034,12 @@ class SettingsPage(PageFramework):
                 self.client.log("warning", f"[SettingsPage.builder] The value under '{key}' was not a Valid object to be built with. (was {type(val)}, meant to be dict)")
                 continue
             extended_path = f"{path}.{key}" if path else key
+            if val.get("hidden"):
+                # Stored but not shown. A plugin that renders its own control
+                # for a value still needs somewhere to keep it, and a raw text
+                # field beside a proper picker is just a second way to get it
+                # wrong.
+                continue
             if "type" in val and "value" in val:
                 try:
                     obj = pointer
@@ -1712,10 +1780,40 @@ class SettingsPage(PageFramework):
     def start(self) -> None:
         super().start()
         self.client.subscribe_to_event("on_interaction_timeout", self.interaction_timeout)
+        # The Users list is built from the registry, not from a setting, so
+        # nothing redraws it when a device is approved from the dialog that
+        # appears over this very page.
+        self.client.USERS.subscribe(self._users_changed)
 
     def stop(self) -> None:
         super().stop()
         self.client.unsubscribe_from_event("on_interaction_timeout", self.interaction_timeout)
+        self.client.USERS.unsubscribe(self._users_changed)
+
+    def _users_changed(self) -> None:
+        """
+        Rebuild the Users category in place.
+
+        Not a navigation: re-entering the page would drop whatever category
+        the person was reading and scroll them back to the top, which for
+        somebody who just approved a device is the wrong place.
+        """
+        def apply():
+            try:
+                if self.client.PAGE is not self:
+                    return
+                entry = self.categories.get("users")
+                if entry is None:
+                    return
+                entry["content"] = _build_users_page(self.client)
+                # Redrawn only if it is the category actually on screen -
+                # rebuilding the list behind three other pages is work nobody
+                # sees, and _show_category tears down the visible content.
+                if getattr(self, "_active_path", (None, None))[0] == "users":
+                    self._show_category(self._active_path)
+            except RuntimeError:
+                pass
+        self.client.call_on_ui(apply)
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)

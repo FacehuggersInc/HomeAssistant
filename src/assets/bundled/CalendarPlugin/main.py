@@ -12,6 +12,95 @@ def _escape(text) -> str:
     return html.escape(str(text or ""), quote=True)
 
 
+SUBS_PAGE = """<!doctype html><html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Subscribed calendars</title>
+<style>
+ :root{--bg:#151517;--card:#1c1c1f;--line:#2c2c31;--text:#e6e6e8;
+       --muted:#9a9aa2;--accent:#2ff08e;--bad:#e08a8a}
+ *{box-sizing:border-box}
+ body{margin:0;background:var(--bg);color:var(--text);padding:18px;
+      font:16px/1.5 -apple-system,"Segoe UI",Roboto,sans-serif}
+ h1{font-size:22px;margin:0 0 4px}
+ p.sub{color:var(--muted);margin:0 0 16px;font-size:14px}
+ form{background:var(--card);border:1px solid var(--line);
+      border-radius:14px;padding:16px}
+ label{display:block;font-size:13px;color:var(--muted);margin:10px 0 4px}
+ input{width:100%;padding:13px;border-radius:9px;font-size:16px;
+       background:#111114;color:var(--text);border:1px solid var(--line)}
+ input:focus{outline:none;border-color:var(--accent)}
+ button{width:100%;margin-top:16px;padding:15px;border:0;border-radius:10px;
+        background:var(--accent);color:#10281c;font-size:17px;font-weight:600}
+ ul{list-style:none;padding:0;margin:20px 0 0}
+ li{display:flex;justify-content:space-between;align-items:center;gap:12px;
+    background:var(--card);border:1px solid var(--line);border-radius:12px;
+    padding:12px 14px;margin-bottom:10px}
+ li b{display:block;font-size:16px}
+ li span{display:block;color:var(--muted);font-size:13px}
+ li .bad{color:var(--bad)}
+ li button{width:auto;margin:0;padding:10px 14px;font-size:14px;
+           background:transparent;color:var(--bad);
+           border:1px solid rgba(224,138,138,.5)}
+ .note{background:rgba(47,240,142,.12);border:1px solid rgba(47,240,142,.4);
+       border-radius:10px;padding:12px;margin-bottom:14px;font-size:14px}
+ details{margin-top:18px;color:var(--muted);font-size:13.5px}
+ summary{cursor:pointer;color:var(--text)}
+</style></head><body>
+<h1>Subscribed calendars</h1>
+<p class="sub">Mirrored onto the panel, one way. Nothing is sent back.</p>
+__MESSAGE_BLOCK__
+<form id="f">
+  <label for="user">Who is it for</label>
+  <select id="user" name="user" required>__USERS__</select>
+  <label for="name">Name it</label>
+  <input id="name" name="name" placeholder="Work, Family, Bins">
+  <label for="add">ICS address</label>
+  <input id="add" name="add" required placeholder="https://... or webcal://...">
+  <button type="submit">Subscribe</button>
+</form>
+<ul>__ROWS__</ul>
+<details>
+  <summary>Where do I get the address?</summary>
+  <p><b>Google</b> - Settings for that calendar, then the secret address in
+     iCal format.<br>
+     <b>Apple</b> - share the calendar publicly and copy the webcal link.<br>
+     <b>Outlook</b> - publish the calendar and choose ICS.</p>
+  <p>Treat it as a password. Anyone holding it can read that calendar.</p>
+  <p>Google caches this feed for hours, so a change made on your phone will not
+     appear here straight away.</p>
+</details>
+<script>
+ var token = '__TOKEN__';
+ function post(params) {
+   params.append('token', token);
+   fetch('/public/calendar_subscriptions?' + params.toString(), {method: 'POST'})
+     // Reloaded rather than patched: the list is rendered by the panel, and
+     // rebuilding it here would be a second copy of that logic.
+     .then(function () { location.href = '/public/calendar_subscriptions?token=' + token; })
+     .catch(function () { alert('Could not reach the panel.'); });
+ }
+ document.getElementById('f').addEventListener('submit', function (e) {
+   e.preventDefault();
+   var params = new URLSearchParams();
+   new FormData(e.target).forEach(function (v, k) { if (v) { params.append(k, v); } });
+   post(params);
+ });
+ document.querySelectorAll('button[data-remove]').forEach(function (b) {
+   b.addEventListener('click', function () {
+     if (!confirm('Remove this calendar and its events?')) { return; }
+     post(new URLSearchParams({remove: b.dataset.remove}));
+   });
+ });
+ try {
+   var saved = localStorage.getItem('ha-user');
+   if (saved) { document.getElementById('user').value = saved; }
+   document.getElementById('user').addEventListener('change', function (e) {
+     localStorage.setItem('ha-user', e.target.value);
+   });
+ } catch (e) {}
+</script></body></html>"""
+
+
 # Sized for a phone held one-handed: one column, large fields, no zooming.
 FORM_PAGE = """<!doctype html><html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -27,9 +116,9 @@ FORM_PAGE = """<!doctype html><html><head><meta charset="utf-8">
  form{background:var(--card);border:1px solid var(--line);
       border-radius:14px;padding:16px}
  label{display:block;font-size:13px;color:var(--muted);margin:12px 0 4px}
- input,textarea{width:100%;padding:13px;border-radius:9px;font-size:16px;
+ input,textarea,select{width:100%;padding:13px;border-radius:9px;font-size:16px;
       background:#111114;color:var(--text);border:1px solid var(--line)}
- input:focus,textarea:focus{outline:none;border-color:var(--accent)}
+ input:focus,textarea:focus,select:focus{outline:none;border-color:var(--accent)}
  textarea{min-height:90px;resize:vertical}
  .row{display:flex;gap:10px}.row>div{flex:1}
  button{width:100%;margin-top:18px;padding:15px;border:0;border-radius:10px;
@@ -45,6 +134,8 @@ FORM_PAGE = """<!doctype html><html><head><meta charset="utf-8">
 <p class="sub">It appears on the panel straight away.</p>
 <div class="ok" id="ok">Added.</div>
 <form id="f">
+  <label for="user">Who is this for</label>
+  <select id="user" name="user" required>__USERS__</select>
   <label for="title">Title</label>
   <input id="title" name="title" required placeholder="What is it?">
   <div class="row">
@@ -64,6 +155,14 @@ FORM_PAGE = """<!doctype html><html><head><meta charset="utf-8">
 <ul>__UPCOMING__</ul>
 <script>
  document.getElementById('day').valueAsDate = new Date();
+ // Remembered, so a phone asks once rather than on every event.
+ try {
+   var saved = localStorage.getItem('ha-user');
+   if (saved) { document.getElementById('user').value = saved; }
+   document.getElementById('user').addEventListener('change', function (e) {
+     localStorage.setItem('ha-user', e.target.value);
+   });
+ } catch (e) {}
  document.getElementById('f').addEventListener('submit', function (event) {
    event.preventDefault();
    var params = new URLSearchParams({token: '__TOKEN__'});
@@ -96,6 +195,7 @@ class Calendar(Plugin):
     def __init__(self):
         self.store: CalendarStore = None
         self.reminders = None
+        self.subscriptions = None
 
     ## LIFECYCLE
 
@@ -131,6 +231,19 @@ class Calendar(Plugin):
             "describe_gap":      self.store.describe_gap,
             "describe_duration": self.store.describe_duration,
             "holidays":          self.store.holidays,
+            "expand":            self.store.expand,
+            "skip_occurrence":   self.store.skip_occurrence,
+            "unskip_occurrence": self.store.unskip_occurrence,
+            "skip_next":         self.store.skip_next,
+            "set_hidden":        self.store.set_hidden,
+            "hidden_keys":       self.store.hidden_keys,
+            "prune":             self.store.prune,
+            "deduplicate":       self.store.deduplicate,
+            "subscriptions":     lambda: self.subscriptions.all() if self.subscriptions else [],
+            "add_subscription":  lambda url, name="", colour="", owner="": self.subscriptions.add(url, name, colour, owner),
+            "remove_subscription": lambda key: self.subscriptions.remove(key),
+            "sync_subscriptions": self.sync_subscriptions,
+            "reset_subscriptions": self.reset_subscriptions,
             "reload":            self.store.load,
             # Published rather than looked up. A page reaching back for its own
             # plugin needs an accessor PluginManager does not have, and the
@@ -145,7 +258,18 @@ class Calendar(Plugin):
         self.client.API_REGISTRY.register(
             "calendar", "calendar_upcoming", self.api_upcoming, requires_auth=True)
         self.client.API_REGISTRY.register(
-            "calendar", "calendar_form", self.api_form, requires_auth=True)
+            "calendar", "calendar_sync", self.api_sync, requires_auth=True,
+            action="Sync calendars")
+        self.client.API_REGISTRY.register(
+            "calendar", "calendar_subscriptions", self.api_subscriptions,
+            requires_auth=True, gui="Subscribed calendars",
+            description="Mirror a Google, Apple or Outlook calendar onto the panel.")
+        self.client.API_REGISTRY.register(
+            "calendar", "calendar_dump", self.api_dump, requires_auth=True)
+        self.client.API_REGISTRY.register(
+            "calendar", "calendar_form", self.api_form, requires_auth=True,
+            gui="Add an event",
+            description="A page sized for a phone. Adds to the panel straight away.")
 
     @mixin("settings.__init__", "calendar", "after")
     def _add_settings_block(self, page, *args):
@@ -190,9 +314,89 @@ class Calendar(Plugin):
             # "general", not "calendar". Categories are the top-level keys of
             # the plugin's settings.json, so a block addressed to the plugin
             # name is silently dropped - which is exactly what happened.
-            page.features().insert_block("general", 0, host)
+            page.features().insert_plugin_block("calendar", 0, host)
         except Exception as e:
-            self.client.log("debug", f"[Calendar] No settings block: {e}")
+            self.client.log("warning",
+                            f"[Calendar] Default location block failed: {e}",
+                            include_traceback=True)
+
+    @mixin("settings.__init__", "calendar", "after")
+    def _add_subscriptions_block(self, page, *args):
+        """
+        The synced calendars, each with its own controls.
+
+        A toggle called "resync everything" was the wrong shape: the thing a
+        person wants to act on is one calendar that has gone wrong, and it is
+        already on screen in a list.
+        """
+        from PyQt6.QtWidgets import (
+            QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QFrame,
+        )
+        from PyQt6.QtCore import Qt
+        from src.styling import make_font, SIZES, set_style
+
+        host = QWidget()
+        set_style(host, "common", "transparent")
+        column = QVBoxLayout(host)
+        column.setContentsMargins(0, 0, 0, 0)
+        column.setSpacing(8)
+
+        heading = QLabel("Synced calendars")
+        heading.setFont(make_font(SIZES.S2, bold=True))
+        set_style(heading, "common", "text-strong")
+        column.addWidget(heading)
+
+        from PyQt6.QtWidgets import QPushButton as _Button
+        add = _Button("Add a calendar")
+        add.setFont(make_font(SIZES.S1, bold=True))
+        add.setFixedHeight(42)
+        add.setCursor(Qt.CursorShape.PointingHandCursor)
+        set_style(add, "overlays", "dialog-button-primary")
+        add.clicked.connect(lambda: self._add_feed_dialog())
+
+        header = QHBoxLayout()
+        header.addWidget(heading, stretch=1)
+        header.addWidget(add)
+        column.removeWidget(heading)
+        column.addLayout(header)
+
+        feeds = self.subscriptions.all() if self.subscriptions else []
+        if not feeds:
+            empty = QLabel("None yet. Add a calendar with the button above.")
+            empty.setFont(make_font(SIZES.S1))
+            empty.setWordWrap(True)
+            set_style(empty, "common", "text-muted")
+            column.addWidget(empty)
+        else:
+            from .subscription_editor import subscription_row
+            for feed in feeds:
+                column.addWidget(subscription_row(
+                    self.client, feed,
+                    on_changed=lambda: self.client.goto("#settings", override=True)))
+
+        try:
+            page.features().insert_plugin_block("calendar", 0, host)
+        except Exception as e:
+            self.client.log("warning",
+                            f"[Calendar] Subscriptions block failed: {e}",
+                            include_traceback=True)
+
+    def _add_feed_dialog(self) -> None:
+        """
+        The same dialog the calendar page opens.
+
+        There were briefly two: this one and SubscriptionEditorDialog. Two
+        dialogs for one job drift - one grew the provider hint and the address
+        validation, the other did not - and which you got depended on where you
+        started from.
+        """
+        from .subscription_editor import SubscriptionEditorDialog
+
+        def saved():
+            # Re-entered so the new calendar is in the list behind the dialog.
+            self.client.goto("#settings", override=True)
+
+        self.client.dialog(SubscriptionEditorDialog(self.client, on_saved=saved))
 
     def _choose_default_location(self, label=None) -> None:
         from .pickers import LocationPickerDialog
@@ -213,6 +417,52 @@ class Calendar(Plugin):
     def built(self):
         # Started here, not in load(): the panel it shows needs the overlay
         # layer, and that does not exist until the client has built.
+        from .subscriptions import SubscriptionManager
+        self.subscriptions = SubscriptionManager(
+            self, get_data_dir(APP_NAME) / "calendar" / "subscriptions.json")
+
+        # Before anything syncs: an event the manager cannot recognise as its
+        # own is an event the next sync duplicates rather than replaces.
+        try:
+            self.subscriptions.migrate_events()
+            self.subscriptions.orphans()
+            removed = self.store.deduplicate()
+            if removed:
+                self.client.log("info",
+                                f"[Calendar] Removed {removed} duplicate event(s).")
+        except Exception as e:
+            self.client.log("warning", f"[Calendar] Could not tidy subscriptions: {e}")
+
+        # On a thread: a feed is a network fetch and this runs on the UI one.
+        # Staggered from startup so it is not competing with everything else
+        # the panel does in its first seconds.
+        def first_sync():
+            try:
+                self.sync_subscriptions()
+            except Exception as e:
+                self.client.log("warning", f"[Calendar] First sync failed: {e}")
+
+        self.client.TIMEOUTS.add(12, first_sync, "calendar_first_sync")
+        self.client.TIMEOUTS.start("calendar_first_sync")
+        self._schedule_sync()
+
+        # Once, at startup. events.json is otherwise unbounded, and a daily
+        # timer for something this slow-moving is a timer for nothing.
+        try:
+            days = int(self.option("general.keep_events_for_days", 365))
+            if days > 0:
+                dropped = self.store.prune(days)
+                if dropped:
+                    self.client.log("info", f"[Calendar] Pruned {dropped} old event(s).")
+        except Exception as e:
+            self.client.log("warning", f"[Calendar] Prune failed: {e}")
+
+        from .skills import build as build_skills
+        try:
+            self.client.SKILLS.register("calendar", build_skills(self))
+        except Exception as e:
+            self.client.log("warning", f"[Calendar] Could not register skills: {e}")
+
         from .reminder import ReminderWatcher
         self.reminders = ReminderWatcher(self)
         self.reminders.start()
@@ -242,6 +492,17 @@ class Calendar(Plugin):
         home.add_sub_page("calendar", CalendarPage)
 
     def unload(self, carryover=None):
+        try:
+            self.client.SKILLS.un_register("calendar")
+        except Exception:
+            pass
+
+        for timer in ("calendar_sync", "calendar_first_sync"):
+            try:
+                self.client.TIMEOUTS.cancel(timer)
+            except Exception:
+                pass
+
         if self.reminders is not None:
             self.reminders.stop()
             self.reminders = None
@@ -299,6 +560,59 @@ class Calendar(Plugin):
         except Exception:
             return default
 
+    ## SUBSCRIPTIONS
+
+    def sync_subscriptions(self) -> None:
+        """Refresh every feed, off the UI thread."""
+        from threading import Thread
+
+        def work():
+            try:
+                results = self.subscriptions.sync_all()
+            except Exception as e:
+                self.client.log("warning", f"[Calendar] Sync failed: {e}")
+                return
+            if any(results.values()):
+                self.client.call_on_ui(lambda: self.client.trigger_on_call_event_iteration(
+                    "on_calendar_changed", None))
+
+        Thread(target=work, name="__calendar_sync", daemon=True).start()
+
+    def reset_subscriptions(self, key: str = "") -> None:
+        """Wipe and re-fetch, off the UI thread like any other sync."""
+        from threading import Thread
+
+        def work():
+            try:
+                dropped = self.subscriptions.reset(key)
+                self.client.call_on_ui(lambda: (
+                    self.client.simple_notify(
+                        "mdi.calendar-sync", "Calendar",
+                        f"Re-synced from scratch, {dropped} old event(s) cleared."),
+                    self.client.trigger_on_call_event_iteration(
+                        "on_calendar_changed", None)))
+            except Exception as e:
+                self.client.log("warning", f"[Calendar] Reset failed: {e}")
+
+        Thread(target=work, name="__calendar_reset", daemon=True).start()
+
+    def _schedule_sync(self) -> None:
+        minutes = 60
+        try:
+            minutes = max(15, int(self.option("subscriptions.refresh_minutes", 60)))
+        except (TypeError, ValueError):
+            pass
+
+        def again():
+            self.sync_subscriptions()
+            # Re-armed each time rather than left repeating, so a change to
+            # the interval takes effect at the next tick instead of at the
+            # next restart.
+            self._schedule_sync()
+
+        self.client.TIMEOUTS.add(minutes * 60, again, "calendar_sync")
+        self.client.TIMEOUTS.start("calendar_sync")
+
     ## EVENTS
 
     def remove_event(self, key: str) -> bool:
@@ -323,12 +637,27 @@ class Calendar(Plugin):
 
     def api_add(self, title: str = "", day: str = "", time: str = "",
                 end_time: str = "", location: str = "", notes: str = "",
-                icon: str = "mdi.calendar"):
-        """POST or GET /public/calendar_add?title=&day=YYYY-MM-DD&time=HH:MM"""
+                icon: str = "mdi.calendar", user: str = ""):
+        """
+        POST or GET /public/calendar_add?user=&title=&day=YYYY-MM-DD&time=HH:MM
+
+        `user` is required. The device is known - it was approved by name -
+        but a device is not a person: a shared tablet in a kitchen is used by
+        everybody in the house. Saying who is asking is what makes two
+        identical events two events rather than one.
+
+        Pass a name to override the device's; leave it out and it is refused
+        rather than guessed.
+        """
+        owner = (user or "").strip()
+        if not owner:
+            return {"request": "Failed",
+                    "reason": "user is required - say who this event is for"}, 400
+
         candidate = Event.from_dict({
             "title": title, "day": day, "time": time, "end_time": end_time,
             "location": location, "notes": notes, "icon": icon,
-            "source": "imported",
+            "source": "imported", "owner": owner,
         })
         if candidate is None:
             return {"request": "Failed",
@@ -339,9 +668,9 @@ class Calendar(Plugin):
         # again - and an event gains an author without anybody typing one.
         try:
             from flask import request as _request
-            user = _request.environ.get("ha.user")
-            if user is not None and not candidate.notes:
-                candidate.notes = f"Added by {user.name}"
+            device = _request.environ.get("ha.user")
+            if device is not None and not candidate.notes:
+                candidate.notes = f"Sent from {device.name}"
         except Exception:
             pass
 
@@ -373,6 +702,13 @@ class Calendar(Plugin):
                      or _request.headers.get("X-Client-Token") or "")
         except Exception:
             pass
+        # Whoever the panel knows, as options. A free text field here meant
+        # "Chris", "chris" and "Chris " were three people who each owned some
+        # of the same events.
+        names = self.client.USERS.names()
+        options = "".join(f'<option value="{_escape(n)}">{_escape(n)}</option>'
+                          for n in names)
+
         upcoming = self.store.upcoming(5)
         listed = "".join(
             f"<li><b>{_escape(e.title)}</b>"
@@ -383,7 +719,166 @@ class Calendar(Plugin):
 
         return (FORM_PAGE
                 .replace("__TOKEN__", _escape(token))
+                .replace("__USERS__", options or
+                         "<option value=\"\">Nobody named yet</option>")
                 .replace("__UPCOMING__", listed)), 200
+
+    def api_sync(self, **_ignored):
+        """
+        Refresh every subscribed calendar now.
+
+        Synchronous, unlike the timer's version: this one was asked for, and a
+        button that says "done" before anything has happened is a button that
+        lies. The feeds are a few seconds at worst.
+        """
+        if self.subscriptions is None:
+            return {"request": "Failed", "reason": "Subscriptions are not ready"}, 503
+
+        feeds = self.subscriptions.all()
+        if not feeds:
+            return {"request": "Success", "synced": 0,
+                    "detail": "No subscribed calendars yet."}, 200
+
+        try:
+            results = self.subscriptions.sync_all()
+        except Exception as e:
+            self.client.log("warning", f"[Calendar] Manual sync failed: {e}")
+            return {"request": "Failed", "reason": str(e)[:140]}, 500
+
+        total = sum(results.values())
+        self.client.call_on_ui(lambda: self.client.trigger_on_call_event_iteration(
+            "on_calendar_changed", None))
+
+        broken = [f.name for f in feeds if f.last_error]
+        detail = f"{total} event(s) from {len(results)} calendar(s)."
+        if broken:
+            # Named, not counted. "One failed" is not actionable; "Work failed"
+            # is somewhere to look.
+            detail += " Failed: " + ", ".join(broken)
+        return {"request": "Success", "synced": total, "detail": detail}, 200
+
+    def api_subscriptions(self, add: str = "", name: str = "", user: str = "",
+                          remove: str = "", **_ignored):
+        """
+        Manage subscribed calendars from a phone.
+
+        One endpoint for the page and its actions: a form that posts back to
+        the address it was served from needs no second URL, and a phone that
+        has this bookmarked can do the whole job from it.
+        """
+        message = ""
+        if remove:
+            message = ("Removed." if self.subscriptions.remove(remove.strip())
+                       else "That subscription is already gone.")
+        elif add:
+            owner = (user or "").strip()
+            if not owner:
+                message = "Say who the calendar is for."
+            else:
+                sub = self.subscriptions.add(add.strip(), (name or "").strip(), owner=owner)
+                self.sync_subscriptions()
+                message = f"Added {sub.name}. Fetching it now."
+
+        rows = ""
+        for sub in self.subscriptions.all():
+            when = "never"
+            if sub.last_sync:
+                import datetime as _dt
+                when = _dt.datetime.fromtimestamp(sub.last_sync).strftime("%d %b %H:%M")
+            trouble = (f'<span class="bad">{_escape(sub.last_error)}</span>'
+                       if sub.last_error else f"<span>last synced {when}</span>")
+            rows += (f'<li><div><b>{_escape(sub.name)}</b>'
+                     f'<span>{_escape(sub.owner or "unassigned")}</span>{trouble}</div>'
+                     f'<button data-remove="{_escape(sub.key)}">Remove</button></li>')
+        rows = rows or '<li><div><span>Nothing subscribed yet.</span></div></li>'
+
+        token = ""
+        try:
+            from flask import request as _request
+            token = (_request.args.get("token")
+                     or _request.headers.get("X-Client-Token") or "")
+        except Exception:
+            pass
+
+        options = "".join(f'<option value="{_escape(n)}">{_escape(n)}</option>'
+                          for n in self.client.USERS.names())
+
+        return (SUBS_PAGE
+                .replace("__TOKEN__", _escape(token))
+                .replace("__USERS__", options or
+                         "<option value=\"\">Nobody named yet</option>")
+                .replace("__ROWS__", rows)
+                .replace("__MESSAGE_BLOCK__",
+                         f'<div class="note">{_escape(message)}</div>' if message else "")), 200
+
+    def api_dump(self, title: str = "", day: str = "", show: str = ""):
+        """
+        What is actually on disk, and what the calendar draws from it.
+
+        With no arguments it reports what appears more than once rather than
+        making somebody guess a search term - which is the question anybody
+        calling this actually has.
+
+          /public/calendar_dump?token=...                  duplicates only
+          /public/calendar_dump?token=...&show=all         every stored row
+          /public/calendar_dump?token=...&title=conference one title
+        """
+        from collections import defaultdict
+
+        stored = list(self.store.events.values())
+        needle = (title or "").strip().lower()
+
+        if needle or day:
+            rows = [e.to_dict() for e in stored
+                    if (not needle or needle in e.title.lower())
+                    and (not day or e.day == day)]
+            return {"request": "Success", "stored": len(stored),
+                    "matched": len(rows), "events": rows}, 200
+
+        if (show or "").lower() == "all":
+            return {"request": "Success", "stored": len(stored),
+                    "events": [e.to_dict() for e in stored]}, 200
+
+        # Grouped on what a person would call the same event, not on the key.
+        # Two rows with different keys and the same content is the thing being
+        # looked for, so a key-based grouping would report nothing.
+        groups = defaultdict(list)
+        for event in stored:
+            groups[(event.title.strip().lower(), event.day,
+                    event.end_day, event.time, event.owner)].append(event)
+
+        repeated = {f"{k[0]} @ {k[1]}": [e.to_dict() for e in v]
+                    for k, v in groups.items() if len(v) > 1}
+
+        # And the other kind: a stored one-off landing on a day its own series
+        # already covers. Nothing in the file looks wrong - the two only meet
+        # once the series is expanded, which is why a store-level check misses
+        # it entirely.
+        overlaps = []
+        for event in stored:
+            if event.recurring or not event.date:
+                continue
+            for series in stored:
+                if not series.recurring or series.key == event.key:
+                    continue
+                if series.title.strip().lower() != event.title.strip().lower():
+                    continue
+                if any(o.date == event.date
+                       for o in self.store.expand(series, event.date, event.date)):
+                    overlaps.append({"loose": event.to_dict(),
+                                     "series": series.key,
+                                     "series_title": series.title})
+                    break
+
+        return {"request": "Success",
+                "stored": len(stored),
+                "duplicate_rows": len(repeated),
+                "series_overlaps": len(overlaps),
+                "duplicates": repeated,
+                "overlaps": overlaps,
+                "hint": ("Nothing repeated on disk." if not repeated and not overlaps
+                         else "duplicates are rows stored twice; overlaps are a "
+                              "one-off sitting on a day its series already covers.")}, 200
 
     def api_upcoming(self, count: str = "5"):
         try:

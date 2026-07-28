@@ -1,0 +1,47 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>What should we call you?</title>
+<style>
+ :root{--bg:#151517;--card:#1c1c1f;--line:#2c2c31;--text:#e6e6e8;
+       --muted:#9a9aa2;--accent:#2ff08e}
+ *{box-sizing:border-box}
+ body{margin:0;min-height:100vh;display:flex;align-items:center;
+      justify-content:center;background:var(--bg);color:var(--text);
+      font:16px/1.6 -apple-system,"Segoe UI",Roboto,sans-serif;padding:24px}
+ .card{background:var(--card);border:1px solid var(--line);border-radius:16px;
+       padding:30px;max-width:440px;width:100%}
+ h1{font-size:22px;margin:0 0 6px}
+ p{color:var(--muted);margin:0 0 20px;font-size:14px}
+ input{width:100%;padding:15px;border-radius:10px;font-size:17px;
+       background:#111114;color:var(--text);border:1px solid var(--line)}
+ input:focus{outline:none;border-color:var(--accent)}
+ button{width:100%;margin-top:16px;padding:15px;border:0;border-radius:10px;
+        background:var(--accent);color:#10281c;font-size:17px;font-weight:600}
+</style></head>
+<body>
+<div class="card">
+  <h1>What should we call you?</h1>
+  <p>The panel knows this device as "{{ suggested }}". A person's name is more
+     use — it is what your events will be filed under.</p>
+  <form id="f">
+    <input id="name" name="name" required autofocus
+           placeholder="Your name" maxlength="40">
+    <button type="submit">That's me</button>
+  </form>
+</div>
+<script>
+ var token = {{ token|tojson }};
+ var next  = {{ next|tojson }};
+ document.getElementById('f').addEventListener('submit', function (e) {
+   e.preventDefault();
+   var name = document.getElementById('name').value.trim();
+   if (!name) { return; }
+   // A redirect rather than fetch: the answer is a navigation, and the
+   // server sends them on to where they were originally going.
+   location.href = '/access/name?token=' + encodeURIComponent(token) +
+                   '&name=' + encodeURIComponent(name) +
+                   '&next=' + encodeURIComponent(next);
+ });
+</script>
+</body></html>

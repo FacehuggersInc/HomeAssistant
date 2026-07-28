@@ -39,15 +39,25 @@ class DayCell(QWidget):
         super().__init__()
         self.page   = page
         self.day: date = None
+        self.column = 0
         self.events: list = []
         self.in_month  = True
         self.is_today  = False
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self._press = None
 
-    def set_day(self, day: date, events: list, in_month: bool) -> None:
+    def set_day(self, day: date, events: list, in_month: bool,
+                column: int = 0) -> None:
         self.day      = day
-        self.events   = events
+        self.column   = column
+        # Spans first, oldest first. A multi-day event has to sit in the same
+        # slot in every cell it covers or its bar steps up and down across the
+        # week - and it can only do that if the ordering is stable.
+        self.events   = sorted(
+            events,
+            key=lambda e: (0 if e.spans_days else 1,
+                           e.date or day, e.key),
+        )
         self.in_month = in_month
         self.is_today = (day == date.today())
         self.update()
@@ -100,11 +110,32 @@ class DayCell(QWidget):
             # made the text sit high in its own background.
             line = QRect(rect.left() + 4, top, rect.width() - 9, line_h - 3)
 
+            # A span runs to the very edge of the cell on whichever sides it
+            # continues, so consecutive days read as one bar rather than as
+            # the same event listed several times.
+            starts_here = (entry.date == self.day) or self.column == 0
+            ends_here = (entry.last_date == self.day) or self.column == 6
+            if entry.spans_days:
+                left = line.left() if starts_here else self.rect().left()
+                right = line.right() if ends_here else self.rect().right()
+                line = QRect(left, line.top(), right - left, line.height())
+
             # Kind reads from the shape, not only the glyph: a holiday gets a
             # full tinted bar, an all-day event a soft one, and a timed event
             # just its chip - so the three are distinguishable at a glance even
             # where two share an icon.
-            if entry.source == "holiday":
+            if entry.spans_days:
+                painter.setBrush(QBrush(QColor(colour.red(), colour.green(),
+                                               colour.blue(), 85)))
+                painter.setPen(Qt.PenStyle.NoPen)
+                # Rounded only where it actually begins or ends. A rounded cap
+                # in the middle of a run reads as a separate event.
+                painter.drawRoundedRect(line, 6, 6)
+                if not starts_here:
+                    painter.drawRect(line.left(), line.top(), 8, line.height())
+                if not ends_here:
+                    painter.drawRect(line.right() - 8, line.top(), 8, line.height())
+            elif entry.source == "holiday":
                 painter.setBrush(QBrush(QColor(colour.red(), colour.green(),
                                                colour.blue(), 75)))
                 painter.setPen(Qt.PenStyle.NoPen)
@@ -115,26 +146,39 @@ class DayCell(QWidget):
                 painter.setPen(Qt.PenStyle.NoPen)
                 painter.drawRoundedRect(line, 6, 6)
 
+            # The icon belongs to the day the thing starts. Repeating it in
+            # every cell of a four-day trip is four icons for one event.
+            draw_chip = (not entry.spans_days) or starts_here
+
             glyph_size = 14
             chip = QRect(line.left() + 3,
                          line.center().y() - glyph_size // 2 - 2,
                          glyph_size + 4, glyph_size + 4)
-            painter.setBrush(QBrush(QColor(colour.red(), colour.green(),
-                                           colour.blue(), 60)))
-            painter.setPen(Qt.PenStyle.NoPen)
-            painter.drawRoundedRect(chip, 4, 4)
+            if draw_chip:
+                painter.setBrush(QBrush(QColor(colour.red(), colour.green(),
+                                               colour.blue(), 60)))
+                painter.setPen(Qt.PenStyle.NoPen)
+                painter.drawRoundedRect(chip, 4, 4)
 
-            try:
-                pixmap = icon(entry.icon, color=colour.name()).pixmap(glyph_size, glyph_size)
-                painter.drawPixmap(chip.left() + 2, chip.top() + 2, pixmap)
-            except Exception:
-                painter.setBrush(QBrush(colour))
-                painter.drawEllipse(chip.adjusted(4, 4, -4, -4))
+                try:
+                    pixmap = icon(entry.icon,
+                                  color=colour.name()).pixmap(glyph_size, glyph_size)
+                    painter.drawPixmap(chip.left() + 2, chip.top() + 2, pixmap)
+                except Exception:
+                    painter.setBrush(QBrush(colour))
+                    painter.drawEllipse(chip.adjusted(4, 4, -4, -4))
+
+            # Named once per run, and again at the start of each week so a
+            # bar continuing onto a new row is still identifiable.
+            if entry.spans_days and not starts_here:
+                top += line_h
+                continue
 
             painter.setPen(QPen(QColor(235, 235, 240, 235 if self.in_month else 110)))
             painter.setFont(make_font(11))
-            text_rect = QRect(chip.right() + 6, line.top(),
-                              line.right() - chip.right() - 10, line.height())
+            left_edge = chip.right() + 6 if draw_chip else line.left() + 8
+            text_rect = QRect(left_edge, line.top(),
+                              line.right() - left_edge - 4, line.height())
             label = (entry.title if entry.all_day
                      else f"{entry.time}  {entry.title}")
             painter.drawText(
@@ -268,6 +312,8 @@ class CalendarPage(SubPageFramework):
         row.addWidget(self.title)
         row.addStretch()
 
+        self.subs_btn = IconButton("mdi.calendar-sync", self.open_subscriptions, size=24)
+        row.addWidget(self.subs_btn)
         self.today_btn = IconButton("mdi.calendar-today", self.go_today, size=24)
         row.addWidget(self.today_btn)
         row.addWidget(IconButton("mdi.chevron-left", self.previous_month, size=28))
@@ -388,7 +434,7 @@ class CalendarPage(SubPageFramework):
                                     or SOURCE_COLOURS.get(entry.source, "#4f9de0")))
         self._tints = tints[:40]
 
-        for cell, day in zip(self.cells, days[:42]):
+        for index, (cell, day) in enumerate(zip(self.cells, days[:42])):
             in_month = (day.month == self.month and day.year == self.year)
             events = by_day.get(day, []) if in_month else []
             if not in_month and api is not None and self._show_holidays():
@@ -396,9 +442,13 @@ class CalendarPage(SubPageFramework):
                     events = api["on_day"](day, self._show_holidays())
                 except Exception:
                     events = []
-            cell.set_day(day, events, in_month)
+            cell.set_day(day, events, in_month, column=index % 7)
 
     ## -- dialogs
+
+    def open_subscriptions(self, event=None) -> None:
+        from .dialogs import SubscriptionsDialog
+        self.client.dialog(SubscriptionsDialog(self.client))
 
     def open_day(self, day: date) -> None:
         from .dialogs import DayViewDialog

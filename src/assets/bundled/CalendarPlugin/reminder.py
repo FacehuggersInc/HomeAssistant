@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import urllib.parse
 import urllib.request
+import time
 from datetime import datetime
 from threading import Thread
 from typing import TYPE_CHECKING
@@ -38,7 +39,7 @@ class ReminderPanel(Panel):
     MIN_WIDTH   = 520
     MAP_H       = 300
 
-    def __init__(self, client: "Client", event, on_closed=None):
+    def __init__(self, client: "Client", event, on_closed=None, on_snoozed=None):
         width = self.MIN_WIDTH
         try:
             host = client.OVERLAYS
@@ -52,6 +53,7 @@ class ReminderPanel(Panel):
                          destroy_on_close=True)
         self.event = event
         self.on_closed = on_closed
+        self.on_snoozed = on_snoozed
         self.tint = QColor(event.colour or SOURCE_COLOURS.get(event.source, "#4f9de0"))
 
         body = QWidget()
@@ -180,6 +182,7 @@ class ReminderPanel(Panel):
         row.addWidget(button("Open", self._open, "primary"))
         if self.event.editable:
             row.addWidget(button("Edit", self._edit))
+        row.addWidget(button("Snooze", self._snooze))
         row.addWidget(button("Dismiss", self._dismiss))
         return row
 
@@ -214,6 +217,16 @@ class ReminderPanel(Panel):
         except (ValueError, TypeError):
             day = None
         self.client.dialog(EventEditorDialog(self.client, day=day, event=self.event))
+
+    def _snooze(self) -> None:
+        """Put it off rather than dismissing it - a reminder you cannot act on
+        yet is not one you are finished with."""
+        if callable(self.on_snoozed):
+            try:
+                self.on_snoozed(self.event)
+            except Exception:
+                pass
+        self.close_panel()
 
     def _dismiss(self) -> None:
         if callable(self.on_closed):
@@ -270,6 +283,7 @@ class ReminderWatcher:
         self.panel = None
         self._timeout_id = "__calendar_reminder"
         self._complained = ""
+        self._snoozed_until: dict = {}
 
     ## -- lifecycle
 
@@ -300,6 +314,8 @@ class ReminderWatcher:
             now = datetime.now()
 
             for candidate in upcoming:
+                if self._snoozed_until.get(candidate.key, 0) > time.time():
+                    continue
                 if candidate.key in self.shown or candidate.all_day:
                     # All-day events have no moment to be reminded about, and
                     # a reminder for one would fire at midnight.
@@ -322,7 +338,8 @@ class ReminderWatcher:
 
     def show(self, event) -> None:
         self.shown.add(event.key)
-        self.panel = ReminderPanel(self.client, event, on_closed=self._closed)
+        self.panel = ReminderPanel(self.client, event, on_closed=self._closed,
+                                   on_snoozed=self._snoozed)
         self.client.call_on_ui(self.panel.open_panel)
 
         seconds = int(self.plugin.option("reminders.dismiss_seconds", 45))
@@ -343,6 +360,13 @@ class ReminderWatcher:
                 panel.close_panel()
             except RuntimeError:
                 pass
+
+    def _snoozed(self, event) -> None:
+        """Forget that it was shown, and hold it off for a while."""
+        self.panel = None
+        self.shown.discard(event.key)
+        minutes = int(self.plugin.option("reminders.snooze_minutes", 5))
+        self._snoozed_until[event.key] = time.time() + max(1, minutes) * 60
 
     def _closed(self, event) -> None:
         self.panel = None

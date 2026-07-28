@@ -345,6 +345,30 @@ class PluginManager():
 		except (TypeError, ValueError):
 			return False
 
+	def _merge_into_template(self, template: dict, values: dict) -> dict:
+		"""
+		The template's shape, carrying the values it still has a place for.
+
+		A key the template no longer declares is dropped; one it has gained
+		keeps its default. Only `value` is taken across - a description or a
+		set of options changed by an update should be the update's.
+		"""
+		if not isinstance(template, dict) or not isinstance(values, dict):
+			return template
+
+		out = {}
+		for key, node in template.items():
+			held = values.get(key)
+			if isinstance(node, dict) and "type" in node and "value" in node:
+				out[key] = dict(node)
+				if isinstance(held, dict) and "value" in held:
+					out[key]["value"] = held["value"]
+			elif isinstance(node, dict):
+				out[key] = self._merge_into_template(node, held if isinstance(held, dict) else {})
+			else:
+				out[key] = node
+		return out
+
 	def unload_plugin(self, plugin_key: str, quick:bool = False, carryover=None) -> bool:
 		# 1. Find the plugin instance
 		plugin = self.plugins.get(plugin_key)
@@ -372,10 +396,31 @@ class PluginManager():
 		# 3. Save Plugin Settings
 		if hasattr(plugin, "settings"):
 			path = plugin.config["settings"]["path"]
+			# Scrubbed: a plugin's own settings.json is written here on every
+			# unload, and a credential must never land in it.
+			values = scrub_secrets(plugin.settings.to_dict())
+
+			# Shaped by what is on disk now, not by what was in memory.
+			#
+			# This file is both the template and the store. An update replaces
+			# it, but the running app still holds the previous shape - so the
+			# write-back on exit put every removed setting straight back, and a
+			# setting deleted in an update reappeared on the next launch
+			# looking like the update had not applied.
+			#
+			# Re-reading first means the new template wins on structure and the
+			# old memory only supplies values for keys that still exist.
+			try:
+				with open(path, "r") as current_file:
+					template = json.load(current_file)
+				values = self._merge_into_template(template, values)
+			except Exception as e:
+				self.client.log("warning",
+					f"[PluginManager] Could not re-read '{plugin_key}' settings "
+					f"before saving, writing what was in memory: {e}")
+
 			with open(path, "w") as jsonfile:
-				# Scrubbed: a plugin's own settings.json is written here on every
-				# unload, and a credential must never land in it.
-				json.dump(scrub_secrets(plugin.settings.to_dict()), jsonfile, indent = 4)
+				json.dump(values, jsonfile, indent = 4)
 			self.client.log("info", f"[PluginManager] '{plugin_key}' Settings Saved.")
 
 		# etc. If not Quick Unloading; Remove Mixins, Remove from Plugin Registry | essentially this is for hot reloading, if quick is true, its because the app is shutting down

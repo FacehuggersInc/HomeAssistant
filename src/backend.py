@@ -5,6 +5,8 @@ from threading import Thread
 
 from src.constants import APP_NAME
 
+from urllib.parse import urlencode
+
 from flask import Flask, jsonify, redirect, send_from_directory, request, render_template
 
 ADDRESS = "0.0.0.0"
@@ -30,6 +32,17 @@ def FlaskApp(client):
 	)
 
 	# AUTH & HELPERS
+	def _wants_html() -> bool:
+		"""
+		Whether this looks like a browser rather than a script.
+
+		A script wants a 401 it can read; a person looking at a blank page
+		with some JSON on it wants to be told what to do about it. The two
+		cases are told apart by what the caller says it accepts.
+		"""
+		accepts = request.headers.get("Accept", "")
+		return "text/html" in accepts and "application/json" not in accepts.split(",")[0]
+
 	def auth():
 		"""
 		A per-device token, checked against the approved list.
@@ -42,23 +55,44 @@ def FlaskApp(client):
 				 or request.headers.get("X-Client-Token")
 				 or "").strip()
 		if not token:
+			if _wants_html():
+				# Sent to wait rather than refused. A browser arriving at a
+				# page it is not allowed to see should be walked through
+				# getting access and put back where it was going, not handed
+				# an error and left to find /access/request on its own.
+				return redirect("/access/wait?" + urlencode({"next": request.full_path}))
 			return {"request": "Failed",
 					"reason": "No device token. Request access at /access/request.",
 					"state": "unknown"}, 401
 
 		user = client.USERS.touch(token)
 		if user is not None:
+			# Still unnamed and looking at a page: sent to name itself first.
+			# The poll is not the only way in - a device with a bookmark can
+			# arrive anywhere - so the check belongs on every request rather
+			# than on the one page that happens to poll.
+			if user.awaiting_name and _wants_html() and \
+					not request.path.startswith("/access/"):
+				return redirect("/access/name?" + urlencode(
+					{"token": token, "next": request.full_path}))
+
 			# Recorded on the request, so an endpoint can tell who called it -
 			# the calendar tags what it stores with this.
 			request.environ["ha.user"] = user
 			return None
 
 		state = client.USERS.state_of(token)
+		if _wants_html():
+			return redirect("/access/wait?" + urlencode(
+				{"next": request.full_path, "token": token}))
 		return {"request": "Failed",
 				"reason": f"This device is {state}.", "state": state}, 403
 
 	def log(level:str = "info", extra:str = ""):
-		args = {k: ("***" if k == "id" else v) for k, v in request.args.items()}
+		# Both, and by the same rule as the other masking site - a token in a
+		# shared log or a screenshot is a device somebody else can be.
+		args = {k: ("***" if k in ("id", "token") else v)
+				for k, v in request.args.items()}
 		arg_str = "  " + "  ".join(f"{k}={v}" for k, v in args.items()) if args else ""
 
 		if not extra:
@@ -342,7 +376,87 @@ def FlaskApp(client):
 		return {"request": "Success", "setting": client.SETTINGS.get_path(path)}, 200
 
 
+	## INDEX
+	@app.route("/", methods=["GET"])
+	def index():
+		"""
+		Somewhere to start.
+
+		Authed on purpose: a browser with no token is redirected into the
+		approval flow and arrives back here holding one, so opening the panel's
+		address is the whole of setting a phone up.
+		"""
+		log()
+		err = auth()
+		if err: return err
+
+		token = (request.args.get("token")
+				 or request.headers.get("X-Client-Token") or "")
+		user = request.environ.get("ha.user")
+
+		pages = [
+			{"url": "/docs", "label": "Documentation",
+			 "description": "Everything about this panel and how to extend it.",
+			 "auth": False},
+			{"url": "/upload", "label": "Files",
+			 "description": "Send files to anything the panel has opened up.",
+			 "auth": True},
+		]
+		for endpoint in client.API_REGISTRY.gui_endpoints():
+			pages.append({"url": f"/public/{endpoint.key}", "label": endpoint.gui,
+						  "description": endpoint.description, "auth": endpoint.authed})
+
+		# Things worth a button rather than a page. Anything destructive is
+		# marked so the template can make it look like what it is.
+		actions = []
+		# A plugin's own actions first. They are the ones somebody added on
+		# purpose; the client's are always there and always the same.
+		for endpoint in client.API_REGISTRY.action_endpoints():
+			actions.append({"url": f"/public/{endpoint.key}",
+							"label": endpoint.action, "danger": endpoint.danger})
+
+		actions += [
+			{"url": "/ping", "label": "Ping", "danger": False},
+			{"url": "/update/check", "label": "Check for an update", "danger": False},
+			{"url": "/update", "label": "Update and restart", "danger": True},
+			{"url": "/restart", "label": "Restart", "danger": True},
+			{"url": "/terminate", "label": "Shut down", "danger": True},
+		]
+
+		return render_template("index.html", pages=pages, actions=actions,
+							   token=token,
+							   device=user.name if user else "this device"), 200
+
+	@app.route("/users", methods=["GET"])
+	def users_list():
+		"""Who can own something, for a picker rather than a text field."""
+		log()
+		err = auth()
+		if err: return err
+		return {"request": "Success", "users": client.USERS.names()}, 200
+
 	## DEVICE APPROVAL
+	@app.route("/access/wait", methods=["GET"])
+	def access_wait():
+		"""
+		The page a browser lands on when it has no approved token.
+
+		Asks for access on the visitor's behalf, waits, and sends them on to
+		wherever they were going. No auth, by definition - this is what a
+		device does before it has any.
+		"""
+		log()
+		target = request.args.get("next") or "/docs"
+		token = (request.args.get("token") or "").strip()
+
+		if not token:
+			name = request.user_agent.browser or "Browser"
+			platform = request.user_agent.platform or ""
+			label = f"{name} on {platform}".strip() if platform else name
+			token = client.USERS.request_access(label, request.remote_addr or "").token
+
+		return render_template("access_wait.html", token=token, next=target), 200
+
 	@app.route("/access/request", methods=["GET", "POST"])
 	def request_access():
 		"""
@@ -356,6 +470,34 @@ def FlaskApp(client):
 		pending = client.USERS.request_access(name, request.remote_addr or "")
 		return {"request": "Success", "token": pending.token, "state": "pending"}, 202
 
+	@app.route("/access/name", methods=["GET", "POST"])
+	def access_name():
+		"""
+		The page a device is sent to when the panel let it name itself.
+
+		Unauthenticated by the usual rule, because the token is approved but
+		the device has nothing else yet - and it can only name the token it
+		already holds.
+		"""
+		log()
+		token = (request.args.get("token") or "").strip()
+		user = client.USERS.get(token)
+		if user is None:
+			return redirect("/access/wait")
+
+		name = (request.args.get("name") or "").strip()
+		if name:
+			client.USERS.rename(token, name)
+			client.simple_notify("account-check", "Users",
+								 f"'{name}' named themselves.")
+			target = request.args.get("next") or "/"
+			joiner = "&" if "?" in target else "?"
+			return redirect(f"{target}{joiner}token={token}")
+
+		return render_template("access_name.html", token=token,
+							   suggested=user.name,
+							   next=request.args.get("next") or "/"), 200
+
 	@app.route("/access/state", methods=["GET"])
 	def access_state():
 		token = (request.args.get("token") or "").strip()
@@ -364,7 +506,10 @@ def FlaskApp(client):
 		state = client.USERS.state_of(token)
 		user = client.USERS.get(token)
 		return {"request": "Success", "state": state,
-				"name": user.name if user else ""}, 200
+				"name": user.name if user else "",
+				# The waiting page sends them on to name themselves rather
+				# than straight to where they were going.
+				"needs_name": client.USERS.needs_name(token)}, 200
 
 	## DOCUMENTATION
 	@app.route("/docs", methods=["GET"])
@@ -553,11 +698,18 @@ def FlaskApp(client):
 					if err: return err
 
 				try:
-					# `id` is ours, not the endpoint's. Forwarding request.args
+					# The auth parameter is ours, not the endpoint's. Forwarding
 					# wholesale meant every authed endpoint was called with an
 					# unexpected id= keyword and raised TypeError, which landed
 					# here and read as "the endpoint is broken".
-					params = {k: v for k, v in request.args.items() if k != "id"}
+					# request.args wholesale meant every endpoint took an
+					# unexpected keyword and raised TypeError, which landed on
+					# the caller as a bad-arguments error naming a parameter
+					# they never sent. `token` was missed when auth moved off
+					# `id`, so the same bug came straight back.
+					RESERVED = ("id", "token")
+					params = {k: v for k, v in request.args.items()
+							  if k not in RESERVED}
 
 					# POST was accepted but the body was thrown away - only the
 					# query string ever reached the callback.

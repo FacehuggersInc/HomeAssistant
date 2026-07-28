@@ -124,6 +124,54 @@ return shape. Call `endpoint.clear_cache()` to invalidate.
 
 ---
 
+## The index
+
+`http://<panel-ip>:5000/` is somewhere to start. It lists the pages the panel
+serves and offers buttons for the actions worth having on a phone — ping, check
+for an update, restart, shut down.
+
+It is authed on purpose. A browser arriving with no token is walked through
+approval and lands back on the index holding one, so **opening the panel's
+address is the whole of setting a phone up**. Bookmark what you end up on.
+
+Destructive actions ask first. "Shut down" on a phone in a pocket is a panel
+somebody has to go and switch on again.
+
+### Listing a plugin's page there
+
+An endpoint that returns a page rather than data can say so, and the index
+picks it up:
+
+```python
+self.client.API_REGISTRY.register(
+    "myplugin", "myplugin_form", self.api_form, requires_auth=True,
+    gui="Add a thing",
+    description="A page sized for a phone.")
+```
+
+`gui` is the label; leaving it empty keeps the endpoint off the index, which is
+right for the great majority that return JSON.
+
+### Listing an action there
+
+An endpoint that *does* something rather than showing something becomes a
+button instead:
+
+```python
+self.client.API_REGISTRY.register(
+    "calendar", "calendar_sync", self.api_sync, requires_auth=True,
+    action="Sync calendars")
+```
+
+Same endpoint either way — the difference is whether opening it is the point,
+or whether the point is that it ran. Add `danger=True` and the index styles it
+as destructive and asks before running it.
+
+Plugin actions are listed above the client's own, which are always there and
+always the same.
+
+---
+
 ## Plugin-served pages
 
 An endpoint may return HTML rather than JSON, which is how a plugin ships a

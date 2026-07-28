@@ -40,7 +40,7 @@ http://<panel-ip>:5000/docs
 ```
 
 That address is shown in **Settings → Info**, with buttons to open or copy it.
-No client ID is needed.
+No device token is needed.
 
 | | |
 |---|---|
@@ -81,7 +81,7 @@ A Flask API runs on port 5000. `hactl.py` at the project root is a single-file
 CLI for it - stdlib only, copy it anywhere that can reach the panel:
 
 ```bash
-./hactl.py hosts add panel --host 192.168.1.50   # prompts for the client ID
+./hactl.py hosts add panel --host 192.168.1.50   # pairs with the panel
 ./hactl.py update --check
 ./hactl.py plugins list
 ```

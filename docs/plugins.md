@@ -28,6 +28,11 @@ Bundled plugins are part of the app and update with it. `plugins/` is for
 your own work and is never overwritten - put anything you do not want an
 update to replace there.
 
+**A plugin with a `settings.json` needs a `[settings]` block.** Without it the
+file beside it is never read, the plugin has no settings at all, and every
+option silently falls back to its default - which looks exactly like the
+settings page having lost them.
+
 A bundled plugin points at its settings with a path from the install root:
 
 ```toml

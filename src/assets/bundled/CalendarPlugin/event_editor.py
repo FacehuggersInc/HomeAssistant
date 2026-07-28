@@ -275,6 +275,108 @@ class ColourPicker(QWidget):
         self._show()
 
 
+REPEATS = [("", "Once"), ("daily", "Daily"), ("weekly", "Weekly"),
+           ("monthly", "Monthly"), ("yearly", "Yearly")]
+
+
+class _Chooser(QWidget):
+    """A labelled row of mutually exclusive buttons."""
+
+    def __init__(self, label: str, options: list, chosen: str = ""):
+        super().__init__()
+        self.chosen = chosen
+        self.buttons: dict = {}
+
+        row = QHBoxLayout(self)
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(6)
+
+        name = QLabel(label)
+        name.setFont(make_font(SIZES.S1))
+        name.setFixedWidth(90)
+        set_style(name, "common", "text-muted")
+        row.addWidget(name)
+
+        for value, text in options:
+            button = QPushButton(text)
+            button.setFont(make_font(SIZES.S1, bold=True))
+            button.setFixedHeight(42)
+            button.setMinimumWidth(84)
+            button.setCursor(Qt.CursorShape.PointingHandCursor)
+            button.clicked.connect(lambda _=False, v=value: self.choose(v))
+            self.buttons[value] = button
+            row.addWidget(button)
+        row.addStretch()
+        self.choose(chosen)
+
+    def choose(self, value: str) -> None:
+        self.chosen = value
+        for key, button in self.buttons.items():
+            set_style(button, "overlays",
+                      "dialog-button-primary" if key == value
+                      else "dialog-button-secondary")
+
+
+class _OwnerPicker(QWidget):
+    """
+    Whose event this is, chosen rather than typed.
+
+    Same reasoning as the form: three spellings of one name is three people as
+    far as the store is concerned, and every one of them owns some of the
+    events.
+    """
+
+    def __init__(self, client: "Client", chosen: str = ""):
+        super().__init__()
+        self.client = client
+        self.chosen = chosen
+        self.buttons: dict = {}
+
+        row = QHBoxLayout(self)
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(6)
+
+        label = QLabel("For")
+        label.setFont(make_font(SIZES.S1))
+        label.setFixedWidth(90)
+        set_style(label, "common", "text-muted")
+        row.addWidget(label)
+
+        names = []
+        try:
+            names = client.USERS.names()
+        except Exception:
+            pass
+
+        if not names:
+            empty = QLabel("Nobody named yet - approve a device first.")
+            empty.setFont(make_font(SIZES.S1))
+            empty.setWordWrap(True)
+            set_style(empty, "common", "text-muted")
+            row.addWidget(empty, stretch=1)
+            return
+
+        for name in names:
+            button = QPushButton(name)
+            button.setFont(make_font(SIZES.S1, bold=True))
+            button.setFixedHeight(42)
+            button.setMinimumWidth(96)
+            button.setCursor(Qt.CursorShape.PointingHandCursor)
+            button.clicked.connect(lambda _=False, n=name: self.choose(n))
+            self.buttons[name] = button
+            row.addWidget(button)
+        row.addStretch()
+
+        self.choose(chosen if chosen in names else names[0])
+
+    def choose(self, name: str) -> None:
+        self.chosen = name
+        for key, button in self.buttons.items():
+            set_style(button, "overlays",
+                      "dialog-button-primary" if key == name
+                      else "dialog-button-secondary")
+
+
 class EventEditorDialog(_WideDialog):
     """Add an event. Day comes in from wherever it was opened."""
 
@@ -341,10 +443,31 @@ class EventEditorDialog(_WideDialog):
                       self.end_field, self.location_field, self.notes_field):
             body.addWidget(field)
 
+        # Repeat and the last day sit together: both answer "how long does
+        # this go on for", and separating them made the editor read as two
+        # unrelated halves.
+        self.repeat = _Chooser("Repeats", REPEATS,
+                               existing.repeat if existing else "")
+        body.addWidget(self.repeat)
+
+        self.end_day_field = _Field(client, "Last day",
+                                    value=(existing.end_day if existing else ""),
+                                    placeholder="Same day - tap for a range",
+                                    opens="date", editor=self)
+        body.addWidget(self.end_day_field)
+
+        self.until_field = _Field(client, "Repeat until",
+                                  value=(existing.repeat_until if existing else ""),
+                                  placeholder="Forever - tap to set an end",
+                                  opens="date", editor=self)
+        body.addWidget(self.until_field)
+
         self.icons = IconPicker(existing.icon if existing else "mdi.calendar")
         body.addWidget(self.icons)
 
         self.colours = ColourPicker(client, existing.colour if existing else "")
+        self.owner = _OwnerPicker(client, existing.owner if existing else "")
+        body.addWidget(self.owner)
         body.addWidget(self.colours)
 
         holder = QWidget()
@@ -377,6 +500,10 @@ class EventEditorDialog(_WideDialog):
             "notes":    self.notes_field.value(),
             "icon":     self.icons.chosen,
             "colour":   self.colours.chosen,
+            "owner":    self.owner.chosen,
+            "end_day":  self.end_day_field.value(),
+            "repeat":   self.repeat.chosen,
+            "repeat_until": self.until_field.value() if self.repeat.chosen else "",
         }
 
     def paired_time(self, field) -> str:
@@ -427,6 +554,15 @@ class EventEditorDialog(_WideDialog):
 
         fields = self._fields()
         fields["day"] = chosen_day.isoformat()
+
+        # A range that ends before it starts is a typo, not an intention.
+        if fields["end_day"]:
+            try:
+                if _date.fromisoformat(fields["end_day"]) < chosen_day:
+                    self._complain("The last day is before the first one.")
+                    return
+            except ValueError:
+                fields["end_day"] = ""
 
         try:
             api = self.client.public.calendar

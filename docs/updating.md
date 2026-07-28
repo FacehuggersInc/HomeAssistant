@@ -13,7 +13,7 @@ launcher     ->  back up every file it is about to replace
              ->  new version crashes    ->  roll back, relaunch old version
 ```
 
-Trigger an update either from the API (`GET /update?id=<client id>`) or from
+Trigger an update either from the API (`GET /update?token=<device token>`) or from
 the command line:
 
 ```bash
@@ -68,8 +68,8 @@ that nobody could look.
 ### From elsewhere
 
 ```
-GET /update/check?id=...      does an update exist
-GET /update?id=...            stage it and restart
+GET /update/check?token=...   does an update exist
+GET /update?token=...         stage it and restart
 ```
 
 Or with the CLI:

@@ -38,6 +38,49 @@ instead. See [Dialogs and overlays](dialogs.md).
 
 ---
 
+## Answer panels
+
+```python
+self.client.answer(
+    "mdi.weather-sunny", "72 degrees",
+    ["Feels like: 74\u00b0", "Wind: 7 mph", "Humidity: 41%"],
+    tint="#3f7fbf",
+    speak="72 degrees.",
+)
+```
+
+A panel with an icon, a headline and however many detail lines the answer has.
+Closes itself after 30 seconds, and on a tap.
+
+### Which to use
+
+A notification **reports**; an answer panel **answers**. The test is whether
+there is anything to read.
+
+| Use a panel | Use a notification |
+|---|---|
+| The reply has parts — a time, a place, a length | The reply is one fact |
+| A list: today's events, the next few hours | Something happened in the background |
+| Somebody asked a question and is standing there | Nothing is waiting on it |
+
+The weather skill is a panel: six lines, and a toast goes past before anyone
+has read the second one. Clearing notifications is a notification: the action
+*is* the answer, and there is nothing to read afterwards.
+
+### Speaking
+
+`speak=` says the text as well as showing it. Text-to-speech needs an
+ElevenLabs key and a panel without one is a normal install, so an answer that
+is only spoken is an answer half the time — every skill should show as well as
+say.
+
+If the panel cannot be built, `answer()` falls back to a notification rather
+than losing the reply.
+
+`tint` colours the gradient, `timeout=0` keeps it open until it is tapped.
+
+---
+
 ## State
 
 A flat dictionary on the client for cross-plugin flags that are not settings -

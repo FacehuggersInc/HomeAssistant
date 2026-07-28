@@ -29,18 +29,21 @@ class User:
 
     def __init__(self, token: str, name: str, address: str = "",
                  approved_at: float = None, last_seen: float = None,
-                 note: str = ""):
+                 note: str = "", awaiting_name: bool = False):
         self.token = token
         self.name = name
         self.address = address
         self.approved_at = approved_at or time.time()
         self.last_seen = last_seen or self.approved_at
         self.note = note
+        # Approved, but the panel handed naming to the device rather than
+        # deciding for it. Until that comes back the name is a placeholder.
+        self.awaiting_name = awaiting_name
 
     def to_dict(self) -> dict:
         return {"token": self.token, "name": self.name, "address": self.address,
                 "approved_at": self.approved_at, "last_seen": self.last_seen,
-                "note": self.note}
+                "note": self.note, "awaiting_name": self.awaiting_name}
 
     @classmethod
     def from_dict(cls, raw: dict) -> Optional["User"]:
@@ -53,6 +56,7 @@ class User:
             approved_at=raw.get("approved_at"),
             last_seen=raw.get("last_seen"),
             note=str(raw.get("note") or ""),
+            awaiting_name=bool(raw.get("awaiting_name", False)),
         )
 
 
@@ -173,11 +177,13 @@ class UserRegistry:
             return "denied"
         return "pending"
 
-    def approve(self, token: str, name: str = "") -> Optional[User]:
+    def approve(self, token: str, name: str = "",
+                let_user_name: bool = False) -> Optional[User]:
         request = self.pending.pop(token, None)
         if request is None:
             return None
-        user = User(token=token, name=name or request.name, address=request.address)
+        user = User(token=token, name=name or request.name,
+                    address=request.address, awaiting_name=let_user_name)
         self.users[token] = user
         self.save()
         self.client.log("info", f"[Users] Approved '{user.name}'.")
@@ -206,9 +212,25 @@ class UserRegistry:
         if user is None or not name.strip():
             return False
         user.name = name.strip()
+        # A name has arrived, from wherever - the device is no longer waiting.
+        user.awaiting_name = False
         self.save()
         self._notify()
         return True
+
+    def needs_name(self, token: str) -> bool:
+        user = self.get(token)
+        return bool(user and user.awaiting_name)
+
+    def names(self) -> list:
+        """
+        Who can own something, for a picker.
+
+        A device still choosing its own name is left out - offering a
+        placeholder as an owner is how a household ends up with three events
+        belonging to "Browser on Linux".
+        """
+        return sorted({u.name for u in self.users.values() if not u.awaiting_name})
 
     def waiting(self) -> list:
         """Undecided requests, oldest first, with expired ones dropped."""

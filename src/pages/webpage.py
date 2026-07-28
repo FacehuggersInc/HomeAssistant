@@ -30,52 +30,162 @@ DRAG_SCROLL_JS = """
   if (window.__haDragScroll) { return; }
   window.__haDragScroll = true;
 
-  var down = false, moved = false, lastY = 0, lastX = 0, velocity = 0, timer = null;
+  // Native drag first. A press on a link or an image starts the browser's own
+  // drag-and-drop, which swallows every move event after it - so the page
+  // never scrolled and a link came away under the finger instead.
+  var style = document.createElement('style');
+  style.textContent =
+    'a,img{-webkit-user-drag:none;user-drag:none}' +
+    'html.ha-dragging,html.ha-dragging *{user-select:none !important;' +
+    '-webkit-user-select:none !important}';
+  (document.head || document.documentElement).appendChild(style);
+  document.addEventListener('dragstart', function (e) { e.preventDefault(); }, true);
+
   var THRESHOLD = 8;
+  var active = false, moved = false, lastY = 0, lastX = 0, velocity = 0, timer = null;
+  var target = null;
+
+  // The nearest thing that can actually scroll, starting from what was
+  // touched. Always scrolling the window meant a sidebar - the docs
+  // navigation, any panel with its own overflow - could not be dragged at
+  // all, because the window behind it had nothing left to scroll.
+  function scroller(node) {
+    for (var el = node; el && el !== document.body; el = el.parentElement) {
+      var style = window.getComputedStyle(el);
+      var scrolls = /(auto|scroll|overlay)/.test(style.overflowY + style.overflow);
+      if (scrolls && el.scrollHeight > el.clientHeight + 2) { return el; }
+    }
+    return null;
+  }
+
+  function scrollBy(dx, dy) {
+    if (target) { target.scrollTop += dy; target.scrollLeft += dx; }
+    else { window.scrollBy(dx, dy); }
+  }
 
   function glide() {
     if (Math.abs(velocity) < 0.4) { timer = null; return; }
-    window.scrollBy(0, velocity);
+    scrollBy(0, velocity);
     velocity *= 0.94;
     timer = requestAnimationFrame(glide);
   }
 
+  function begin(x, y, node) {
+    active = true; moved = false;
+    lastX = x; lastY = y; velocity = 0;
+    target = scroller(node);
+    if (timer) { cancelAnimationFrame(timer); timer = null; }
+  }
+
+  function move(x, y, event) {
+    if (!active) { return; }
+    var dy = lastY - y, dx = lastX - x;
+    if (!moved && Math.abs(dy) + Math.abs(dx) < THRESHOLD) { return; }
+    if (!moved) { document.documentElement.classList.add('ha-dragging'); }
+    moved = true;
+    scrollBy(dx, dy);
+    velocity = dy;
+    lastX = x; lastY = y;
+    if (event && event.cancelable) { event.preventDefault(); }
+  }
+
+  function end(event) {
+    if (moved) {
+      if (event) { event.stopPropagation(); if (event.cancelable) { event.preventDefault(); } }
+      timer = requestAnimationFrame(glide);
+    }
+    document.documentElement.classList.remove('ha-dragging');
+    active = false;
+  }
+
+  // Touch, where the panel reports it. passive:false so preventDefault is
+  // allowed - a passive listener cannot stop the browser's own scrolling and
+  // the two fight each other.
+  document.addEventListener('touchstart', function (e) {
+    if (e.touches.length !== 1) { return; }
+    begin(e.touches[0].clientX, e.touches[0].clientY, e.target);
+  }, {capture: true, passive: true});
+
+  document.addEventListener('touchmove', function (e) {
+    if (e.touches.length !== 1) { return; }
+    move(e.touches[0].clientX, e.touches[0].clientY, e);
+  }, {capture: true, passive: false});
+
+  document.addEventListener('touchend', end, {capture: true, passive: false});
+  document.addEventListener('touchcancel', end, {capture: true, passive: false});
+
+  // Mouse, for a panel driven by a pointer. Left button only - a middle or
+  // right press means something else.
   document.addEventListener('mousedown', function (e) {
     if (e.button !== 0) { return; }
-    down = true; moved = false;
-    lastY = e.clientY; lastX = e.clientX; velocity = 0;
-    if (timer) { cancelAnimationFrame(timer); timer = null; }
+    begin(e.clientX, e.clientY, e.target);
   }, true);
 
   document.addEventListener('mousemove', function (e) {
-    if (!down) { return; }
-    var dy = lastY - e.clientY, dx = lastX - e.clientX;
-    if (!moved && Math.abs(dy) + Math.abs(dx) < THRESHOLD) { return; }
-    moved = true;
-    window.scrollBy(dx, dy);
-    velocity = dy;
-    lastY = e.clientY; lastX = e.clientX;
-    e.preventDefault();
+    move(e.clientX, e.clientY, e);
   }, true);
 
-  document.addEventListener('mouseup', function (e) {
-    if (moved) {
-      // Swallowed, so the release that ended a drag does not also follow
-      // whatever link happened to be under the finger.
-      e.stopPropagation(); e.preventDefault();
-      timer = requestAnimationFrame(glide);
-    }
-    down = false;
-  }, true);
+  document.addEventListener('mouseup', end, true);
 
+  // The click that ends a drag is swallowed, so letting go over a link does
+  // not follow it. Reset afterwards, or the next real tap is eaten too.
   document.addEventListener('click', function (e) {
     if (moved) { e.stopPropagation(); e.preventDefault(); moved = false; }
   }, true);
+})();
 
-  // Text selection fights the drag and there is no keyboard to copy with.
-  document.addEventListener('selectstart', function (e) {
-    if (down) { e.preventDefault(); }
+(function(){
+  if (window.__haFields) { return; }
+  window.__haFields = true;
+
+  // A page's own text fields would otherwise need a hardware keyboard. The
+  // field is identified by an attribute rather than by a selector, because a
+  // selector has to survive the page's own markup and an attribute we set
+  // ourselves does not.
+  var counter = 0;
+
+  function editable(el) {
+    if (!el || !el.tagName) { return false; }
+    var tag = el.tagName.toLowerCase();
+    if (tag === 'textarea') { return true; }
+    if (el.isContentEditable) { return true; }
+    if (tag !== 'input') { return false; }
+    var type = (el.getAttribute('type') || 'text').toLowerCase();
+    return ['text','search','url','email','tel','password','number',
+            'date','time'].indexOf(type) !== -1;
+  }
+
+  function ask(el) {
+    if (!el.hasAttribute('data-ha-field')) {
+      el.setAttribute('data-ha-field', String(++counter));
+    }
+    var id = el.getAttribute('data-ha-field');
+    var kind = el.tagName.toLowerCase() === 'textarea' ? 'body' :
+               ((el.getAttribute('type') || 'text').toLowerCase() === 'number'
+                 ? 'numeric' : 'text');
+    var label = el.getAttribute('placeholder') || el.getAttribute('name') || 'Text';
+    var value = el.isContentEditable ? el.textContent : (el.value || '');
+    document.title = 'field:' + JSON.stringify(
+      {id: id, kind: kind, label: label, value: value, at: Date.now()});
+  }
+
+  document.addEventListener('focusin', function (e) {
+    if (editable(e.target)) {
+      // Blurred first, or the engine keeps a caret blinking in a field the
+      // person is no longer typing into.
+      e.target.blur();
+      ask(e.target);
+    }
   }, true);
+
+  window.__haSetField = function (id, text) {
+    var el = document.querySelector('[data-ha-field="' + id + '"]');
+    if (!el) { return; }
+    if (el.isContentEditable) { el.textContent = text; }
+    else { el.value = text; }
+    el.dispatchEvent(new Event('input', {bubbles: true}));
+    el.dispatchEvent(new Event('change', {bubbles: true}));
+  };
 })();
 """
 
@@ -109,6 +219,8 @@ def _install_scrollbar_style(view) -> None:
         script.setName("ha-scrollbars")
         script.setInjectionPoint(QWebEngineScript.InjectionPoint.DocumentReady)
         # ApplicationWorld, so a page's own scripts cannot see or remove it.
+        # Anything calling into this later must ask for the same world -
+        # runJavaScript defaults to the main one.
         script.setWorldId(QWebEngineScript.ScriptWorldId.ApplicationWorld)
         script.setRunsOnSubFrames(True)
         script.setSourceCode(
@@ -239,6 +351,7 @@ class WebPage(PageFramework):
             # A kiosk should not offer "open in new window" or "view source".
             self.view.setContextMenuPolicy(Qt.ContextMenuPolicy.NoContextMenu)
             self.view.loadProgress.connect(self._progress)
+            self.view.titleChanged.connect(self._title_changed)
             self.zoom = data.get("zoom") or self.DEFAULT_ZOOM
             self.view.setZoomFactor(self.zoom)
             self._show_zoom()
@@ -288,10 +401,15 @@ class WebPage(PageFramework):
                                        lambda: self.zoom_by(1), size=20)
         self.zoom_label = QLabel("")
         self.zoom_label.setFont(make_font(SIZES.S1, bold=True))
-        self.zoom_label.setFixedWidth(46)
+        # A minimum, not a fixture. "250%" in bold does not fit 46px, and a
+        # fixed width has nowhere to put the overflow.
+        self.zoom_label.setMinimumWidth(58)
         self.zoom_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.zoom_label.setCursor(Qt.CursorShape.PointingHandCursor)
-        set_style(self.zoom_label, "common", "text-muted")
+        # Transparent, not themed. The bar sits over the page and a filled
+        # label reads as a control that does something.
+        self.zoom_label.setStyleSheet(
+            "color: rgba(255,255,255,190); background: transparent; border: 0;")
         row.addWidget(self.zoom_out_btn)
         row.addWidget(self.zoom_label)
         row.addWidget(self.zoom_in_btn)
@@ -304,7 +422,10 @@ class WebPage(PageFramework):
         self.address.setReadOnly(True)
         self.address.setCursor(Qt.CursorShape.PointingHandCursor)
         self.address.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
-        set_style(self.address, "settings", "body-field")
+        self.address.setStyleSheet(
+            "color: rgba(255,255,255,225); background: transparent;"
+            "border: 0; border-bottom: 1px solid rgba(255,255,255,40);"
+            "padding: 2px 6px;")
         row.addWidget(self.address, stretch=1)
 
         self.lock_glyph = IconButton("mdi.lock-outline", lambda: None, size=16)
@@ -324,7 +445,7 @@ class WebPage(PageFramework):
         row.setContentsMargins(host_margin, host_margin, host_margin, 6)
 
         host = QWidget()
-        set_style(host, "common", "transparent")
+        host.setStyleSheet("background: transparent;")
         host.setLayout(row)
         host.setCursor(Qt.CursorShape.PointingHandCursor)
         host.mouseReleaseEvent = lambda _event: self._edit_address()
@@ -396,6 +517,58 @@ class WebPage(PageFramework):
 
     def _leave(self, event=None) -> None:
         self.client.goto(self.client.DEFAULT_PAGE or "#root")
+
+    ## -- fields in the page
+
+    def _title_changed(self, title: str) -> None:
+        """
+        The page talks back through its title.
+
+        QWebChannel is the proper route and needs a transport object, a
+        registered bridge and a shim on every page; this is one signal that
+        carries what is needed. The timestamp in the payload is what makes
+        two taps on the same field register as two events - titleChanged only
+        fires when the string actually differs.
+        """
+        if title.startswith("field:"):
+            self._field_requested(title[len("field:"):])
+
+    def _field_requested(self, payload: str) -> None:
+        """A text field in the page was tapped - offer the keyboard for it."""
+        import json
+        from PyQt6.QtWidgets import QLineEdit, QTextEdit
+        from src.ui.keyboard import KeyboardDialog
+
+        try:
+            data = json.loads(payload)
+        except ValueError:
+            return
+
+        # A throwaway widget as the keyboard's target. The dialog writes into
+        # a Qt widget by design and the page is not one, so it types into this
+        # and the result is handed across afterwards.
+        holder = QTextEdit() if data.get("kind") == "body" else QLineEdit()
+        if isinstance(holder, QTextEdit):
+            holder.setPlainText(data.get("value", ""))
+        else:
+            holder.setText(data.get("value", ""))
+
+        def done(text: str):
+            if self.view is None:
+                return
+            # ApplicationWorld, explicitly. The helper was injected into that
+            # world so a page could not tamper with it, but runJavaScript
+            # defaults to the main one - so it was calling into a world where
+            # __haSetField does not exist, and nothing happened.
+            from PyQt6.QtWebEngineCore import QWebEngineScript
+            self.view.page().runJavaScript(
+                "window.__haSetField(%s, %s);" % (
+                    json.dumps(str(data.get("id", ""))), json.dumps(text)),
+                QWebEngineScript.ScriptWorldId.ApplicationWorld)
+
+        self.client.dialog(KeyboardDialog(
+            self.client, holder, mode=data.get("kind", "text"),
+            label=data.get("label") or "Text", on_done=done))
 
     ## -- zoom and scrolling
 

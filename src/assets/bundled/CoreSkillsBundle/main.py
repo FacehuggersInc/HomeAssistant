@@ -203,19 +203,10 @@ class CoreSkills(Plugin):
                 },
                 func=self.start_timer,
             ),
-            Skill(
-                wake_word=wake, skill_key="next-event-update", plugin_key=key,
-                examples=[
-                    "what is next for today", "what is my next event", "next event",
-                    "what time is my next event",
-                    "how much time until this next event",
-                    "how much time until this the next event", "next for today",
-                    "what is the next event", "what next event",
-                    "what do i have next", "what have i got next",
-                    "what is coming up", "whats coming up next",
-                ],
-                func=self.next_event_update,
-            ),
+            # The calendar skills live in the Calendar plugin, against its own
+            # registry. Two skills claiming "what is my next event" is the
+            # intent matcher choosing between them on wording, which is not a
+            # decision anybody wants it making.
             Skill(
                 wake_word=wake, skill_key="nevermind", plugin_key=key,
                 examples=[
@@ -408,35 +399,6 @@ class CoreSkills(Plugin):
 
         self._respond(answer or "I don't know how to answer that.")
 
-    def next_event_update(self):
-        empty = [
-            "There are No More Events Today!",
-            "You've completed everything for today!",
-            "Whoops, all empty. Please add more events for me to remind you with.",
-        ]
-
-        # Checked for the method, not just the name. The Calendar plugin
-        # publishes a different shape to the one this skill was written
-        # against, and "has a calendar" is not the same as "has this calendar".
-        calendar = self.client.public.calendar if self.client.public.has("calendar") else None
-        if calendar is None or not hasattr(calendar, "get_today"):
-            self._respond("The Calendar Registry does not seem to be set up.")
-            return
-
-        today = calendar.get_today()
-        event = today.next_event()
-        if not event:
-            self._respond(random.choice(empty))
-            return
-
-        start = event.start_time.strftime("%I:%M %p")
-        end = event.end_time.strftime("%I:%M %p")
-        until = event.convert_td_remainders_to_readable(event.time_until(), True)
-        say = f"{event.title} is in {until}. It starts at {start}."
-        if start != end:
-            say += f" And ends at {end}."
-        self._respond(say)
-
     def empty_notifications(self):
         if self.client.public.has("notification_history"):
             self.client.public.notification_history.clear()
@@ -459,7 +421,35 @@ class CoreSkills(Plugin):
             self.client.log("warning", f"[CoreSkills] Weather lookup failed: {e}")
             self._respond("I couldn't get the weather right now.")
             return
-        self._respond(f"{temperature} degrees.")
+
+        # A panel, not a notification. The weather has more to say than one
+        # number, and a toast is the wrong shape for four lines - it goes
+        # past before anybody has read the second one.
+        lines = []
+        for label, key, unit in (("Feels like", "apparent_temperature", "\u00b0"),
+                                 ("Cloud cover", "cloud_cover", "%"),
+                                 ("Wind", "wind_speed_10m", " mph"),
+                                 ("Gusts", "wind_gusts_10m", " mph"),
+                                 ("Humidity", "relative_humidity_2m", "%")):
+            value = data.get(key)
+            if value is None:
+                continue
+            lines.append(f"{label}: {int(value)}{unit}")
+
+        rain = data.get("precipitation")
+        if rain:
+            lines.append(f"Precipitation: {float(rain):.2f} in")
+
+        is_day = bool(data.get("is_day", 1))
+        glyph = "mdi.weather-sunny" if is_day else "mdi.weather-night"
+        try:
+            glyph = api.get_icon(data) or glyph
+        except Exception:
+            pass
+
+        self.client.answer(glyph, f"{temperature} degrees", lines,
+                           tint="#3f7fbf" if is_day else "#3a2159",
+                           speak=f"{temperature} degrees.")
 
     def start_timer(self, time: str = None, name: str = None):
         label = f" called {name}" if name else ""

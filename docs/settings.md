@@ -85,6 +85,20 @@ them*, not what it sets.
 | `secret` | Masked field backed by `.env`. Requires an `env` key. |
 | `list[int]`, `list[float]` | Comma-separated numeric field. |
 
+`hidden: true` stores a value without rendering a field for it:
+
+```json
+"default_location": {
+  "type": "string", "default": "", "value": "", "hidden": true,
+  "description": "Set with the Choose on a map button above."
+}
+```
+
+For a plugin that draws its own control and would otherwise show a raw text box
+beside a proper picker. The value still saves, migrates and reads back exactly
+as any other — it simply has no field. Pair it with a block added through
+`insert_plugin_block()` so there is something to set it with.
+
 `suffix` adds a unit label (`"sec"`, `"ms"`, `"hrs"`, `"px"`).
 
 ### `enum`

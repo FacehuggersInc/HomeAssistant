@@ -1,0 +1,82 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Home Assistant panel</title>
+<style>
+ :root{--bg:#151517;--card:#1c1c1f;--line:#2c2c31;--text:#e6e6e8;
+       --muted:#9a9aa2;--accent:#2ff08e;--bad:#e08a8a}
+ *{box-sizing:border-box}
+ body{margin:0;background:var(--bg);color:var(--text);padding:20px;
+      font:16px/1.55 -apple-system,"Segoe UI",Roboto,sans-serif}
+ header{max-width:640px;margin:0 auto 20px}
+ h1{font-size:24px;margin:0 0 2px}
+ header p{color:var(--muted);margin:0;font-size:14px}
+ main{max-width:640px;margin:0 auto}
+ h2{font-size:12px;text-transform:uppercase;letter-spacing:.09em;
+    color:var(--muted);margin:24px 0 8px}
+ a.row{display:block;background:var(--card);border:1px solid var(--line);
+       border-radius:12px;padding:14px 16px;margin-bottom:10px;
+       text-decoration:none;color:var(--text)}
+ a.row:active{border-color:var(--accent)}
+ a.row b{display:block;font-size:17px}
+ a.row span{color:var(--muted);font-size:13.5px}
+ .grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+ button{width:100%;padding:15px 10px;border:1px solid var(--line);
+        border-radius:11px;background:var(--card);color:var(--text);
+        font-size:15px;font-weight:600}
+ button.danger{border-color:rgba(224,138,138,.5);color:var(--bad)}
+ button:active{border-color:var(--accent)}
+ #said{margin-top:14px;padding:12px;border-radius:10px;font-size:14px;
+       background:rgba(47,240,142,.12);border:1px solid rgba(47,240,142,.4);
+       display:none;word-break:break-word}
+</style></head>
+<body>
+<header>
+  <h1>Home Assistant</h1>
+  <p>Connected as {{ device }}.</p>
+</header>
+<main>
+  <h2>Pages</h2>
+  {% for page in pages %}
+  <a class="row" href="{{ page.url }}{% if page.auth %}?token={{ token }}{% endif %}">
+    <b>{{ page.label }}</b>
+    <span>{{ page.description }}</span>
+  </a>
+  {% endfor %}
+
+  <h2>Actions</h2>
+  <div class="grid">
+    {% for action in actions %}
+    <button class="{% if action.danger %}danger{% endif %}"
+            data-url="{{ action.url }}"
+            data-danger="{{ 1 if action.danger else 0 }}"
+            data-label="{{ action.label }}">{{ action.label }}</button>
+    {% endfor %}
+  </div>
+  <div id="said"></div>
+</main>
+<script>
+ var token = {{ token|tojson }};
+ var said = document.getElementById('said');
+
+ document.querySelectorAll('button[data-url]').forEach(function (button) {
+   button.addEventListener('click', function () {
+     // Confirmed, because "Shut down" on a phone in a pocket is a panel that
+     // somebody has to go and turn on again.
+     if (button.dataset.danger === '1' &&
+         !confirm(button.dataset.label + '?')) { return; }
+
+     fetch(button.dataset.url + '?token=' + encodeURIComponent(token))
+       .then(function (r) { return r.text(); })
+       .then(function (body) {
+         said.style.display = 'block';
+         said.textContent = body.slice(0, 300);
+       })
+       .catch(function () {
+         said.style.display = 'block';
+         said.textContent = 'The panel did not answer - it may be restarting.';
+       });
+   });
+ });
+</script>
+</body></html>

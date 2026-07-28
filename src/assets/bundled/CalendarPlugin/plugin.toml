@@ -1,7 +1,14 @@
 [plugin]
-key = "calendar"
 name = "Calendar"
+key = "calendar"
+order = 30
 version = "0.1.0"
-description = "Events, holidays and a calendar sub-page."
+description = "Events, holidays, subscriptions and a calendar sub-page."
 icon = "calendar-month"
+readme = "readme.md"
 dependencies = ["corewidgetsbundle"]
+
+# Without this the settings.json beside it is never read, and the plugin has
+# no settings at all - every option silently falls back to its default.
+[settings]
+path = "src/assets/bundled/CalendarPlugin/settings.json"

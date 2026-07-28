@@ -15,6 +15,17 @@ device can be revoked without affecting the others, an endpoint can tell who is
 calling, and anything that learns one token has not learned the way in for
 everything else.
 
+### From a browser
+
+A browser that reaches a page it is not allowed to see is **redirected** to
+`/access/wait` rather than refused. That page asks for access on the visitor's
+behalf, waits for somebody at the panel, and then sends them on to where they
+were going with the token attached.
+
+Told apart by the `Accept` header: a script wants a 401 it can read, and a
+person looking at a blank page with some JSON on it wants to be told what to do
+about it.
+
 ### The flow
 
 ```
@@ -32,6 +43,39 @@ otherwise stack two dialogs, and the second would be answered blind.
 Approval is polled off the client tick rather than pushed from the request,
 because the request arrives on a Flask worker thread and a dialog cannot be
 built there.
+
+### Naming
+
+A device announces itself as something like "Firefox on Linux" — which says
+what it is and nothing about whose it is. Approving one therefore asks a second
+question:
+
+* **Name them** opens the keyboard on the panel, for when whoever is standing
+  there knows.
+* **Let them decide** marks the user `awaiting_name` and the device is sent to
+  a naming page the next time it polls, before it goes anywhere else.
+
+Approval and naming are separate steps on purpose: cancelling the name must not
+be able to undo the approval.
+
+A user still choosing a name is left out of `names()`. Offering a placeholder
+as an owner is how a household ends up with three events belonging to "Browser
+on Linux".
+
+Anyone can be renamed later under **Settings → Users**, which also marks who is
+still choosing.
+
+### Choosing an owner
+
+Anywhere something needs an owner — the event editor, the calendar's phone
+form, the subscriptions page, the add-a-calendar dialog — the choice is a
+picker over `USERS.names()` rather than a text field.
+
+That is not tidiness. A free text field meant "Chris", "chris" and "Chris "
+were three different owners as far as the store was concerned, each holding
+some of the same events, and nothing in the UI showed why.
+
+`GET /users?token=...` returns the same list, for anything building its own.
 
 ### Using it
 

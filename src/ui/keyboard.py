@@ -293,6 +293,7 @@ class KeyboardDialog(BaseDialog):
 
         self._build_keys()
 
+        self.add_button("Paste", self._paste, "secondary")
         self.add_button("Cancel", self.close, "secondary")
         self.add_button("Done", self._done, "primary")
 
@@ -561,6 +562,38 @@ class KeyboardDialog(BaseDialog):
                 self._build_keys()
 
 
+
+    ## -- lifecycle
+
+    def _paste(self) -> None:
+        """
+        Insert the clipboard at the caret.
+
+        Typing a URL or an address on a touch keyboard is the slowest thing
+        this app asks of anyone, and half the time it was copied from
+        somewhere a moment ago.
+        """
+        try:
+            from PyQt6.QtWidgets import QApplication
+            text = QApplication.clipboard().text()
+        except Exception as e:
+            self.client.log("debug", f"[Keyboard] Clipboard unreadable: {e}")
+            return
+
+        if not text:
+            self.client.simple_notify("mdi.clipboard-outline", "Keyboard",
+                                      "Nothing on the clipboard.")
+            return
+
+        # Single-line fields get one line - a pasted paragraph would otherwise
+        # arrive with newlines the field cannot show.
+        if self.mode != "body":
+            text = text.replace("\r", " ").replace("\n", " ").strip()
+
+        at = self.caret()
+        current = self.preview.text()
+        self.preview.setText(current[:at] + text + current[at:])
+        self.set_caret(at + len(text))
 
     ## -- lifecycle
 
