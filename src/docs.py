@@ -14,6 +14,7 @@ it is written as though it were not.
 from __future__ import annotations
 
 import html
+import json
 import re
 from pathlib import Path
 from typing import Optional
@@ -241,6 +242,7 @@ def render(markdown: str) -> tuple[str, list]:
 
     list_stack: list = []       # open <ul>/<ol> tags, innermost last
     item_open: list = []        # whether an <li> is open at each of those levels
+    pending_blank = False       # a blank line seen but not yet acted on
     in_code = False
     code_lang = ""
     code_buffer: list = []
@@ -305,7 +307,10 @@ def render(markdown: str) -> tuple[str, list]:
         if not stripped:
             flush_paragraph()
             flush_table()
-            close_lists()
+            # Lists are NOT closed here. A blank line between items is a loose
+            # list, still one list - closing on the blank started a fresh <ol>
+            # per item and every one of them numbered itself 1.
+            pending_blank = True
             continue
 
         if set(stripped) <= {"-", "*", "_"} and len(stripped) >= 3:
@@ -313,6 +318,7 @@ def render(markdown: str) -> tuple[str, list]:
             flush_table()
             close_lists()
             out.append("<hr>")
+            pending_blank = False
             continue
 
         heading = re.match(r"^(#{1,6})\s+(.*)$", stripped)
@@ -327,18 +333,33 @@ def render(markdown: str) -> tuple[str, list]:
             out.append(f'<h{level} id="{anchor}">'
                        f'<a class="anchor" href="#{anchor}">#</a>'
                        f"{inline(title)}</h{level}>")
+            pending_blank = False
             continue
 
         if stripped.startswith(">"):
             flush_paragraph()
             close_lists()
             out.append(f"<blockquote>{inline(stripped.lstrip('> ').strip())}</blockquote>")
+            pending_blank = False
             continue
 
         if "|" in stripped and stripped.count("|") >= 2:
             flush_paragraph()
             close_lists()
             table_buffer.append(stripped)
+            pending_blank = False
+            continue
+
+        # A wrapped line under a list item: indented, no marker of its own,
+        # and no blank line between it and the item it belongs to. Without
+        # this it closed the list and became a paragraph, which is what split
+        # a numbered list into one <ol> per item.
+        indent = len(line) - len(line.lstrip())
+        if (list_stack and item_open and item_open[-1]
+                and indent >= 2 and not pending_blank
+                and not re.match(r"^\s*([-*+]|\d+\.)\s", line)):
+            out.append(" " + inline(stripped))
+            pending_blank = False
             continue
 
         bullet = re.match(r"^(\s*)([-*+]|\d+\.)\s+(.*)$", line)
@@ -362,11 +383,13 @@ def render(markdown: str) -> tuple[str, list]:
 
             out.append(f"<li>{inline(bullet.group(3))}")
             item_open[-1] = True
+            pending_blank = False
             continue
 
         flush_table()
         close_lists()
         paragraph.append(stripped)
+        pending_blank = False
 
     if in_code:
         # An unterminated fence should still show its contents rather than
@@ -563,6 +586,50 @@ def sidebar_html(current: str) -> str:
     return "".join(rows)
 
 
+_SEARCH_CACHE: dict = {"stamp": None, "data": None}
+
+
+def search_index() -> list:
+    """
+    Every heading in every page, as [page_slug, page_title, heading, anchor].
+
+    Cached against the newest mtime in docs/, so editing a file during
+    development still refreshes it without a restart, and a normal run builds
+    it once rather than re-reading 26 files on every page load.
+    """
+    try:
+        stamp = max((p.stat().st_mtime for p in DOCS_DIR.glob("*.md")), default=0)
+    except OSError:
+        stamp = 0
+    if _SEARCH_CACHE["stamp"] == stamp and _SEARCH_CACHE["data"] is not None:
+        return _SEARCH_CACHE["data"]
+
+    rows = []
+    for slug, page_title, filename in nav_entries():
+        try:
+            text = (DOCS_DIR / filename).read_text(encoding="utf-8")
+        except OSError:
+            continue
+        in_code = False
+        for line in text.splitlines():
+            if line.lstrip().startswith("```"):
+                in_code = not in_code
+                continue
+            if in_code:
+                continue
+            match = re.match(r"^(#{2,4})\s+(.*)$", line.strip())
+            if not match:
+                continue
+            heading = match.group(2).strip().replace("`", "")
+            rows.append([slug, page_title, heading, slugify(match.group(2).strip())])
+
+    for plugin_slug, display, readme in bundled_plugins():
+        rows.append([f"plugin/{plugin_slug}", "Bundled plugins", display, ""])
+
+    _SEARCH_CACHE.update(stamp=stamp, data=rows)
+    return rows
+
+
 def shell(title: str, body: str, toc: str, current: str) -> str:
     return f"""<!doctype html>
 <html lang="en">
@@ -576,13 +643,15 @@ def shell(title: str, body: str, toc: str, current: str) -> str:
 <button class="menu" type="button" aria-label="Menu">&#9776;</button>
 <aside class="sidebar">
   <div class="brand">Home Assistant<span>documentation</span></div>
-  <input class="filter" type="search" placeholder="Filter pages" aria-label="Filter pages">
+  <input class="filter" type="search" placeholder="Search docs" aria-label="Search docs">
   <nav class="nav">{sidebar_html(current)}</nav>
+  <div class="results" hidden></div>
 </aside>
 <main>
   <article>{body}</article>
 </main>
 {toc}
+<script type="application/json" id="search-index">{json.dumps(search_index())}</script>
 <script>{SCRIPT}</script>
 </body>
 </html>"""
@@ -633,6 +702,20 @@ a:hover { text-decoration:underline; }
 }
 .nav a.sub:hover { color:var(--text); }
 .nav a.sub.active { color:var(--text); border-left-color:var(--accent); background:#26262b; }
+
+.results { display:flex; flex-direction:column; gap:1px; margin-top:4px; }
+.results-title {
+  color:var(--muted); text-transform:uppercase; letter-spacing:.09em;
+  font-size:10.5px; margin:12px 0 6px; padding-left:10px;
+}
+.results a {
+  display:flex; flex-direction:column; gap:1px; padding:6px 10px;
+  border-radius:7px; border-left:2px solid transparent; color:var(--muted);
+}
+.results a:hover { background:#26262b; text-decoration:none; }
+.results a span { color:var(--text); font-size:14px; }
+.results a em { font-style:normal; font-size:11.5px; color:#6f6f78; }
+.results .empty { color:var(--muted); font-size:13.5px; padding:10px; }
 
 .note {
   padding:9px 14px; margin:0 0 20px; border-radius:8px;
@@ -768,12 +851,61 @@ document.querySelectorAll('.copy').forEach(function (button) {
 });
 
 var filter = document.querySelector('.filter');
+var results = document.querySelector('.results');
+var nav = document.querySelector('.nav');
+var indexNode = document.getElementById('search-index');
+var index = indexNode ? JSON.parse(indexNode.textContent) : [];
+
 if (filter) {
   filter.addEventListener('input', function () {
-    var needle = filter.value.toLowerCase();
+    var needle = filter.value.trim().toLowerCase();
+
+    if (!needle) {
+      nav.hidden = false;
+      results.hidden = true;
+      document.querySelectorAll('.nav a').forEach(function (link) {
+        link.style.display = '';
+      });
+      return;
+    }
+
+    // Page titles first: an exact page is almost always what was wanted, and
+    // burying it under twenty section matches would be worse than no search.
+    var pageHits = 0;
     document.querySelectorAll('.nav a').forEach(function (link) {
-      link.style.display = link.textContent.toLowerCase().indexOf(needle) === -1 ? 'none' : '';
+      var hit = link.textContent.toLowerCase().indexOf(needle) !== -1;
+      link.style.display = hit ? '' : 'none';
+      if (hit) { pageHits++; }
     });
+    nav.hidden = pageHits === 0;
+
+    var rows = index.filter(function (row) {
+      return row[2].toLowerCase().indexOf(needle) !== -1;
+    }).slice(0, 40);
+
+    if (!rows.length) {
+      results.hidden = pageHits > 0;
+      results.innerHTML = pageHits > 0 ? '' : '<div class="empty">Nothing found.</div>';
+      return;
+    }
+
+    var html = '<div class="results-title">Sections</div>';
+    rows.forEach(function (row) {
+      var href = '/docs/' + row[0] + (row[3] ? '#' + row[3] : '');
+      html += '<a href="' + href + '"><span>' + row[2] +
+              '</span><em>' + row[1] + '</em></a>';
+    });
+    results.innerHTML = html;
+    results.hidden = false;
+  });
+
+  // Escape clears, so the sidebar can be got back without reaching for the
+  // mouse or selecting the text.
+  filter.addEventListener('keydown', function (event) {
+    if (event.key === 'Escape') {
+      filter.value = '';
+      filter.dispatchEvent(new Event('input'));
+    }
   });
 }
 

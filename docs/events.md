@@ -223,7 +223,7 @@ self.client.subscribe_to_event("on_interaction", on_any_interaction)
 
 Fired on the same interactions as `on_interaction`, but **only** for the first one after a period of idleness — i.e. exactly the moment activity resumes following an `on_interaction_timeout`. Every subsequent interaction during that same active stretch fires `on_interaction` only, not this.
 
-This is what the Carousel plugin subscribes to in order to dismiss whatever it's currently showing the instant the user touches the screen again.
+This is what [Idle Random Triggers](bundled-plugins.md) subscribes to, so whatever it is showing is dismissed the instant the screen is touched again.
 
 ```python
 def on_resumed(event):
@@ -237,7 +237,7 @@ self.client.subscribe_to_event("on_fresh_interaction", on_resumed)
 
 Fired once per idle period, the moment `application.interaction_timeout` (milliseconds, under Application in Settings) is crossed with no interaction anywhere in the app. Fires exactly once — it won't fire again on every subsequent tick while still idle, only on the edge where idleness was first reached. `event` is always `None`.
 
-Does **not** fire while the Settings page is active — that page manages its own separate idle/return-home timeout, and a plugin like the Carousel popping something up over Settings would be unwelcome.
+Does **not** fire while the Settings page is active — that page manages its own idle/return-home timeout, and an idle plugin popping something up over Settings would be unwelcome.
 
 Runs on the same background thread as `on_update`, not the Qt UI thread — if your handler touches any widgets, dispatch through `client.call_on_ui(...)` the same way you would in an `on_update` handler.
 
@@ -252,7 +252,7 @@ self.client.subscribe_to_event("on_interaction_timeout", on_gone_idle)
 
 Fired once an hour, right before `gc.collect()` runs as part of the update thread's own housekeeping. `event` is always `None`.
 
-This is your plugin's chance to self-manage — clean up anything you've accumulated since the last cycle before Python's garbage collector runs. Especially relevant if your plugin runs for a long time and builds things up over and over (a panel per Carousel rotation, a cache entry per request, etc.): use this to clear it out regularly instead of letting it grow for hours unchecked.
+This is your plugin's chance to self-manage — clean up anything accumulated since the last cycle before Python's garbage collector runs. Especially relevant for a plugin that runs for a long time and builds things up over and over: a panel per idle rotation, a cache entry per request. Clear it out here rather than letting it grow for hours unchecked.
 
 If you're holding onto any PyQt6 objects (a `Panel`, a widget, anything `QObject`-based), make sure they're actually cleaned up here if nothing else already does it for you — just dropping the Python reference isn't enough on its own.
 
