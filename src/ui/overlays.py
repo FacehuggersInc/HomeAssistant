@@ -601,6 +601,9 @@ class BaseDialog(QFrame):
                 if len(body) > self.SCROLL_BODY_AT else label
             )
 
+        # Kept, so a subclass can hand the spare height to its content rather
+        # than to the stretch below - see BaseDialog.expand_content().
+        self.outer   = outer
         self.content = QVBoxLayout()
         self.content.setSpacing(10)
         outer.addLayout(self.content)
@@ -620,6 +623,25 @@ class BaseDialog(QFrame):
         outer.addLayout(self.buttons)
 
         self._outer = outer
+
+    def expand_content(self) -> None:
+        """
+        Give the content area the leftover height instead of the trailing
+        stretch.
+
+        The stretch exists so a short dialog's buttons sit under its text
+        rather than at the bottom of an empty card. A dialog whose content is
+        the point - a map, a list - wants the opposite.
+        """
+        try:
+            self.outer.setStretchFactor(self.content, 1)
+            for index in range(self.outer.count()):
+                item = self.outer.itemAt(index)
+                if item is not None and item.spacerItem() is not None:
+                    self.outer.removeItem(item)
+                    break
+        except Exception:
+            pass
 
     ## -- frosted backdrop
     #
@@ -681,8 +703,13 @@ class BaseDialog(QFrame):
         if self._backdrop is not None and not self._backdrop.isNull():
             painter = QPainter(self)
             painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+            # 14px and inset by one, matching .dialog-card. A square wash under
+            # a rounded border leaves the corners bright where the two disagree,
+            # and a radius that does not match shows as a white nick on each
+            # corner.
             path = QPainterPath()
-            path.addRoundedRect(QRectF(self.rect()), 16.0, 16.0)
+            path.addRoundedRect(QRectF(self.rect().adjusted(1, 1, -1, -1)),
+                                14.0, 14.0)
             painter.setClipPath(path)
             # Filled first, so any part of the dialog that fell outside the
             # page is the wash colour rather than bare card.
@@ -693,11 +720,18 @@ class BaseDialog(QFrame):
             painter.end()
         super().paintEvent(event)
 
+    # Long enough for a sub-page slide to finish. A dialog opened from a
+    # widget that first navigates somewhere grabbed the page mid-transition,
+    # so the frosting showed where you had just been.
+    SETTLE_MS = 320
+
     def showEvent(self, event) -> None:  # type: ignore[override]
         super().showEvent(event)
         # Queued: the dialog has no final position until the overlay has
         # centred it, and grabbing before that snapshots the wrong region.
         QTimer.singleShot(0, self.refresh_backdrop)
+        # And again once anything moving underneath has stopped.
+        QTimer.singleShot(self.SETTLE_MS, self.refresh_backdrop)
 
     def resizeEvent(self, event) -> None:  # type: ignore[override]
         super().resizeEvent(event)

@@ -198,6 +198,12 @@ class SubTilesPage(SubPageFramework):
 
         saved = self.tile_grid.load_positions()
         if tile.KEY in saved:
+            entry = saved[tile.KEY] or {}
+            span_w, span_h = entry.get("w"), entry.get("h")
+            if span_w and span_h:
+                # Applied before placing, so the grid reserves the cells the
+                # tile actually occupies rather than its default size.
+                tile.apply_span(int(span_w), int(span_h), force=True)
             self.tile_grid.add_tile(tile, col, row)
         elif in_grid:
             self.tile_grid.add_tile(tile, col, row)

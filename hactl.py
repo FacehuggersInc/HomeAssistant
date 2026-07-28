@@ -10,16 +10,18 @@ no checkout of the project at all.
     ./hactl.py plugins list
     ./hactl.py settings set assistant.model.value small.en
 
-The host and client id are asked for once and cached, so nothing after the
-first run needs either. Saved hosts live in a config file with the id in it -
-that id is the only thing standing between the network and full control of the
-panel, so the file is written 0600 and never printed in full.
+Pairing happens once per machine: `hosts add` asks the panel for access, then
+somebody standing at it allows or denies the request. The token that comes back
+is this device's alone and can be revoked from the panel without affecting
+anything else.
+
+The config file holds those tokens, so it is written 0600 and they are never
+printed in full.
 """
 
 from __future__ import annotations
 
 import argparse
-import getpass
 import json
 import os
 import sys
@@ -85,10 +87,10 @@ def mask(value: str) -> str:
 ## ── target resolution ─────────────────────────────────────────────────────────
 
 class Target:
-    def __init__(self, host: str, port: int, client_id: str, name: str = None):
+    def __init__(self, host: str, port: int, token: str, name: str = None):
         self.host = host
         self.port = int(port)
-        self.client_id = client_id
+        self.token = token
         self.name = name
 
     @property
@@ -97,25 +99,25 @@ class Target:
 
     def __str__(self) -> str:
         label = f"{self.name} " if self.name else ""
-        return f"{label}({self.base}, id {mask(self.client_id)})"
+        return f"{label}({self.base}, token {mask(self.token)})"
 
 
 def resolve_target(args, config: dict, allow_prompt: bool = True) -> Target:
     """Command line wins, then the named host, then the default, then ask."""
     if args.host:
-        client_id = args.id or _id_for_host(config, args.host) or (
-            prompt_id(args.host) if allow_prompt else None)
-        if not client_id:
-            die("No client id for that host. Pass --id or save it with 'hosts add'.",
-                EXIT_USAGE)
-        return Target(args.host, args.port or DEFAULT_PORT, client_id)
+        token = args.token or _token_for_host(config, args.host)
+        if not token and allow_prompt:
+            token = pair(args.host, args.port or DEFAULT_PORT)
+        if not token:
+            die("No token for that host. Pair it with 'hosts add'.", EXIT_USAGE)
+        return Target(args.host, args.port or DEFAULT_PORT, token)
 
     name = args.target or config.get("default")
     if name and name in config["hosts"]:
         entry = config["hosts"][name]
         return Target(entry["host"],
                       args.port or entry.get("port", DEFAULT_PORT),
-                      args.id or entry.get("id", ""),
+                      args.token or entry.get("token", ""),
                       name)
 
     if name:
@@ -128,17 +130,58 @@ def resolve_target(args, config: dict, allow_prompt: bool = True) -> Target:
     return first_run(config)
 
 
-def _id_for_host(config: dict, host: str) -> str:
+def _token_for_host(config: dict, host: str) -> str:
     for entry in config["hosts"].values():
         if entry.get("host") == host:
-            return entry.get("id", "")
+            return entry.get("token", "")
     return ""
 
 
-def prompt_id(host: str) -> str:
-    # getpass, so the id does not end up in the terminal scrollback or in the
-    # shell history of whoever is watching.
-    return getpass.getpass(f"Client ID for {host}: ").strip()
+def pair(host: str, port: int, name: str = None) -> str:
+    """
+    Ask the panel for access and wait for somebody to answer.
+
+    The token is issued by the panel, not chosen here - a device picking its
+    own would let anything claim one it had seen, and there would be no point
+    at which the panel decided.
+    """
+    import platform
+    name = name or f"hactl on {platform.node()}"
+    base = f"http://{host}:{port}"
+
+    try:
+        request = urllib.request.Request(
+            f"{base}/access/request?{urllib.parse.urlencode({'name': name})}",
+            method="POST")
+        with urllib.request.urlopen(request, timeout=DEFAULT_TIMEOUT) as response:
+            token = json.loads(response.read()).get("token", "")
+    except Exception as exc:
+        die(f"Could not reach {base}: {exc}", EXIT_UNREACHABLE)
+
+    if not token:
+        die("The panel did not issue a token.", EXIT_FAILED)
+
+    print(f"Asked '{name}' to be allowed.")
+    print("Approve it on the panel - a dialog is waiting there.")
+
+    deadline = time.time() + 180
+    while time.time() < deadline:
+        try:
+            url = f"{base}/access/state?{urllib.parse.urlencode({'token': token})}"
+            with urllib.request.urlopen(url, timeout=5) as response:
+                state = json.loads(response.read()).get("state", "")
+        except Exception:
+            state = ""
+
+        if state == "approved":
+            print("Approved.")
+            return token
+        if state == "denied":
+            die("The panel denied that request.", EXIT_FAILED)
+        print(".", end="", flush=True)
+        time.sleep(2)
+
+    die("Nobody answered on the panel.", EXIT_FAILED)
 
 
 def first_run(config: dict) -> Target:
@@ -150,17 +193,14 @@ def first_run(config: dict) -> Target:
     port_raw = input(f"Port [{DEFAULT_PORT}]: ").strip()
     port = int(port_raw) if port_raw.isdigit() else DEFAULT_PORT
 
-    client_id = prompt_id(host)
-    if not client_id:
-        die("A client id is required - every endpoint but /notify checks it.",
-            EXIT_USAGE)
+    token = pair(host, port)
 
     name = input("Save as [default]: ").strip() or "default"
-    config["hosts"][name] = {"host": host, "port": port, "id": client_id}
+    config["hosts"][name] = {"host": host, "port": port, "token": token}
     config["default"] = name
     save_config(config)
     print(f"\nSaved to {config_path()}\n")
-    return Target(host, port, client_id, name)
+    return Target(host, port, token, name)
 
 
 ## ── requests ──────────────────────────────────────────────────────────────────
@@ -169,7 +209,7 @@ def call(target: Target, path: str, params: dict = None, timeout: int = DEFAULT_
          method: str = "GET", body: dict = None) -> tuple[int, object]:
     """Returns (status, decoded_body). Never raises for an HTTP error status."""
     query = dict(params or {})
-    query["id"] = target.client_id
+    query["token"] = target.token
     url = f"{target.base}{path}?{urllib.parse.urlencode(query)}"
 
     data = None
@@ -211,7 +251,7 @@ def probe(target: Target, timeout: int = 3) -> str:
     means nothing else in this tool will work, and reporting that as ready
     sends you looking at the network instead of the id.
     """
-    url = f"{target.base}/plugins?{urllib.parse.urlencode({'id': target.client_id})}"
+    url = f"{target.base}/plugins?{urllib.parse.urlencode({'token': target.token})}"
     try:
         with urllib.request.urlopen(url, timeout=timeout) as response:
             return "ready" if response.status == 200 else "starting"
@@ -294,18 +334,17 @@ def cmd_hosts(args, config):
         for name, entry in sorted(config["hosts"].items()):
             marker = "*" if name == config.get("default") else " "
             print(f" {marker} {name:<14} {entry['host']}:{entry.get('port', DEFAULT_PORT)}"
-                  f"   id {mask(entry.get('id'))}")
+                  f"   token {mask(entry.get('token'))}")
         print(f"\n  ({config_path()})")
         return EXIT_OK
 
     if action == "add":
-        client_id = args.id or prompt_id(args.host)
-        if not client_id:
-            die("A client id is required.", EXIT_USAGE)
+        token = args.token or pair(args.host, args.port or DEFAULT_PORT,
+                                   name=f"hactl ({args.name})")
         config["hosts"][args.name] = {
             "host": args.host,
             "port": args.port or DEFAULT_PORT,
-            "id": client_id,
+            "token": token,
         }
         if args.make_default or config.get("default") is None:
             config["default"] = args.name
@@ -464,11 +503,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="hactl.py",
         description="Control a Desktop Home Assistant panel over its backend API.",
-        epilog="First run asks for the IP and client id and remembers them.",
+        epilog="First run pairs with the panel: it asks for access, and somebody "
+               "at the panel allows it.",
     )
     parser.add_argument("-t", "--target", help="saved host to use (default: the starred one)")
     parser.add_argument("--host", help="IP or hostname, bypassing saved hosts")
-    parser.add_argument("--id", help="client id, bypassing the saved one")
+    parser.add_argument("--token", help="device token, bypassing the saved one")
     parser.add_argument("--port", type=int, help=f"port (default {DEFAULT_PORT})")
     parser.add_argument("--timeout", type=int, default=DEFAULT_TIMEOUT,
                         help=f"seconds to wait per request (default {DEFAULT_TIMEOUT})")
@@ -482,7 +522,7 @@ def build_parser() -> argparse.ArgumentParser:
     add = hosts_sub.add_parser("add", help="save a panel")
     add.add_argument("name")
     add.add_argument("--host", required=True)
-    add.add_argument("--id", help="prompted for if omitted")
+    add.add_argument("--token", help="skip pairing and use this token")
     add.add_argument("--port", type=int)
     add.add_argument("--default", dest="make_default", action="store_true")
     remove = hosts_sub.add_parser("remove", help="forget a panel")

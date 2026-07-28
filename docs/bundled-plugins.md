@@ -15,6 +15,7 @@ Read them when the documentation runs out. They are the worked examples.
 | `aifallback` | AI Fallback | Answers phrases no skill matched. |
 | `idletriggers` | Idle Random Triggers | Runs registered callbacks while the panel is idle. |
 | `rssfeeds` | RSS Feeds | Feed fetching, shown through the idle triggers. |
+| `calendar` | Calendar | Events, holidays, a calendar sub-page, widgets and a tile. |
 
 ---
 
@@ -118,9 +119,49 @@ Feeds are shown as idle panels through `idletriggers`.
 
 ---
 
+## Calendar
+
+`calendar` - depends on `corewidgetsbundle`, and is the largest of the
+non-core plugins.
+
+Everything reads one source: the store is published on the public registry as
+`calendar`, with the events themselves plus every relative question anything
+else asks - `next_event`, `next_holiday`, `next_user_event`, `previous_event`,
+`current_event`, `time_until`, `days_until`, `describe_gap`,
+`describe_duration`.
+
+Events come from three places and are kept apart by `source`: made in the app,
+posted to the API, or computed. Holidays are the third - 21 of them, worked
+out from the rules rather than fetched, because a wall panel is offline often
+and the rules do not change.
+
+* **Calendar sub-page** - a month grid at `(0, 1)`, so it is one swipe down
+  from the widgets. Tapping a day opens the day view; tapping an event opens
+  it in full, with a map when it has somewhere to be.
+* **Pickers** - date, time and location, each a dialog rather than a typed
+  field. A time chosen on a stepper cannot be `25:70`.
+* **Next event** and **Coming up** widgets - one large upcoming event, or a
+  list that fits however many rows it has room for.
+* **Calendar tile** - a month at a glance with marked days, minimum 5x3.
+* **Reminder panels** - a half-width card with the event, a map and buttons to
+  open or edit it, shown inside the lead window and closing itself after a
+  timeout.
+* **Default location** - a setting with a map picker beside it, used as the
+  starting location for new events.
+* **API** - `calendar_add` and `calendar_upcoming`, both authed.
+
+Everything above disappears with the plugin. Nothing in the client depends on
+the calendar existing; anything that reads it checks
+`client.public.has("calendar")` first.
+
+---
+
 ## Reading them
 
-Each has a `readme.md` next to its `main.py` with anything specific to it.
+Each has a `readme.md` next to its `main.py`, and any plugin can ship a whole
+`docs/` folder. Both show up in the **Plugins** section at the bottom of the
+sidebar — bundled or not, since a plugin in `plugins/` documents itself the
+same way. See [Plugins](plugins.md).
 
 The layout is worth noticing:
 

@@ -237,7 +237,9 @@ self.client.subscribe_to_event("on_fresh_interaction", on_resumed)
 
 Fired once per idle period, the moment `application.interaction_timeout` (milliseconds, under Application in Settings) is crossed with no interaction anywhere in the app. Fires exactly once — it won't fire again on every subsequent tick while still idle, only on the edge where idleness was first reached. `event` is always `None`.
 
-Does **not** fire while the Settings page is active — that page manages its own idle/return-home timeout, and an idle plugin popping something up over Settings would be unwelcome.
+Does **not** fire while a dialog is open, or on any page that sets
+`blocks_idle = True` — see [The web page](webpage.md). Also does
+**not** fire while the Settings page is active — that page manages its own idle/return-home timeout, and an idle plugin popping something up over Settings would be unwelcome.
 
 Runs on the same background thread as `on_update`, not the Qt UI thread — if your handler touches any widgets, dispatch through `client.call_on_ui(...)` the same way you would in an `on_update` handler.
 
@@ -276,6 +278,20 @@ self.client.trigger_on_call_event_iteration("my_custom_event", some_data)
 ```
 
 Other plugins subscribe to a custom event exactly the same way as a built-in one, via `subscribe_to_event`.
+
+**Declare it before anything subscribes.** `subscribe_to_event` indexes
+straight into the event table, so subscribing to a name that has not been
+created is a `KeyError`, not a quietly ignored subscription. Create it in your
+plugin's `load()`, which runs before any page that might listen is built.
+
+Guard the creation if your plugin can be reloaded — `create_on_call_event`
+resets the subscriber list, so re-creating an event that another plugin is
+already listening to silently drops them:
+
+```python
+if "my_custom_event" not in self.client.EVENTS["on_call"]:
+    self.client.create_on_call_event("my_custom_event")
+```
 
 `create_on_call_event` and `trigger_on_call_event_iteration` will raise if you pass one of the built-in event names — those are reserved for the Client and must be triggered through its own internal calls, not from plugin code.
 

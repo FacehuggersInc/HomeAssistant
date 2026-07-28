@@ -4,6 +4,10 @@ A tile is a fixed-size card on a snapping grid. Tiles are the other half of the
 component story alongside [Widgets](widgets.md), and the difference is worth
 being clear about:
 
+> **Provided by a plugin.** Everything on this page comes from
+> `corewidgetsbundle`. Disable or remove it and these features go with it — the client
+> itself has no tile grid. That is deliberate: see
+> [Bundled plugins](bundled-plugins.md).
 | | Widgets | Tiles |
 |---|---|---|
 | Live on | `sub.home` | `sub.tiles` |

@@ -474,3 +474,44 @@ self.client.goto("#root", data={
 `carryover` is only ever non-`None` during a hot reload triggered through `PluginManager.reload_plugin()`. It is `None` when the whole application is shutting down, since there is no future `load()` to hand anything to in that case.
 
 ---
+
+---
+
+## Shipping documentation with a plugin
+
+A plugin's `readme.md` appears in the docs viewer, in the **Plugins** section
+at the bottom of the sidebar. A plugin that adds a subsystem can go further and
+ship a `docs/` folder:
+
+```
+MyPlugin/
+    plugin.toml
+    main.py
+    readme.md            shown under Bundled plugins
+    docs/
+        registry.md      its own page in the sidebar
+        skills.md
+```
+
+Every `.md` in that folder becomes a page, titled from its first heading.
+
+Plugins appear in their own **Plugins** section at the bottom of the sidebar.
+The plugin's name is the link to its readme, with each `docs/` page listed
+beneath it.
+Not nested under Bundled plugins — a plugin installed into `plugins/` is not
+bundled and would have nowhere to go. It also keeps the core pages above a
+fixed list that does not change shape with whatever happens to be installed.
+
+The contents are indexed by the docs search alongside everything else, so a
+heading in a plugin's page is findable the same way a core one is.
+
+**Why not add pages to the main `docs/` tree.** They would be overwritten or
+orphaned by the next update, and a plugin that is removed would leave its
+documentation behind describing something that is no longer there. Shipping
+them with the plugin means they arrive and leave with it.
+
+Write them the same way as the core pages: present tense, and say plainly that
+the feature comes from a plugin. Someone reading about your registry needs to
+know it disappears when the plugin does.
+
+User plugins in `plugins/` are scanned exactly the same way as bundled ones.

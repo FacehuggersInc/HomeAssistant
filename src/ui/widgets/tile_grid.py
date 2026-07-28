@@ -47,31 +47,69 @@ class TileGrid(QWidget):
         except Exception:
             return None
 
+    ## -- LAYOUT STORAGE
+    #
+    # In the user data directory, alongside widget_layout.json - not in the
+    # owning plugin's settings.json. Layout is user state and settings.json is
+    # shipped with the plugin: an update unpacks over it, and a reload rewrites
+    # it. The widget framework learnt this the hard way and tiles were still
+    # doing it the old way.
+
+    def _layout_path(self):
+        from src.constants import get_data_dir, APP_NAME
+        return get_data_dir(APP_NAME) / "tile_layout.json"
+
     def load_positions(self) -> dict:
+        path = self._layout_path()
+        try:
+            if not path.is_file():
+                return self._migrate_from_settings()
+            data = json.loads(path.read_text(encoding="utf-8"))
+            return data.get(self.owning_plugin_key, {}) or {}
+        except Exception as e:
+            self.client.log("warning", f"[TileGrid] Could not read layout: {e}")
+            return {}
+
+    def _migrate_from_settings(self) -> dict:
+        """One-time lift of an existing layout out of the plugin's settings."""
         plugin = self.get_owning_plugin()
         if not plugin:
             return {}
         try:
-            raw = plugin.settings.tiles.positions.value
-            return json.loads(raw) if raw and raw != "{}" else {}
+            raw = getattr(plugin, "settings", None).tiles.positions.value
+            positions = json.loads(raw) if raw and raw != "{}" else {}
         except Exception:
             return {}
+        if positions:
+            self.client.log("info", "[TileGrid] Migrated tile layout out of "
+                                    "plugin settings into the data directory.")
+            self._write(positions)
+        return positions
+
+    def _write(self, positions: dict) -> None:
+        path = self._layout_path()
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            data = {}
+            if path.is_file():
+                # Merged, not replaced - another grid's tiles live in the same
+                # file under their own plugin key.
+                try:
+                    data = json.loads(path.read_text(encoding="utf-8")) or {}
+                except Exception:
+                    data = {}
+            data[self.owning_plugin_key] = positions
+            path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+        except Exception as e:
+            self.client.log("warning", f"[TileGrid] Could not save layout: {e}")
 
     def save_positions(self) -> None:
-        plugin = self.get_owning_plugin()
-        if not plugin:
-            return
-
-        positions = {t.KEY: {"col": t.grid_col, "row": t.grid_row} for t in self.tiles}
-
-        try:
-            plugin.settings.tiles.positions["value"] = json.dumps(positions)
-
-            settings_path = plugin.config["settings"]["path"]
-            with open(settings_path, "w") as f:
-                json.dump(plugin.settings.to_dict(), f, indent=4)
-        except Exception as e:
-            self.client.log("error", f"[TileGrid] Failed to save tile positions: {e}", include_traceback=True)
+        # Span as well as position, so a resized tile comes back resized.
+        self._write({
+            t.KEY: {"col": t.grid_col, "row": t.grid_row,
+                    "w": t.grid_w, "h": t.grid_h}
+            for t in self.tiles
+        })
 
     ##LAYOUT
 
@@ -171,6 +209,14 @@ class TileGrid(QWidget):
         tile.show()
 
     def remove_tile(self, key: str) -> None:
+        tile = next((t for t in self.tiles if t.KEY == key), None)
+        teardown = getattr(tile, "teardown", None) if tile is not None else None
+        if callable(teardown):
+            try:
+                teardown()
+            except Exception:
+                pass
+
         found = [t for t in self.tiles if t.KEY == key]
         for tile in found:
             tile.setParent(None)

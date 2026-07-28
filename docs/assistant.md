@@ -14,7 +14,7 @@ Settings live under **Assistant**:
 | `model` | Whisper model, default `tiny.en`. Downloaded on first use |
 | `voice_bar` | The activity bar along the bottom of the screen |
 | `tts_enabled` | Whether replies are spoken |
-| `elevenlabs_key` | ElevenLabs API key, stored in `.env` (see Secrets) |
+| `elevenlabs_key` | ElevenLabs API key, stored in `.env` (see [Registries](registries.md)) |
 
 ## The activity bar
 
@@ -225,7 +225,7 @@ so blocking there stalls the whole STT pipeline.
 ### The AI fallback plugin
 
 Needs an OpenAI key, entered under the plugin's own settings and stored in
-`.env` (see Secrets). Without one it stays quiet.
+`.env` (see [Registries](registries.md)). Without one it stays quiet.
 
 **OpenAI has no free tier** - the account needs credit on it. An
 `insufficient_quota` error is a billing limit, not a rate limit, so waiting
@@ -367,7 +367,7 @@ if not self.client.say("Twenty two degrees."):
 
 `say()` returns whether anything was actually said. TTS needs an ElevenLabs
 key, set under **Assistant** in Settings (it is stored in `.env`, not in the
-settings file - see Secrets). Without one the app still runs and skills still
+settings file - see [Registries](registries.md)). Without one the app still runs and skills still
 work, they just do not talk back. Entering a key restarts the assistant, so
 speech comes up without relaunching. `TTSProcessing` exposes `.available` and `.error`
 for the specific reason.

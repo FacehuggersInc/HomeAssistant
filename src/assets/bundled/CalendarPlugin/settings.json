@@ -1,0 +1,56 @@
+{
+  "general": {
+    "show_holidays": {
+      "type": "bool",
+      "default": true,
+      "value": true,
+      "description": "Show public holidays alongside your own events."
+    },
+    "events_per_day": {
+      "type": "int",
+      "default": 4,
+      "value": 4,
+      "description": "How many events a day shows in the month grid before it collapses to a count. Three to five reads well; more turns the grid into a wall of text."
+    },
+    "week_starts_monday": {
+      "type": "bool",
+      "default": false,
+      "value": false,
+      "description": "Start the week on Monday rather than Sunday."
+    },
+    "dark_map": {
+      "type": "bool",
+      "default": false,
+      "value": false,
+      "description": "Use a dark basemap for event locations. It matches the panel, but the dark style hides shop and restaurant labels - the standard map draws them for you."
+    },
+    "default_location": {
+      "type": "string",
+      "default": "",
+      "value": "",
+      "description": "Where events happen unless you say otherwise. New events start here, so a household that mostly meets in one place stops retyping it. Use the button below to pick it on a map."
+    }
+  },
+  "reminders": {
+    "enabled": {
+      "type": "bool",
+      "default": true,
+      "value": true,
+      "description": "Show a panel when an event is about to start."
+    },
+    "lead_minutes": {
+      "type": "int",
+      "default": 15,
+      "value": 15,
+      "suffix": "min",
+      "description": "How far ahead of an event the reminder appears."
+    },
+    "dismiss_seconds": {
+      "type": "int",
+      "default": 45,
+      "value": 45,
+      "suffix": "sec",
+      "description": "How long the reminder stays before closing itself. It always closes on a tap."
+    }
+  }
+}

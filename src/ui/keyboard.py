@@ -188,7 +188,7 @@ class KeyboardDialog(BaseDialog):
     MAX_KEY_W = 124        # beyond this keys stop being easier to hit
 
     def __init__(self, client: "Client", target, mode: str = "text",
-                 label: str = "", description: str = ""):
+                 label: str = "", description: str = "", on_done=None):
         # On a short panel the description is the first thing to go. A
         # keyboard running off the bottom of an 800x480 screen is a worse
         # trade than losing a line of explanation.
@@ -224,6 +224,10 @@ class KeyboardDialog(BaseDialog):
         super().__init__(client, label or "Edit value", description or "",
                          width=width)
         self.target = target
+        # Called with the committed text when Done is pressed. Nothing fires
+        # it on cancel - a caller that acts on the value should not act on a
+        # value the user declined to give.
+        self.on_done = on_done
         self.mode = mode
 
         # Keys scale to the screen rather than assuming one. At the full size
@@ -561,8 +565,16 @@ class KeyboardDialog(BaseDialog):
     ## -- lifecycle
 
     def _done(self) -> None:
-        self._write_target(self.preview.text())
+        text = self.preview.text()
+        self._write_target(text)
         self.close()
+        # After the write and after the close, so a handler that opens another
+        # dialog is not stacking it under this one on its way out.
+        if callable(self.on_done):
+            try:
+                self.on_done(text)
+            except Exception as e:
+                self.client.log("warning", f"[Keyboard] on_done failed: {e}")
 
     def show_keyboard(self) -> None:
         """Kept for callers written against the old popup."""

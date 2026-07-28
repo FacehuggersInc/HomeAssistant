@@ -72,8 +72,8 @@ No default page set — showing RootPage
 Default page '#myhome' not registered — showing RootPage
 ```
 
-`RootPage` and the settings page are registered by the client itself, not by a
-plugin. That is the guarantee: **with no plugins at all, the app still starts,
+`RootPage`, the settings page and `#webpage` are registered by the client
+itself, not by a plugin. That is the guarantee: **with no plugins at all, the app still starts,
 still shows a page, and still reaches Settings.** A plugin that fails to load
 cannot leave you with a blank screen and no way in.
 

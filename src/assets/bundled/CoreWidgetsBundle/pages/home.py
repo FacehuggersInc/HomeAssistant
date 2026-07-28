@@ -36,6 +36,7 @@ class HomePage(PageFramework):
         self._hold.setSingleShot(True)
         self._hold.setInterval(550)
         self._hold.timeout.connect(self.open_minimap)
+        self._hold_blocked = False
         self._minimap = None
 
         # Create default sub-pages
@@ -89,6 +90,17 @@ class HomePage(PageFramework):
     def remove_sub_page(self, key: str) -> None:
         page = self.sub_page_dict.pop(key, None)
         if page:
+            # A sub-page that subscribed to events needs somewhere to
+            # unsubscribe. Without this a removed page keeps its handlers on
+            # the bus, and the first fire afterwards calls into a deleted
+            # widget.
+            teardown = getattr(page, "teardown", None)
+            if callable(teardown):
+                try:
+                    teardown()
+                except Exception as e:
+                    self.client.log("warning",
+                                    f"[HomePage] {key} teardown failed: {e}")
             self.remove_features([page.name])
             page.setParent(None)
 
@@ -134,6 +146,8 @@ class HomePage(PageFramework):
         if not target:
             return
 
+        self.close_open_panels()
+
         current = self._current_page()
         if current:
             current.is_active = False
@@ -153,6 +167,20 @@ class HomePage(PageFramework):
 
     def open_minimap(self) -> None:
         self._drag_start = None
+
+        # A sub-page can veto the gesture for the duration of a press - the
+        # calendar does it while a day is held, so holding a day reads it
+        # rather than opening the map over the top of it.
+        if getattr(self, "_hold_blocked", False):
+            return
+
+        # Never over something already asking for an answer. A hold that began
+        # before a dialog opened would otherwise land on top of it.
+        try:
+            if self.client.DIALOG.get() is not None:
+                return
+        except Exception:
+            pass
 
         # Checked by visibility, not by the reference existing. The dialog
         # manager hides and unparents a closed dialog rather than deleting it,
@@ -177,12 +205,30 @@ class HomePage(PageFramework):
         target = self._get_page_at_coord(*coord)
         if target is None:
             return
+        self.close_open_panels()
         current = self._current_page()
         if current:
             current.is_active = False
         self._current_coord = list(coord)
         target.is_active = True
         self.apply_layout()
+
+    def close_open_panels(self) -> None:
+        """
+        Shut anything a sub-page left open before sliding away from it.
+
+        A panel belongs to the page it was opened from, but it is parented to
+        the overlay layer - so it stays put while the page moves out from
+        under it, and ends up floating over an unrelated screen.
+        """
+        for page in self.sub_page_dict.values():
+            for name in ("tile_panel", "widget_panel", "panel"):
+                panel = getattr(page, name, None)
+                if panel is not None and getattr(panel, "open", False):
+                    try:
+                        panel.toggle()
+                    except Exception:
+                        pass
 
     def apply_layout(self, animate: bool = True) -> None:
         """Re-place every sub-page from its coord. Used after a rearrange."""

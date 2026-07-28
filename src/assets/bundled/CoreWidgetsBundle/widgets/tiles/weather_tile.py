@@ -284,16 +284,22 @@ class WeatherTile(Tile):
             column.setSpacing(0)
             column.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
+            # White with a shadow rather than the muted grey. The day
+            # gradient goes to a pale gold at the bottom, which is exactly
+            # where this strip sits - grey-on-gold is unreadable, and a
+            # shadow is what carries it over both ends of the sky.
             hour = QLabel(label)
-            hour.setFont(make_font(12))
+            hour.setFont(make_font(12, bold=True))
             hour.setMinimumWidth(0)
             hour.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            set_style(hour, "common", "text-muted")
+            hour.setStyleSheet("color: rgba(255,255,255,225); background: transparent;")
+            add_text_shadow(hour, blur=9)
 
             temp = QLabel(value)
             temp.setFont(make_font(17, bold=True))
             temp.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            set_style(temp, "common", "text-strong")
+            temp.setStyleSheet("color: #ffffff; background: transparent;")
+            add_text_shadow(temp, blur=10)
 
             column.addWidget(hour)
             column.addWidget(temp)
@@ -327,11 +333,13 @@ class WeatherTile(Tile):
         for index, (name, value) in enumerate(rows):
             key = QLabel(name)
             key.setFont(make_font(12))
-            set_style(key, "common", "text-muted")
+            key.setStyleSheet("color: rgba(255,255,255,205); background: transparent;")
+            add_text_shadow(key, blur=8)
 
             val = QLabel(value)
             val.setFont(make_font(13, bold=True))
-            set_style(val, "common", "text-strong")
+            val.setStyleSheet("color: #ffffff; background: transparent;")
+            add_text_shadow(val, blur=8)
 
             if self.grid_w >= 4:
                 column = index % 2

@@ -4,15 +4,30 @@ A Flask server on port **5000**, separate from the Qt application. It exists so
 the panel can be driven from elsewhere - a phone, a script, another machine on
 the network - without touching the UI.
 
-Everything except `/notify` and `/docs` requires the client ID as `?id=`. You
-will find it under **Settings → Info**.
+Everything except `/notify`, `/docs` and the two access endpoints needs a
+**device token**.
+
+There is no shared password. A device asks for access, somebody standing at the
+panel allows or denies it, and the token that comes back belongs to that device
+alone — revoking one does not affect the others, and an endpoint can tell who
+is calling.
 
 ```
-http://<panel-ip>:5000/restart?id=YOUR_CLIENT_ID
+POST /access/request?name=My%20phone     ->  {"token": "...", "state": "pending"}
+GET  /access/state?token=...             ->  {"state": "pending|approved|denied"}
 ```
 
-The ID is compared with `hmac.compare_digest`, so a wrong one cannot be guessed
-a character at a time by measuring how long the reply takes.
+Then send it on every request, as `?token=` or an `X-Client-Token` header:
+
+```
+http://<panel-ip>:5000/restart?token=YOUR_DEVICE_TOKEN
+```
+
+An unapproved token comes back **403** with its state, so a device polling for
+approval can tell "not yet" from "no".
+
+Approved devices are listed under **Settings → Users**, where each can be
+revoked on its own.
 
 ---
 
@@ -25,6 +40,8 @@ a character at a time by measuring how long the reply takes.
 | `GET /update` | Download, stage and restart into the newest commit. |
 | `GET /update/check` | Report whether an update exists. Downloads nothing. |
 | `GET /notify?icon=&title=&body=` | Show a notification. No auth. |
+| `POST /access/request?name=` | Ask to be allowed. No auth, by definition. |
+| `GET /access/state?token=` | Whether that request has been answered. |
 | `GET /process?...` | Run an assistant intent. |
 
 `/update` returns as soon as staging starts - the download and restart happen
@@ -42,8 +59,8 @@ in the background. Poll `/plugins` to tell when the panel is back.
 Paths are dotted, matching the settings tree:
 
 ```
-/settings/assistant.model.value?id=...&v=small.en
-/settings/application.updates.check_interval.value?id=...&v=12
+/settings/assistant.model.value?token=...&v=small.en
+/settings/application.updates.check_interval.value?token=...&v=12
 ```
 
 Presence of `v` decides read from write, not its value - `?v=` with nothing
@@ -89,7 +106,7 @@ class MyPlugin(Plugin):
 ```
 
 ```
-GET /public/forecast?id=...&city=Omaha
+GET /public/forecast?token=...&city=Omaha
 ```
 
 Query parameters become keyword arguments. `id` is stripped first - it is the
@@ -104,6 +121,17 @@ diagnose than a generic failure.
 
 `cached=True` caches the first body and serves it thereafter, regardless of
 return shape. Call `endpoint.clear_cache()` to invalidate.
+
+---
+
+## Plugin-served pages
+
+An endpoint may return HTML rather than JSON, which is how a plugin ships a
+small interface for a phone without needing a page in the app.
+
+The Calendar plugin does this with `calendar_form` — a mobile-sized page for
+adding an event, served at
+`/public/calendar_form?token=...`. See the Calendar plugin's own docs.
 
 ---
 
@@ -135,19 +163,18 @@ A single-file CLI at the project root, stdlib only and importing nothing from
 `src/`. Copy it to any machine that can reach the panel.
 
 ```bash
-./hactl.py hosts add panel --host 192.168.1.50   # prompts for the ID
+./hactl.py hosts add panel --host 192.168.1.50   # pairs with the panel
 ./hactl.py update --check
 ./hactl.py update --wait
 ./hactl.py plugins list
 ./hactl.py settings assistant.model.value small.en
 ```
 
-The host and ID are asked for once and cached in `~/.config/hactl/hosts.json`,
-written `0600` because that ID is the only thing between the network and full
-control of the panel. It is masked everywhere it is displayed, and prompts use
+Pairing happens once per machine and the token is cached in
+`~/.config/hactl/hosts.json`, written `0600`. It is masked everywhere it is displayed, and prompts use
 `getpass` so it stays out of shell history.
 
-Multiple panels are supported with `-t NAME`; `--host` and `--id` override
+Multiple panels are supported with `-t NAME`; `--host` and `--token` override
 without saving.
 
 | Command | Does |

@@ -606,6 +606,83 @@ def _divider() -> QFrame:
     return d
 
 
+# ── Users page ────────────────────────────────────────────────────────────────
+
+def _build_users_page(client) -> list:
+    """Approved devices, with a revoke button each."""
+    widgets = []
+
+    intro = QLabel(
+        "Devices that have been allowed to use this panel's API. Each has its "
+        "own token, so revoking one does not affect the others."
+    )
+    intro.setFont(make_font(SIZES.S1))
+    intro.setWordWrap(True)
+    set_style(intro, "settings", "settings-hint")
+    widgets.append(intro)
+
+    users = client.USERS.all_users()
+    if not users:
+        empty = QLabel("No devices yet. A device that asks for access will "
+                       "raise a dialog on this screen.")
+        empty.setFont(make_font(SIZES.S2))
+        empty.setWordWrap(True)
+        set_style(empty, "common", "text-muted")
+        widgets.append(empty)
+        return widgets
+
+    for user in users:
+        card = QFrame()
+        card.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        set_style(card, "settings", "setting-block")
+
+        row = QHBoxLayout(card)
+        row.setContentsMargins(14, 10, 14, 10)
+        row.setSpacing(12)
+
+        column = QVBoxLayout()
+        column.setSpacing(1)
+
+        name = QLabel(user.name)
+        name.setFont(make_font(SIZES.S2, bold=True))
+        set_style(name, "common", "text-strong")
+        column.addWidget(name)
+
+        import datetime as _dt
+        seen = _dt.datetime.fromtimestamp(user.last_seen).strftime("%d %b, %H:%M")
+        detail = QLabel(f"{user.address or 'unknown address'}  ·  last seen {seen}")
+        detail.setFont(make_font(SIZES.S1))
+        set_style(detail, "common", "text-muted")
+        column.addWidget(detail)
+
+        row.addLayout(column, stretch=1)
+
+        revoke = QPushButton("Revoke")
+        revoke.setFont(make_font(SIZES.S1, bold=True))
+        revoke.setFixedHeight(38)
+        revoke.setCursor(Qt.CursorShape.PointingHandCursor)
+        set_style(revoke, "overlays", "dialog-button-destructive")
+
+        def _revoke(token=user.token, label=user.name):
+            # Confirmed: the device stops working immediately and has to ask
+            # again, which needs somebody standing at the panel to answer.
+            client.confirm(
+                "Revoke access",
+                f"Stop '{label}' using this panel?",
+                on_confirm  = lambda: (client.USERS.revoke(token),
+                                       client.goto("#settings", override=True)),
+                confirm_text= "Revoke",
+                cancel_text = "Keep",
+                destructive = True,
+            )
+
+        revoke.clicked.connect(lambda _=False, fn=_revoke: fn())
+        row.addWidget(revoke)
+        widgets.append(card)
+
+    return widgets
+
+
 # ── Info page ─────────────────────────────────────────────────────────────────
 
 def _build_info_page(client) -> list:
@@ -623,7 +700,7 @@ def _build_info_page(client) -> list:
 
     rows = [
         ("Application",  client.WINDOW_NAME),
-        ("Client ID",    client.CLIENT_ID),
+        ("Approved devices", str(len(client.USERS.all_users()))),
         ("Local IP",     _local_ip()),
         ("API Port",     "5000"),
         ("Platform",     f"{platform.system()} {platform.release()}"),
@@ -658,7 +735,9 @@ def _build_info_page(client) -> list:
 
     # API usage hint
     hint = QLabel(
-        f"Client ID is required as ?id=CLIENT_ID on all control and asset API requests."
+        "The API needs a device token, not a password. A new device asks at "
+        "/access/request and a dialog appears here to allow or deny it. "
+        "Approved devices are listed under Users, and can be revoked one at a time."
     )
     hint.setFont(make_font(SIZES.S1))
     set_style(hint, "settings", "settings-hint")
@@ -920,6 +999,10 @@ class SettingsPage(PageFramework):
             self.new_category(key.lower(), self.builder(pointer, grouped_dict, key, key))
         # Info is always last
         self.new_category("info", _build_info_page(self.client))
+        # Live, like Info. There is no settings path behind it - the list is
+        # whatever the registry holds when the page is built, and the buttons
+        # act on the registry rather than writing a value to be saved.
+        self.new_category("users", _build_users_page(self.client))
 
     def _page_additions(self) -> None:
         plugins = self.client.PLUGIN.get_plugins()

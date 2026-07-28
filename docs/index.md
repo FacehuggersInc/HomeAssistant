@@ -76,6 +76,8 @@ can subscribe to.
 | [Tiles](tiles.md) | Writing and registering tiles, the grid and panel. |
 | [Features](features.md) | Exposing and calling page features. |
 | [Registries](registries.md) | API, page, public, secret and quick access registries. |
+| [Users](users.md) | Device approval, tokens, and identifying a caller. |
+| [The web page](webpage.md) | The built-in browser page and its locks. |
 | [Quick settings](quick-settings.md) | The global controls panel and its registry. |
 | [Events](events.md) | Every client event, with examples. |
 | [Settings](settings.md) | Declaring settings, types, migration. |

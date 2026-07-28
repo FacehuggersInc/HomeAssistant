@@ -20,7 +20,7 @@ registry.unregister(owner, key="")
 self.client.API_REGISTRY.register("myplugin", "my_endpoint", self.my_callback, False, False)
 self.client.API_REGISTRY.unregister("myplugin", "my_endpoint")
 
-# PageRegistry — self.client.PAGES (wrapped by add_page, see Pages below)
+# PageRegistry — self.client.PAGES (wrapped by add_page, see [Pages](pages.md))
 self.client.add_page("#mypage", "My Page", MyPage, owner="myplugin")
 self.client.PAGES.unregister("myplugin", "#mypage")
 ```

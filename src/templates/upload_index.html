@@ -90,7 +90,7 @@
         {% if assets %}
         <div class="asset-grid">
             {% for asset in assets %}
-            <a class="asset-card" href="/upload/{{ asset.key }}?id={{ id }}">
+            <a class="asset-card" href="/upload/{{ asset.key }}?token={{ token }}">
                 <div class="card-top">
                     <span class="card-icon">📁</span>
                     <span class="card-key">{{ asset.key }}</span>

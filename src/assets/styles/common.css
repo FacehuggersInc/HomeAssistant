@@ -23,3 +23,66 @@
     color: #8a8a8a;
     background: transparent;
 }
+
+/* Scrollbars, application-wide.
+
+   Set on the class rather than per widget: every QScrollArea in the app had the
+   platform default, which on this palette is a bright grey slab. Applied by
+   set_style(widget, "common", "thin-scroll") where a scroll area is visible.
+   Web pages are handled separately - Chromium draws its own. */
+
+.thin-scroll QScrollBar:vertical {
+    background: rgba(0,0,0,60);
+    width: 12px;
+    margin: 0;
+    border-radius: 6px;
+}
+
+.thin-scroll QScrollBar::handle:vertical {
+    background: rgba(255,255,255,55);
+    min-height: 40px;
+    border-radius: 6px;
+}
+
+.thin-scroll QScrollBar::handle:vertical:hover {
+    background: rgba(255,255,255,85);
+}
+
+.thin-scroll QScrollBar::add-line:vertical,
+.thin-scroll QScrollBar::sub-line:vertical {
+    height: 0;
+}
+
+.thin-scroll QScrollBar::add-page:vertical,
+.thin-scroll QScrollBar::sub-page:vertical {
+    background: transparent;
+}
+
+.thin-scroll QScrollBar:horizontal {
+    background: rgba(0,0,0,60);
+    height: 12px;
+    border-radius: 6px;
+}
+
+.thin-scroll QScrollBar::handle:horizontal {
+    background: rgba(255,255,255,55);
+    min-width: 40px;
+    border-radius: 6px;
+}
+
+.thin-scroll QScrollBar::add-line:horizontal,
+.thin-scroll QScrollBar::sub-line:horizontal {
+    height: 0;
+    width: 0;
+}
+
+/* A hairline progress bar. No text, no border - it is a hint that something is
+   happening, not a control. */
+.load-bar {
+    background: transparent;
+    border: 0;
+}
+
+.load-bar::chunk {
+    background: #2ff08e;
+}

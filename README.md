@@ -56,6 +56,8 @@ No client ID is needed.
 | [Tiles](docs/tiles.md) | Writing and registering tiles, the grid and panel. |
 | [Features](docs/features.md) | Exposing and calling page features. |
 | [Registries](docs/registries.md) | API, page, public, secret and quick access registries. |
+| [Users](docs/users.md) | Device approval, tokens, and identifying a caller. |
+| [The web page](docs/webpage.md) | The built-in browser page and its locks. |
 | [Quick settings](docs/quick-settings.md) | The global controls panel and its registry. |
 | [Events](docs/events.md) | Every client event, with examples. |
 | [Settings](docs/settings.md) | Declaring settings, types, migration. |

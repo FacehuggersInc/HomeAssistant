@@ -1,0 +1,7 @@
+[plugin]
+key = "calendar"
+name = "Calendar"
+version = "0.1.0"
+description = "Events, holidays and a calendar sub-page."
+icon = "calendar-month"
+dependencies = ["corewidgetsbundle"]

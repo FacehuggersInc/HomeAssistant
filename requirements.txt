@@ -1,5 +1,7 @@
 # ── UI ────────────────────────────────────────────────────────────────────────
 PyQt6
+# The browser engine behind the #webpage page and every map in the app.
+PyQt6-WebEngine
 qtawesome
 
 # ── Settings ──────────────────────────────────────────────────────────────────
@@ -46,3 +48,6 @@ feedparser
 # imported by the platform-guard block in src/__init__.py; the names they
 # bound (pag, gw, MediaManager, PlaybackStatus, Controller, Key) had zero
 # consumers anywhere in the tree. Re-add if/when media-key control lands.
+
+# Encrypts local caches that record what was searched for.
+cryptography

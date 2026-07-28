@@ -3,6 +3,10 @@
 One global controls surface, reachable from every page by swiping down from
 the top edge of the screen.
 
+> **Part of the client.** Quick settings, the registry behind it
+> and the top-edge gesture are built into the client, not a plugin —
+> so they are there whatever else is loaded. The buttons *inside* it
+> come from plugins and go when those do.
 It is registered once against the client rather than built per page, so a
 control appears everywhere or nowhere - there is no page that quietly lacks
 "quit the app" because nobody added it there.

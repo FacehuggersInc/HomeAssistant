@@ -1,5 +1,10 @@
 # Features
 
+> **A feature key belongs to whoever registered the page.** `sub.home.*` and
+> `sub.tiles.*` are `corewidgetsbundle`'s; `calendar.*` is the Calendar
+> plugin's. Calling one is a dependency on that plugin being loaded, so guard
+> with `has_feature()` rather than assuming - the page may simply not be there.
+
 Features are one of the primary extension systems of the application.
 
 Pages expose functionality through Features rather than allowing direct access to their internals. A plugin should never need to reach into `sub_home.widget_manager` directly — it should call whatever Feature that page chose to expose for that purpose.

@@ -1,5 +1,4 @@
 import os
-import hmac
 import time
 import shutil
 from threading import Thread
@@ -32,15 +31,31 @@ def FlaskApp(client):
 
 	# AUTH & HELPERS
 	def auth():
-		given = request.args.get("id", "").strip()
-		if not given:
-			return {"request": "Failed", "reason": "Missing required ?id= parameter"}, 401
-		if not hmac.compare_digest(given, str(client.CLIENT_ID)):
-			# compare_digest, not !=: a plain comparison returns as soon as it
-			# finds a differing byte, which leaks the id one character at a
-			# time to anything that can measure the reply.
-			return {"request": "Failed", "reason": "Invalid client ID"}, 403
-		return None
+		"""
+		A per-device token, checked against the approved list.
+
+		There is no shared secret any more. A token identifies one device, is
+		revocable on its own, and tells an endpoint who is calling - none of
+		which a single id copied between machines could do.
+		"""
+		token = (request.args.get("token")
+				 or request.headers.get("X-Client-Token")
+				 or "").strip()
+		if not token:
+			return {"request": "Failed",
+					"reason": "No device token. Request access at /access/request.",
+					"state": "unknown"}, 401
+
+		user = client.USERS.touch(token)
+		if user is not None:
+			# Recorded on the request, so an endpoint can tell who called it -
+			# the calendar tags what it stores with this.
+			request.environ["ha.user"] = user
+			return None
+
+		state = client.USERS.state_of(token)
+		return {"request": "Failed",
+				"reason": f"This device is {state}.", "state": state}, 403
 
 	def log(level:str = "info", extra:str = ""):
 		args = {k: ("***" if k == "id" else v) for k, v in request.args.items()}
@@ -182,8 +197,10 @@ def FlaskApp(client):
 				client.log("error", f"[backend.upload_index] Upload Failed: {e}")
 			uploadable.append(info)
 
-		id_param = request.args.get("id", "")
-		return render_template("upload_index.html", assets=uploadable, id=id_param)
+		# Passed through so the page's own links and its POST carry the token
+		# that fetched it - the browser has no other way to authenticate.
+		token = request.args.get("token", "")
+		return render_template("upload_index.html", assets=uploadable, token=token)
 
 	@app.route("/upload/<key>", methods=["GET"])
 	def upload_page(key):
@@ -198,8 +215,8 @@ def FlaskApp(client):
 		if not getattr(path, "is_uploadable", False):
 			return {"request": "Failed", "reason": f"Asset '{key}' is not marked as uploadable"}, 403
 
-		id_param = request.args.get("id", "")
-		return render_template("upload.html", key=key, path=str(path), id=id_param)
+		token = request.args.get("token", "")
+		return render_template("upload.html", key=key, path=str(path), token=token)
 
 	@app.route("/upload/<key>", methods=["POST"])
 	def upload_file(key):
@@ -324,6 +341,30 @@ def FlaskApp(client):
 		client.SETTINGS.set_path(path, request.args.get("v"))
 		return {"request": "Success", "setting": client.SETTINGS.get_path(path)}, 200
 
+
+	## DEVICE APPROVAL
+	@app.route("/access/request", methods=["GET", "POST"])
+	def request_access():
+		"""
+		A new device asking to be let in. No auth, by definition.
+
+		Returns a token immediately; the device polls /access/state with it
+		until somebody on the panel answers.
+		"""
+		log()
+		name = (request.args.get("name") or "").strip() or "Unnamed device"
+		pending = client.USERS.request_access(name, request.remote_addr or "")
+		return {"request": "Success", "token": pending.token, "state": "pending"}, 202
+
+	@app.route("/access/state", methods=["GET"])
+	def access_state():
+		token = (request.args.get("token") or "").strip()
+		if not token:
+			return {"request": "Failed", "reason": "No token given"}, 400
+		state = client.USERS.state_of(token)
+		user = client.USERS.get(token)
+		return {"request": "Success", "state": state,
+				"name": user.name if user else ""}, 200
 
 	## DOCUMENTATION
 	@app.route("/docs", methods=["GET"])

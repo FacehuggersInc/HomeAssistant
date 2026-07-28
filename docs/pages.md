@@ -152,6 +152,13 @@ Four things in there are the whole pattern:
 
 ## Sub-pages
 
+> **`HomePage` and its sub-pages come from `corewidgetsbundle`.** A plugin
+> adding a sub-page depends on that plugin being loaded, and should degrade
+> rather than raise when it is not. `RootPage` and the settings page are the
+> only two the client registers itself — see
+> [Application lifecycle](lifecycle.md).
+
+
 A page can own a grid of sub-pages navigated by swiping. `HomePage` does this:
 each sub-page has a coordinate, and a swipe moves to whatever sits in that
 direction.
@@ -219,6 +226,20 @@ since a saved coordinate for a page that has not been added yet would be lost.
 an empty origin cannot be navigated to. The dialog will not close while the
 origin is empty, and a saved layout that has one is discarded rather than
 half-applied.
+
+### Cleaning up a sub-page
+
+`remove_sub_page()` calls `teardown()` on the page if it defines one, before
+unparenting it. That is where a sub-page unsubscribes from anything it
+subscribed to:
+
+```python
+def teardown(self) -> None:
+    self.client.unsubscribe_from_event("on_calendar_changed", self._on_changed)
+```
+
+Without it a removed page keeps its handlers on the event bus, and the first
+fire afterwards calls into a deleted widget.
 
 ### Features from a sub-page
 

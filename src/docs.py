@@ -39,6 +39,8 @@ NAV_ORDER = [
     ("tiles.md",           "Tiles"),
     ("features.md",        "Features"),
     ("registries.md",      "Registries"),
+    ("users.md",           "Users"),
+    ("webpage.md",         "The web page"),
     ("quick-settings.md",  "Quick settings"),
     ("events.md",          "Events"),
     ("settings.md",        "Settings"),
@@ -87,6 +89,70 @@ def resolve(name: str) -> Optional[Path]:
     if not candidate.is_file():
         return None
     return candidate
+
+
+def plugin_dirs() -> list:
+    """Every plugin directory, bundled or user-installed."""
+    roots = [BUNDLED_DIR, INSTALL_ROOT / "plugins"]
+    out = []
+    for root in roots:
+        if not root.is_dir():
+            continue
+        for directory in sorted(root.iterdir()):
+            if directory.is_dir() and not directory.name.startswith((".", "__")):
+                out.append(directory)
+    return out
+
+
+def plugin_pages(directory: Path) -> list:
+    """
+    [(slug, title, path)] for the .md files a plugin ships in its docs/ folder.
+
+    A plugin that adds a subsystem should be able to document it without its
+    pages being copied into the main docs tree, where the next update would
+    overwrite or orphan them.
+    """
+    folder = directory / "docs"
+    if not folder.is_dir():
+        return []
+    key = directory.name.lower()
+    pages = []
+    for file in sorted(folder.glob("*.md")):
+        pages.append((f"plugin/{key}/{file.stem}", title_of(file), file))
+    return pages
+
+
+def plugin_docs() -> dict:
+    """{plugin_slug: (display, readme_or_None, [pages])} for anything with docs."""
+    found = {}
+    for directory in plugin_dirs():
+        readme = next((directory / n for n in ("readme.md", "README.md")
+                       if (directory / n).is_file()), None)
+        pages = plugin_pages(directory)
+        if readme is None and not pages:
+            continue
+        found[directory.name.lower()] = (plugin_display(directory), readme, pages)
+    return found
+
+
+def resolve_plugin_page(slug: str):
+    """A plugin's own docs page, by `plugin/<key>/<name>`."""
+    parts = slug.strip("/").split("/")
+    if len(parts) != 3 or parts[0] != "plugin":
+        return None
+    key, name = parts[1].lower(), parts[2]
+    for directory in plugin_dirs():
+        if directory.name.lower() != key:
+            continue
+        candidate = (directory / "docs" / f"{name}.md")
+        try:
+            resolved = candidate.resolve()
+            root = (directory / "docs").resolve()
+        except OSError:
+            return None
+        if resolved.is_file() and root in resolved.parents:
+            return resolved
+    return None
 
 
 def bundled_plugins() -> list:
@@ -243,6 +309,7 @@ def render(markdown: str) -> tuple[str, list]:
     list_stack: list = []       # open <ul>/<ol> tags, innermost last
     item_open: list = []        # whether an <li> is open at each of those levels
     pending_blank = False       # a blank line seen but not yet acted on
+    quote: list = []            # consecutive "> " lines, joined into one block
     in_code = False
     code_lang = ""
     code_buffer: list = []
@@ -259,6 +326,13 @@ def render(markdown: str) -> tuple[str, list]:
                 item_open[-1] = False
             out.append(f"</{list_stack.pop()}>")
             item_open.pop()
+
+    def flush_quote() -> None:
+        # Consecutive quote lines are one blockquote. Emitting one per line
+        # stacks four bordered boxes where the author wrote a single note.
+        if quote:
+            out.append(f"<blockquote>{inline(' '.join(quote))}</blockquote>")
+            quote.clear()
 
     def flush_paragraph() -> None:
         if paragraph:
@@ -306,6 +380,7 @@ def render(markdown: str) -> tuple[str, list]:
 
         if not stripped:
             flush_paragraph()
+            flush_quote()
             flush_table()
             # Lists are NOT closed here. A blank line between items is a loose
             # list, still one list - closing on the blank started a fresh <ol>
@@ -339,9 +414,10 @@ def render(markdown: str) -> tuple[str, list]:
         if stripped.startswith(">"):
             flush_paragraph()
             close_lists()
-            out.append(f"<blockquote>{inline(stripped.lstrip('> ').strip())}</blockquote>")
+            quote.append(stripped.lstrip("> ").strip())
             pending_blank = False
             continue
+        flush_quote()
 
         if "|" in stripped and stripped.count("|") >= 2:
             flush_paragraph()
@@ -395,6 +471,7 @@ def render(markdown: str) -> tuple[str, list]:
         # An unterminated fence should still show its contents rather than
         # silently swallowing the rest of the file.
         out.append(code_block("\n".join(code_buffer), code_lang))
+    flush_quote()
     flush_paragraph()
     flush_table()
     close_lists()
@@ -521,6 +598,13 @@ def code_block(code: str, language: str) -> str:
 
 def page(slug: str) -> Optional[str]:
     if slug.startswith("plugin/"):
+        # A three-part slug is a plugin's own docs page; two parts is its
+        # readme.
+        extra = resolve_plugin_page(slug)
+        if extra is not None:
+            return _render_file(extra, slug,
+                                "Shipped with this plugin - it arrives and "
+                                "leaves with it.")
         return plugin_page(slug[len("plugin/"):])
 
     path = resolve(slug)
@@ -535,6 +619,17 @@ def page(slug: str) -> Optional[str]:
 
     body, toc = render(markdown)
     return shell(title_of(path), body, toc_html(toc), path.stem)
+
+
+def _render_file(path: Path, current: str, note: str) -> Optional[str]:
+    try:
+        markdown = path.read_text(encoding="utf-8")
+    except OSError:
+        return None
+    body, toc = render(markdown)
+    intro = (f'<p class="note">{html.escape(note)} See '
+             f'<a href="/docs/bundled-plugins">Bundled plugins</a>.</p>')
+    return shell(title_of(path), intro + body, toc_html(toc), current)
 
 
 def plugin_page(slug: str) -> Optional[str]:
@@ -574,15 +669,34 @@ def sidebar_html(current: str) -> str:
         active = ' class="active"' if slug == current else ""
         rows.append(f'<a href="/docs/{slug}"{active}>{html.escape(title)}</a>')
 
-        # Each bundled plugin's own readme, nested under the page describing
-        # them. Only rendered where that page sits, so the sidebar keeps one
-        # obvious reading order.
-        if slug == "bundled-plugins":
-            for plugin_slug, display, _readme in bundled_plugins():
+    # Plugins get their own section at the end, one heading each.
+    #
+    # They used to hang off the Bundled plugins page, which only worked for
+    # plugins that were bundled - a user plugin in plugins/ had nowhere to go.
+    # Down here they are all equal, and the core pages above stay a fixed list
+    # that does not change shape with whatever happens to be installed.
+    plugins = plugin_docs()
+    if plugins:
+        rows.append('<div class="nav-divider">Plugins</div>')
+        for plugin_slug, (display, readme, pages) in sorted(
+                plugins.items(), key=lambda item: item[1][0].lower()):
+
+            # The name is the link to the readme, not a label above a link
+            # called "Overview". One less row, and it reads the same way the
+            # core entries above it do.
+            if readme is not None:
                 target = f"plugin/{plugin_slug}"
-                sub_active = " active" if target == current else ""
-                rows.append(f'<a class="sub{sub_active}" href="/docs/{target}">'
+                active = ' class="active"' if target == current else ""
+                rows.append(f'<a href="/docs/{target}"{active}>'
                             f"{html.escape(display)}</a>")
+            else:
+                # Nothing to link to, so it stays a heading over its pages.
+                rows.append(f'<div class="nav-plugin">{html.escape(display)}</div>')
+
+            for page_slug, title, _path in pages:
+                sub_active = " active" if page_slug == current else ""
+                rows.append(f'<a class="sub{sub_active}" '
+                            f'href="/docs/{page_slug}">{html.escape(title)}</a>')
     return "".join(rows)
 
 
@@ -623,8 +737,20 @@ def search_index() -> list:
             heading = match.group(2).strip().replace("`", "")
             rows.append([slug, page_title, heading, slugify(match.group(2).strip())])
 
-    for plugin_slug, display, readme in bundled_plugins():
-        rows.append([f"plugin/{plugin_slug}", "Bundled plugins", display, ""])
+    for plugin_slug, (display, readme, pages) in plugin_docs().items():
+        if readme is not None:
+            rows.append([f"plugin/{plugin_slug}", "Plugins", display, ""])
+        for page_slug, title, path in pages:
+            rows.append([page_slug, display, title, ""])
+            try:
+                for line in path.read_text(encoding="utf-8").splitlines():
+                    match = re.match(r"^(#{2,4})\s+(.*)$", line.strip())
+                    if match:
+                        heading = match.group(2).strip().replace("`", "")
+                        rows.append([page_slug, display, heading,
+                                     slugify(match.group(2).strip())])
+            except OSError:
+                continue
 
     _SEARCH_CACHE.update(stamp=stamp, data=rows)
     return rows
@@ -702,6 +828,15 @@ a:hover { text-decoration:underline; }
 }
 .nav a.sub:hover { color:var(--text); }
 .nav a.sub.active { color:var(--text); border-left-color:var(--accent); background:#26262b; }
+.nav-divider {
+  color:var(--muted); text-transform:uppercase; letter-spacing:.09em;
+  font-size:10.5px; margin:20px 0 4px; padding:0 10px;
+  border-top:1px solid var(--line); padding-top:14px;
+}
+.nav-plugin {
+  color:var(--text); font-size:14px; font-weight:600;
+  margin:10px 0 2px; padding:0 10px;
+}
 
 .results { display:flex; flex-direction:column; gap:1px; margin-top:4px; }
 .results-title {
@@ -801,6 +936,20 @@ tr:nth-child(even) td { background:#1a1a1e; }
 .toc a { display:block; color:var(--muted); padding:4px 0; }
 .toc a:hover { color:var(--text); text-decoration:none; }
 .toc a.toc-3 { padding-left:13px; font-size:13px; }
+
+/* The panel's built-in browser injects these too, but the docs are read from
+   a desktop browser just as often and a white scrollbar on this palette is the
+   brightest thing on the page. */
+::-webkit-scrollbar { width:12px; height:12px; }
+::-webkit-scrollbar-track { background:rgba(0,0,0,.25); }
+::-webkit-scrollbar-thumb {
+  background:rgba(255,255,255,.2); border-radius:6px;
+  border:3px solid transparent; background-clip:content-box;
+}
+::-webkit-scrollbar-thumb:hover { background-color:rgba(255,255,255,.32);
+  background-clip:content-box; }
+::-webkit-scrollbar-corner { background:transparent; }
+* { scrollbar-color: rgba(255,255,255,.22) rgba(0,0,0,.25); scrollbar-width: thin; }
 
 .menu { display:none; }
 

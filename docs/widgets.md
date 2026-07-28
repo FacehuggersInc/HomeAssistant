@@ -4,6 +4,10 @@ Widgets are **registered**, not handed over as live instances - the same shape
 `sub.tiles` uses for tiles. The saved layout decides what sits on the page and
 what waits in the widgets panel.
 
+> **Provided by a plugin.** Everything on this page comes from
+> `corewidgetsbundle`. Disable or remove it and these features go with it — the client
+> itself has no widget framework. That is deliberate: see
+> [Bundled plugins](bundled-plugins.md).
 ```python
 register = sub_home.features().register_widget
 
@@ -330,7 +334,7 @@ panel without ever being placed.
 | `ICON` | An `mdi.` name for the panel entry. |
 | `DESCRIPTION` | One line, shown in the panel. |
 | `RESIZABLE` | Whether the resize handles appear. |
-| `ROTATABLE` | Requires the widget to paint itself — see Rotation above. |
+| `ROTATABLE` | Requires the widget to paint itself — see [Rotation](#rotation). |
 | `FLOATABLE` | Whether it can be dropped anywhere rather than snapped to an anchor. |
 | `REMOVABLE` | Whether a delete handle is offered. |
 | `MULTIPLE` | Template: stays in the panel, and Add makes another copy. |

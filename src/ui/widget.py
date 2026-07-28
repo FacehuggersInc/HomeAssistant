@@ -594,6 +594,17 @@ class WidgetFramework(QWidget):
         widget = self.registry.get(key)
         if widget is None:
             return
+
+        # Somewhere to unsubscribe. A widget that listens to an event outlives
+        # its own removal otherwise, and the next fire calls into a deleted
+        # object.
+        teardown = getattr(widget, "teardown", None)
+        if callable(teardown):
+            try:
+                teardown()
+            except Exception as e:
+                self.client.log("warning", f"[Widgets] {key} teardown failed: {e}")
+
         widget.stop_tick()
         self._detach(widget)
         self.registry.pop(key, None)

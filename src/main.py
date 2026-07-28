@@ -34,6 +34,7 @@ from src.registries.public_registry import PublicRegistry
 from src.registries.page_registry import PageRegistry
 from src.registries.secret_registry import SecretRegistry
 from src.registries.quick_access_registry import QuickAccessRegistry
+from src.registries.user_registry import UserRegistry
 from src.backend import FlaskApp, FlaskService
 from src.assistant.skill import Skill, SkillIntentEngine
 from src.assistant.stt import STTProcessing
@@ -145,6 +146,21 @@ class Client:
 
         ## -- QT
 
+        # Before the QApplication, and it has to be. QtWebEngine refuses to
+        # start without a shared OpenGL context, and the attribute is ignored
+        # once the application object exists - which is why an installed
+        # PyQt6-WebEngine still fell back to a rendered image.
+        if QApplication.instance() is None:
+            try:
+                QApplication.setAttribute(
+                    Qt.ApplicationAttribute.AA_ShareOpenGLContexts, True)
+                # Imported here too: some builds require the module to be
+                # loaded before the application is created, not merely before
+                # a view is constructed.
+                import PyQt6.QtWebEngineCore  # noqa: F401
+            except Exception:
+                pass
+
         self.app    = QApplication.instance() or QApplication(sys.argv)
         self.window = AppWindow(self)
         self.bridge = UIBridge()
@@ -232,6 +248,10 @@ class Client:
 
         ## -- CLIENT ID
 
+        # No longer an API credential - devices authenticate with their own
+        # tokens. Kept as a stable per-install identifier: the calendar's
+        # place cache derives its encryption key from it, and anything else
+        # wanting "this machine, consistently" can use it.
         self.CLIENT_ID = self.load_or_create_client_id()
 
         ## -- SETTINGS
@@ -285,12 +305,18 @@ class Client:
         self.PAGE           = None
         self.PAGES          = PageRegistry(self)
         self.QUICK          = QuickAccessRegistry(self)
+        self.USERS          = UserRegistry(
+            self, get_data_dir(APP_NAME) / "users.json")
         self.DEFAULT_PAGE   = ""
 
         from src.pages.settings import SettingsPage
         from src.pages.root import RootPage
+        from src.pages.webpage import WebPage
         self.add_page("#settings", "Settings Page", SettingsPage)
         self.add_page("#root",     "Root Page",     RootPage)
+        # Registered by the client, so anything can send somebody to a web
+        # page without carrying a browser of its own.
+        self.add_page("#webpage",  "Web",           WebPage)
 
         self.PLUGIN = PluginManager(self, self.plugin_dirs)
         self.PLUGIN.load_plugins()
@@ -364,6 +390,16 @@ class Client:
     def _check_interaction_timeout(self) -> None:
         if self._interaction_idle:
             return
+
+        # A page can refuse the idle clock outright. A web page is read at a
+        # person's own pace and produces no interaction while it is - so
+        # timing out behind one is measuring the wrong thing.
+        try:
+            if getattr(self.PAGE, "blocks_idle", False):
+                self._last_interaction_time = time.time()
+                return
+        except Exception:
+            pass
 
         # A dialog is a question waiting for an answer. Going idle behind one
         # lets an idle plugin cover it, or dismiss the page underneath it,
@@ -611,6 +647,7 @@ class Client:
 
         self.build_quick_settings()
         self.build_update_checker()
+        self.build_user_approvals()
 
         self.window.show()
         self.BUILT = True
@@ -628,6 +665,51 @@ class Client:
         QTimer.singleShot(1200, self.prompt_for_plugin_dependencies)
         QTimer.singleShot(1600, self.start_assistant)
         self.subscribe_to_event("on_settings_saved", self.on_assistant_settings_saved)
+
+    ##USERS
+
+    def build_user_approvals(self) -> None:
+        """
+        Ask about waiting devices, one at a time.
+
+        Polled off the tick rather than pushed from the request, because the
+        request arrives on a Flask worker thread and a dialog cannot be built
+        there. One at a time because two devices asking together would stack
+        two dialogs and the second would be answered blind.
+        """
+        self._approval_open = False
+        self.subscribe_to_event("on_update", self._check_user_approvals)
+
+    def _check_user_approvals(self, event=None) -> None:
+        if self._approval_open:
+            return
+        waiting = self.USERS.waiting()
+        if not waiting:
+            return
+
+        request = waiting[0]
+        self._approval_open = True
+
+        def approve():
+            self.USERS.approve(request.token)
+            self._approval_open = False
+            self.simple_notify("check", "Users", f"'{request.name}' can now connect.")
+
+        def deny():
+            self.USERS.deny(request.token)
+            self._approval_open = False
+
+        self.confirm(
+            "Allow this device?",
+            f"{request.name}\n{request.address or 'unknown address'}",
+            on_confirm   = approve,
+            on_cancel    = deny,
+            confirm_text = "Allow",
+            cancel_text  = "Deny",
+            detail       = ("It will be able to read and change anything the API "
+                            "exposes, including settings and the calendar. You can "
+                            "revoke it later under Settings, Users."),
+        )
 
     ##QUICK SETTINGS
 

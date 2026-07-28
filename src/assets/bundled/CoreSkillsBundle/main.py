@@ -415,11 +415,15 @@ class CoreSkills(Plugin):
             "Whoops, all empty. Please add more events for me to remind you with.",
         ]
 
-        if not self.client.public.has("calendar"):
+        # Checked for the method, not just the name. The Calendar plugin
+        # publishes a different shape to the one this skill was written
+        # against, and "has a calendar" is not the same as "has this calendar".
+        calendar = self.client.public.calendar if self.client.public.has("calendar") else None
+        if calendar is None or not hasattr(calendar, "get_today"):
             self._respond("The Calendar Registry does not seem to be set up.")
             return
 
-        today = self.client.public.calendar.get_today()
+        today = calendar.get_today()
         event = today.next_event()
         if not event:
             self._respond(random.choice(empty))

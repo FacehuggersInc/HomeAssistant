@@ -15,6 +15,25 @@ from src.ui.controls.buttons import IconButton
 from src.ui.icons import Icons
 from src.system import volume as system_volume
 
+
+def _local_ip() -> str:
+    """
+    The address another machine on the network can reach this one on.
+
+    A UDP connect to a public address with nothing sent - it only needs the
+    routing table to pick an interface, so it works with no network traffic
+    and no internet.
+    """
+    import socket
+    try:
+        probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        probe.connect(("8.8.8.8", 80))
+        address = probe.getsockname()[0]
+        probe.close()
+        return address
+    except Exception:
+        return "localhost"
+
 if TYPE_CHECKING:
     from src.main import Client
 
@@ -226,11 +245,13 @@ class QuickSettings(Panel):
         self._btn_wallpaper = IconButton(Icons.IMAGE, self._cycle_wallpaper, size=24)
         self._btn_pin       = IconButton(Icons.PIN, self._pin_wallpaper, size=24)
         self._btn_full      = IconButton(Icons.FULLSCREEN, self._toggle_fullscreen, size=24)
+        self._btn_docs      = IconButton("mdi.book-open-variant", self._open_docs, size=24)
         self._btn_settings  = IconButton(Icons.SETTINGS, self._open_settings, size=24)
         self._btn_quit      = IconButton(Icons.CLOSE, self._quit, size=24)
 
         for button in (self._btn_update, self._btn_wallpaper, self._btn_pin,
-                       self._btn_full, self._btn_settings, self._btn_quit):
+                       self._btn_full, self._btn_docs, self._btn_settings,
+                       self._btn_quit):
             header.addWidget(button)
 
         self._layout.addLayout(header)
@@ -390,6 +411,46 @@ class QuickSettings(Panel):
         self.client.toggle_fullscreen()
         self._refresh_header()
         self._restart_timeout()
+
+    def _open_docs(self) -> None:
+        """
+        Ask where. Both answers are reasonable and neither is always right.
+
+        On the panel itself the built-in page is what you want; on a desktop
+        run, the real browser is better and the address is worth having.
+        """
+        url = f"http://{_local_ip()}:5000/docs"
+        self._restart_timeout()
+
+        def here():
+            self.close_panel()
+            # Locked to the docs. The panel is a shared screen in a hallway,
+            # and "open the documentation" should not also be a way to browse
+            # anywhere from it.
+            self.client.goto("#webpage", data={
+                "url": url, "home": url,
+                "lock_base": f"http://{_local_ip()}:5000/docs",
+                "lock_address": True,
+            })
+
+        def elsewhere():
+            try:
+                from PyQt6.QtGui import QDesktopServices
+                from PyQt6.QtCore import QUrl
+                QDesktopServices.openUrl(QUrl(url))
+            except Exception:
+                pass
+            self.client.simple_notify("mdi.book-open-variant", "Documentation", url)
+
+        self.client.confirm(
+            "Documentation",
+            "Open the docs here on the panel, or in a browser?",
+            on_confirm   = here,
+            on_cancel    = elsewhere,
+            confirm_text = "Open here",
+            cancel_text  = "In a browser",
+            detail       = url,
+        )
 
     def _open_settings(self) -> None:
         self.close_panel()

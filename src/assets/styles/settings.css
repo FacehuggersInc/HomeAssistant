@@ -298,6 +298,14 @@
     background: rgba(255,255,255,16);
     border: 1px solid rgba(255,255,255,45);
     border-radius: 8px;
+    /* Without an explicit colour a QLineEdit falls back to the palette default,
+       which is black - unreadable on every surface this class is used on. */
+    color: #f2f2f2;
+    padding: 4px 10px;
+}
+
+.body-field:focus {
+    border: 1px solid rgba(47,240,142,140);
 }
 
 .body-input {
