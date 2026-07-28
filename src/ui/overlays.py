@@ -534,6 +534,20 @@ class DialogManager:
     def close(self, event=None) -> None:
         if not self.dialog_stack:
             return
+
+        # Asked here rather than in the dialog's own close(), because this is
+        # the one path everything funnels through - the Done button, the click
+        # blocker behind the dialog, and any plugin calling client.dialog
+        # close. A guard on the widget only covers the first of those.
+        top = self.dialog_stack[-1]
+        veto = getattr(top, "can_close", None)
+        if callable(veto):
+            try:
+                if not veto():
+                    return
+            except Exception:
+                pass
+
         top = self.dialog_stack.pop()
         top.hide()
         self.client.OVERLAYS.remove("DIALOG", top)

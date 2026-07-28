@@ -366,10 +366,13 @@ class MinimapDialog(BaseDialog):
         if self._check_origin():
             self.close()
 
-    def close(self) -> None:
-        # Overridden here rather than in closeEvent: the dialog manager hides
-        # and unparents a dialog, it never calls close() on the widget, so a
-        # closeEvent guard would never run at all.
-        if not self._check_origin():
-            return
-        super().close()
+    def can_close(self) -> bool:
+        """
+        Asked by the dialog manager before it closes anything.
+
+        The origin is where the app starts, so leaving it empty makes the
+        layout unreachable on the next launch. This covers the click blocker
+        as well as the Done button - a tap outside the dialog goes through the
+        manager too, and would otherwise close it regardless.
+        """
+        return self._check_origin()

@@ -114,6 +114,28 @@ parent into the overlay layer wants one or the other.
 
 ---
 
+## Refusing to close
+
+A dialog can veto its own dismissal by defining `can_close()`:
+
+```python
+class MyDialog(BaseDialog):
+    def can_close(self) -> bool:
+        return self.form_is_valid()
+```
+
+`DialogManager.close()` asks before closing anything. That is deliberately the
+check's home rather than the widget's own `close()`: the manager is the single
+path every dismissal funnels through — the buttons, the click blocker behind
+the dialog, and any plugin closing it directly. A guard on the widget only
+covers the first of those, and a tap outside would sail past it.
+
+Returning `False` should be accompanied by something on screen saying why. The
+minimap disables its Done button and shows a line of text while its origin slot
+is empty, so a refused tap is explained rather than simply ignored.
+
+---
+
 ## Frosting
 
 Dialogs and panels share the same treatment: a blurred snapshot of the page
