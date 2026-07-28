@@ -17,8 +17,8 @@ if TYPE_CHECKING:
 # Sized for fingers, not a mouse. 64px is roughly a fingertip at arm's length
 # on a wall panel; the old 52px grid was usable with a cursor and fiddly
 # without one.
-KEY_W = 64
-KEY_H = 58
+KEY_W = 72
+KEY_H = 68
 GAP = 6
 
 # Rows are offset like a real keyboard, in fractions of a key width. Without
@@ -58,6 +58,15 @@ WIDE = {"space": 5.0, "shift": 1.6, "backspace": 1.6,
 
 
 class _Key(QPushButton):
+    # Keys that repeat while held. Deleting a long value one tap at a time is
+    # the single most tedious thing this keyboard asks of anyone.
+    REPEATING = ("backspace", "space")
+
+    HOLD_DELAY   = 450     # before the first repeat, so a tap is never two
+    FIRST_REPEAT = 220     # deliberately slow to start
+    MIN_REPEAT   = 45      # about 22 a second, which is as fast as is readable
+    ACCEL        = 0.84    # each repeat is a little quicker than the last
+
     def __init__(self, action: str, label: str = None, units: float = 1.0,
                  width: int = KEY_W, height: int = KEY_H):
         super().__init__(label if label is not None else GLYPHS.get(action, action))
@@ -67,6 +76,53 @@ class _Key(QPushButton):
         self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.setFixedSize(int(width * units + GAP * (units - 1)), height)
         set_style(self, "keyboard", self._style_for(action))
+
+        # Set by _make_key. A repeat calls this rather than the button's own
+        # click(), for the reason in _fire_repeat.
+        self.on_repeat = None
+
+        self._repeat = None
+        if action in self.REPEATING:
+            # Single-shot and restarted each time, because the interval has to
+            # change between firings - a repeating timer keeps its first one.
+            self._repeat = QTimer(self)
+            self._repeat.setSingleShot(True)
+            self._repeat.timeout.connect(self._fire_repeat)
+            self._interval = self.FIRST_REPEAT
+            self.pressed.connect(self._start_repeat)
+            self.released.connect(self._stop_repeat)
+
+    ## -- hold to repeat
+
+    def _start_repeat(self) -> None:
+        self._interval = self.FIRST_REPEAT
+        self._repeat.start(self.HOLD_DELAY)
+
+    def _fire_repeat(self) -> None:
+        # NOT click(). QAbstractButton::click() sets the button back up, so the
+        # real release afterwards emits no released() at all - the timer then
+        # never stopped, and backspace kept firing forever. Every character
+        # typed was deleted within 45ms of arriving, which reads as the
+        # keyboard being dead rather than as a stuck key.
+        if not self.isDown():
+            self._repeat.stop()
+            return
+
+        if callable(self.on_repeat):
+            self.on_repeat()
+
+        self._interval = max(self.MIN_REPEAT, int(self._interval * self.ACCEL))
+        self._repeat.start(self._interval)
+
+    def _stop_repeat(self) -> None:
+        if self._repeat is not None:
+            self._repeat.stop()
+
+    def hideEvent(self, event) -> None:  # type: ignore[override]
+        # The grid is rebuilt on every shift and layer change, so a held key
+        # can be taken out from under its own timer.
+        self._stop_repeat()
+        super().hideEvent(event)
 
     @staticmethod
     def _style_for(action: str) -> str:
@@ -125,10 +181,11 @@ class KeyboardDialog(BaseDialog):
     WIDTH = KEY_W * 10 + GAP * 9 + 56
     MAX_HEIGHT = 900
     MIN_KEY_H = 44
+    MIN_KEY_W = 48         # only reached on a panel too narrow for the preferred size
     SIDE_MARGIN = 32       # breathing room either side of the dialog
     CHROME_W = 56          # dialog padding around the key grid
     MIN_PREVIEW_H = 60     # two or three lines; below this it is pointless
-    MAX_KEY_W = 112        # beyond this keys stop being easier to hit
+    MAX_KEY_W = 124        # beyond this keys stop being easier to hit
 
     def __init__(self, client: "Client", target, mode: str = "text",
                  label: str = "", description: str = ""):
@@ -155,7 +212,14 @@ class KeyboardDialog(BaseDialog):
 
         width = int(key_w * span + GAP * 9 + self.CHROME_W)
         if host_width:
-            width = min(width, host_width - self.SIDE_MARGIN)
+            capped = host_width - self.SIDE_MARGIN
+            if width > capped:
+                # Clamping the dialog without also shrinking the keys leaves a
+                # grid wider than the dialog holding it, and the layout squeezes
+                # the rows into each other. The keys give first.
+                width = capped
+                key_w = max(self.MIN_KEY_W,
+                            int((width - self.CHROME_W - GAP * 9) / span))
 
         super().__init__(client, label or "Edit value", description or "",
                          width=width)
@@ -382,6 +446,7 @@ class KeyboardDialog(BaseDialog):
         if action == "shift" and self._caps:
             set_style(key, "keyboard", "key-modifier-active")
         key.clicked.connect(lambda _=False, a=action: self._press(a))
+        key.on_repeat = lambda a=action: self._press(a)
         return key
 
     @staticmethod
