@@ -110,6 +110,42 @@ class OpenMeteoAPI:
             self.client.log("error", f"[OpenMeteoAPI] get_current_weather failed: {e}")
             return None
 
+    def get_hourly_forecast(self, hours: int = 6) -> list | None:
+        """
+        [(datetime, temperature), ...] for the next `hours` hours.
+
+        get_current_forecast() is a *daily* summary despite reading the hourly
+        endpoint - it keeps one entry per day at 1pm. This returns the hours
+        themselves, which is what an at-a-glance tile wants.
+        """
+        self._sync_params()
+        try:
+            responses = self.openmeteo.weather_api(self.BASE, params=self.PARAMS["hourly"])
+            if not responses or not responses[0].Hourly():
+                return None
+
+            hourly = responses[0].Hourly()
+            stamps = pd.date_range(
+                start     = pd.to_datetime(hourly.Time(), unit="s", utc=True),
+                end       = pd.to_datetime(hourly.TimeEnd(), unit="s", utc=True),
+                freq      = pd.Timedelta(seconds=hourly.Interval()),
+                inclusive = "left",
+            ).tz_convert(self.plugin.settings.weather.timezone.value)
+            temps = hourly.Variables(0).ValuesAsNumpy()
+
+            now = pd.Timestamp.now(tz=self.plugin.settings.weather.timezone.value)
+            out = []
+            for stamp, temp in zip(stamps, temps):
+                if stamp < now:
+                    continue
+                out.append((stamp.to_pydatetime(), float(temp)))
+                if len(out) >= hours:
+                    break
+            return out
+        except Exception as e:
+            self.client.log("error", f"[OpenMeteoAPI] get_hourly_forecast failed: {e}")
+            return None
+
     def get_current_forecast(self) -> dict | None:
         self._sync_params()
         try:

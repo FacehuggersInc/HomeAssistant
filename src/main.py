@@ -365,6 +365,17 @@ class Client:
         if self._interaction_idle:
             return
 
+        # A dialog is a question waiting for an answer. Going idle behind one
+        # lets an idle plugin cover it, or dismiss the page underneath it,
+        # while the user is still reading - so the clock does not run at all
+        # while one is open, and the timer restarts when it closes.
+        try:
+            if self.DIALOG.get() is not None:
+                self._last_interaction_time = time.time()
+                return
+        except Exception:
+            pass
+
         timeout_ms = self.SETTINGS.get("application.interaction_timeout.value", 5000)
 
         timeout_ms = max(timeout_ms, self.MIN_INTERACTION_TIMEOUT_MS)

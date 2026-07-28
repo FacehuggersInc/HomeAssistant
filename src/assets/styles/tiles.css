@@ -1,0 +1,10 @@
+/* Tile panel and grid */
+
+/* An alternative size offered in the tile panel. Not the live tile - that can
+   only be in one place - so it reads as an outline rather than a preview. */
+.tile-panel-ghost {
+    background: rgba(255,255,255,8);
+    border: 2px dashed rgba(255,255,255,45);
+    border-radius: 10px;
+    color: rgba(255,255,255,120);
+}

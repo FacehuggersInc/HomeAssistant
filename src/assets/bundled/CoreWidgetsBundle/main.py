@@ -9,6 +9,7 @@ from .widgets.weather import WeatherWidget
 from .widgets.configuration_bar import ConfigurationBar
 from .widgets.sticky_note import StickyNote
 from .widgets.tiles.clock_tile import ClockTile
+from .widgets.tiles.weather_tile import WeatherTile
 from .pages.home import HomePage
 from .api.openmeteo import OpenMeteoAPI
 
@@ -114,6 +115,7 @@ class CoreWidgetsBundle(Plugin):
         self.pages["sub.tiles"] = sub_tiles
 
         sub_tiles.features().register_tile(ClockTile, in_grid=False)
+        sub_tiles.features().register_tile(WeatherTile, in_grid=False)
 
 
     @mixin("sub.home.__init__", "corewidgetsbundle", "after")

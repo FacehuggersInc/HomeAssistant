@@ -258,7 +258,8 @@ stops the background being cleared between paints, so repeated resizing leaves
 the previous frames behind.
 
 For the grid-based equivalent that lives on `sub.tiles`, see
-[Tiles](tiles.md).
+[Tiles](tiles.md) - tiles have the same delete and resize handles, plus size
+variants that swap layout as the tile grows.
 
 ## Writing a widget
 

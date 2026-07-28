@@ -11,6 +11,8 @@ being clear about:
 | Size | Free, optionally resizable | Whole cells (`grid_w` x `grid_h`) |
 | Off-screen storage | Widgets panel | Tile panel |
 | Saved as | `widget_layout.json` | Tile positions per grid |
+| Resize | Corner handle, free pixels | Corner handle, whole cells |
+| Remove | Delete handle, back to the panel | Delete handle, back to the panel |
 
 Widgets are for a home screen that looks arranged. Tiles are for a dashboard
 that looks tidy. Both are registered rather than constructed-and-placed, and
@@ -30,8 +32,7 @@ nearest cell, and saves positions per tile key.
 painting; you fill in the content and `tick()`.
 
 **`TilePanel`** — the drawer of tiles not currently on the grid. Dragging one
-out of the panel and onto the grid places it; dragging one to the trash returns
-it to the panel.
+out of the panel and onto the grid places it; the delete handle returns it.
 
 `sub.tiles` builds all three and exposes them as features. You never construct
 them.
@@ -93,6 +94,10 @@ class WeatherTile(Tile):
             self.temp.setText("--")
 ```
 
+The bundled `WeatherTile` is the same idea with size variants added — worth
+reading in full at
+`src/assets/bundled/CoreWidgetsBundle/widgets/tiles/weather_tile.py`.
+
 ### Class attributes
 
 | Attribute | Meaning |
@@ -105,12 +110,139 @@ class WeatherTile(Tile):
 
 | Argument | Default | Meaning |
 |---|---|---|
-| `grid_w`, `grid_h` | `2`, `2` | Size in cells. |
+| `grid_w`, `grid_h` | `2`, `2` | Starting size in cells. |
 | `bg_color` | `"#2a2a2a"` | The card fill. |
 | `on_click` | `None` | Called on a tap that was not a drag. |
 
-Tiles do not resize freely — `grid_w` and `grid_h` are the size, and the grid
-decides how many pixels that is. Design for the ratio, not for a pixel count.
+And on the class, alongside `KEY`/`NAME`/`ICON`:
+
+| Attribute | Default | Meaning |
+|---|---|---|
+| `RESIZABLE` | `True` | Offers a resize handle. |
+| `REMOVABLE` | `True` | Offers a delete handle. |
+| `MIN_GRID_W`, `MIN_GRID_H` | `1`, `1` | Smallest span it can be dragged to. |
+| `MAX_GRID_W`, `MAX_GRID_H` | `8`, `8` | Largest. |
+| `MULTIPLE` | `False` | `True` makes it a template: it stays in the panel and each drag-out places another copy. |
+
+A `MULTIPLE` tile behaves like a `MULTIPLE` widget. Copies get their own
+generated keys, so each one saves and restores its position independently, and
+`template_key` on a copy points back at the tile it came from.
+
+Tiles resize in whole cells — the grid decides how many pixels a cell is.
+Design for the ratio, not a pixel count.
+
+---
+
+## Selecting, resizing and removing
+
+**Hold** a tile to select it: it gets a dashed border and two handles, a red
+delete in the top-left and a resize in the bottom-right. The border appears
+under your finger and stays there when you let go.
+
+To clear it, tap the tile again or tap anywhere on the grid background.
+Selecting one tile deselects any other, so only one is ever live.
+
+Dragging the resize handle changes the span in whole cells, clamped to the
+tile's `MIN`/`MAX` and to the space left on the grid. Growing into another tile
+is refused outright rather than clamped to the largest free size — a resize
+that stops dead at the neighbour is easier to read than one that quietly picks
+its own limit.
+
+**Tiles cannot overlap.** A drop onto occupied cells sends the tile back to
+where the drag started, rather than sliding it to the nearest free block —
+on a grid this size that would usually be somewhere across the screen from
+where you pointed. A tile arriving from the panel has no previous position, so
+it takes the first free block instead. **Variants swap live
+during the drag**, so the size being chosen is the size being previewed, and
+the drag continues across as many thresholds as you pass.
+
+That last part is why `tick()` must never block. It is called on every variant
+swap, so a synchronous network request in one freezes the resize until it
+returns. Fetch on a thread and paint from cache — the bundled `WeatherTile`
+does exactly that.
+
+Delete is not a delete. The instance goes back to the tile panel with its
+state and saved size intact, so putting it back restores it — which is why it
+is one tap with nothing in the way.
+
+---
+
+## Size variants
+
+A tile can show a different layout depending on how big it is. Register the
+variants in `build_variants()`:
+
+```python
+def build_variants(self) -> None:
+    self.add_variant(1, 1, self._build_glance)   # at least 1x1
+    self.add_variant(2, 3, self._build_hourly)   # at least 2 wide, 3 tall
+    self.add_variant(3, 3, self._build_full)     # at least 3x3
+```
+
+Each builder returns a `QWidget`, which the tile puts in its `content_layout`,
+replacing whatever was there.
+
+### Thresholds, not exact sizes
+
+`add_variant(min_w, min_h, builder)` is a **floor**, not a match. A tile does
+not need an entry for every span it could be dragged to — with the three above,
+1x1, 2x1, 3x1 and 2x2 all get the glance layout, and 3x3, 4x3 and 6x6 all get
+the full one.
+
+The most demanding entry the tile satisfies wins, scored on area first and
+then the larger dimension. At 2x6 that gives the hourly layout (3x3 does not
+fit, 2x3 does); at 3x2 it gives the glance one, because a tile that is wide
+but short has nowhere to put an hourly strip.
+
+A tile with no variants keeps whatever its constructor put in
+`content_layout` and never swaps — that is the simple case, and most tiles
+want it.
+
+### When builders run
+
+`apply_span()` is called on construction and again whenever the span changes
+during a resize drag. It rebuilds **only when the variant changes**, not on
+every frame, so crossing a threshold costs one rebuild and staying inside one
+costs nothing.
+
+`tick_once()` is called immediately after a swap. A freshly built variant has
+nothing in it, and `tick_once()` is what fills it — do not populate content in
+the builder itself beyond structure.
+
+`variant_key()` returns the active threshold, if you need to branch in `tick()`.
+
+---
+
+## Sizes in the tile panel
+
+A tile with variants is offered at each of them, as separate entries — so
+dragging out the 3×3 entry places it at 3×3 rather than at a default size you
+then have to resize.
+
+```python
+PANEL_SIZES = [(1, 1), (3, 3)]     # advertise only these two
+```
+
+Empty (the default) derives the list from the registered variants. Set it when
+a tile has many variants and only a couple are worth offering up front.
+
+Each entry shows a real render of the tile at that size. A tile is a singleton
+by `KEY`, so the panel borrows the instance, renders it at each advertised
+span, grabs the result and puts it back exactly as it was — the entries are the
+same tile at different starting sizes, not separate tiles. Placing any one of
+them removes all of them.
+
+Renders are at **full size** — the pixel size the tile will actually occupy on
+the grid, taken from the grid's own cell metrics. The panel is a third wider
+than the other panels to make room for that; a span too wide even for it is
+scaled down, which after the width increase is rare. The list scrolls
+vertically.
+
+Renders are re-grabbed whenever the panel ticks, so a clock preview is not
+frozen at whatever time the panel was first opened, and the first render after
+the grid has a real cell size replaces the placeholder-sized one from load.
+
+---
 
 ### `tick()` versus `tick_once()`
 

@@ -32,7 +32,10 @@ comes with the app:
 * **ConfigurationBar** - quick access to a few settings from the page itself.
 * **StickyNote** - a `MULTIPLE` template, so the widgets panel can add as many
   copies as you like, each with its own key and saved text.
-* **ClockTile** - a tile for the tile grid.
+* **ClockTile**, **WeatherTile** - tiles for the tile grid, and the worked
+  examples of size variants. The weather tile is a glanceable icon over a
+  day/night sky gradient at one cell, gains an hourly strip at 2x3, and
+  becomes a full readout at 3x3 and above.
 * **OpenMeteoAPI** - registered on `client.API["weather"]`, and used by the
   weather widget and the weather voice skill.
 

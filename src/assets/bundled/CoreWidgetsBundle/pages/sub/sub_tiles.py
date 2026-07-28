@@ -164,6 +164,7 @@ class SubTilesPage(SubPageFramework):
 
         self.add_features({
             "register_tile":          self.register_tile,
+            "return_tile_to_panel":   self.return_tile_to_panel,
             "add_tile":               self.tile_grid.add_tile,
             "remove_tile":            self.tile_grid.remove_tile,
             "get_tile":               self.tile_grid.get_tile,
@@ -173,6 +174,15 @@ class SubTilesPage(SubPageFramework):
         self.tick_timer = QTimer(self)
         self.tick_timer.timeout.connect(self.tick)
         self.tick_timer.start(1000)   #once per second, same cadence as DateTimeWidget etc.
+
+    def return_tile_to_panel(self, tile: Tile) -> None:
+        """Called by the grid when a tile's delete handle is pressed."""
+        self.tile_panel.add_tile(tile)
+        try:
+            self.client.simple_notify("view_module", "Tiles",
+                                      f"'{tile.NAME or tile.KEY}' moved to the tile panel.")
+        except Exception:
+            pass
 
     def register_tile(self, tile_class: type[Tile], *args,
                       in_grid: bool = False, col: int = 0, row: int = 0,

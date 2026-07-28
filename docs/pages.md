@@ -202,6 +202,24 @@ keep a dict of sub-pages by key, give each a `coord`, position them at
 The features to expose are `add_sub_page` and `remove_sub_page`, named exactly
 that, so a plugin written against `HomePage` works against yours unchanged.
 
+### The page map
+
+Holding on empty space on `HomePage` opens a map of its sub-pages. Tapping one
+jumps straight to it rather than swiping there a page at a time.
+
+Dragging a page onto another swaps them; dragging onto an empty slot moves it.
+Empty slots are only offered next to a page that exists, so the map cannot grow
+into coordinates nothing could reach by swiping.
+
+The arrangement is saved to `sub_page_layout.json` in the user data directory
+and applied in `start()` — after every plugin has registered its sub-pages,
+since a saved coordinate for a page that has not been added yet would be lost.
+
+**(0,0) must always hold a page.** It is where the app starts, so a layout with
+an empty origin cannot be navigated to. The dialog will not close while the
+origin is empty, and a saved layout that has one is discarded rather than
+half-applied.
+
 ### Features from a sub-page
 
 A sub-page's own features are re-exposed on the parent under the sub-page's

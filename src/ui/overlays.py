@@ -10,7 +10,9 @@ from PyQt6.QtCore import (
     Qt, QEvent, QTimer, QPropertyAnimation, QEasingCurve,
     QPoint, QRect, QRectF, pyqtSignal,
 )
-from PyQt6.QtGui import QColor, QPainter, QBrush, QPen, QRegion, QPixmap
+from PyQt6.QtGui import (
+    QColor, QPainter, QBrush, QPen, QRegion, QPixmap, QPainterPath,
+)
 
 from src.styling import set_style, make_font, SIZES
 
@@ -549,7 +551,14 @@ class DialogManager:
 class BaseDialog(QFrame):
 
     WIDTH = 620
-    MAX_HEIGHT = 640
+    MAX_HEIGHT = 720
+    BLUR_RADIUS = 28
+    # Past this, body and detail text scrolls instead of growing. A dialog is
+    # capped by MAX_HEIGHT, so without this a long body is simply clipped -
+    # a commit message with a paragraph after its summary loses the paragraph.
+    SCROLL_BODY_AT = 320
+    BODY_MAX_HEIGHT = 260
+    DETAIL_MAX_HEIGHT = 220
 
     def __init__(self, client: "Client", title: str = "", body: str = "",
                  width: int = None, detail: str = None):
@@ -561,6 +570,10 @@ class BaseDialog(QFrame):
         self.setMaximumHeight(self.MAX_HEIGHT)
         set_style(self, "overlays", "dialog-card")
 
+        self._backdrop: Optional[QPixmap] = None
+        self._backdrop_offset = QPoint(0, 0)
+        self.blur_radius = self.BLUR_RADIUS
+
         outer = QVBoxLayout(self)
         outer.setContentsMargins(24, 22, 24, 20)
         outer.setSpacing(12)
@@ -568,14 +581,22 @@ class BaseDialog(QFrame):
         if title:
             outer.addWidget(self.make_title(title))
         if body:
-            outer.addWidget(self.make_body(body, muted=True))
+            label = self.make_body(body, muted=True)
+            outer.addWidget(
+                self._scrollable(label, self.BODY_MAX_HEIGHT)
+                if len(body) > self.SCROLL_BODY_AT else label
+            )
 
         self.content = QVBoxLayout()
         self.content.setSpacing(10)
         outer.addLayout(self.content)
 
         if detail:
-            outer.addWidget(self.make_detail(detail))
+            block = self.make_detail(detail)
+            outer.addWidget(
+                self._scrollable(block, self.DETAIL_MAX_HEIGHT)
+                if len(detail) > self.SCROLL_BODY_AT else block
+            )
 
         outer.addStretch()
 
@@ -586,6 +607,88 @@ class BaseDialog(QFrame):
 
         self._outer = outer
 
+    ## -- frosted backdrop
+    #
+    # The same blurred snapshot the panels use. A dialog sits over the page
+    # rather than beside it, so without this it is the one surface in the app
+    # that reads as opaque card stock on glass.
+
+    def refresh_backdrop(self) -> None:
+        page = getattr(self.client, "PAGE", None)
+        if page is None or self.width() <= 0 or self.height() <= 0:
+            self._backdrop = None
+            return
+
+        # Via global coordinates. mapTo() only works when the target is an
+        # ancestor, and it is not - a dialog hangs off OVERLAYS while the page
+        # hangs off page_host, so mapTo(page, ...) returned a position in the
+        # wrong space and the snapshot came from beside the dialog rather than
+        # behind it.
+        try:
+            top_left = page.mapFromGlobal(self.mapToGlobal(QPoint(0, 0)))
+        except Exception:
+            self._backdrop = None
+            return
+
+        wanted = QRect(top_left, self.size())
+        rect   = wanted.intersected(page.rect())
+        if rect.isEmpty():
+            self._backdrop = None
+            return
+
+        # Where the captured region sits inside the dialog. A dialog hanging
+        # off the edge of the page grabs less than its full size, and drawing
+        # that at 0,0 is what leaves an unfrosted strip down one side.
+        self._backdrop_offset = QPoint(rect.x() - top_left.x(),
+                                       rect.y() - top_left.y())
+
+        snapshot = page.grab(rect)
+        if snapshot.isNull():
+            self._backdrop = None
+            return
+
+        scene = QGraphicsScene()
+        item  = QGraphicsPixmapItem(snapshot)
+        blur  = QGraphicsBlurEffect()
+        blur.setBlurRadius(self.blur_radius)
+        item.setGraphicsEffect(blur)
+        scene.addItem(item)
+
+        blurred = QPixmap(snapshot.size())
+        blurred.fill(Qt.GlobalColor.transparent)
+        painter = QPainter(blurred)
+        scene.render(painter, QRectF(blurred.rect()), QRectF(snapshot.rect()))
+        painter.end()
+
+        self._backdrop = blurred
+        self.update()
+
+    def paintEvent(self, event) -> None:  # type: ignore[override]
+        if self._backdrop is not None and not self._backdrop.isNull():
+            painter = QPainter(self)
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+            path = QPainterPath()
+            path.addRoundedRect(QRectF(self.rect()), 16.0, 16.0)
+            painter.setClipPath(path)
+            # Filled first, so any part of the dialog that fell outside the
+            # page is the wash colour rather than bare card.
+            painter.fillRect(self.rect(), QColor(18, 18, 20, 235))
+            painter.drawPixmap(self._backdrop_offset, self._backdrop)
+            # A wash over the blur, or text on a bright wallpaper is unreadable.
+            painter.fillRect(self.rect(), QColor(18, 18, 20, 205))
+            painter.end()
+        super().paintEvent(event)
+
+    def showEvent(self, event) -> None:  # type: ignore[override]
+        super().showEvent(event)
+        # Queued: the dialog has no final position until the overlay has
+        # centred it, and grabbing before that snapshots the wrong region.
+        QTimer.singleShot(0, self.refresh_backdrop)
+
+    def resizeEvent(self, event) -> None:  # type: ignore[override]
+        super().resizeEvent(event)
+        QTimer.singleShot(0, self.refresh_backdrop)
+
     ## -- content helpers
 
     @staticmethod
@@ -595,6 +698,18 @@ class BaseDialog(QFrame):
         set_style(lbl, "common", "text-strong")
         lbl.setWordWrap(True)
         return lbl
+
+    @classmethod
+    def _scrollable(cls, widget, max_height: int):
+        """Wrap a widget so it scrolls past max_height rather than clipping."""
+        area = QScrollArea()
+        area.setWidgetResizable(True)
+        area.setFrameShape(QFrame.Shape.NoFrame)
+        area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        area.setMaximumHeight(max_height)
+        set_style(area, "common", "transparent")
+        area.setWidget(widget)
+        return area
 
     @staticmethod
     def make_body(text: str, muted: bool = False) -> QLabel:

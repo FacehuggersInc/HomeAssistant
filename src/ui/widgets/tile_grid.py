@@ -118,6 +118,10 @@ class TileGrid(QWidget):
         return QRect(int(x), int(y), int(w), int(h))
 
     def place_tile(self, tile: Tile, col: int, row: int, animate: bool = False) -> None:
+        # Spans change during a resize drag, so a position that fitted a moment
+        # ago may not now.
+        col = max(0, min(col, max(0, self.cols - tile.grid_w)))
+        row = max(0, min(row, max(0, self.rows - tile.grid_h)))
         rect = self.cell_rect(col, row, tile.grid_w, tile.grid_h)
         tile.grid_col = col
         tile.grid_row = row
@@ -153,6 +157,8 @@ class TileGrid(QWidget):
 
         tile.setParent(self)
         tile.move_requested.connect(self.on_tile_move_requested)
+        tile.resize_requested.connect(self.on_tile_resize_requested)
+        tile.remove_requested.connect(self.on_tile_remove_requested)
         self.tiles.append(tile)
 
         if self.cell_size > 0:
@@ -181,6 +187,34 @@ class TileGrid(QWidget):
             tile.tick()
 
 
+    def on_tile_resize_requested(self, tile: Tile, span_w: int, span_h: int) -> None:
+        """Live during the drag: re-place at the new span so the preview is real."""
+        col = min(tile.grid_col, max(0, self.cols - span_w))
+        row = min(tile.grid_row, max(0, self.rows - span_h))
+        self.place_tile(tile, col, row)
+        self.update()
+
+    def can_resize_to(self, tile: Tile, span_w: int, span_h: int) -> bool:
+        return self.cells_free(tile, tile.grid_col, tile.grid_row, span_w, span_h)
+
+    def on_tile_remove_requested(self, tile: Tile) -> None:
+        """
+        Off the grid and back into the panel.
+
+        Not a delete - the instance is kept, so its saved size and whatever
+        state it built up survive being put back.
+        """
+        page = self.parent()
+        self.remove_tile(tile.KEY)
+        tile.deselect()
+        if page is not None and hasattr(page, "return_tile_to_panel"):
+            page.return_tile_to_panel(tile)
+
+    def deselect_all(self, except_tile: Tile = None) -> None:
+        for tile in self.tiles:
+            if tile is not except_tile:
+                tile.deselect()
+
     def on_tile_move_requested(self, tile: Tile, col: int, row: int) -> None:
         col = max(0, min(col, self.cols - tile.grid_w))
         row = max(0, min(row, self.rows - tile.grid_h))
@@ -188,6 +222,31 @@ class TileGrid(QWidget):
         self.hover_row     = row
         self.dragging_tile = tile
         self.update()   #trigger a repaint so the guide box moves
+
+    def cells_free(self, tile: Tile, col: int, row: int,
+                   span_w: int = None, span_h: int = None) -> bool:
+        """Whether tile could occupy this block without landing on another."""
+        span_w = span_w or tile.grid_w
+        span_h = span_h or tile.grid_h
+        if col < 0 or row < 0 or col + span_w > self.cols or row + span_h > self.rows:
+            return False
+
+        for other in self.tiles:
+            if other is tile:
+                continue
+            if (col < other.grid_col + other.grid_w
+                    and col + span_w > other.grid_col
+                    and row < other.grid_row + other.grid_h
+                    and row + span_h > other.grid_row):
+                return False
+        return True
+
+    def _first_free(self, tile: Tile):
+        for row in range(self.rows - tile.grid_h + 1):
+            for col in range(self.cols - tile.grid_w + 1):
+                if self.cells_free(tile, col, row):
+                    return col, row
+        return None
 
     def snap_tile(self, tile: Tile) -> None:
         if self.hover_col >= 0 and self.hover_row >= 0:
@@ -202,6 +261,16 @@ class TileGrid(QWidget):
             else:
                 col, row = tile.grid_col, tile.grid_row
 
+        # Occupied cells send it home. Sliding it to the nearest free block
+        # instead would move a tile somewhere nobody pointed at, and on a grid
+        # this size that is usually across the screen.
+        if not self.cells_free(tile, col, row):
+            col, row = getattr(tile, "drag_origin", (tile.grid_col, tile.grid_row))
+            if not self.cells_free(tile, col, row):
+                # A tile arriving from the panel has nowhere to go back to, so
+                # the first free block is better than dropping it on a neighbour.
+                col, row = self._first_free(tile) or (tile.grid_col, tile.grid_row)
+
         self.place_tile(tile, col, row, animate=True)
         self.dragging_tile = None
         self.hover_col     = -1
@@ -209,6 +278,9 @@ class TileGrid(QWidget):
         self.update()
 
     def mousePressEvent(self, event) -> None:
+        # A press that reaches the grid landed on empty space, not on a tile -
+        # which is the natural "I am done with that one" gesture.
+        self.deselect_all()
         event.ignore()
 
     def mouseMoveEvent(self, event) -> None:

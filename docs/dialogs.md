@@ -114,6 +114,27 @@ parent into the overlay layer wants one or the other.
 
 ---
 
+## Frosting
+
+Dialogs and panels share the same treatment: a blurred snapshot of the page
+behind them, with a dark wash over it so text stays readable on a bright
+wallpaper.
+
+`BaseDialog.refresh_backdrop()` is called from `showEvent` and `resizeEvent`,
+both queued through `QTimer.singleShot(0, …)`. A dialog has no final position
+until the overlay layer has centred it, and grabbing before that snapshots the
+wrong region of the page.
+
+`BLUR_RADIUS` on the class controls the strength.
+
+**Idle does not run behind a dialog.** A dialog is a question waiting for an
+answer, and `on_interaction_timeout` firing behind one lets an idle plugin
+cover it or dismiss the page underneath while it is still being read. The
+client treats an open dialog as continuous interaction, so the idle clock
+restarts when the dialog closes.
+
+---
+
 ## Panels
 
 A `Panel` is a frosted sliding surface, used for the notification history, the
