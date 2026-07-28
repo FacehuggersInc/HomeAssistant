@@ -1070,7 +1070,7 @@ class WidgetFramework(QWidget):
 
     def _update_drop_target(self, widget: Widget) -> None:
         """Where an anchored drop would land, for the indicator and the drop."""
-        if widget.can_float() or self._over_trash(widget):
+        if widget.can_float():
             self._drop_anchor = ""
             return
         centre = self._frame_pos(widget) + QPoint(widget.width() // 2,
@@ -1116,20 +1116,6 @@ class WidgetFramework(QWidget):
         return QRect(int(x) - 3, int(top), 6, int(tall))
 
     def _settle(self, widget: Widget) -> None:
-        if widget.REMOVABLE and self._over_trash(widget):
-            name = widget.display_name()
-            self.unplace(widget)
-            self.active = None
-            self._mode = ""
-            self._chrome.hide()
-            self.save_layout()
-            try:
-                self.client.simple_notify("widgets", "Widgets",
-                                          f"'{name}' moved to the widgets panel.")
-            except Exception:
-                pass
-            return
-
         for zone in self._zones.values():
             zone.remove_widget(widget)
 
@@ -1204,7 +1190,47 @@ class WidgetFramework(QWidget):
 
         commit = origin + QPoint(widget.width(), 0)
         rects["commit"] = QRect(commit.x() - half, commit.y() - half, HANDLE, HANDLE)
+
+        if widget.REMOVABLE:
+            # Mid-edge, because every corner is already spoken for by a handle
+            # that may or may not be present depending on the widget.
+            #
+            # Left by preference, flipping to the right edge when the left
+            # would hang off the view - a widget anchored hard against the
+            # left would otherwise have half its delete button clipped away.
+            view_w, view_h = self.visible_size()
+            x = origin.x()
+            if x - half < 0:
+                x = origin.x() + widget.width()
+            y = origin.y() + widget.height() // 2
+            y = max(half, min(y, view_h - half))
+            rects["remove"] = QRect(int(x) - half, int(y) - half, HANDLE, HANDLE)
+
         return rects
+
+    def remove_active(self) -> None:
+        """
+        Take the selected widget off the page and put it back in the panel.
+
+        Not a delete: unplace() keeps the instance, so a sticky note keeps its
+        text and dragging it back out restores it exactly. That is why this is
+        a single tap with no confirmation - the worst case is one drag to undo.
+        """
+        widget = self.active
+        if widget is None or not widget.REMOVABLE:
+            return
+
+        name = widget.display_name()
+        self.unplace(widget)
+        self.active = None
+        self._mode = ""
+        self._chrome.hide()
+        self.save_layout()
+        try:
+            self.client.simple_notify("widgets", "Widgets",
+                                      f"'{name}' moved to the widgets panel.")
+        except Exception:
+            pass
 
     def _handle_at(self, point: QPoint) -> str:
         for name, rect in self._handle_rects().items():
@@ -1216,6 +1242,9 @@ class WidgetFramework(QWidget):
     def _begin_handle(self, handle: str, point: QPoint) -> None:
         if handle == "commit":
             self.commit_transform()
+            return
+        if handle == "remove":
+            self.remove_active()
             return
         if handle == "reset":
             self.clear_offset(self.active)
@@ -1236,16 +1265,6 @@ class WidgetFramework(QWidget):
             self._start_angle = widget.angle
             self._start_vector = math.degrees(
                 math.atan2(point.y() - centre.y(), point.x() - centre.x()))
-
-    def _trash_rect(self) -> QRect:
-        size = 86
-        width, height = self.visible_size()
-        return QRect(width - size - 24, (height - size) // 2, size, size)
-
-    def _over_trash(self, widget: Widget) -> bool:
-        centre = self._frame_pos(widget) + QPoint(widget.width() // 2,
-                                                  widget.height() // 2)
-        return self._trash_rect().contains(centre)
 
     ## CHROME
     #
@@ -1284,6 +1303,9 @@ class WidgetFramework(QWidget):
             elif name == "reset":
                 painter.setBrush(QBrush(QColor("#5a4a1c")))
                 painter.setPen(QPen(QColor("#e0c46f"), 2))
+            elif name == "remove":
+                painter.setBrush(QBrush(QColor("#7a2020")))
+                painter.setPen(QPen(QColor("#e08a8a"), 2))
             else:
                 painter.setBrush(QBrush(QColor("#1c1c1c")))
                 painter.setPen(QPen(QColor("#6fa8e0"), 2))
@@ -1319,6 +1341,19 @@ class WidgetFramework(QWidget):
                                      centre.x() - 3, centre.y() + dy + step)
                     painter.drawLine(centre.x(), centre.y() + dy,
                                      centre.x() + 3, centre.y() + dy + step)
+            elif name == "remove":
+                # A bin: lid, body, and two slats. Not an X - that reads as
+                # "close", and the commit tick next to it already means done.
+                painter.drawLine(centre.x() - arm, centre.y() - arm + 2,
+                                 centre.x() + arm, centre.y() - arm + 2)
+                painter.drawLine(centre.x() - 3, centre.y() - arm - 1,
+                                 centre.x() + 3, centre.y() - arm - 1)
+                painter.drawLine(centre.x() - arm + 3, centre.y() - arm + 2,
+                                 centre.x() - arm + 4, centre.y() + arm)
+                painter.drawLine(centre.x() + arm - 3, centre.y() - arm + 2,
+                                 centre.x() + arm - 4, centre.y() + arm)
+                painter.drawLine(centre.x() - arm + 4, centre.y() + arm,
+                                 centre.x() + arm - 4, centre.y() + arm)
             elif name == "reset":
                 # An arrow curling back to the start.
                 painter.drawArc(QRect(centre.x() - arm, centre.y() - arm,
@@ -1371,18 +1406,6 @@ class WidgetFramework(QWidget):
             painter.setPen(QPen(QColor("#7ed6a6")))
             painter.drawText(label.adjusted(8, 0, -8, 0),
                              int(align | Qt.AlignmentFlag.AlignVCenter), text)
-
-        if widget.REMOVABLE:
-            trash = self._trash_rect()
-            hot = self._over_trash(widget)
-            painter.setBrush(QBrush(QColor(176, 52, 52, 235) if hot
-                                    else QColor(122, 32, 32, 170)))
-            painter.setPen(QPen(QColor("#f2f2f2" if hot else "#b03434"), 2,
-                                Qt.PenStyle.SolidLine if hot else Qt.PenStyle.DashLine))
-            painter.drawRoundedRect(trash, 12, 12)
-            painter.setPen(QPen(QColor("#f2f2f2")))
-            painter.setFont(make_font(SIZES.S1, bold=True))
-            painter.drawText(trash, int(Qt.AlignmentFlag.AlignCenter), "Remove")
 
         painter.end()
 

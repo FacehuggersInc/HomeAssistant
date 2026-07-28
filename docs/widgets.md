@@ -20,7 +20,7 @@ A widget declares what it supports on the class:
 | `RESIZABLE` | offers a resize handle |
 | `ROTATABLE` | offers a rotate handle |
 | `FLOATABLE` | stays where dropped instead of snapping to an anchor |
-| `REMOVABLE` | `False` pins it to the page - it cannot be dropped on the trash |
+| `REMOVABLE` | `False` pins it to the page - no delete button appears |
 | `MULTIPLE` | `True` makes it a template: it stays in the panel and each **Add** places another copy |
 | `MIN_W/H`, `MAX_W/H` | resize limits |
 
@@ -33,17 +33,23 @@ finish. A **tap** without a drag calls `on_activate()` instead - that is how
 the sticky note opens its editor.
 
 On release, a `FLOATABLE` widget stays where it was dropped. Anything else
-snaps to the nearest anchor, which keeps the anchored widgets behaving as they
-always did. Dropping onto the **Remove** target takes a widget off the page and returns it
-to the panel; it is never destroyed, so placing it again brings back its text
-and size, and the removal is announced rather than silent.
+snaps to the nearest anchor.
 
-The target sits halfway down the right edge, and the widget's **centre** has
-to be over it. Both details matter: every corner and edge-centre is a real
-anchor, so a target on one would mean dragging toward that anchor throws the
-widget away instead - and testing the top-left corner rather than the centre
-would delete a wide widget whenever its corner clipped the target on the way
-to somewhere else.
+### Removing one
+
+A lifted widget with `REMOVABLE` set gets a red **delete** handle on its
+mid-edge, alongside the other handles. One tap takes it off the page.
+
+It is never destroyed. The instance goes back to the widgets panel with its
+state intact, so placing it again brings back its text, size and rotation. The
+removal is announced rather than silent, and the worst a mis-tap costs is one
+drag to put it back — which is why there is no confirmation step in the way.
+
+The handle sits on the left mid-edge by preference and flips to the right when
+the left would hang off the view. Every corner is already spoken for by a
+handle that may or may not be present depending on the widget, and a widget
+anchored hard against the left edge would otherwise have half its delete
+button clipped away.
 
 Everything - anchor, position, size, rotation, offset, and whether a widget is
 placed at all - is saved per page to **`widget_layout.json` in the user data
@@ -198,13 +204,25 @@ framework-space mouse position makes the grab offset equal the click point -
 so the first drag step moves the widget to `(0,0)` and the selection border
 draws somewhere else entirely.
 
-The same applies to hit testing, the handle rects, the trash check and anchor
-snapping.
+The same applies to hit testing, the handle rects and anchor snapping.
 
 ### The selection chrome
 
 Handles are 44px with another 12px of slop around them, sized for a finger
-rather than a cursor.
+rather than a cursor. Which ones appear depends on what the widget declares:
+
+| Handle | Where | Shown when |
+|---|---|---|
+| **commit** — green tick, finishes editing | top-right | always |
+| **resize** — diagonal arrow | bottom-right | `RESIZABLE` |
+| **rotate** — arc on an arm above the widget | top-centre | `ROTATABLE` |
+| **offset** — four-way arrow, nudges off the anchor | bottom-left | anchored or already offset |
+| **reset** — arrow curling back | top-left | the widget has an offset |
+| **delete** — red bin, returns it to the panel | left mid-edge | `REMOVABLE` |
+
+The delete handle flips to the right mid-edge when the left would fall outside
+the view. It is a bin rather than an X on purpose — an X reads as "close", and
+the commit tick beside it already means done.
 
 Child widgets paint over their parent, so the dashed border and handles
 cannot be drawn in the framework's own `paintEvent` - they would sit
@@ -313,7 +331,7 @@ panel without ever being placed.
 | `RESIZABLE` | Whether the resize handles appear. |
 | `ROTATABLE` | Requires the widget to paint itself — see Rotation above. |
 | `FLOATABLE` | Whether it can be dropped anywhere rather than snapped to an anchor. |
-| `REMOVABLE` | Whether the trash target accepts it. |
+| `REMOVABLE` | Whether a delete handle is offered. |
 | `MULTIPLE` | Template: stays in the panel, and Add makes another copy. |
 | `MIN_W`/`MIN_H`, `MAX_W`/`MAX_H` | Resize bounds. |
 | `DEFAULT_ANCHOR` | Where it lands the first time. |
