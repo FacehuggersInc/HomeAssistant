@@ -27,9 +27,13 @@ class CyclingBackground(QWidget):
         self._animation_ms = int(client.SETTINGS.home.background_fade_duration.value)
         self._cycle_delay  = int(client.SETTINGS.home.background_cycle_interval.value)
         self._images_path  = Path(client.SETTINGS.home.images.value)
-        self._used:   list = []
-        self._history:list = []
+        self._used:    set  = set()    # shown since the pool was last exhausted
+        self._recent:  list = []       # ordered tail of _used, for the window
+        self._history: set  = set()    # _recent as a set, for O(1) lookups
+        self._image_cache: list | None = None
+        self._image_stamp = None
         self._last_path    = ""
+        self._next_path    = ""
         self._pinned       = False
 
         # _progress: 0.0 = show front only, 1.0 = show back only
@@ -51,6 +55,7 @@ class CyclingBackground(QWidget):
             self._last_path = p1
         if p2:
             self._back_px = self._load_pixmap(p2, w, h)
+            self._next_path = p2
 
         # Animation drives _progress
         self._anim = QPropertyAnimation(self, b"crossfadeProgress")
@@ -124,11 +129,17 @@ class CyclingBackground(QWidget):
         w, h = self.width(), self.height()
         if w <= 0 or h <= 0:
             return
-        # Re-scale both pixmaps to new size
-        if self._front_px and not self._front_px.isNull():
-            self._front_px = self._load_pixmap(None, w, h) or self._front_px
-        if self._back_px and not self._back_px.isNull():
-            self._back_px = self._load_pixmap(None, w, h) or self._back_px
+        # Re-scale from the source files, not from the already-scaled pixmaps:
+        # _load_pixmap takes a path, and passing None returned early and made
+        # this a no-op hidden behind an `or` fallback.
+        if self._last_path:
+            reloaded = self._load_pixmap(self._last_path, w, h)
+            if reloaded is not None:
+                self._front_px = reloaded
+        if self._next_path:
+            reloaded = self._load_pixmap(self._next_path, w, h)
+            if reloaded is not None:
+                self._back_px = reloaded
 
     # ── Cycle ─────────────────────────────────────────────────────────────────
 
@@ -170,6 +181,7 @@ class CyclingBackground(QWidget):
             if h <= 0: h = int(self.client.SETTINGS.application.window.size.value[1])
             self._back_px = self._load_pixmap(next_path, w, h)
             self._last_path = next_path
+            self._next_path = next_path
 
         # Animate progress 0 → 1 (front fades out, back revealed)
         self._progress_val = 0.0
@@ -187,6 +199,7 @@ class CyclingBackground(QWidget):
         if next_path:
             w, h = self.width(), self.height()
             self._back_px = self._load_pixmap(next_path, w, h)
+            self._next_path = next_path
 
         self.update()
 
@@ -198,6 +211,35 @@ class CyclingBackground(QWidget):
         except Exception:
             pass
 
+    def _list_images(self) -> list:
+        """
+        The wallpaper folder, cached against its mtime.
+
+        This used to run a full iterdir() on every call, and it is called
+        twice per fade - once to pick the incoming image and again to pre-load
+        the one after it. A folder of a few hundred wallpapers made that two
+        directory walks per cycle for a listing that almost never changes.
+        """
+        try:
+            stamp = self._images_path.stat().st_mtime
+        except OSError:
+            self._image_cache = []
+            self._image_stamp = None
+            return []
+
+        if self._image_stamp == stamp and self._image_cache is not None:
+            return self._image_cache
+
+        try:
+            self._image_cache = [
+                f for f in self._images_path.iterdir()
+                if f.suffix.lower() in (".jpg", ".jpeg", ".png", ".bmp", ".webp")
+            ]
+        except OSError:
+            self._image_cache = []
+        self._image_stamp = stamp
+        return self._image_cache
+
     def _get_next_image_path(self) -> str:
         try:
             pinned = self.client.SETTINGS.home.pinned.value
@@ -206,25 +248,30 @@ class CyclingBackground(QWidget):
         except Exception:
             pass
 
-        if not self._images_path.exists():
-            return ""
-
-        all_images = [
-            f for f in self._images_path.iterdir()
-            if f.suffix.lower() in (".jpg", ".jpeg", ".png", ".bmp", ".webp")
-        ]
+        all_images = self._list_images()
         if not all_images:
             return ""
 
+        # Sets, not lists. `str(f) not in self._used` inside a comprehension is
+        # a linear scan per candidate, so choosing an image was quadratic in
+        # the size of the folder.
         available = [f for f in all_images if str(f) not in self._used]
         if not available:
             self._used.clear()
-            available = all_images
+            available = list(all_images)
 
         available = [f for f in available if str(f) not in self._history] or available
         chosen = random.choice(available)
-        self._used.append(str(chosen))
-        self._history = self._used[-max(1, len(all_images) // 3):]
+        self._used.add(str(chosen))
+
+        # Keep the most recent third out of the running, so the same wallpaper
+        # does not come back two cycles later.
+        self._recent.append(str(chosen))
+        window = max(1, len(all_images) // 3)
+        if len(self._recent) > window:
+            del self._recent[:-window]
+        self._history = set(self._recent)
+
         return str(chosen)
 
     def _sync_settings(self) -> None:
@@ -244,12 +291,12 @@ class CyclingBackground(QWidget):
         super().resizeEvent(event)
         w, h = self.width(), self.height()
         if w > 0 and h > 0:
-            # Re-load at new size
-            if self._last_path:
-                self._front_px = self._load_pixmap(self._last_path, w, h)
-            next_path = self._get_next_image_path() if not self._back_px else None
-            if next_path:
-                self._back_px = self._load_pixmap(next_path, w, h)
+            self._rescale_all()
+            if not self._back_px:
+                next_path = self._get_next_image_path()
+                if next_path:
+                    self._back_px = self._load_pixmap(next_path, w, h)
+                    self._next_path = next_path
         self.update()
 
     def stop(self) -> None:

@@ -230,8 +230,11 @@ half-applied.
 ### Cleaning up a sub-page
 
 `remove_sub_page()` calls `teardown()` on the page if it defines one, before
-unparenting it. That is where a sub-page unsubscribes from anything it
-subscribed to:
+unparenting it. The parent's own `stop()` calls it too, so it runs whether the
+page is removed by a plugin unloading or destroyed by navigating away — `goto()`
+destroys a page rather than hiding it, and destruction alone runs nothing.
+
+That is where a sub-page unsubscribes from anything it subscribed to:
 
 ```python
 def teardown(self) -> None:
@@ -240,6 +243,42 @@ def teardown(self) -> None:
 
 Without it a removed page keeps its handlers on the event bus, and the first
 fire afterwards calls into a deleted widget.
+
+### Off-screen sub-pages
+
+A sub-page grid keeps every page constructed and slides between them, so an
+inactive page is fully built and completely off screen. **Anything it does on a
+timer is work for something nobody can see**, and with a full set of widgets and
+tiles placed that is the largest steady cost in the app while it sits idle.
+
+Sub-pages are told when they come and go:
+
+```python
+class MySubPage(SubPageFramework):
+
+    def on_activated(self) -> None:
+        self._timer.start(1000)
+        self.refresh()          # do not show a stale face until the next tick
+
+    def on_deactivated(self) -> None:
+        self._timer.stop()
+```
+
+Start timers in `on_activated()`, not in `__init__` — a page built at startup
+that starts its own timer runs from launch whether or not anyone ever swipes to
+it. Refresh once on activation as well, so the page is current the moment it
+lands rather than a tick later.
+
+Exactly one sub-page is active at a time: the one at the parent's current
+coordinate. The parent resolves that after construction, after a saved layout
+is applied, on every swipe, on a jump from the page map, and whenever a
+sub-page is added. `is_active` reflects it and can still be assigned directly —
+the hooks run either way.
+
+Both bundled sub-pages do this: `sub.tiles` gates its tile tick, and `sub.home`
+gates the widget framework's re-fit pass **and** every registered widget's own
+tick — including the ones sitting in the widgets panel, which are off screen
+twice over.
 
 ### Features from a sub-page
 

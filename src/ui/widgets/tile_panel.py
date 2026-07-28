@@ -140,8 +140,6 @@ class TilePanelItem(QWidget):
                            local.y() - self.tile.height() // 2)
 
             grid = self.panel.grid
-            if hasattr(page, 'trash_bin'):
-                page.trash_bin.set_hot(page.trash_bin.is_over(event.globalPosition().toPoint()))
 
             grid_pos = grid.mapFromGlobal(event.globalPosition().toPoint())
             col = int((grid_pos.x() - grid.origin_x) // (grid.cell_size + grid.gap_x))
@@ -171,8 +169,6 @@ class TilePanelItem(QWidget):
         grid = self.panel.grid
 
         #always clear guide box / trash bin state — both only matter mid-drag
-        if hasattr(page, 'trash_bin'):
-            page.trash_bin.hide_after_drag()
         grid.dragging_tile = None
         grid.hover_col     = -1
         grid.hover_row     = -1

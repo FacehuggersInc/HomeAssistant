@@ -80,22 +80,10 @@ class Event:
     ## -- derived
 
     ## -- spans
-
-    @property
-    def last_date(self) -> Optional[date]:
-        """The final day. Same as `date` unless it spans."""
-        if not self.end_day:
-            return self.date
-        try:
-            end = date.fromisoformat(self.end_day)
-        except (ValueError, TypeError):
-            return self.date
-        start = self.date
-        return end if start is None or end >= start else start
-
-    @property
-    def spans_days(self) -> bool:
-        return bool(self.end_day) and self.last_date != self.date
+    #
+    # last_date / spans_days / day_count live further down, with the rest of
+    # the derived properties. They were defined twice in this class - the
+    # second copy silently won, so editing the first changed nothing.
 
     def covers(self, when: date) -> bool:
         """Whether this event is on a given day, spans included."""
@@ -164,6 +152,35 @@ class Event:
         return 1 if not (first and last) else (last - first).days + 1
 
     @property
+    def occurrence_span_days(self) -> int:
+        """
+        How far one occurrence runs past its own start day, in days.
+
+        For a one-off this is just the span. For a **series** it is clamped so
+        an occurrence cannot reach its own next occurrence: `end_day` and
+        `repeat_until` are adjacent fields answering different questions, and
+        putting the series' finishing date in `end_day` turns every occurrence
+        into a span that long. A weekly event with a month in `end_day` then
+        draws five overlapping month-long bars instead of five evenings, and
+        the count climbs the further into the series you look.
+
+        Clamping here rather than only validating on save, because the bad
+        shape can already be on disk or arrive from an ICS feed.
+        """
+        if not self.spans_days:
+            return 0
+        span = (self.last_date - self.date).days
+        if not self.recurring:
+            return max(0, span)
+
+        first = self.date
+        following = _step(first, self.repeat, max(1, int(self.repeat_interval or 1)))
+        if following is None:
+            return max(0, span)
+        gap = (following - first).days - 1     # last day before the next one
+        return max(0, min(span, gap))
+
+    @property
     def recurring(self) -> bool:
         return self.repeat in ("daily", "weekly", "monthly", "yearly")
 
@@ -190,7 +207,7 @@ class Event:
         from every other occurrence - and `series_key` pointing home, so
         acting on it can find the stored event.
         """
-        shift = (self.last_date - self.date).days if self.spans_days else 0
+        shift = self.occurrence_span_days
         fields = dict(self.to_dict())
         fields.update({
             "day": when.isoformat(),
@@ -211,10 +228,8 @@ class Event:
         return self.ends_at - self.starts_at
 
     def is_on(self, when: date) -> bool:
-        first, last = self.date, self.last_date
-        if first is None:
-            return False
-        return first <= when <= (last or first)
+        """Alias for covers(). Kept for callers written against the old name."""
+        return self.covers(when)
 
     ## -- recurrence
 
@@ -240,7 +255,7 @@ class Event:
             except ValueError:
                 limit = None
 
-        span = max(0, self.day_count - 1)
+        span = self.occurrence_span_days
         step = max(1, int(self.repeat_interval or 1))
         skipped = set(self.skip or [])
 
@@ -493,7 +508,31 @@ class CalendarStore:
         self.save()
         return event
 
+    def resolve_key(self, key: str) -> str:
+        """
+        The stored event behind a key, which may be an occurrence's.
+
+        Everything a caller sees from on_day(), in_month() or upcoming() for a
+        recurring event is a generated occurrence keyed `<stored>@<date>`, and
+        that key is not in `self.events`. remove() and update() matched on it
+        directly, found nothing, and returned a falsy value that every caller
+        discarded - so deleting an occurrence of a series looked like nothing
+        happening at all.
+
+        Split from the right and only accepted when the result is genuinely a
+        stored key, so an event whose own key contained an `@` is unaffected.
+        """
+        key = str(key or "")
+        if key in self.events:
+            return key
+        if "@" in key:
+            base = key.rsplit("@", 1)[0]
+            if base in self.events:
+                return base
+        return key
+
     def remove(self, key: str) -> bool:
+        key = self.resolve_key(key)
         if key in self.events:
             del self.events[key]
             self.save()
@@ -501,7 +540,7 @@ class CalendarStore:
         return False
 
     def update(self, key: str, **changes) -> Optional[Event]:
-        event = self.events.get(key)
+        event = self.events.get(self.resolve_key(key))
         if event is None:
             return None
         for name, value in changes.items():
@@ -628,6 +667,14 @@ class CalendarStore:
             except (ValueError, TypeError):
                 until = None
 
+        # How far each occurrence runs past its own start day. Matched against
+        # the window below, because an occurrence that BEGINS before the window
+        # can still cover days inside it - a three-day event starting on the
+        # Sunday is on the Monday being asked about. Filtering on the start day
+        # alone is why on_day() found nothing for a span that in_month() was
+        # quite happily drawing across the whole week.
+        span = max(0, event.occurrence_span_days)
+
         skips = event.skip_dates()
         out = []
         index = 0
@@ -638,7 +685,7 @@ class CalendarStore:
                 break
             if until is not None and when > until:
                 break
-            if when < start or when in skips:
+            if when + timedelta(days=span) < start or when in skips:
                 continue
             out.append(event.occurrence_on(when))
         return out
@@ -768,6 +815,51 @@ class CalendarStore:
     def hidden_keys(self) -> list:
         return sorted(self.hidden_holidays) + \
                sorted(k for k, e in self.events.items() if e.hidden)
+
+    def looks_like(self, event: Event, ignore_day: bool = True) -> list:
+        """
+        Every stored event that is recognisably the same thing as `event`.
+
+        Deliberately looser than deduplicate()'s fingerprint, which includes
+        `day` and so treats a weekly series starting on the 28th and an
+        identical one starting on the 4th as two different events. They are
+        two different *rows*, but to somebody looking at a calendar they are
+        the same thing appearing twice, and "remove this" means remove both.
+
+        Holidays are never matched: they are computed, not stored, and
+        removing one is what `set_hidden` is for.
+        """
+        target = (
+            (event.owner or ""),
+            event.title.strip().lower(),
+            event.time or "",
+            event.end_time or "",
+        )
+        out = []
+        for stored in self.events.values():
+            if stored.source == "holiday":
+                continue
+            candidate = (
+                (stored.owner or ""),
+                stored.title.strip().lower(),
+                stored.time or "",
+                stored.end_time or "",
+            )
+            if candidate != target:
+                continue
+            if not ignore_day and stored.day != event.day:
+                continue
+            out.append(stored)
+        return out
+
+    def remove_matching(self, event: Event, ignore_day: bool = True) -> int:
+        """Remove every stored copy of `event`. Returns how many went."""
+        doomed = [e.key for e in self.looks_like(event, ignore_day=ignore_day)]
+        for key in doomed:
+            self.events.pop(key, None)
+        if doomed:
+            self.save()
+        return len(doomed)
 
     def deduplicate(self) -> int:
         """

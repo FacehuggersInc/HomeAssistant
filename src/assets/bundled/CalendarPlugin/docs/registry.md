@@ -27,8 +27,8 @@ if self.client.public.has("calendar"):
 | `get_event(key)` | One event, or `None`. |
 | `holidays(year)` | Every holiday in a year. |
 
-`source` is `"local"`, `"imported"` or `"holiday"`. Passing it to `upcoming`
-narrows to that kind.
+`source` is `"local"`, `"imported"`, `"subscribed"` or `"holiday"`. Passing it
+to `upcoming` narrows to that kind.
 
 ---
 
@@ -315,10 +315,31 @@ change "all of them" afterwards.
 | Field | Meaning |
 |---|---|
 | `repeat` | `daily`, `weekly`, `monthly`, `yearly`, or empty. |
-| `repeat_until` | Last day it may occur. Empty means forever. |
+| `repeat_until` | Last day the **series** may occur. Empty means forever. |
 | `skip` | Occurrence days that should not appear. |
-| `end_day` | Last day, for something spanning more than one. |
+| `end_day` | Last day of **one occurrence**, for something spanning more than one. |
 | `hidden` | Silenced without being deleted. |
+
+### `end_day` is not `repeat_until`
+
+These two answer different questions and are the easiest pair here to confuse:
+`end_day` is how long a single occurrence runs, `repeat_until` is when the
+series stops.
+
+Putting the series' finishing date into `end_day` makes **every** occurrence a
+span that long. A weekly event with a month in `end_day` becomes five
+overlapping month-long bars: the month grid draws it on every day, the count
+climbs the further ahead you look, and with `repeat_until` left empty it never
+stops.
+
+Two things guard against it. The editor refuses to save a span at least as long
+as the repeat interval, naming the field that was probably meant. And
+`occurrence_span_days` clamps the span so an occurrence can never reach its own
+next occurrence — a weekly event tops out at seven days however `end_day` reads,
+because the shape can already be on disk or arrive from an ICS feed.
+
+A span shorter than the interval is untouched: a three-day festival repeating
+yearly is a perfectly ordinary thing to want.
 
 Monthly clamps rather than skipping: the 31st gives 31 January, 28 February,
 31 March. Yearly handles 29 February the same way.
@@ -327,12 +348,52 @@ An expanded occurrence is a copy with its own `key` (`<series>@<date>`) and
 `series_key` pointing home — so it can be told apart from its series and from
 every other occurrence, and anything acting on it can find the stored event.
 
+`expand()` matches a window against the days an occurrence **covers**, not only
+the day it starts. An occurrence beginning before the window can still run into
+it, and filtering on the start day alone meant `on_day()` returned nothing for a
+span that `in_month()` was drawing across the whole week.
+
 | Call | Does |
 |---|---|
 | `expand(event, start, end)` | The occurrences in a window. |
 | `skip_occurrence(series_key, date)` | Hide one. |
 | `unskip_occurrence(series_key, date)` | Put it back. |
 | `skip_next(series_key, count)` | Hide the next `count` — "not for three weeks". |
+
+### Occurrence keys resolve to their series
+
+An occurrence's key is `<stored>@<date>`, and nothing is stored under it.
+`get()`, `remove()` and `update()` all resolve it back to the stored event, so
+acting on something the day view handed you works. Without that, `remove()`
+matched nothing, returned a falsy value every caller discarded, and deleting an
+occurrence looked exactly like nothing happening.
+
+Editing an occurrence edits the **series**. An occurrence carries no recurrence
+of its own — `occurrence_on()` clears `repeat` and `repeat_until` — so an editor
+that showed those empty fields and saved them would wipe the recurrence off the
+series. The event editor loads the stored series instead, and says so.
+
+### The same event stored more than once
+
+`deduplicate()` matches on `day` among other things, so a weekly series starting
+on the 28th and an identical one starting on the 4th are two different rows. To
+anyone looking at a calendar they are one event appearing twice, and `_collapse()`
+shows only one of them per day — so the duplication is invisible until you try to
+delete it and the calendar clears only as far as the next row's first occurrence.
+
+| Call | Does |
+|---|---|
+| `looks_like(event, ignore_day=True)` | Every stored event recognisably the same thing. |
+| `remove_matching(event)` | Remove all of them. Returns the count. |
+
+Matched on owner, title, start and end time. A different owner is a different
+event — two people can have the same thing at the same time and mean two
+different things.
+
+`tools/calendar_repair.py` does this from outside the app: `--duplicates` groups
+events that look alike, `--suspect-spans` finds spans that reach their own next
+occurrence, `--fix-spans` clears them, and `--remove TITLE` removes every copy.
+It reports before it changes anything and backs the file up first.
 | `set_hidden(key, True)` | Silence a whole series, or one holiday. |
 | `hidden_keys()` | What is currently silenced. |
 | `prune(days)` | Drop finished one-off events past a cutoff. |

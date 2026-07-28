@@ -2,8 +2,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Type
 
 from PyQt6.QtWidgets import QWidget, QPushButton
-from PyQt6.QtCore import Qt, QPropertyAnimation, QEasingCurve, QPoint, QTimer
-from PyQt6.QtGui import QPainter, QColor, QBrush, QPen
+from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtGui import QPainter, QColor, QBrush
 
 import qtawesome as qta
 
@@ -40,75 +40,6 @@ class GridBackground(QWidget):
 
 ##TRASH BIN
 
-class TrashBin(QWidget):
-
-    SIZE = 72
-
-    def __init__(self, parent: QWidget):
-        super().__init__(parent)
-        self.setFixedSize(self.SIZE, self.SIZE)
-        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
-        self.hot = False
-        self.hide()
-
-        self.anim = QPropertyAnimation(self, b"pos")
-        self.anim.setDuration(180)
-        self.anim.setEasingCurve(QEasingCurve.Type.OutCubic)
-
-    def show_for_drag(self) -> None:
-        pw = self.parent().width()
-        ph = self.parent().height()
-        x  = (pw - self.SIZE) // 2
-        self.move(x, ph)
-        self.show()
-        self.raise_()
-        self.anim.stop()
-        self.anim.setStartValue(self.pos())
-        self.anim.setEndValue(QPoint(x, ph - self.SIZE - 60))
-        self.anim.start()
-
-    def hide_after_drag(self) -> None:
-        pw = self.parent().width()
-        ph = self.parent().height()
-        x  = (pw - self.SIZE) // 2
-        self.anim.stop()
-        self.anim.setStartValue(self.pos())
-        self.anim.setEndValue(QPoint(x, ph))
-        def _finish():
-            self.hide()
-            try: self.anim.finished.disconnect()
-            except Exception: pass
-        self.anim.finished.connect(_finish)
-        self.anim.start()
-        self.hot = False
-        self.update()
-
-    def is_over(self, global_pos: QPoint) -> bool:
-        local = self.parent().mapFromGlobal(global_pos)
-        return self.geometry().contains(local)
-
-    def set_hot(self, hot: bool) -> None:
-        if hot != self.hot:
-            self.hot = hot
-            self.update()
-
-    def paintEvent(self, event) -> None:
-        p = QPainter(self)
-        p.setRenderHint(QPainter.RenderHint.Antialiasing)
-        bg     = QColor(180, 40, 40, 200) if self.hot else QColor(60, 20, 20, 160)
-        border = QColor(220, 80, 80, 200) if self.hot else QColor(120, 40, 40, 140)
-        p.setBrush(QBrush(bg))
-        p.setPen(QPen(border, 1.5))
-        p.drawRoundedRect(self.rect().adjusted(1, 1, -1, -1), 12, 12)
-        try:
-            import qtawesome as qta
-            color = "rgba(255,180,180,255)" if self.hot else "rgba(255,120,120,180)"
-            pix   = qta.icon("mdi.trash-can-outline", color=color).pixmap(36, 36)
-            p.drawPixmap((self.SIZE - 36) // 2, (self.SIZE - 36) // 2, pix)
-        except Exception:
-            pass
-
-
 class SubTilesPage(SubPageFramework):
 
     @mixin_target("sub.tiles.__init__")
@@ -142,7 +73,6 @@ class SubTilesPage(SubPageFramework):
 
         ## -- TRASH BIN
 
-        self.trash_bin = TrashBin(self)
 
         self.panel_btn = QPushButton()
         self.panel_btn.setFixedSize(40, 40)
@@ -173,7 +103,48 @@ class SubTilesPage(SubPageFramework):
 
         self.tick_timer = QTimer(self)
         self.tick_timer.timeout.connect(self.tick)
+        # Not started here. The grid keeps every sub-page built and slides
+        # between them, so this page exists from startup whether or not anyone
+        # has swiped to it - and ticking every tile once a second for a page
+        # nobody can see was the single largest idle cost in the app.
+        # on_activated() starts it.
+
+    def on_activated(self) -> None:
         self.tick_timer.start(1000)   #once per second, same cadence as DateTimeWidget etc.
+        # Tiles paint from cache, so one immediate tick stops a stale face
+        # being visible for up to a second after the swipe lands.
+        self.tick()
+
+    def on_deactivated(self) -> None:
+        self.tick_timer.stop()
+
+    def teardown(self) -> None:
+        self.tick_timer.stop()
+        # goto() destroys this page rather than hiding it, so tiles are
+        # Qt-deleted by the parent cascade and their own teardown() never ran.
+        # TileGrid.remove_tile() calls it, but nothing does on destruction -
+        # and a tile sitting in the panel was never reached by that path at
+        # all. A tile that subscribed to an event kept its handler on the bus
+        # pointing into a deleted widget.
+        seen = set()
+        for tile in list(getattr(self.tile_grid, "tiles", [])):
+            seen.add(id(tile))
+            self._teardown_tile(tile)
+        for item in list(getattr(self.tile_panel, "items", {}).values()):
+            tile = getattr(item, "tile", None)
+            if tile is not None and id(tile) not in seen:
+                seen.add(id(tile))
+                self._teardown_tile(tile)
+
+    def _teardown_tile(self, tile) -> None:
+        teardown = getattr(tile, "teardown", None)
+        if not callable(teardown):
+            return
+        try:
+            teardown()
+        except Exception as e:
+            self.client.log("warning",
+                            f"[SubTiles] {getattr(tile, 'KEY', '?')} teardown failed: {e}")
 
     def return_tile_to_panel(self, tile: Tile) -> None:
         """Called by the grid when a tile's delete handle is pressed."""
@@ -214,17 +185,18 @@ class SubTilesPage(SubPageFramework):
 
     ##DRAG NOTIFICATIONS
 
+    # A tile is removed by holding it and tapping its delete handle, the same
+    # way a widget is. A drag-to-a-bin target as well meant two ways to do one
+    # thing, a bin sliding in over the grid on every ordinary move, and a hit
+    # test plus a repaint on every mouse-move event of a drag.
     def notify_drag_started(self) -> None:
-        self.trash_bin.show_for_drag()
+        pass
 
     def notify_drag_ended(self, global_pos, tile) -> None:
-        if self.trash_bin.is_over(global_pos):
-            self.tile_grid.remove_tile(tile.KEY)
-            self.tile_panel.add_tile(tile)
-        self.trash_bin.hide_after_drag()
+        pass
 
     def receive_tile_from_panel(self, tile, global_pos) -> None:
-        self.trash_bin.hide_after_drag()
+        pass
 
     ##TICK
 

@@ -99,6 +99,31 @@ fine - but a missing `;` runs two declarations together and both are lost.
 Qt discards a malformed rule without a word, so the symptom is a style that
 simply does not appear.
 
+### Styling a control means styling its sub-controls
+
+A `QRadioButton` or `QCheckBox` draws its indicator natively **until a
+stylesheet touches the widget**, at which point Qt stops and expects the
+stylesheet to draw it. A rule that sets only colour and padding therefore
+renders the control as a bare line of text — still checkable, possibly already
+checked, with nothing on screen saying so:
+
+```css
+/* Not enough - the radio circle disappears entirely */
+.dialog-choice { color: #f2f2f2; padding: 6px 4px; }
+
+/* Style the indicator too */
+.dialog-choice::indicator          { width: 22px; height: 22px; ... }
+.dialog-choice::indicator:checked  { background: #2d6cc0; ... }
+```
+
+The same applies to `QComboBox::drop-down`, `QScrollBar::handle` and any other
+sub-control: once you stylesheet the parent, the parts you did not mention are
+yours to draw. `common.css` and `buttons.css` have worked examples.
+
+On a wall panel it is worth going further and giving the whole row a background
+and a `:checked` state, so an option reads as something to tap rather than a
+small circle to aim at.
+
 ---
 
 ## Fonts and sizes

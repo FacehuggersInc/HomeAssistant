@@ -175,6 +175,7 @@ class Client:
         self.UPDATE  = False
 
         self.LAST_COLLECTION = time.time()
+        self._last_slow_tick = 0.0                #see update_thread()'s 1Hz block
         self._process        = psutil.Process()   #for the memory diagnostics in update_thread()'s hourly collection
 
         self.STATES = {
@@ -1339,37 +1340,46 @@ class Client:
                     self.call_on_ui(goto_default)
 
                 #track window size changes
-                def check_size():
-                    if not self.BUILT:
-                        return
-                    w      = self.window.width()
-                    h      = self.window.height()
-                    stored = self.setting("application.window.size.value")
-                    if stored and w > stored[0]:
-                        self.SETTINGS.application.window.size.value = [w, h]
+                #
+                # Throttled to 1Hz. This and the auto-lock read below both ran
+                # on every pass of a 20Hz loop, which meant ~60 queued UI
+                # dispatches a second and 40 settings reads a second, forever,
+                # to notice a window resize and a flag that changes once.
+                now_ts = time.time()
+                if now_ts - self._last_slow_tick >= 1.0:
+                    self._last_slow_tick = now_ts
 
-                self.call_on_ui(check_size)
+                    def check_size():
+                        if not self.BUILT:
+                            return
+                        w      = self.window.width()
+                        h      = self.window.height()
+                        stored = self.setting("application.window.size.value")
+                        if stored and w > stored[0]:
+                            self.SETTINGS.application.window.size.value = [w, h]
+
+                    self.call_on_ui(check_size)
+
+                    #auto fullscreen lock
+                    auto_lock = self.setting("application.window.auto_lock")
+                    if isinstance(auto_lock, dict):
+                        auto_lock = auto_lock.get("value")
+                    if auto_lock and not self.window_locked and self.window_should_lock:
+                        self.window_locked = True
+
+                        def go_fullscreen():
+                            self.window.showFullScreen()
+                            w = self.window.width()
+                            h = self.window.height()
+                            self.SETTINGS.application.window.size.value = [w, h]
+                            self.dump(self.settings_dict(), self.DATA)
+
+                        self.call_on_ui(go_fullscreen)
 
                 self.call_on_ui(self.NOTIFICATION_MANAGER.update)
 
                 self.iterate_event_callables("on_update", None, True)
                 self._check_interaction_timeout()
-
-                #auto fullscreen lock
-                auto_lock = self.setting("application.window.auto_lock")
-                if isinstance(auto_lock, dict):
-                    auto_lock = auto_lock.get("value")
-                if auto_lock and not self.window_locked and self.window_should_lock:
-                    self.window_locked = True
-
-                    def go_fullscreen():
-                        self.window.showFullScreen()
-                        w = self.window.width()
-                        h = self.window.height()
-                        self.SETTINGS.application.window.size.value = [w, h]
-                        self.dump(self.settings_dict(), self.DATA)
-
-                    self.call_on_ui(go_fullscreen)
 
                 time.sleep(0.05)
 

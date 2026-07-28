@@ -1,6 +1,6 @@
 # Bundled plugins
 
-Five plugins ship in `src/assets/bundled/`. They are ordinary plugins with no
+Six plugins ship in `src/assets/bundled/`. They are ordinary plugins with no
 special privileges - the same lifecycle, the same registries, the same
 `plugin.toml`. Almost everything visible on a fresh install comes from them,
 which is deliberate: if the bundled plugins could do something your plugin
@@ -21,7 +21,7 @@ Read them when the documentation runs out. They are the worked examples.
 
 ## Core Widgets Bundle
 
-`corewidgetsbundle` - the largest of the five, and the one to read first.
+`corewidgetsbundle` - the largest of the six, and the one to read first.
 
 Registers the home page and its sub-pages, and every widget and tile that
 comes with the app:
@@ -130,10 +130,11 @@ else asks - `next_event`, `next_holiday`, `next_user_event`, `previous_event`,
 `current_event`, `time_until`, `days_until`, `describe_gap`,
 `describe_duration`.
 
-Events come from three places and are kept apart by `source`: made in the app,
-posted to the API, or computed. Holidays are the third - 21 of them, worked
-out from the rules rather than fetched, because a wall panel is offline often
-and the rules do not change.
+Events come from four places and are kept apart by `source`: made in the app
+(`local`), posted to the API (`imported`), mirrored from an ICS feed
+(`subscribed`), or computed (`holiday`). Holidays are 21 of them, worked out
+from the rules rather than fetched, because a wall panel is offline often and
+the rules do not change.
 
 * **Calendar sub-page** - a month grid at `(0, 1)`, so it is one swipe down
   from the widgets. Tapping a day opens the day view; tapping an event opens
@@ -148,7 +149,11 @@ and the rules do not change.
   timeout.
 * **Default location** - a setting with a map picker beside it, used as the
   starting location for new events.
-* **API** - `calendar_add` and `calendar_upcoming`, both authed.
+* **Subscriptions** - read-only ICS mirroring from Google, iCloud and Outlook.
+  One direction, replace rather than merge, so nothing can conflict.
+* **API** - `calendar_add`, `calendar_upcoming`, `calendar_form` (a page sized
+  for a phone), `calendar_subscriptions`, `calendar_sync` and `calendar_dump`.
+  All authed.
 
 Everything above disappears with the plugin. Nothing in the client depends on
 the calendar existing; anything that reads it checks

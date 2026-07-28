@@ -18,6 +18,11 @@ after another rather than on top of each other.
 are noise in a list - progress ticks, repeated status - and leave it `True`
 for anything worth finding again later.
 
+History keeps the most recent **50** entries. The panel renders the list in
+full every time it opens, so an uncapped history is both memory that never
+comes back and a build on the UI thread that grows with the uptime of the
+panel.
+
 Position comes from `notifications.notification_position` in Settings, so do
 not assume a corner.
 

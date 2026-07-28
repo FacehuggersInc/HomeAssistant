@@ -360,12 +360,6 @@ class Tile(QWidget):
 
             self.move_requested.emit(self, *self.screen_to_grid())
 
-            #update trash bin hot state (red highlight when hovering over it)
-            grid = self.parent()
-            page = grid.parent() if grid else None
-            if page and hasattr(page, "trash_bin"):
-                page.trash_bin.set_hot(page.trash_bin.is_over(event.globalPosition().toPoint()))
-
     def _drag_resize(self, global_point: QPoint) -> None:
         """Turn pointer travel into a cell span, and swap variants as it changes."""
         grid = self.parent()

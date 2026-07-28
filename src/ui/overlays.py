@@ -467,6 +467,11 @@ class NotificationManager:
 
             if n.animating and not n.isVisible():
                 self.client.OVERLAYS.remove("SYSTEM", n)
+                # Explicit, rather than left to refcount. A toast connects its
+                # own signals to its own bound methods, which is a cycle - so
+                # dropping the last reference does not free it and it waited
+                # on the hourly gc.collect() instead.
+                n.deleteLater()
                 self.current_notification = None
                 self.pushing = False
                 self.notify_kill_time = time.time() + self.delay_between
@@ -553,6 +558,19 @@ class DialogManager:
         self.client.OVERLAYS.remove("DIALOG", top)
         top.setParent(None)  # type: ignore[arg-type]
 
+        # A dialog carries a blurred snapshot of the page the size of itself,
+        # and every caller in the tree builds a fresh instance rather than
+        # reopening one - so unparenting alone left that pixmap resident until
+        # a reference cycle happened to be collected, which is hourly.
+        release = getattr(top, "release_backdrop", None)
+        if callable(release):
+            try:
+                release()
+            except Exception:
+                pass
+        if not getattr(top, "REUSABLE", False):
+            top.deleteLater()
+
         if self.dialog_stack:
             self.dialog_stack[-1].show()
             self.dialog_stack[-1].raise_()
@@ -567,6 +585,11 @@ class BaseDialog(QFrame):
     WIDTH = 620
     MAX_HEIGHT = 720
     BLUR_RADIUS = 28
+    # Set True on a subclass that is kept and reopened rather than rebuilt.
+    # DialogManager.close() deletes anything without it, because every caller
+    # in this tree constructs a fresh dialog per open and the alternative was
+    # a full-size backdrop pixmap per dialog waiting on the hourly collection.
+    REUSABLE = False
     # Past this, body and detail text scrolls instead of growing. A dialog is
     # capped by MAX_HEIGHT, so without this a long body is simply clipped -
     # a commit message with a paragraph after its summary loses the paragraph.
@@ -698,6 +721,16 @@ class BaseDialog(QFrame):
 
         self._backdrop = blurred
         self.update()
+
+    def release_backdrop(self) -> None:
+        """
+        Drop the blurred snapshot of the page behind this dialog.
+
+        Called by DialogManager on close. It is a pixmap the size of the
+        dialog, and a closed dialog waiting on the collector to notice it was
+        holding one for as much as an hour.
+        """
+        self._backdrop = None
 
     def paintEvent(self, event) -> None:  # type: ignore[override]
         if self._backdrop is not None and not self._backdrop.isNull():
@@ -918,6 +951,7 @@ class Panel(QWidget):
         self.blur_radius       = blur_radius if blur_radius is not None else self.BLUR_RADIUS
         self.destroy_on_close  = destroy_on_close   #see close_panel()/_destroy() below
         self._destroyed        = False
+        self._close_connected  = False
         self._fallback_bg = QColor(bgcolor)
         self._backdrop: Optional[QPixmap] = None
         self.open         = False
@@ -1113,24 +1147,40 @@ class Panel(QWidget):
         self._anim.setEasingCurve(QEasingCurve.Type.InCubic)
         self._anim.setStartValue(self.pos())
         self._anim.setEndValue(self._hidden_pos)
-        self._anim.finished.connect(self._on_closed)
+        # Connected once, not per close. stop() does not emit finished, so a
+        # panel reopened mid-close left this connected and the next close
+        # stacked a second one - _on_closed then ran twice.
+        if not self._close_connected:
+            self._anim.finished.connect(self._on_closed)
+            self._close_connected = True
         self._anim.start()
 
     def _on_closed(self) -> None:
-        try:
-            self._anim.finished.disconnect(self._on_closed)
-        except TypeError:
-            pass
+        if not self._closing:
+            # The animation that just finished was an open, not a close.
+            return
         self.hide()
         self._closing = False
+        self._release_backdrop()
         if getattr(self, "_destroy_after_close", False):
             self._destroy_after_close = False
             self._destroy()
+
+    def _release_backdrop(self) -> None:
+        """
+        Drop the blurred snapshot while closed.
+
+        It is a pixmap the size of the panel - several MB at 1080p - and it
+        was only ever replaced on the next open, so every closed panel in the
+        app held one indefinitely for something nobody was looking at.
+        """
+        self._backdrop = None
 
     def _destroy(self) -> None:
         if self._destroyed:
             return
         self._destroyed = True
+        self._release_backdrop()
         try:
             self.client.OVERLAYS.removeEventFilter(self)
         except Exception:

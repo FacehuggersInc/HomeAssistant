@@ -57,17 +57,49 @@ class WeatherWidget(Widget):
         layout.addLayout(row)
 
         # Initial fetch in tick so it doesn't block __init__
+        self._fetching = False
         self.start_tick(interval_ms=5000)   # check every 5s; first tick fetches
 
     def _fetch(self) -> None:
-        try:
-            data = self.client.API["weather"].get_current_weather()
-            if data:
-                self._weather_data = data
-                self._update_display()
-                self._next_update = time.time() + self._update_interval
-        except Exception as e:
-            self.client.log("warning", f"[WeatherWidget] fetch failed: {e}")
+        """
+        Fetches on a worker thread and paints from cache.
+
+        tick() runs on the UI thread, so calling the weather API straight from
+        it froze the whole panel for the length of an HTTP request every time
+        the interval elapsed - and for the full timeout when the panel was
+        offline, which for a wall panel is not a rare case. WeatherTile
+        already did it this way; this widget did not.
+        """
+        if self._fetching:
+            return
+        api = self.client.API.get("weather")
+        if api is None:
+            return
+        self._fetching = True
+
+        def work(stop_event=None):
+            data = None
+            try:
+                data = api.get_current_weather()
+            except Exception as e:
+                self.client.log("warning", f"[WeatherWidget] fetch failed: {e}")
+
+            def apply():
+                self._fetching = False
+                if not data:
+                    # Retried on the next tick rather than pinned an hour out.
+                    return
+                try:
+                    self._weather_data = data
+                    self._update_display()
+                    self._next_update = time.time() + self._update_interval
+                except RuntimeError:
+                    pass    # widget removed while the request was in flight
+
+            self.client.call_on_ui(apply)
+
+        from threading import Thread
+        Thread(target=work, name="__cwb_weather_widget_fetch", daemon=True).start()
 
     def _update_display(self) -> None:
         if not self._weather_data:

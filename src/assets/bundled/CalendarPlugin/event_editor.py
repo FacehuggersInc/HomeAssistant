@@ -11,6 +11,7 @@ from PyQt6.QtCore import Qt
 
 from .dialogs import _WideDialog
 from src.ui.keyboard import KeyboardDialog
+from src.ui.controls.buttons import IconButton
 from src.styling import make_font, SIZES, set_style
 
 if TYPE_CHECKING:
@@ -39,7 +40,8 @@ class _Field(QWidget):
 
     def __init__(self, client: "Client", label: str, value: str = "",
                  placeholder: str = "", numeric: bool = False,
-                 opens: str = "keyboard", editor=None, multiline: bool = False):
+                 opens: str = "keyboard", editor=None, multiline: bool = False,
+                 clearable: bool = False):
         super().__init__()
         self.client    = client
         self.numeric   = numeric
@@ -47,6 +49,7 @@ class _Field(QWidget):
         self.opens     = opens
         self.editor    = editor
         self.multiline = multiline
+        self.clearable = clearable
 
         row = QHBoxLayout(self)
         row.setContentsMargins(0, 0, 0, 0)
@@ -56,7 +59,13 @@ class _Field(QWidget):
 
         name = QLabel(label)
         name.setFont(make_font(SIZES.S1))
-        name.setFixedWidth(90)
+        # Wrapped and wider rather than a hard 90px. Anything longer than
+        # "Location" was silently clipped, which is how a field ends up
+        # meaning something different to the person reading it than to the
+        # person who named it.
+        name.setFixedWidth(132)
+        name.setWordWrap(True)
+        name.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         set_style(name, "common", "text-muted")
         row.addWidget(name)
 
@@ -83,6 +92,24 @@ class _Field(QWidget):
         self.edit.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
         set_style(self.edit, "settings", "body-field")
         row.addWidget(self.edit, stretch=1)
+
+        # Every picker returns a value, so without this there is no way back to
+        # empty once one has been chosen - and "no end time" and "does not stop
+        # repeating" are both ordinary things to mean.
+        self.clear_button = None
+        if clearable:
+            self.clear_button = IconButton("mdi.close", self.clear, size=18)
+            self.clear_button.setToolTip(f"Clear {label.lower()}")
+            row.addWidget(self.clear_button)
+            self._sync_clear()
+
+    def _sync_clear(self) -> None:
+        """The clear button is only there when there is something to clear."""
+        if self.clear_button is not None:
+            self.clear_button.setVisible(bool(self.value().strip()))
+
+    def clear(self) -> None:
+        self.set_value("")
 
     def mouseReleaseEvent(self, event) -> None:
         if self.opens == "time":
@@ -116,6 +143,7 @@ class _Field(QWidget):
             self.edit.setPlainText(text)
         else:
             self.edit.setText(text)
+        self._sync_clear()
         if self.editor is not None and hasattr(self.editor, "on_field_changed"):
             self.editor.on_field_changed()
 
@@ -293,7 +321,10 @@ class _Chooser(QWidget):
 
         name = QLabel(label)
         name.setFont(make_font(SIZES.S1))
-        name.setFixedWidth(90)
+        # Matches _Field's label column, so the value side of every row in the
+        # dialog starts at the same x.
+        name.setFixedWidth(132)
+        name.setWordWrap(True)
         set_style(name, "common", "text-muted")
         row.addWidget(name)
 
@@ -386,9 +417,29 @@ class EventEditorDialog(_WideDialog):
                  on_saved: Callable = None, event=None):
         # One dialog for both. An edit form that is a separate class from the
         # add form drifts apart field by field.
+        #
+        # An occurrence carries no recurrence of its own - occurrence_on()
+        # clears `repeat` and `repeat_until` so a generated copy cannot be
+        # mistaken for a series. Editing one therefore has to load the STORED
+        # event behind it, or the repeat fields render empty and saving writes
+        # that emptiness back over the series, silently destroying the
+        # recurrence.
+        self.editing_series = False
+        if event is not None and getattr(event, "series_key", ""):
+            try:
+                series = client.public.calendar["get_event"](event.series_key)
+            except Exception:
+                series = None
+            if series is not None:
+                event = series
+                self.editing_series = True
+
         self.event = event
         if event is not None:
             try:
+                # The series' own start, not the occurrence that was tapped -
+                # saving with the occurrence's date in the field would move the
+                # whole series to that day.
                 day = date.fromisoformat(event.day)
             except (ValueError, TypeError):
                 day = day or date.today()
@@ -403,6 +454,15 @@ class EventEditorDialog(_WideDialog):
         body = QVBoxLayout()
         body.setSpacing(10)
 
+        if self.editing_series:
+            note = QLabel("This event repeats — changes here apply to every "
+                          "occurrence, and the date below is when the series "
+                          "starts.")
+            note.setFont(make_font(SIZES.S1))
+            note.setWordWrap(True)
+            set_style(note, "common", "text-muted")
+            body.addWidget(note)
+
         existing = event
         self.title_field    = _Field(client, "Title",
                                      value=(existing.title if existing else ""),
@@ -412,11 +472,11 @@ class EventEditorDialog(_WideDialog):
         self.time_field     = _Field(client, "Start",
                                      value=(existing.time if existing else ""),
                                      placeholder="Tap to choose, or leave for all day",
-                                     opens="time", editor=self)
+                                     opens="time", editor=self, clearable=True)
         self.end_field      = _Field(client, "End",
                                      value=(existing.end_time if existing else ""),
                                      placeholder="Optional",
-                                     opens="time", editor=self)
+                                     opens="time", editor=self, clearable=True)
         # A new event starts at the default; an existing one keeps its own,
         # including an intentionally empty one.
         default_location = ""
@@ -431,7 +491,7 @@ class EventEditorDialog(_WideDialog):
                                      value=(existing.location if existing
                                             else default_location),
                                      placeholder="Tap to search a map",
-                                     opens="location", editor=self)
+                                     opens="location", editor=self, clearable=True)
         # A body field, so the keyboard opens in its multi-line layout and a
         # note longer than one line is actually readable back.
         self.notes_field    = _Field(client, "Notes",
@@ -450,16 +510,27 @@ class EventEditorDialog(_WideDialog):
                                existing.repeat if existing else "")
         body.addWidget(self.repeat)
 
+        # These two are adjacent and both take a date, which is exactly how a
+        # series-end date ends up in the span field. The caption carries the
+        # distinction rather than the labels, which have a fixed column to fit
+        # in and were being clipped.
+        caption = QLabel("'Last day' is how long ONE occurrence runs. "
+                         "'Stop repeating' is when the series ends.")
+        caption.setFont(make_font(SIZES.S1))
+        caption.setWordWrap(True)
+        set_style(caption, "common", "text-muted")
+        body.addWidget(caption)
+
         self.end_day_field = _Field(client, "Last day",
                                     value=(existing.end_day if existing else ""),
-                                    placeholder="Same day - tap for a range",
-                                    opens="date", editor=self)
+                                    placeholder="Same day - tap only if it runs over several days",
+                                    opens="date", editor=self, clearable=True)
         body.addWidget(self.end_day_field)
 
-        self.until_field = _Field(client, "Repeat until",
+        self.until_field = _Field(client, "Stop repeating",
                                   value=(existing.repeat_until if existing else ""),
-                                  placeholder="Forever - tap to set an end",
-                                  opens="date", editor=self)
+                                  placeholder="Forever - tap to end the series",
+                                  opens="date", editor=self, clearable=True)
         body.addWidget(self.until_field)
 
         self.icons = IconPicker(existing.icon if existing else "mdi.calendar")
@@ -564,6 +635,32 @@ class EventEditorDialog(_WideDialog):
             except ValueError:
                 fields["end_day"] = ""
 
+        # "Last day" and "Stop repeating" sit next to each other and answer
+        # different questions: how long ONE occurrence runs, and when the
+        # SERIES stops. Putting the series' finishing date in "Last day" turns
+        # every occurrence into a span that long, so a weekly event draws
+        # overlapping month-long bars across every day of the calendar and the
+        # count climbs the further ahead you look. Refused rather than
+        # silently reinterpreted - only the person entering it knows which
+        # they meant.
+        if fields["end_day"] and fields["repeat"]:
+            try:
+                span_days = (_date.fromisoformat(fields["end_day"]) - chosen_day).days
+            except ValueError:
+                span_days = 0
+            gap = _repeat_gap_days(fields["repeat"],
+                                   int(fields.get("repeat_interval") or 1))
+            if gap and span_days >= gap:
+                self._complain(
+                    f"This repeats {fields['repeat']}, but 'Last day' makes each "
+                    f"occurrence {span_days + 1} days long - so they would run into "
+                    f"each other.\n\n"
+                    f"'Last day' is for one occurrence that spans several days. "
+                    f"To stop the series on a date, clear it with the x beside "
+                    f"it and use 'Stop repeating' instead."
+                )
+                return
+
         try:
             api = self.client.public.calendar
             if self.event is not None:
@@ -583,6 +680,19 @@ class EventEditorDialog(_WideDialog):
             except Exception:
                 pass
         self.close()
+
+
+def _repeat_gap_days(repeat: str, interval: int = 1) -> int:
+    """
+    Days between one occurrence and the next, or 0 for a rule with no gap.
+
+    Approximate for monthly and yearly on purpose - it is used to catch a span
+    that is obviously longer than its own recurrence, and the shortest month
+    is the safe bound to compare against.
+    """
+    interval = max(1, int(interval or 1))
+    return {"daily": 1, "weekly": 7, "monthly": 28, "yearly": 365}.get(
+        repeat, 0) * interval
 
 
 def _clean_clock(text: str):

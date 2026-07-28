@@ -42,14 +42,18 @@ class Session():
 		self.is_open = True
 		self.cancelled = False
 		self.__client.STT.open_session()
-		self.__client.TIMEOUTS.add(60 * 5, self.timed_out, self.__id)
+		self.__client.TIMEOUTS.add(60 * 5, self.timed_out, self.__id,
+		                           transient=True)
 		self.__client.TIMEOUTS.start(self.__id)
 		return self
 
 	def __exit__(self, exc_type, exc_val, exc_tb):
 		self.is_open = False
 		self.__client.STT.close_session()
-		self.__client.TIMEOUTS.cancel(self.__id)
+		# discard(), not cancel(): the id is a uuid belonging to this session
+		# alone, so a cancelled registration would sit in the table until the
+		# hourly prune and one entry would accumulate per conversation.
+		self.__client.TIMEOUTS.discard(self.__id)
 		# Release anyone still blocked in wait_for_phrase().
 		self.__queued.put(_CANCELLED)
 

@@ -214,6 +214,45 @@ class DayViewDialog(_WideDialog):
         self.client.dialog(EventViewDialog(self.client, event.key))
 
     def _confirm_remove(self, event) -> None:
+        api = self._calendar()
+
+        # How many stored rows look like this same thing. A series is one row,
+        # but the same event can sit in the file several times over with
+        # different start days - and to somebody looking at the calendar those
+        # are one event appearing repeatedly, not several events. Removing the
+        # row behind the occurrence they tapped then clears the calendar only
+        # as far as the next row's first occurrence.
+        copies = []
+        if api is not None:
+            try:
+                copies = api["looks_like"](event)
+            except Exception:
+                copies = []
+
+        repeating = bool(event.series_key) or bool(getattr(event, "repeat", ""))
+
+        if repeating or len(copies) > 1:
+            options = []
+            if repeating and event.date is not None:
+                options.append(
+                    ("one", f"Only {event.date.strftime('%a %d %b')}"))
+            options.append(("all", "This event and all its repeats"))
+            if len(copies) > 1:
+                options.append(
+                    ("every", f"Every copy — {len(copies)} stored events"))
+
+            self.client.choose(
+                "Remove event",
+                f"'{event.title}' appears more than once."
+                if len(copies) > 1 else f"'{event.title}' repeats. Remove which?",
+                options,
+                # Nothing pre-selected would be better, but the dialog checks
+                # the first option by default - so the least destructive one is
+                # first and the labels say what each actually does.
+                on_choose=lambda choice: self._remove_series_choice(event, choice),
+            )
+            return
+
         # Confirmed, because a mis-tap here loses something the user typed and
         # there is no undo behind it.
         self.client.confirm(
@@ -225,6 +264,31 @@ class DayViewDialog(_WideDialog):
             destructive  = True,
         )
 
+    def _remove_series_choice(self, event, choice: str) -> None:
+        api = self._calendar()
+        if api is None:
+            return
+        try:
+            if choice == "one":
+                # Skipped rather than deleted: the series is one stored row, so
+                # there is nothing else to remove for a single date.
+                api["skip_occurrence"](event.series_key or event.key, event.date)
+                self.client.trigger_on_call_event_iteration(
+                    "on_calendar_changed", event)
+            elif choice == "every":
+                gone = api["remove_matching"](event)
+                self.client.trigger_on_call_event_iteration(
+                    "on_calendar_changed", event)
+                self.client.simple_notify(
+                    "mdi.calendar-remove", "Calendar",
+                    f"Removed {gone} stored copies of '{event.title}'.")
+            else:
+                api["remove_event"](event.base_key)
+        except Exception as e:
+            self.client.log("warning", f"[Calendar] Could not remove: {e}",
+                            include_traceback=True)
+        self.refresh()
+
     def _remove(self, event) -> None:
         api = self._calendar()
         if api is None:
@@ -232,7 +296,10 @@ class DayViewDialog(_WideDialog):
         try:
             # remove_event announces the change itself now, so firing here
             # too would refresh everything twice for one deletion.
-            api["remove_event"](event.key)
+            # base_key, not key: an occurrence's key is `<stored>@<date>` and
+            # is not a stored event, so passing it removed nothing and the
+            # day view simply came back with the event still in it.
+            api["remove_event"](event.base_key)
         except Exception as e:
             self.client.log("warning", f"[Calendar] Could not remove: {e}")
         self.refresh()

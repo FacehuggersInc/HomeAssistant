@@ -363,6 +363,18 @@ through `call_on_ui`. See [Threading](threading.md).
 
 The framework calls `stop_tick()` for you when the widget is removed.
 
+It also **suspends** every widget's tick when `sub.home` goes off screen, and
+resumes it when the page comes back — see
+[Off-screen sub-pages](pages.md#off-screen-sub-pages). `suspend_tick()` remembers
+the interval and `resume_tick()` restores it plus one immediate tick, so nothing
+shows a stale face after a swipe. A widget that was never ticking stays that
+way, so there is nothing to opt into: write `tick()` as normal and it simply
+stops running while nobody can see it.
+
+Anything a widget does on a timer of its **own** — a `QTimer` it constructed
+rather than `start_tick()` — is outside that and keeps running. Prefer
+`start_tick()`.
+
 ---
 
 ## Registering a widget

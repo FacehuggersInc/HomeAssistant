@@ -283,6 +283,7 @@ class ReminderWatcher:
         self.panel = None
         self._timeout_id = "__calendar_reminder"
         self._complained = ""
+        self._opening = False       # a panel is being built on the UI thread
         self._snoozed_until: dict = {}
 
     ## -- lifecycle
@@ -306,7 +307,11 @@ class ReminderWatcher:
             if not self.plugin.option("reminders.enabled", True):
                 return
             self._complained = ""
-            if self.panel is not None:
+            if self.panel is not None or self._opening:
+                # _opening as well as panel: the panel is now built on the UI
+                # thread, so there is a gap between deciding to show one and it
+                # existing. check() runs on every client tick, and without this
+                # it would pick the next candidate and queue that one too.
                 return
 
             lead = int(self.plugin.option("reminders.lead_minutes", 15))
@@ -338,9 +343,31 @@ class ReminderWatcher:
 
     def show(self, event) -> None:
         self.shown.add(event.key)
-        self.panel = ReminderPanel(self.client, event, on_closed=self._closed,
-                                   on_snoozed=self._snoozed)
-        self.client.call_on_ui(self.panel.open_panel)
+        self._opening = True
+
+        # Built on the UI thread, not merely opened there. check() runs on
+        # on_update, which is a background thread - so constructing the panel
+        # here gave every QObject inside it (its position animation, and the
+        # map's web view) background-thread affinity. open_panel() then called
+        # _anim.start() from the UI thread against an object owned by another,
+        # which Qt refuses with
+        #     QObject::startTimer: Timers cannot be started from another thread
+        # and which took the process down with SIGTRAP.
+        def build_and_open():
+            try:
+                self.panel = ReminderPanel(self.client, event,
+                                           on_closed=self._closed,
+                                           on_snoozed=self._snoozed)
+                self.panel.open_panel()
+            except Exception as e:
+                self.panel = None
+                self.client.log("warning",
+                                f"[Calendar] Could not show reminder: {e}",
+                                include_traceback=True)
+            finally:
+                self._opening = False
+
+        self.client.call_on_ui(build_and_open)
 
         seconds = int(self.plugin.option("reminders.dismiss_seconds", 45))
         if seconds > 0:
@@ -354,19 +381,28 @@ class ReminderWatcher:
             self.client.TIMEOUTS.cancel(self._timeout_id)
         except Exception:
             pass
+        self._opening = False
         panel, self.panel = self.panel, None
-        if panel is not None:
+        if panel is None:
+            return
+
+        # Marshalled, because stop() reaches this from the plugin unload
+        # thread as well as the timeout reaching it from the UI thread.
+        def close():
             try:
                 panel.close_panel()
             except RuntimeError:
                 pass
+        self.client.call_on_ui(close)
 
     def _snoozed(self, event) -> None:
         """Forget that it was shown, and hold it off for a while."""
         self.panel = None
+        self._opening = False
         self.shown.discard(event.key)
         minutes = int(self.plugin.option("reminders.snooze_minutes", 5))
         self._snoozed_until[event.key] = time.time() + max(1, minutes) * 60
 
     def _closed(self, event) -> None:
         self.panel = None
+        self._opening = False

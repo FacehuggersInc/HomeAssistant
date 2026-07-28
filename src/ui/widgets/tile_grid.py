@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING, Optional
 
 from PyQt6.QtWidgets import QWidget
 from PyQt6.QtCore import Qt, QRect, QPropertyAnimation, QEasingCurve
-from PyQt6.QtGui import QPainter, QColor, QPen, QBrush
+from PyQt6.QtGui import QPainter, QColor, QPen, QBrush, QPixmap
 
 from src.ui.widgets.tile import Tile
 
@@ -36,6 +36,9 @@ class TileGrid(QWidget):
         self.dragging_tile: Optional[Tile] = None
         self.hover_col:     int = -1
         self.hover_row:     int = -1
+
+        # Rendered once per layout, blitted per paint - see _build_dot_cache().
+        self._dot_cache: Optional[QPixmap] = None
 
         self.setMouseTracking(True)
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
@@ -114,6 +117,10 @@ class TileGrid(QWidget):
     ##LAYOUT
 
     def recalculate(self) -> None:
+        # The dots are derived from cell_size, the gaps and the origin, all of
+        # which this recomputes - so the cache is dropped here rather than at
+        # each call site.
+        self._dot_cache = None
         margin = int(self.client.SETTINGS.home.widget_margin.value)
         self.margin = margin
 
@@ -264,6 +271,15 @@ class TileGrid(QWidget):
     def on_tile_move_requested(self, tile: Tile, col: int, row: int) -> None:
         col = max(0, min(col, self.cols - tile.grid_w))
         row = max(0, min(row, self.rows - tile.grid_h))
+
+        # Only when the drop target actually changes cell. This is called on
+        # every mouse-move event of a drag - many per cell of travel - and
+        # each one used to force a full-grid repaint to move a guide box that
+        # had not moved.
+        if (col == self.hover_col and row == self.hover_row
+                and tile is self.dragging_tile):
+            return
+
         self.hover_col     = col
         self.hover_row     = row
         self.dragging_tile = tile
@@ -356,13 +372,27 @@ class TileGrid(QWidget):
 
     ##PAINTING
 
-    def paintEvent(self, event) -> None:
-        if self.cell_size <= 0:
-            return
-        p = QPainter(self)
-        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+    def _build_dot_cache(self) -> None:
+        """
+        The cell dots, drawn once into a pixmap.
 
-        #faint dots marking every cell corner across the whole grid
+        There are (cols+1)x(rows+1) of them - 187 on the default grid - and
+        paintEvent runs on every mouse-move of a drag. Drawing that many
+        antialiased ellipses per move is what made dragging a tile feel heavy;
+        the dots only change when the grid is laid out, so they are rendered
+        once and blitted thereafter.
+        """
+        self._dot_cache = None
+        if self.cell_size <= 0 or self.width() <= 0 or self.height() <= 0:
+            return
+
+        ratio = self.devicePixelRatioF() or 1.0
+        cache = QPixmap(int(self.width() * ratio), int(self.height() * ratio))
+        cache.setDevicePixelRatio(ratio)
+        cache.fill(Qt.GlobalColor.transparent)
+
+        p = QPainter(cache)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
         p.setBrush(QBrush(QColor(255, 255, 255, 22)))
         p.setPen(Qt.GlobalColor.transparent)
         r = 2
@@ -371,6 +401,21 @@ class TileGrid(QWidget):
                 x = self.origin_x + col * (self.cell_size + self.gap_x) - self.gap_x / 2
                 y = self.origin_y + row * (self.cell_size + self.gap_y) - self.gap_y / 2
                 p.drawEllipse(int(x - r), int(y - r), r * 2, r * 2)
+        p.end()
+
+        self._dot_cache = cache
+
+    def paintEvent(self, event) -> None:
+        if self.cell_size <= 0:
+            return
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        #faint dots marking every cell corner across the whole grid
+        if self._dot_cache is None:
+            self._build_dot_cache()
+        if self._dot_cache is not None:
+            p.drawPixmap(0, 0, self._dot_cache)
 
         if self.dragging_tile and self.hover_col >= 0:
             drop_rect = self.cell_rect(
@@ -385,6 +430,7 @@ class TileGrid(QWidget):
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
         self.recalculate()
+        self._dot_cache = None      # geometry changed, so the dots have too
         for tile in self.tiles:
             self.place_tile(tile, tile.grid_col, tile.grid_row)
         self.update()

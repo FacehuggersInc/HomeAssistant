@@ -234,6 +234,8 @@ class Calendar(Plugin):
             "expand":            self.store.expand,
             "skip_occurrence":   self.store.skip_occurrence,
             "unskip_occurrence": self.store.unskip_occurrence,
+            "looks_like":        self.store.looks_like,
+            "remove_matching":   self.store.remove_matching,
             "skip_next":         self.store.skip_next,
             "set_hidden":        self.store.set_hidden,
             "hidden_keys":       self.store.hidden_keys,
@@ -625,6 +627,14 @@ class Calendar(Plugin):
         removed = self.store.remove(key)
         if removed:
             self.client.trigger_on_call_event_iteration("on_calendar_changed", key)
+        else:
+            # Every caller discarded the return value, so a removal that
+            # matched nothing looked exactly like one that worked - the dialog
+            # closed, the day view refreshed, and the event was still there.
+            self.client.log(
+                "warning",
+                f"[Calendar] remove_event('{key}') matched no stored event - "
+                f"nothing was removed.")
         return removed
 
     def add_event(self, **fields) -> Event:

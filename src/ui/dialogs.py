@@ -5,9 +5,10 @@ from typing import TYPE_CHECKING, Callable, Iterable, Optional
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFrame, QLineEdit,
-    QButtonGroup, QRadioButton,
+    QButtonGroup, QRadioButton, QSizePolicy,
 )
 from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QFontMetrics
 
 from src.styling import make_font, SIZES, set_style
 from src.ui.overlays import BaseDialog
@@ -152,12 +153,25 @@ class InputDialog(BaseDialog):
 
 class ChoiceDialog(BaseDialog):
 
+    # A radio button does not wrap its text - a long option is simply clipped
+    # by the card around it. Rather than capping what a caller may write, the
+    # dialog measures its longest option and widens to fit, bounded by the
+    # screen. The ratio matches the wide calendar dialogs, so the two look
+    # like the same kind of surface.
+    MAX_WIDTH_RATIO = 0.86
+
+    #indicator + its margin + the row's own padding + the card's margins,
+    #plus room for a scrollbar when the list is long enough to need one
+    _ROW_CHROME = 22 + 12 + 28 + 48 + 18
+
     def __init__(self, client: "Client", title: str, body: str = "",
                  options: Iterable = (), on_choose: Callable = None,
                  on_cancel: Callable = None, default=None,
                  choose_text: str = "Select", cancel_text: str = "Cancel",
                  detail: str = None):
-        super().__init__(client, title, body, detail=detail)
+        options = list(options)
+        super().__init__(client, title, body,
+                         width=self._fit_width(client, options), detail=detail)
         self._on_choose = on_choose
         self._on_cancel = on_cancel
         self._values = []
@@ -181,7 +195,11 @@ class ChoiceDialog(BaseDialog):
             radio = QRadioButton(str(label))
             radio.setFont(make_font(SIZES.S2))
             radio.setCursor(Qt.CursorShape.PointingHandCursor)
-            radio.setMinimumHeight(40)
+            # A whole row rather than a radio dot to aim at - this is read and
+            # tapped standing at a wall panel, not clicked with a mouse.
+            radio.setMinimumHeight(56)
+            radio.setSizePolicy(QSizePolicy.Policy.Expanding,
+                                QSizePolicy.Policy.Fixed)
             set_style(radio, "overlays", "dialog-choice")
             self._group.addButton(radio, index)
             v.addWidget(radio)
@@ -190,10 +208,45 @@ class ChoiceDialog(BaseDialog):
                 radio.setChecked(True)
 
         v.addStretch()
-        self.add_scroll(inner, min_height=min(260, max(60, 46 * max(1, len(self._values)))))
+        # Sized to the taller rows, or the list scrolls when it did not need to
+        # and the options below the fold are the ones nobody knows are there.
+        self.add_scroll(inner, min_height=min(360, max(72, 64 * max(1, len(self._values)))))
 
         self.add_button(cancel_text, self._cancel, "secondary")
         self.add_button(choose_text, self._choose, "primary")
+
+    @classmethod
+    def _fit_width(cls, client, options: list) -> int:
+        """
+        Wide enough for the longest option, never wider than the screen.
+
+        Measured rather than guessed: the labels come from callers, including
+        plugins, and one that runs a few words long was being cut off by the
+        card with no indication there was more to read.
+        """
+        widest = 0
+        try:
+            metrics = QFontMetrics(make_font(SIZES.S2))
+            for option in options:
+                if isinstance(option, (tuple, list)) and len(option) == 2:
+                    label = option[1]
+                else:
+                    label = option
+                widest = max(widest, metrics.horizontalAdvance(str(label)))
+        except Exception:
+            return cls.WIDTH
+
+        wanted = widest + cls._ROW_CHROME
+
+        ceiling = cls.WIDTH
+        try:
+            host = getattr(client, "OVERLAYS", None)
+            if host is not None and host.width() > 0:
+                ceiling = max(cls.WIDTH, int(host.width() * cls.MAX_WIDTH_RATIO))
+        except Exception:
+            pass
+
+        return max(cls.WIDTH, min(wanted, ceiling))
 
     def _choose(self) -> None:
         index = self._group.checkedId()

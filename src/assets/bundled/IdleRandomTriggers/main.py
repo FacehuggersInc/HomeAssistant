@@ -12,6 +12,7 @@ class IdleTriggersPlugin(Plugin):
     def __init__(self):
         self.builders = {}
         self.invalid_pages = []
+        self._invalid_keys = set()   #self.invalid_pages page keys, see check_time_update
 
         self.rotating_builders = False
         self.already_called_ids = []
@@ -56,6 +57,9 @@ class IdleTriggersPlugin(Plugin):
             self.already_called_ids = []
             if isinstance(self.last_built[0], Panel) and self.last_built[3]:
                 self.last_built[0].close_panel(destroy=True)
+                # Dropped, so a destroyed panel is not reached again on the
+                # next dismissal path.
+                self.last_built[0] = None
                 #Cancel Timer
                 if self.last_timeout_id:
                     self.client.TIMEOUTS.cancel(self.last_timeout_id)
@@ -70,33 +74,41 @@ class IdleTriggersPlugin(Plugin):
             del self.builders[plugin_key]
             for group in [g for g in self.invalid_pages if g[1] == plugin_key]:
                 self.invalid_pages.remove( group )
+            self._rebuild_invalid_keys()
+
+    def _rebuild_invalid_keys(self) -> None:
+        self._invalid_keys = {k[0] for k in self.invalid_pages}
 
     def check_time_update(self, *args):
-        if self.builders:
-            if self.client.PAGE and self.client.PAGE.name in [g[0] for g in self.invalid_pages]:
-                if self.rotating_builders:
-                    self.rotating_builders = False
-                    self.already_called_ids = []
+        if not self.builders:
+            return
 
-                    #Dismiss
-                    if isinstance(self.last_built[0], Panel) and self.last_built[3] == True:
-                        self.last_built[0].close_panel(destroy=True)
-                        #Cancel Timer
-                        if self.last_timeout_id:
-                            self.client.TIMEOUTS.cancel(self.last_timeout_id)
-                return
-
+        # Precomputed. This runs on on_update - 20 times a second, forever -
+        # and rebuilt a list from self.invalid_pages on every single pass.
+        if self.client.PAGE and self.client.PAGE.name in self._invalid_keys:
             if self.rotating_builders:
-                if self.builder_used_timeslot == True:
-                    self.builder_used_timeslot = False
-                    self.client.call_on_ui( self.call_and_handle_random_builder )
-                else:
-                    if isinstance(self.last_built[0], bool) and self.last_built[0] == False:
-                        pass #! IDK WHAT TO DO HERE YET
+                self.rotating_builders = False
+                self.already_called_ids = []
+
+                #Dismiss
+                if isinstance(self.last_built[0], Panel) and self.last_built[3] == True:
+                    self.last_built[0].close_panel(destroy=True)
+                    self.last_built[0] = None
+                    #Cancel Timer
+                    if self.last_timeout_id:
+                        self.client.TIMEOUTS.cancel(self.last_timeout_id)
+            return
+
+        if self.rotating_builders:
+            if self.builder_used_timeslot == True:
+                self.builder_used_timeslot = False
+                self.client.call_on_ui( self.call_and_handle_random_builder )
     
     def built_panel_timeout(self):
-        panel: Panel = self.last_built[0]
-        panel.close_panel(destroy=True)
+        panel = self.last_built[0]
+        if isinstance(panel, Panel):
+            panel.close_panel(destroy=True)
+        self.last_built[0] = None
         self.builder_used_timeslot = True
 
     ## FUNCTIONS
@@ -140,7 +152,8 @@ class IdleTriggersPlugin(Plugin):
                     self.settings.rotate_time.value / 1000,
                     self.built_panel_timeout,
                     f"builder_panel_timeout:{self.last_built[1]}",
-                    True
+                    True,
+                    transient=True,
                 )
 
     def plugin_has_registered(self, plugin_key:str):
@@ -173,5 +186,6 @@ class IdleTriggersPlugin(Plugin):
 
     def add_invalid_pages(self, plugin_key:str, keys:list):
         for key in keys:
-            if not key in [k[0] for k in self.invalid_pages]:
+            if not key in self._invalid_keys:
                 self.invalid_pages.append((key, plugin_key))
+        self._rebuild_invalid_keys()

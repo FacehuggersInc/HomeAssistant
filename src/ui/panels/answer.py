@@ -94,9 +94,19 @@ class AnswerPanel(Panel):
 
         seconds = self.TIMEOUT if timeout is None else timeout
         if seconds > 0:
-            self._timeout_key = f"answer_{id(self)}"
-            client.TIMEOUTS.add(seconds, self.close_panel, self._timeout_key)
+            # A uuid, not id(self). CPython reuses addresses, so a new panel
+            # landing where a freed one was inherited its registration - and
+            # with it a callback pointing at the deleted panel.
+            self._timeout_key = f"answer:{client.uuid()}"
+            client.TIMEOUTS.add(seconds, self.close_panel, self._timeout_key,
+                                transient=True)
             client.TIMEOUTS.start(self._timeout_key)
+
+    def close_panel(self, destroy: bool = None) -> None:
+        key = getattr(self, "_timeout_key", "")
+        if key:
+            self.client.TIMEOUTS.discard(key)
+        super().close_panel(destroy)
 
     def paintEvent(self, event) -> None:
         super().paintEvent(event)

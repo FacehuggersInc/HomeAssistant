@@ -46,10 +46,50 @@
     padding: 0 12px;
 }
 
+/* Choice options.
+ *
+ * The indicator has to be styled explicitly. Qt stops drawing a radio
+ * button's native indicator as soon as a stylesheet touches the widget, so
+ * a rule that set only colour and padding rendered each option as a line of
+ * plain text - selectable, pre-selected, and with nothing on screen saying
+ * either. Styled as a row you tap rather than a radio you aim at, because
+ * this is read standing up on a wall panel. */
+
 .dialog-choice {
     color: #f2f2f2;
+    background: rgba(255,255,255,10);
+    border: 1px solid rgba(255,255,255,22);
+    border-radius: 10px;
+    padding: 12px 14px;
+    text-align: left;
+}
+
+.dialog-choice:hover {
+    background: rgba(255,255,255,18);
+    border: 1px solid rgba(255,255,255,40);
+}
+
+.dialog-choice:checked {
+    background: rgba(45,108,192,70);
+    border: 1px solid #6fa8e0;
+}
+
+.dialog-choice::indicator {
+    width: 22px;
+    height: 22px;
+    margin-right: 12px;
+    border-radius: 13px;
+    border: 2px solid rgba(255,255,255,110);
     background: transparent;
-    padding: 6px 4px;
+}
+
+.dialog-choice::indicator:hover {
+    border: 2px solid rgba(255,255,255,170);
+}
+
+.dialog-choice::indicator:checked {
+    border: 2px solid #9ccbf0;
+    background: #2d6cc0;
 }
 
 /* Dialog buttons Three tiers: primary (the affirmative action), seconda... */

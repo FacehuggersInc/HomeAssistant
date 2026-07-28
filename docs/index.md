@@ -22,7 +22,7 @@ what you are building. [Application lifecycle](lifecycle.md) explains when
 each of your hooks runs, and [Threading](threading.md) is worth reading before
 you write any background work - it is the rule most easily broken by accident.
 
-[Bundled plugins](bundled-plugins.md) describes the five that ship. They are
+[Bundled plugins](bundled-plugins.md) describes the six that ship. They are
 ordinary plugins with no special privileges, so they are the worked examples
 for everything above.
 
@@ -70,7 +70,7 @@ can subscribe to.
 | [Updating](updating.md) | Update checks, staging, rollback, exit codes. |
 | [Architecture](architecture.md) | How the client, backend and plugins fit together. |
 | [Plugins](plugins.md) | `plugin.toml`, `main.py`, and the full lifecycle. |
-| [Bundled plugins](bundled-plugins.md) | The five that ship, and what each provides. |
+| [Bundled plugins](bundled-plugins.md) | The six that ship, and what each provides. |
 | [Pages](pages.md) | Registering a page, a full example, sub-pages. |
 | [Widgets](widgets.md) | Writing and registering widgets, layout, persistence. |
 | [Tiles](tiles.md) | Writing and registering tiles, the grid and panel. |

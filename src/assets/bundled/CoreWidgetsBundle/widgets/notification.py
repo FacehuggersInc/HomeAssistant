@@ -100,6 +100,11 @@ class NotificationHistoryItem(QFrame):
 
 class NotificationHistory:
 
+    # The list is rendered in full every time the panel opens - one QFrame
+    # with six children per entry - so an uncapped history is both unbounded
+    # memory and an unbounded build on the UI thread.
+    MAX_ITEMS = 50
+
     def __init__(self, manager: "NotificationCenterWidget"):
         self.manager = manager
         self.client  = manager.client
@@ -126,6 +131,10 @@ class NotificationHistory:
     def add(self, icon: str, title: str, body: str, timestamp: datetime = None) -> None:
         ts = timestamp or datetime.now()
         self.items.insert(0, (self, icon, title, body, ts))
+        # Trimmed in place, for the same reason remove() is - this list is the
+        # object published on the public registry.
+        if len(self.items) > self.MAX_ITEMS:
+            del self.items[self.MAX_ITEMS:]
 
         if not self.is_manager_alive():
             return
@@ -137,7 +146,11 @@ class NotificationHistory:
             panel.refresh_list()
 
     def remove(self, timestamp: datetime) -> None:
-        self.items = [i for i in self.items if i[4] != timestamp]
+        # Mutated, never rebound. `self.items` IS the list exposed as
+        # `cwb_notifications`; assigning a new list here left the registry
+        # holding the original, so after one dismissal the two diverged and
+        # the published copy kept every entry forever.
+        self.items[:] = [i for i in self.items if i[4] != timestamp]
         if not self.items and self.is_manager_alive():
             self.manager.hide()
             panel = self.manager._panel

@@ -92,6 +92,8 @@ class Widget(QWidget):
 
         self._tick_timer = QTimer(self)
         self._tick_timer.timeout.connect(self._safe_tick)
+        self._tick_interval  = 1000
+        self._tick_suspended = False
 
     ## CAPABILITIES
 
@@ -240,10 +242,32 @@ class Widget(QWidget):
     ## TICK
 
     def start_tick(self, interval_ms: int = 1000) -> None:
-        self._tick_timer.start(interval_ms)
+        self._tick_interval = int(interval_ms)
+        self._tick_suspended = False
+        self._tick_timer.start(self._tick_interval)
 
     def stop_tick(self) -> None:
+        self._tick_suspended = False
         self._tick_timer.stop()
+
+    def suspend_tick(self) -> None:
+        """
+        Stop ticking without forgetting the interval.
+
+        Used when the page a widget lives on goes off screen. Distinct from
+        stop_tick(), which is a permanent stop on removal - a suspended widget
+        knows how to start again, and one that was never ticking stays that
+        way.
+        """
+        if self._tick_timer.isActive():
+            self._tick_suspended = True
+            self._tick_timer.stop()
+
+    def resume_tick(self) -> None:
+        if getattr(self, "_tick_suspended", False):
+            self._tick_suspended = False
+            self._tick_timer.start(getattr(self, "_tick_interval", 1000))
+            self._safe_tick()   # do not show a stale face until the next tick
 
     def _safe_tick(self) -> None:
         try:
@@ -469,6 +493,7 @@ class WidgetFramework(QWidget):
         self._refit = QTimer(self)
         self._refit.timeout.connect(self.tick_widgets)
         self._refit.start(1000)
+        self._ticking = True
 
         self._save_timer = QTimer(self)
         self._save_timer.setSingleShot(True)
@@ -1461,6 +1486,36 @@ class WidgetFramework(QWidget):
                 continue
         if changed:
             self.update_geometry()
+
+    def set_ticking(self, state: bool) -> None:
+        """
+        Start or stop all periodic work on this framework.
+
+        Covers the re-fit pass and every registered widget's own tick timer -
+        including the ones sitting in the panel, which were ticking as happily
+        as the placed ones despite being off screen twice over.
+        """
+        state = bool(state)
+        if state == getattr(self, "_ticking", True):
+            return
+        self._ticking = state
+
+        if state:
+            self._refit.start(1000)
+        else:
+            self._refit.stop()
+
+        for widget in list(self.registry.values()):
+            try:
+                widget.resume_tick() if state else widget.suspend_tick()
+            except RuntimeError:
+                continue    # deleted between the copy and here
+
+        if state:
+            # One pass now rather than up to a second from now: a widget whose
+            # content changed while suspended is otherwise visibly misfitted
+            # for the first second after the page comes back.
+            self.tick_widgets()
 
     ## PANEL
 

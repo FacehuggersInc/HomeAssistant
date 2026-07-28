@@ -53,5 +53,14 @@ class SubHomePage(SubPageFramework):
         self.widget_manager.setGeometry(0, 0, w, h)
         self.widget_manager.update_geometry()
 
+    def on_activated(self) -> None:
+        self.widget_manager.set_ticking(True)
+
+    def on_deactivated(self) -> None:
+        self.widget_manager.set_ticking(False)
+
+    def teardown(self) -> None:
+        self.widget_manager.set_ticking(False)
+
     def tick(self) -> None:
         self.widget_manager.tick_widgets()

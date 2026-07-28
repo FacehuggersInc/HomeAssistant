@@ -259,6 +259,31 @@ happen on arrival rather than every frame.
 Anything slow belongs on a thread with the result marshalled back through
 `call_on_ui`. See [Threading](threading.md).
 
+**Tiles only tick while `sub.tiles` is the sub-page on screen.** The grid keeps
+every sub-page built, so without that gate every tile ticked once a second from
+launch whether or not anyone had ever swiped to the dashboard. One tick fires
+immediately on arrival, so a clock face is right the moment the swipe lands.
+
+**`tick()` runs during construction.** `Tile.__init__` calls `apply_span()`,
+which calls `tick_once()` — so it happens before your own `__init__` body has
+run. Anything `tick()` reads must be a class attribute or have a `getattr`
+default; an instance attribute assigned after `super().__init__()` does not
+exist yet on that first call.
+
+### Cleaning up
+
+A tile may define `teardown()`, called when it is removed from the grid and
+when the sub-page itself is destroyed — including tiles sitting in the tile
+panel, which `remove_tile()` never reaches. Unsubscribe from anything you
+subscribed to there:
+
+```python
+def teardown(self) -> None:
+    self.client.unsubscribe_from_event("on_settings_saved", self._on_saved)
+```
+
+Both paths can reach the same tile, so make it safe to run twice.
+
 ---
 
 ## Registering a tile

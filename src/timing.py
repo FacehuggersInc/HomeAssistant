@@ -1,60 +1,130 @@
 import time
-from threading import Thread, Lock, Event
+from threading import Event, Lock
 from typing import Callable, Optional
 
 
 class TimeoutScheduler:
+	"""
+	Named deferred callbacks, fired on the UI thread.
+
+	A registration is created with add() and armed with start(). Re-arming a
+	timeout that is already counting REPLACES its deadline rather than adding
+	a second one. That is load-bearing: every auto-close in the app calls
+	start() on each interaction, so an implementation that stacked deadlines
+	fired the callback once per interaction, fired it at the earliest deadline
+	rather than the latest, and grew its registration without bound.
+	"""
+
 	def __init__(self, client):
-		self.client   = client
-		self.timeouts = {}
-		self.active   = {}
+		self.client = client
+		# id -> {"sec", "callback", "deadline": float | None, "transient": bool}
+		self.timeouts: dict[str, dict] = {}
+		self._lock = Lock()
 		client.THREADS.create("__timeout_scheduler", self.__scheduler_thread)
 		client.THREADS.start("__timeout_scheduler")
 
-	def add(self, sec: int, callback: Callable, id: str, autostart: bool = False) -> str:
-		t = [sec, callback, id]
-		if autostart:
-			start = time.time()
-			t.append(start)
-			self.active[start + sec] = t
-		self.timeouts[id] = t
+	def add(self, sec: float, callback: Callable, id: str,
+	        autostart: bool = False, transient: bool = False) -> str:
+		"""
+		Register a timeout.
+
+		`transient` marks a registration whose id is generated per instance -
+		a uuid, or anything derived from an object - so prune() may drop it
+		once it is no longer counting. Leave it False for a registration that
+		is created once and re-armed for the life of the app, or prune() will
+		remove it between arms and start() will have nothing to find.
+		"""
+		with self._lock:
+			self.timeouts[id] = {
+				"sec":       float(sec),
+				"callback":  callback,
+				"deadline":  (time.time() + float(sec)) if autostart else None,
+				"transient": bool(transient),
+			}
 		return id
 
-	def remaining(self, id: str) -> float:
-		t = self.timeouts.get(id)
-		if t and len(t) > 3:
-			return max(0.0, (t[-1] + t[0]) - time.time())
-		return 0.0
-
 	def start(self, id: str) -> None:
-		t = self.timeouts[id]
-		start = time.time()
-		t.append(start)
-		self.active[start + t[0]] = t
+		"""Arm or re-arm. Restarts from zero; never stacks a second deadline."""
+		with self._lock:
+			entry = self.timeouts.get(id)
+			if entry is None:
+				missing = True
+			else:
+				missing = False
+				entry["deadline"] = time.time() + entry["sec"]
+		if missing:
+			# Silent here used to mean an auto-close that simply stopped
+			# working, with nothing anywhere to say why.
+			self.client.log("warning",
+			                f"[Timeouts] start('{id}') on an unregistered timeout - "
+			                f"call add() first.")
 
 	def cancel(self, id: str) -> None:
-		t = self.timeouts.get(id)
-		if not t:
-			return
-		if len(t) > 3:
-			deadline = t[-1] + t[0]
-			self.active.pop(deadline, None)
+		"""Stop counting. The registration stays, so start() works again."""
+		with self._lock:
+			entry = self.timeouts.get(id)
+			if entry is not None:
+				entry["deadline"] = None
+
+	def discard(self, id: str) -> None:
+		"""Cancel and forget entirely. For ids belonging to one instance."""
+		with self._lock:
+			self.timeouts.pop(id, None)
+
+	def remaining(self, id: str) -> float:
+		with self._lock:
+			entry = self.timeouts.get(id)
+			if not entry or entry["deadline"] is None:
+				return 0.0
+			return max(0.0, entry["deadline"] - time.time())
+
+	def is_counting(self, id: str) -> bool:
+		with self._lock:
+			entry = self.timeouts.get(id)
+			return bool(entry and entry["deadline"] is not None)
 
 	def prune(self) -> int:
-		pending = {id(t) for t in self.active.values()}
-		stale = [tid for tid, t in self.timeouts.items() if id(t) not in pending]
-		for tid in stale:
-			del self.timeouts[tid]
-		return len(stale)
+		"""Drop transient registrations that are no longer counting."""
+		with self._lock:
+			stale = [tid for tid, e in self.timeouts.items()
+			         if e["transient"] and e["deadline"] is None]
+			for tid in stale:
+				del self.timeouts[tid]
+			return len(stale)
 
 	def __scheduler_thread(self, stop_event: Event) -> None:
 		while not stop_event.is_set():
-			time.sleep(0.1)
-			for deadline in list(self.active.keys()):
-				if time.time() >= deadline:
-					entry = self.active.pop(deadline, None)
-					if entry:
-						self.client.call_on_ui(entry[1])
+			# wait(), not sleep(): a stop arriving mid-sleep is otherwise
+			# ignored for the rest of it.
+			stop_event.wait(0.1)
+			if stop_event.is_set():
+				break
+
+			now = time.time()
+			due: list[Callable] = []
+			# Collected under the lock, dispatched outside it - call_on_ui
+			# emits a queued signal, and holding the lock across that invites
+			# a stall if anything on the UI thread reaches back in here.
+			with self._lock:
+				for entry in self.timeouts.values():
+					deadline = entry["deadline"]
+					if deadline is not None and now >= deadline:
+						entry["deadline"] = None
+						due.append(entry["callback"])
+
+			for callback in due:
+				self.client.call_on_ui(callback)
 
 	def stop(self) -> None:
 		self.client.THREADS.stop("__timeout_scheduler")
+
+	# --- Dict-like behaviour, kept from the original ---
+
+	def get(self, id: str) -> Optional[dict]:
+		return self.timeouts.get(id)
+
+	def __contains__(self, id: str) -> bool:
+		return id in self.timeouts
+
+	def __len__(self) -> int:
+		return len(self.timeouts)

@@ -104,6 +104,14 @@ class MyDialog(BaseDialog):
 Helpers: `make_title`, `make_body`, `make_detail` (a muted block for lists and
 paths), `add_scroll`, `clear_content`, `clear_buttons`, `center`.
 
+**A dialog is destroyed when it closes.** `DialogManager.close()` releases its
+backdrop and calls `deleteLater()`, because a dialog carries a blurred snapshot
+of the page the size of itself and every caller in this codebase builds a fresh
+instance per open. Build a new one each time rather than keeping one around.
+
+If you genuinely need to keep and reopen the same instance, set `REUSABLE = True`
+on the class and it will only be hidden and unparented.
+
 **One thing to know if you build dialog widgets by hand.** `BaseDialog`
 derives from `QFrame` *and* sets `WA_StyledBackground`, and both matter. A
 plain `QWidget` subclass does not paint a stylesheet `background` without that

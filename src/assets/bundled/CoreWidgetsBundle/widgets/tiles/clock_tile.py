@@ -24,8 +24,45 @@ class ClockTile(Tile):
     MIN_GRID_W, MIN_GRID_H = 1, 1
     MAX_GRID_W, MAX_GRID_H = 6, 4
 
+    # Class-level, not set in __init__. Tile.__init__ calls apply_span(),
+    # which calls tick_once() -> tick() before this subclass's own __init__
+    # body has run - so an instance attribute assigned below would not exist
+    # yet on the very first tick.
+    _time_format = "%H:%M"
+    _date_format = "%a %d %b"
+
     def __init__(self, client: "Client", grid_w: int = 2, grid_h: int = 2):
         super().__init__(client, grid_w=grid_w, grid_h=grid_h, bg_color="#1a1a2e")
+        # Read once and refreshed on save, rather than two Dynaconf attribute
+        # walks on every tick. tick() runs once a second for the life of the
+        # app, and also fires on every variant swap during a resize drag.
+        self._torn_down = False
+        self._read_formats()
+        self.client.subscribe_to_event("on_settings_saved", self._on_settings_saved)
+
+    def _read_formats(self) -> None:
+        self._time_format = str(self.client.setting("home.time_format.value",
+                                                    ClockTile._time_format))
+        self._date_format = str(self.client.setting("home.date_format.value",
+                                                    ClockTile._date_format))
+
+    def _on_settings_saved(self, event=None) -> None:
+        try:
+            self._read_formats()
+        except RuntimeError:
+            pass    # tile deleted between the save and this running
+
+    def teardown(self) -> None:
+        # remove_tile() and the page's own teardown can both reach a tile, so
+        # this has to be safe to run twice.
+        if getattr(self, "_torn_down", False):
+            return
+        self._torn_down = True
+        try:
+            self.client.unsubscribe_from_event("on_settings_saved",
+                                               self._on_settings_saved)
+        except Exception:
+            pass
 
     ## -- variants
 
@@ -77,7 +114,7 @@ class ClockTile(Tile):
     def tick(self) -> None:
         now = datetime.now()
 
-        time_format = self.client.SETTINGS.home.time_format.value
+        time_format = self._time_format
         if getattr(self, "show_seconds", False) and "%S" not in time_format:
             # Only where there is room for it - seconds on a one-cell tile are
             # unreadable and redraw the whole face every second for nothing.
@@ -85,5 +122,4 @@ class ClockTile(Tile):
 
         self.time_lbl.setText(now.strftime(time_format))
         if self.date_lbl is not None:
-            self.date_lbl.setText(now.strftime(
-                self.client.SETTINGS.home.date_format.value))
+            self.date_lbl.setText(now.strftime(self._date_format))

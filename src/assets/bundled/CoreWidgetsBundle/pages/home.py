@@ -52,8 +52,12 @@ class HomePage(PageFramework):
             page.move(page.coord[0] * w, page.coord[1] * h)
             page.show()
 
-        # Active sub-page
-        self.sub_page_dict["home"].is_active = True
+        # Whichever page is at the current coord is the active one. Done
+        # through _sync_active rather than by naming "home" directly, so a
+        # saved layout that moved something else to the origin still marks the
+        # right page - the old code hardcoded "home" and could leave the page
+        # on screen inactive.
+        self._sync_active()
 
         # Swipe tracking
         self._drag_start: QPoint | None = None
@@ -86,14 +90,24 @@ class HomePage(PageFramework):
         page.show()
         self.sub_page_dict[key] = page
         self.add_features({page.name: page.features()})
+        # A page added at the current coord has to start ticking; one added
+        # anywhere else has to stay stopped. Neither happens by itself.
+        self._sync_active()
 
     def remove_sub_page(self, key: str) -> None:
         page = self.sub_page_dict.pop(key, None)
-        if page:
+        if page is None:
+            return
+
+        def teardown_and_drop():
             # A sub-page that subscribed to events needs somewhere to
             # unsubscribe. Without this a removed page keeps its handlers on
             # the bus, and the first fire afterwards calls into a deleted
             # widget.
+            try:
+                page.set_active(False)
+            except Exception:
+                pass
             teardown = getattr(page, "teardown", None)
             if callable(teardown):
                 try:
@@ -102,7 +116,26 @@ class HomePage(PageFramework):
                     self.client.log("warning",
                                     f"[HomePage] {key} teardown failed: {e}")
             self.remove_features([page.name])
-            page.setParent(None)
+            try:
+                page.setParent(None)
+                page.deleteLater()
+            except RuntimeError:
+                pass
+
+        # Reparenting and deleting a widget belong to the UI thread, and this
+        # is documented as being called from unload() - which runs on whatever
+        # thread asked for the unload, a Flask worker when it came from the API.
+        if self._on_ui_thread():
+            teardown_and_drop()
+        else:
+            self.client.call_on_ui(teardown_and_drop)
+
+    def _on_ui_thread(self) -> bool:
+        try:
+            from PyQt6.QtCore import QThread
+            return QThread.currentThread() is self.client.app.thread()
+        except Exception:
+            return True
 
     def _get_page_at_coord(self, cx: int, cy: int) -> SubPageFramework | None:
         for page in self.sub_page_dict.values():
@@ -112,6 +145,18 @@ class HomePage(PageFramework):
 
     def _current_page(self) -> SubPageFramework | None:
         return self._get_page_at_coord(*self._current_coord)
+
+    def _sync_active(self) -> None:
+        """
+        Exactly one sub-page is active: the one at the current coord.
+
+        Everything that changes which page is on screen calls this rather than
+        setting `is_active` by hand, so there is one place that can be wrong
+        instead of four.
+        """
+        current = self._current_page()
+        for page in self.sub_page_dict.values():
+            page.set_active(page is current)
 
     # ── Swipe navigation ──────────────────────────────────────────────────────
 
@@ -148,12 +193,8 @@ class HomePage(PageFramework):
 
         self.close_open_panels()
 
-        current = self._current_page()
-        if current:
-            current.is_active = False
-
         self._current_coord = target_coord
-        target.is_active    = True
+        self._sync_active()
 
         # Slide all sub-pages
         w = self.width()
@@ -206,11 +247,8 @@ class HomePage(PageFramework):
         if target is None:
             return
         self.close_open_panels()
-        current = self._current_page()
-        if current:
-            current.is_active = False
         self._current_coord = list(coord)
-        target.is_active = True
+        self._sync_active()
         self.apply_layout()
 
     def close_open_panels(self) -> None:
@@ -304,7 +342,28 @@ class HomePage(PageFramework):
         # Here, not in __init__: sub-pages are added by plugins after the page
         # is constructed, so this is the first point at which they all exist.
         self.load_page_layout()
+        # load_page_layout can move a different page to the origin, so the
+        # active one is resolved again after it rather than before.
+        self._sync_active()
         super().start()
 
     def stop(self) -> None:
+        # goto() destroys this page rather than hiding it, and destruction
+        # alone does not run teardown() - so a sub-page that subscribed to a
+        # client event kept its handler on the bus pointing into a deleted
+        # widget. remove_sub_page() had this covered; navigating away did not.
+        for key, page in list(self.sub_page_dict.items()):
+            try:
+                page.set_active(False)
+            except Exception:
+                pass
+            teardown = getattr(page, "teardown", None)
+            if callable(teardown):
+                try:
+                    teardown()
+                except Exception as e:
+                    self.client.log("warning",
+                                    f"[HomePage] {key} teardown failed: {e}",
+                                    include_traceback=True)
+        self._hold.stop()
         super().stop()
