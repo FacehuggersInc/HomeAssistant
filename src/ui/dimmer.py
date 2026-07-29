@@ -32,6 +32,7 @@ class Dimmer(QWidget):
         super().__init__()
         self.client = client
         self._level = 0.0          # 0.0 = untouched, 1.0 = as dark as it goes
+        self._anim_timer = None
 
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
         self.setAttribute(Qt.WidgetAttribute.WA_NoSystemBackground, True)
@@ -47,7 +48,60 @@ class Dimmer(QWidget):
         return int(round((1.0 - self._level) * 100))
 
     def set_brightness(self, percent: int) -> None:
+        self.stop_animation()
         self.set_level(1.0 - (max(0, min(100, int(percent))) / 100.0))
+
+    def animate_brightness(self, percent: int, duration_ms: int = 900,
+                           on_done=None) -> None:
+        """
+        Ease to a brightness rather than snapping to it.
+
+        A wall panel changing level on its own - going to sleep, waking when
+        somebody walks past - is startling as a step change and unremarkable
+        as a fade, which is the whole point of it being automatic.
+
+        Stepped on a timer rather than a QPropertyAnimation: the level is a
+        plain float, not a Qt property, and exposing one only to animate it
+        would be more machinery than a ~30 step interpolation.
+        """
+        percent = max(0, min(100, int(percent)))
+        target = 1.0 - (percent / 100.0)
+        start = self._level
+        if abs(target - start) < 0.001:
+            self.stop_animation()
+            if callable(on_done):
+                on_done()
+            return
+
+        duration_ms = max(1, int(duration_ms))
+        steps = max(1, min(60, duration_ms // 30))
+        self.stop_animation()
+
+        state = {"i": 0}
+
+        def step():
+            state["i"] += 1
+            progress = state["i"] / steps
+            # Ease out, so it settles rather than arriving at full speed.
+            eased = 1 - (1 - progress) ** 3
+            self.set_level(start + (target - start) * eased)
+            if state["i"] >= steps:
+                self.stop_animation()
+                if callable(on_done):
+                    on_done()
+
+        from PyQt6.QtCore import QTimer
+        self._anim_timer = QTimer(self)
+        self._anim_timer.setInterval(max(16, duration_ms // steps))
+        self._anim_timer.timeout.connect(step)
+        self._anim_timer.start()
+
+    def stop_animation(self) -> None:
+        timer = getattr(self, "_anim_timer", None)
+        if timer is not None:
+            timer.stop()
+            timer.deleteLater()
+            self._anim_timer = None
 
     def set_level(self, level: float) -> None:
         level = max(0.0, min(1.0, float(level)))

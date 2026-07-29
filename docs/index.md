@@ -70,7 +70,7 @@ can subscribe to.
 | [Updating](updating.md) | Update checks, staging, rollback, exit codes. |
 | [Architecture](architecture.md) | How the client, backend and plugins fit together. |
 | [Plugins](plugins.md) | `plugin.toml`, `main.py`, and the full lifecycle. |
-| [Bundled plugins](bundled-plugins.md) | The six that ship, and what each provides. |
+| [Bundled plugins](bundled-plugins.md) | The seven that ship, and what each provides. |
 | [Pages](pages.md) | Registering a page, a full example, sub-pages. |
 | [Widgets](widgets.md) | Writing and registering widgets, layout, persistence. |
 | [Tiles](tiles.md) | Writing and registering tiles, the grid and panel. |
@@ -92,6 +92,16 @@ can subscribe to.
 | [Mixins](mixins.md) | Extending existing methods from a plugin. |
 | [Backend API](api.md) | Every endpoint, and the `hactl.py` CLI. |
 | [Development philosophy](philosophy.md) | Why it is built the way it is. |
+
+Pages a bundled plugin ships with itself, listed under **Plugins** in the
+sidebar rather than here:
+
+| Page | From |
+|---|---|
+| [Transient widgets and timers](/docs/plugin/corewidgetsbundle/transient-widgets) | Core Widgets |
+| [Stickers](/docs/plugin/corewidgetsbundle/stickers) | Core Widgets |
+| [Nighttime Clock](/docs/plugin/nighttimeclock/nighttime) | Nighttime Clock |
+| [The calendar registry](/docs/plugin/calendarplugin/registry) | Calendar |
 
 ---
 

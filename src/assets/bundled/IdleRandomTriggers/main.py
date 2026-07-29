@@ -67,6 +67,11 @@ class IdleTriggersPlugin(Plugin):
     def on_interaction_timeout(self, event=None) -> None:
         if self.client.PAGE and self.client.PAGE.name == "#settings":
             return
+        # Checked on the way in as well as in the tick: arming here and
+        # unwinding on the next pass meant a trigger could be built and
+        # dismissed inside one frame on a page that never wanted it.
+        if self._page_refuses():
+            return
         self.rotating_builders = True
 
     def on_plugin_unload(self, plugin_key):
@@ -79,13 +84,37 @@ class IdleTriggersPlugin(Plugin):
     def _rebuild_invalid_keys(self) -> None:
         self._invalid_keys = {k[0] for k in self.invalid_pages}
 
+    def _page_refuses(self) -> bool:
+        """
+        Whether the page on screen wants nothing to do with idle triggers.
+
+        Two ways in, checked here rather than special-cased anywhere else:
+
+        * a plugin registered the page key through add(), which is the
+          existing route and needs the other plugin to know about this one.
+        * the page carries `blocks_idle_triggers = True`, which lets a page
+          refuse for itself without either plugin importing the other. A night
+          clock is the case that wanted it - a screensaver over a screensaver
+          is nobody's idea of restful.
+
+        Deliberately not the same thing as `blocks_idle`. That stops the idle
+        clock entirely; this only stops *these* triggers, so a page can still
+        go idle, still time out, and still be interacted with normally.
+        """
+        page = getattr(self.client, "PAGE", None)
+        if page is None:
+            return False
+        if getattr(page, "name", None) in self._invalid_keys:
+            return True
+        return bool(getattr(page, "blocks_idle_triggers", False))
+
     def check_time_update(self, *args):
         if not self.builders:
             return
 
         # Precomputed. This runs on on_update - 20 times a second, forever -
         # and rebuilt a list from self.invalid_pages on every single pass.
-        if self.client.PAGE and self.client.PAGE.name in self._invalid_keys:
+        if self._page_refuses():
             if self.rotating_builders:
                 self.rotating_builders = False
                 self.already_called_ids = []

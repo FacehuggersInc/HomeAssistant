@@ -1,0 +1,66 @@
+{
+    "enabled": {
+        "type": "bool",
+        "default": true,
+        "value": true,
+        "description": "Turn the whole night clock off, including the dimming."
+    },
+    "night_time": {
+        "type": "string",
+        "default": "21:00",
+        "value": "21:00",
+        "description": "When the panel switches to the night clock. 24 hour, HH:MM."
+    },
+    "day_time": {
+        "type": "string",
+        "default": "07:00",
+        "value": "07:00",
+        "description": "When it goes back to the home page and full brightness."
+    },
+    "dim_enabled": {
+        "type": "bool",
+        "default": true,
+        "value": true,
+        "description": "Fade the brightness down as night approaches."
+    },
+    "dim_lead_minutes": {
+        "type": "int",
+        "default": 60,
+        "value": 60,
+        "suffix": "min",
+        "description": "How long before night the fade starts."
+    },
+    "night_brightness": {
+        "type": "int",
+        "default": 12,
+        "value": 12,
+        "suffix": "%",
+        "description": "Brightness once it is night and nobody is about."
+    },
+    "woken_brightness": {
+        "type": "int",
+        "default": 55,
+        "value": 55,
+        "suffix": "%",
+        "description": "Brightness after somebody touches it during the night."
+    },
+    "settle_seconds": {
+        "type": "int",
+        "default": 20,
+        "value": 20,
+        "suffix": "sec",
+        "description": "How long after being touched at night before it dims again."
+    },
+    "fireflies": {
+        "type": "bool",
+        "default": true,
+        "value": true,
+        "description": "Drifting, pulsing points of light on the night clock."
+    },
+    "firefly_count": {
+        "type": "int",
+        "default": 16,
+        "value": 16,
+        "description": "How many. More is prettier and costs more to draw."
+    }
+}

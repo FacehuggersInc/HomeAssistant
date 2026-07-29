@@ -117,7 +117,7 @@ deselected rather than left chosen.
 
 **Permanent from the phone is the same as permanent at the panel** — it goes
 through the widgets path and is saved. **Temporary** goes through the
-[transient API](transient-widgets.md), which never persists, so a temporary
+[transient API](/docs/plugin/corewidgetsbundle/transient-widgets), which never persists, so a temporary
 sticker is gone after a restart whether its timeout elapsed or not.
 
 The quadrant applies either way: a permanent sticker is placed where it was

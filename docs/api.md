@@ -281,6 +281,35 @@ always the same.
 
 ---
 
+## Health
+
+`GET /ping` answers whether the panel is up, which page is on screen, and how
+long it has been running. Authenticated like everything else, and listed on the
+index as a button.
+
+```json
+{"request": "Success", "alive": true, "app": "Desktop Home Assistant",
+ "page": "#cwb_home_page", "uptime": "3h 41m", "uptime_seconds": 13260,
+ "device": "Chris"}
+```
+
+## Writing a page endpoint
+
+Pages served to a phone are plain HTML strings - a form with a handful of
+fields, and a template engine for that is a dependency to maintain for
+something most people open twice. `src/webui.py` holds the parts that kept
+drifting between them:
+
+| From `src.webui` | Gives you |
+|---|---|
+| `chrome_css()` | The palette, field styling and the back button's CSS. |
+| `back_button(token)` | A styled back control, with the token on it. |
+| `escape(text)` | `html.escape` with `quote=True`, for attributes. |
+
+`chrome_css()` styles `select` and `option` as well as `input`. Styling only
+`input` is why one page's dropdown was the browser's own white control on an
+otherwise dark page.
+
 ## Endpoints the bundled plugins add
 
 Registered like any other plugin endpoint, and served under `/public/`.

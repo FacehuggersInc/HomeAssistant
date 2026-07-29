@@ -66,9 +66,13 @@ PAGE = """<!doctype html><html><head><meta charset="utf-8">
  .warn{background:rgba(224,138,138,.14);border:1px solid rgba(224,138,138,.5);
      border-radius:10px;padding:12px;margin-bottom:14px;color:var(--bad)}
  .empty{color:var(--muted);font-size:14px;padding:10px 0}
- a.back{display:inline-block;color:var(--muted);text-decoration:none;
-      font-size:14px;margin-bottom:10px;padding:8px 0}
- a.back:active{color:var(--text)}
+ a.back{display:inline-flex;align-items:center;gap:8px;
+      text-decoration:none;background:var(--card);border:1px solid var(--line);
+      color:var(--text);border-radius:10px;padding:11px 16px;font-size:15px;
+      font-weight:600;margin-bottom:14px}
+ a.back:active{background:#26262b}
+ a.back svg{width:16px;height:16px;fill:none;stroke:currentColor;
+      stroke-width:2.4;stroke-linecap:round;stroke-linejoin:round}
  .hint{color:var(--muted);font-size:12px;margin-top:6px}
  .check{display:flex;align-items:center;gap:10px;margin-top:14px;
       color:var(--text);font-size:15px}
@@ -77,7 +81,7 @@ PAGE = """<!doctype html><html><head><meta charset="utf-8">
       border:1px solid rgba(224,138,138,.45);margin-top:10px}
  button:disabled{opacity:.45}
 </style></head><body>
-<a class="back" href="/?token=__TOKEN__">&#8592; All pages</a>
+<a class="back" href="/?token=__TOKEN__"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg><span>All pages</span></a>
 <h1>Stickers</h1>
 <p class="sub">Put something on the panel.</p>
 __MESSAGE__

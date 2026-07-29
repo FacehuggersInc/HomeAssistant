@@ -103,8 +103,15 @@ class CoreWidgetsBundle(Plugin):
 
         self.client.API_REGISTRY.register(
             "corewidgetsbundle", "timer_start", self.api_timer_start,
-            requires_auth=True, action="Start a 5 minute timer",
+            requires_auth=True,
             description="Start a timer. seconds= or minutes=, optional name=.")
+        # A page, not an index action. The action fired the endpoint with no
+        # arguments at all, so the duration never arrived and the button's own
+        # label was a promise nothing kept.
+        self.client.API_REGISTRY.register(
+            "corewidgetsbundle", "timer_form", self.api_timer_form,
+            requires_auth=True, gui="Start a timer",
+            description="Choose a duration and start a timer.")
         self.client.API_REGISTRY.register(
             "corewidgetsbundle", "timer_list", self.api_timer_list,
             requires_auth=True,
@@ -242,6 +249,46 @@ class CoreWidgetsBundle(Plugin):
         if not self.timers.cancel(key):
             return {"request": "Failed", "reason": f"No timer '{key}'."}, 404
         return {"request": "Success", "cancelled": 1}, 200
+
+    def api_timer_form(self, hours=0, minutes=0, seconds=0, name: str = "",
+                       quadrant: str = "", **_ignored):
+        """The page a phone starts a timer from, and what it posts back to."""
+        from .api.timer_page import render_page
+
+        token = self._request_token()
+        message, bad = "", False
+        submitted = any(str(v or "").strip() not in ("", "0")
+                        for v in (hours, minutes, seconds))
+
+        if submitted:
+            result, status = self.api_timer_start(
+                seconds=seconds, minutes=minutes, hours=hours,
+                name=name, quadrant=quadrant)
+            if isinstance(result, dict) and result.get("request") == "Success":
+                started = result.get("timer") or {}
+                from .timers import describe
+                label = started.get("name") or "Timer"
+                length = describe(started.get("duration") or 0)
+                message = f"Started {label} for {length}."
+                # Cleared, so a reload does not start a second one.
+                hours = minutes = seconds = 0
+                name = ""
+            else:
+                bad = True
+                message = (result.get("reason") if isinstance(result, dict)
+                           else "That did not work.")
+
+        running = []
+        try:
+            running = self.timers.running()
+        except Exception:
+            pass
+
+        page = render_page(token, running, message=message, bad=bad, form={
+            "hours": hours, "minutes": minutes, "seconds": seconds,
+            "name": name, "quadrant": quadrant,
+        })
+        return page, 200, {"Content-Type": "text/html; charset=utf-8"}
 
     ## STICKER API
 
@@ -583,6 +630,9 @@ class CoreWidgetsBundle(Plugin):
             "corewidgetsbundle", "widget_panel", "Widgets", Icons.EXTENSION,
             on_press = lambda: sub_home.features().toggle_widget_panel(),
             order    = 10,
+            # Opens a panel of its own, which this one would otherwise be
+            # sitting on top of.
+            closes_panel = True,
         )
 
         # Registered, not constructed-and-added: the saved layout decides what

@@ -12,7 +12,7 @@ from PyQt6.QtCore import Qt, QEvent, QPoint, QRect, QTimer
 from src.styling import make_font, SIZES, set_style
 from src.ui.overlays import Panel
 from src.ui.controls.buttons import IconButton
-from src.ui.icons import Icons
+from src.ui.icons import Icons, icon as resolve_icon
 from src.system import volume as system_volume
 
 
@@ -39,24 +39,49 @@ if TYPE_CHECKING:
 
 
 class QuickAccessButton(QWidget):
-    """An icon over a label, built fresh from a registry entry each time."""
+    """
+    An icon over a label, built fresh from a registry entry each time.
+
+    **The whole tile is the target.** It used to be an `IconButton` with a
+    caption under it, so only the 20px glyph took a press and the 98x84 tile
+    around it was inert - which on a touch screen means most of what looks
+    like a button does nothing.
+    """
+
+    #how far a finger may travel and still count as a tap
+    DRAG_SLOP = 14
 
     def __init__(self, client: "Client", entry, on_pressed):
         super().__init__()
         self.client = client
         self.entry  = entry
+        self.on_pressed = on_pressed
+        self._press = None
+        self._down = False
 
         self.setFixedSize(98, 84)
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        if entry.enabled:
+            self.setCursor(Qt.CursorShape.PointingHandCursor)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(4, 8, 4, 6)
         layout.setSpacing(2)
         layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        self.button = IconButton(entry.icon, lambda: on_pressed(entry), size=20)
-        self.button.setEnabled(entry.enabled)
-        layout.addWidget(self.button, alignment=Qt.AlignmentFlag.AlignHCenter)
+        # A label with the glyph, not a button: the tile takes the press, and
+        # a button in here would swallow it over its own small rectangle.
+        self.glyph = QLabel()
+        self.glyph.setFixedSize(28, 28)
+        self.glyph.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        set_style(self.glyph, "common", "transparent")
+        try:
+            colour = "#ffffff" if entry.enabled else "rgba(255,255,255,90)"
+            self.glyph.setPixmap(resolve_icon(entry.icon, color=colour)
+                                 .pixmap(22, 22))
+        except Exception:
+            pass
+        layout.addWidget(self.glyph, alignment=Qt.AlignmentFlag.AlignHCenter)
 
         self.label = QLabel(entry.label)
         self.label.setFont(make_font(SIZES.S1))
@@ -66,9 +91,41 @@ class QuickAccessButton(QWidget):
                   "text-strong" if entry.enabled else "text-muted")
         layout.addWidget(self.label)
 
+        # So every press lands on the tile rather than on whichever child
+        # happened to be under the finger.
+        for child in (self.glyph, self.label):
+            child.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+
         self.apply_state()
 
+    ## -- input
+
+    def mousePressEvent(self, event) -> None:
+        if not self.entry.enabled:
+            return
+        self._press = event.globalPosition().toPoint()
+        self._down = True
+        self.apply_state()
+
+    def mouseReleaseEvent(self, event) -> None:
+        start, self._press = self._press, None
+        was_down, self._down = self._down, False
+        self.apply_state()
+        if not was_down or not self.entry.enabled:
+            return
+        if start is not None:
+            moved = event.globalPosition().toPoint() - start
+            if max(abs(moved.x()), abs(moved.y())) > self.DRAG_SLOP:
+                return      # a scroll of the card, not a tap on the tile
+        self.on_pressed(self.entry)
+
     def apply_state(self) -> None:
+        if not self.entry.enabled:
+            set_style(self, "quick", "quick-tile-disabled")
+            return
+        if self._down:
+            set_style(self, "quick", "quick-tile-pressed")
+            return
         set_style(self, "quick", "quick-tile-on" if self.entry.active()
                   else "quick-tile-off")
 
@@ -344,6 +401,12 @@ class QuickSettings(Panel):
             entry.press()
         except Exception as e:
             self.client.log("warning", f"[QuickSettings] '{entry.uid}' failed: {e}")
+
+        if getattr(entry, "closes_panel", False):
+            # Nothing to watch flip, and whatever it did is behind this panel.
+            self.close_panel()
+            return
+
         # State may have flipped, and the press counts as interaction.
         self.refresh_states()
         self._restart_timeout()

@@ -26,6 +26,7 @@ class QuickAccessEntry:
 		on_state: Optional[Callable] = None,
 		order:    int  = 100,
 		enabled:  bool = True,
+		closes_panel: bool = False,
 	):
 		self.owner    = owner
 		self.key      = key
@@ -37,6 +38,12 @@ class QuickAccessEntry:
 		self.on_state = on_state
 		self.order    = order
 		self.enabled  = enabled
+		# Whether pressing this should shut the panel afterwards. Off by
+		# default, because most entries are toggles and watching one flip is
+		# the confirmation that it worked. On for anything that navigates:
+		# leaving the panel open over the page it just moved to means the
+		# first thing you do next is dismiss it.
+		self.closes_panel = bool(closes_panel)
 
 	@property
 	def uid(self) -> str:
@@ -102,6 +109,7 @@ class QuickAccessRegistry:
 		on_state: Callable = None,
 		order:    int  = 100,
 		enabled:  bool = True,
+		closes_panel: bool = False,
 	) -> QuickAccessEntry:
 		self.store.setdefault(owner, {})
 
@@ -110,7 +118,8 @@ class QuickAccessRegistry:
 										"- replacing the existing entry.")
 
 		entry = QuickAccessEntry(owner, key, label, icon, on_press,
-								 on_state=on_state, order=order, enabled=enabled)
+								 on_state=on_state, order=order, enabled=enabled,
+								 closes_panel=closes_panel)
 		self.store[owner][key] = entry
 		self.client.log("info", f"[QuickAccess] Registered '{entry.uid}' ({label}).")
 		self.changed()

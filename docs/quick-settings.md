@@ -145,3 +145,49 @@ notifies that this is the latest version. A failed check reports the reason
 rather than claiming there is no update - the truth is that nobody could look.
 
 See [Updating](updating.md) for how checks and the version marker work.
+
+
+## The tiles
+
+Each entry is drawn as a 98x84 tile with a glyph and a caption, and **the whole
+tile takes the press**. It was an icon button with a caption beneath it, so only
+the 20px glyph responded and most of what looked like a button did nothing -
+which on a touch screen is the difference between a control and a decoration.
+
+The glyph and caption are mouse-transparent so every press lands on the tile,
+and a press that travels more than a few pixels is treated as a scroll of the
+card rather than a tap. Four visual states: on, off, pressed and disabled.
+
+### Closing on press
+
+`closes_panel=True` shuts the panel after the entry has run. Off by default,
+because most entries are toggles and watching one flip is the confirmation that
+it worked — but anything that **navigates or opens something else** should set
+it, or the first thing you do afterwards is dismiss the panel covering what you
+just asked for.
+
+```python
+client.QUICK.register(
+    "myplugin", "my_page", "My page", "mdi.page-next",
+    on_press=lambda: client.goto("#my_page"),
+    closes_panel=True,
+)
+```
+
+The panel closes even if the press raised, so a broken entry cannot leave it
+stuck open. Both bundled navigating entries use it: *Night clock* and
+*Widgets*.
+
+## Brightness
+
+The slider drives `client.DIMMER`, a black wash over the window standing in for
+backlight control - real DDC/CI needs a channel the display may not expose,
+root on most Linux setups, and a different API per platform.
+
+`set_brightness(percent)` snaps to a level. `animate_brightness(percent,
+duration_ms)` eases to one, which is what anything changing the level *on its
+own* should use: a wall panel dimming by itself is startling as a step change
+and unremarkable as a fade. Setting it directly cancels an animation in flight.
+
+It never goes fully black. At 0% the wash is alpha 200, not 255, so the screen
+stays readable enough to find the control that undims it.

@@ -28,7 +28,7 @@
  button:active{border-color:var(--accent)}
  #said{margin-top:14px;padding:12px;border-radius:10px;font-size:14px;
        background:rgba(47,240,142,.12);border:1px solid rgba(47,240,142,.4);
-       display:none;word-break:break-word}
+       display:none;word-break:break-word;white-space:pre-line}
 </style></head>
 <body>
 <header>
@@ -67,10 +67,33 @@
          !confirm(button.dataset.label + '?')) { return; }
 
      fetch(button.dataset.url + '?token=' + encodeURIComponent(token))
-       .then(function (r) { return r.text(); })
-       .then(function (body) {
+       .then(function (r) {
+         return r.text().then(function (body) {
+           return { status: r.status, body: body };
+         });
+       })
+       .then(function (out) {
          said.style.display = 'block';
-         said.textContent = body.slice(0, 300);
+         // Read as JSON when it is JSON. Showing the raw body meant a route
+         // that answered with an HTML error page - Flask's 404, say - filled
+         // the panel with markup instead of saying what went wrong.
+         var text;
+         try {
+           var data = JSON.parse(out.body);
+           if (data.request === 'Failed' || data.reason) {
+             text = data.reason || ('Failed (' + out.status + ')');
+           } else {
+             text = Object.keys(data)
+               .filter(function (k) { return k !== 'request'; })
+               .map(function (k) { return k + ': ' + data[k]; })
+               .join('\n') || 'Done.';
+           }
+         } catch (e) {
+           text = out.status >= 400
+             ? 'The panel answered ' + out.status + '.'
+             : out.body.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 200);
+         }
+         said.textContent = text;
        })
        .catch(function () {
          said.style.display = 'block';

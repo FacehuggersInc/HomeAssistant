@@ -25,11 +25,16 @@
  .missing{color:#e08a8a}
  .empty{background:var(--card);border:1px solid var(--line);border-radius:14px;
       padding:20px;color:var(--muted);font-size:14px}
- a.back{display:inline-block;color:var(--muted);text-decoration:none;
-      font-size:14px;margin-bottom:10px;padding:8px 0}
- a.back:active{color:var(--text)}
+ a.back{display:inline-flex;align-items:center;gap:8px;text-decoration:none;
+      background:var(--card);border:1px solid var(--line);color:var(--text);
+      border-radius:10px;padding:11px 16px;font-size:15px;font-weight:600;
+      margin-bottom:14px}
+ a.back:active{background:#26262b}
+ a.back svg{width:16px;height:16px;fill:none;stroke:currentColor;
+      stroke-width:2.4;stroke-linecap:round;stroke-linejoin:round}
+ .backrow{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
 </style></head><body>
-<a class="back" href="/?token={{ token }}">&#8592; All pages</a>
+<div class="backrow"><a class="back" href="/?token={{ token }}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg><span>All pages</span></a></div>
 <h1>Upload</h1>
 <p class="sub">Folders this panel will accept files into.</p>
 

@@ -1,0 +1,9 @@
+[plugin]
+name = "Nighttime Clock"
+key = "nighttimeclock"
+order = 5
+dependencies = ["corewidgetsbundle"]
+icon = "weather-night"
+
+[settings]
+path = "src/assets/bundled/NighttimeClock/settings.json"

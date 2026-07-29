@@ -201,6 +201,19 @@ other side panels — several places share it, and a literal will drift.
 a blurred snapshot of the page behind, refreshed on open and on resize, so it
 costs nothing while the panel is closed.
 
+### Shared controls
+
+`src/ui/controls/stepper.py` is a big number with up and down, sized for a
+finger rather than a spinbox. It started in the calendar's time picker and
+moved to the client when the timer picker needed the same thing - two copies
+would have drifted, and a value chosen on a stepper cannot be out of range,
+which is the whole reason to prefer it to a keyboard on a screen with no keys.
+
+`DurationPickerDialog` is built on it, for anything that needs a length of
+time. `ItemGridDialog` (`src/ui/grid_dialog.py`) is the searchable,
+sortable grid of things to pick one of - see
+[Stickers](/docs/plugin/corewidgetsbundle/stickers) for the full argument list.
+
 ### Enabling a button after it exists
 
 `add_button()` picks the disabled style at construction only, so a button

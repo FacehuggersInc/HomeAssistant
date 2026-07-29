@@ -61,6 +61,21 @@
    fetch('/access/state?token=' + encodeURIComponent(token))
      .then(function (r) { return r.json(); })
      .then(function (body) {
+       // Let in, but the panel is still being asked who names this device.
+       // Keep waiting: walking off to the naming page now means two people
+       // naming it at once.
+       if (body.state === 'deciding') {
+         var head = document.getElementById('head');
+         var body_el = document.getElementById('body');
+         if (head) { head.textContent = 'Allowed'; }
+         if (body_el) {
+           body_el.textContent = 'Waiting while the panel decides who names ' +
+                                 'this device.';
+         }
+         setTimeout(poll, 1500);
+         return;
+       }
+
        if (body.state === 'approved') {
          // Named first, if the panel handed that decision over.
          if (body.needs_name) {

@@ -167,6 +167,9 @@ class Client:
 
         self._last_interaction_time = time.time()
         self._interaction_idle      = False
+        # When this process came up, for /ping. There was no way to ask how
+        # long the panel had been running without reading the log.
+        self.STARTED_AT             = time.time()
         self._interaction_watcher   = InteractionWatcher(self)
         self.app.installEventFilter(self._interaction_watcher)
 
@@ -755,7 +758,12 @@ class Client:
             # the flag meant it was told "you're in" and had navigated away
             # before anybody answered the second dialog. Held by default and
             # released by whichever end supplies a name.
-            self.USERS.approve(request.token, let_user_name=True)
+            # Approved, but held twice over: awaiting_name so the device does
+            # not walk off with no name, and awaiting_decision so it does not
+            # walk off to the NAMING page while the question below is still on
+            # screen. Settled by whichever branch answers it.
+            self.USERS.approve(request.token, let_user_name=True,
+                               pending_decision=True)
             self._approval_open = False
             self._ask_for_name(request)
 
@@ -791,12 +799,14 @@ class Client:
 
             def done(text: str):
                 if text.strip():
-                    # rename() clears awaiting_name, which is what lets the
+                    # rename() clears both holds, which is what lets the
                     # device through on its next poll.
                     self.USERS.rename(request.token, text.strip())
                     self.simple_notify("check", "Users",
                                        f"'{text.strip()}' can now connect.")
                 else:
+                    # Nothing typed: fall through to letting the device ask.
+                    self.USERS.settle_decision(request.token, let_user_name=True)
                     self.simple_notify("account-question", "Users",
                                        "No name given - the device will be asked.")
 
@@ -804,7 +814,9 @@ class Client:
                                        label="Name for this user", on_done=done))
 
         def let_them():
-            # Already held; this only says so out loud.
+            # Releases the decision hold, leaving the naming hold in place -
+            # which is the point at which the device is sent to name itself.
+            self.USERS.settle_decision(request.token, let_user_name=True)
             self.simple_notify("account-question", "Users",
                                "Asked the device to name itself.")
 

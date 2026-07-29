@@ -29,7 +29,8 @@ class User:
 
     def __init__(self, token: str, name: str, address: str = "",
                  approved_at: float = None, last_seen: float = None,
-                 note: str = "", awaiting_name: bool = False):
+                 note: str = "", awaiting_name: bool = False,
+                 awaiting_decision: bool = False):
         self.token = token
         self.name = name
         self.address = address
@@ -39,11 +40,18 @@ class User:
         # Approved, but the panel handed naming to the device rather than
         # deciding for it. Until that comes back the name is a placeholder.
         self.awaiting_name = awaiting_name
+        # The panel has said yes, but nobody has answered "name them, or let
+        # them name themselves?" yet. The device must keep waiting through
+        # this - being sent to the naming page while that question is still on
+        # screen is how it ended up naming itself over the top of somebody
+        # halfway through naming it.
+        self.awaiting_decision = awaiting_decision
 
     def to_dict(self) -> dict:
         return {"token": self.token, "name": self.name, "address": self.address,
                 "approved_at": self.approved_at, "last_seen": self.last_seen,
-                "note": self.note, "awaiting_name": self.awaiting_name}
+                "note": self.note, "awaiting_name": self.awaiting_name,
+                "awaiting_decision": self.awaiting_decision}
 
     @classmethod
     def from_dict(cls, raw: dict) -> Optional["User"]:
@@ -57,6 +65,7 @@ class User:
             last_seen=raw.get("last_seen"),
             note=str(raw.get("note") or ""),
             awaiting_name=bool(raw.get("awaiting_name", False)),
+            awaiting_decision=bool(raw.get("awaiting_decision", False)),
         )
 
 
@@ -178,12 +187,14 @@ class UserRegistry:
         return "pending"
 
     def approve(self, token: str, name: str = "",
-                let_user_name: bool = False) -> Optional[User]:
+                let_user_name: bool = False,
+                pending_decision: bool = False) -> Optional[User]:
         request = self.pending.pop(token, None)
         if request is None:
             return None
         user = User(token=token, name=name or request.name,
-                    address=request.address, awaiting_name=let_user_name)
+                    address=request.address, awaiting_name=let_user_name,
+                    awaiting_decision=pending_decision)
         self.users[token] = user
         self.save()
         self.client.log("info", f"[Users] Approved '{user.name}'.")
@@ -212,15 +223,38 @@ class UserRegistry:
         if user is None or not name.strip():
             return False
         user.name = name.strip()
-        # A name has arrived, from wherever - the device is no longer waiting.
+        # A name has arrived, from wherever - the device is no longer waiting,
+        # and neither is the question about who names it.
         user.awaiting_name = False
+        user.awaiting_decision = False
         self.save()
         self._notify()
         return True
 
     def needs_name(self, token: str) -> bool:
+        """Whether the DEVICE should be asked - not merely that it has no name."""
         user = self.get(token)
-        return bool(user and user.awaiting_name)
+        return bool(user and user.awaiting_name and not user.awaiting_decision)
+
+    def awaiting_decision(self, token: str) -> bool:
+        user = self.get(token)
+        return bool(user and user.awaiting_decision)
+
+    def settle_decision(self, token: str, let_user_name: bool) -> bool:
+        """
+        The panel answered "name them" or "let them decide".
+
+        Until this is called an approved device stays waiting, which is what
+        stops it walking off to the naming page mid-question.
+        """
+        user = self.users.get(token)
+        if user is None:
+            return False
+        user.awaiting_decision = False
+        user.awaiting_name = bool(let_user_name)
+        self.save()
+        self._notify()
+        return True
 
     def names(self) -> list:
         """
@@ -230,7 +264,8 @@ class UserRegistry:
         placeholder as an owner is how a household ends up with three events
         belonging to "Browser on Linux".
         """
-        return sorted({u.name for u in self.users.values() if not u.awaiting_name})
+        return sorted({u.name for u in self.users.values()
+                       if not u.awaiting_name and not u.awaiting_decision})
 
     def waiting(self) -> list:
         """Undecided requests, oldest first, with expired ones dropped."""

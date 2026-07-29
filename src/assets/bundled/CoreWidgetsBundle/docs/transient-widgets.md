@@ -236,7 +236,14 @@ backing out of every other conversation.
 
 ### By hand
 
-The **timer button** on the configuration bar opens a duration picker — hours,
+`/public/timer_form` is the page for it, listed on the index as **Start a
+timer**. Presets fill the fields rather than submitting, so a duration can be
+adjusted before it starts - which is why this is a page and not the index
+button it used to be. That button fired the endpoint with **no arguments at
+all**, so the duration never arrived and its own label was a promise nothing
+kept.
+
+On the panel, the **timer button** on the configuration bar opens a duration picker — hours,
 minutes and seconds as steppers. A preset list can only offer what somebody
 guessed in advance, and seven minutes is not an unreasonable thing to want.
 
@@ -246,7 +253,8 @@ guessed in advance, and seven minutes is not an unreasonable thing to want.
 
 | Endpoint | Does |
 |---|---|
-| `GET /public/timer_start` | Start a timer. |
+| `GET|POST /public/timer_form` | **A page** to start one from a phone: presets, hours/minutes/seconds, a name and a position. |
+| `GET /public/timer_start` | Start a timer, for a script. |
 | `GET /public/timer_list` | Every timer the panel is counting. |
 | `GET /public/timer_cancel` | Cancel one, or all of them. |
 | `GET /public/widget_show` | Place a transient widget. |

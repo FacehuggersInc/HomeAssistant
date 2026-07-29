@@ -1,6 +1,6 @@
 # Bundled plugins
 
-Six plugins ship in `src/assets/bundled/`. They are ordinary plugins with no
+Seven plugins ship in `src/assets/bundled/`. They are ordinary plugins with no
 special privileges - the same lifecycle, the same registries, the same
 `plugin.toml`. Almost everything visible on a fresh install comes from them,
 which is deliberate: if the bundled plugins could do something your plugin
@@ -44,6 +44,12 @@ comes with the app:
   between them.
 * **WeatherWidget** - the other half of the default home screen content.
 * **ConfigurationBar** - quick access to a few settings from the page itself.
+* **StickerWidget** - an image or GIF from the sticker folder, `MULTIPLE` so
+  several can be up at once. Chosen from a searchable grid at the panel or sent
+  from a phone. See [Stickers](/docs/plugin/corewidgetsbundle/stickers).
+* **TimerWidget** - a square that drains as its countdown runs. Transient, and
+  deleting it stops the real timer. See
+  [Transient widgets and timers](/docs/plugin/corewidgetsbundle/transient-widgets).
 * **StickyNote** - a `MULTIPLE` template, so the widgets panel can add as many
   copies as you like, each with its own key and saved text.
 * **ClockTile**, **WeatherTile** - tiles for the tile grid, and the worked
@@ -131,6 +137,26 @@ first time it is read, then cached.
 Feeds are shown as idle panels through `idletriggers`.
 
 ---
+
+## Nighttime Clock
+
+Turns the panel into a clock for a dark room, and the brightness down to go
+with it. Fades as night approaches, switches to a near-black page with the
+time, date and temperature, and comes half-way up when somebody touches it.
+
+* **Schedule** - `schedule.py`, pure arithmetic with no Qt in it, so times that
+  cross midnight and fades that start on the previous day are tested directly.
+* **Night page** - `#nighttime_clock`. Centred clock, and slow drifting points
+  of light over a near-black gradient.
+* **Dimming** - drives `client.DIMMER`, which gained `animate_brightness()` for
+  this: a panel changing level on its own is startling as a step and
+  unremarkable as a fade.
+* **Quick access** - a *Night clock* button to reach the page at any hour, and
+  an `enabled` setting that turns the whole thing off.
+* **Idle triggers** - the page sets `blocks_idle_triggers`, which
+  `IdleRandomTriggers` checks. Neither plugin names the other in code.
+
+Full detail in [Nighttime Clock](/docs/plugin/nighttimeclock/nighttime).
 
 ## Calendar
 

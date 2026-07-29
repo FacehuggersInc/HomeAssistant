@@ -26,6 +26,26 @@ Told apart by the `Accept` header: a script wants a 401 it can read, and a
 person looking at a blank page with some JSON on it wants to be told what to do
 about it.
 
+### Two holds, not one
+
+Approving a device sets **both** `awaiting_name` and `awaiting_decision`.
+
+`awaiting_name` means nobody has given the device a name yet. `awaiting_decision`
+means nobody has answered the *second* question - name them here, or let them
+name themselves - and it exists because approving without it told the device
+"you're in" while that question was still on screen. It would then walk off to
+`/access/name` and name itself out from under whoever was mid-way through
+naming it.
+
+While the decision is open the device is held on the waiting page:
+`/access/state` reports `deciding`, `auth()` sends it back to wait rather than
+to naming, and `/access/name` refuses it outright in case it arrives by a stale
+link. `needs_name()` is False throughout, which is what the wait page checks.
+
+Answering releases it: **Name them** clears both through `rename()`, **Let them
+decide** clears only the decision and sends the device off to name itself.
+Typing nothing at the panel falls through to the second.
+
 ### Coming back with a token that is no longer good
 
 A browser arriving with a stale, revoked or unknown token is sent to

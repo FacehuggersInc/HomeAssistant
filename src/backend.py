@@ -97,6 +97,14 @@ def FlaskApp(client):
 			# The poll is not the only way in - a device with a bookmark can
 			# arrive anywhere - so the check belongs on every request rather
 			# than on the one page that happens to poll.
+			# awaiting_decision comes first. Sending a device to name itself
+			# while somebody at the panel is still being asked whether to name
+			# it produces two people naming one device at once.
+			if getattr(user, "awaiting_decision", False) and _wants_html() and \
+					not request.path.startswith("/access/"):
+				return redirect("/access/wait?" + urlencode(
+					{"next": _next_target(), "token": token}))
+
 			if user.awaiting_name and _wants_html() and \
 					not request.path.startswith("/access/"):
 				return redirect("/access/name?" + urlencode(
@@ -612,6 +620,32 @@ def FlaskApp(client):
 							   token=token,
 							   device=user.name if user else "this device"), 200
 
+	@app.route("/ping", methods=["GET"])
+	def ping():
+		"""
+		Is the panel there, and what is it.
+
+		The index has offered a Ping button since it was written, but the route
+		was never added - so it answered with Flask's own 404 page, which the
+		index showed as a screenful of raw HTML.
+		"""
+		log()
+		err = auth()
+		if err: return err
+		import time as _time
+		started = getattr(client, "STARTED_AT", None)
+		uptime = int(_time.time() - started) if started else 0
+		hours, rest = divmod(uptime, 3600)
+		minutes = rest // 60
+		user = request.environ.get("ha.user")
+		return {"request": "Success",
+				"alive": True,
+				"app": APP_NAME,
+				"page": getattr(client.PAGE, "name", None) if client.PAGE else None,
+				"uptime_seconds": uptime,
+				"uptime": f"{hours}h {minutes}m" if hours else f"{minutes}m",
+				"device": user.name if user else "this device"}, 200
+
 	@app.route("/users", methods=["GET"])
 	def users_list():
 		"""Who can own something, for a picker rather than a text field."""
@@ -669,6 +703,12 @@ def FlaskApp(client):
 		user = client.USERS.get(token)
 		if user is None:
 			return redirect("/access/wait")
+		if getattr(user, "awaiting_decision", False):
+			# Arrived early, or by a stale link. Sent back to wait rather than
+			# allowed to name itself out from under the panel.
+			return redirect("/access/wait?" + urlencode(
+				{"token": token,
+				 "next": _strip_token(request.args.get("next") or "/")}))
 
 		name = (request.args.get("name") or "").strip()
 		if name:
@@ -693,6 +733,10 @@ def FlaskApp(client):
 			return {"request": "Failed", "reason": "No token given"}, 400
 		state = client.USERS.state_of(token)
 		user = client.USERS.get(token)
+		# Still approved, but not yet cleared to go anywhere: the panel is
+		# mid-question about who names this device.
+		if state == "approved" and client.USERS.awaiting_decision(token):
+			state = "deciding"
 		return {"request": "Success", "state": state,
 				"name": user.name if user else "",
 				# The waiting page sends them on to name themselves rather

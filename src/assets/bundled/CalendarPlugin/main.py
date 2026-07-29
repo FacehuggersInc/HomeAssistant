@@ -45,11 +45,24 @@ SUBS_PAGE = """<!doctype html><html><head><meta charset="utf-8">
        border-radius:10px;padding:12px;margin-bottom:14px;font-size:14px}
  details{margin-top:18px;color:var(--muted);font-size:13.5px}
  summary{cursor:pointer;color:var(--text)}
- a.back{display:inline-block;color:var(--muted);text-decoration:none;
-      font-size:14px;margin-bottom:10px;padding:8px 0}
- a.back:active{color:var(--text)}
+ a.back{display:inline-flex;align-items:center;gap:8px;
+      text-decoration:none;background:var(--card);border:1px solid var(--line);
+      color:var(--text);border-radius:10px;padding:11px 16px;font-size:15px;
+      font-weight:600;margin-bottom:14px}
+ a.back:active{background:#26262b}
+ a.back svg{width:16px;height:16px;fill:none;stroke:currentColor;
+      stroke-width:2.4;stroke-linecap:round;stroke-linejoin:round}
+ select{width:100%;padding:13px;border-radius:9px;font-size:16px;
+      background:#111114;color:var(--text);border:1px solid var(--line);
+      appearance:none;-webkit-appearance:none;padding-right:42px;
+      background-image:linear-gradient(45deg,transparent 50%,var(--muted) 50%),
+      linear-gradient(135deg,var(--muted) 50%,transparent 50%);
+      background-position:calc(100% - 20px) 22px,calc(100% - 14px) 22px;
+      background-size:6px 6px,6px 6px;background-repeat:no-repeat}
+ select:focus{outline:none;border-color:var(--accent)}
+ option{background:#111114;color:var(--text)}
 </style></head><body>
-<a class="back" href="/?token=__TOKEN__">&#8592; All pages</a>
+<a class="back" href="/?token=__TOKEN__"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg><span>All pages</span></a>
 <h1>Subscribed calendars</h1>
 <p class="sub">Mirrored onto the panel, one way. Nothing is sent back.</p>
 __MESSAGE_BLOCK__
@@ -133,11 +146,15 @@ FORM_PAGE = """<!doctype html><html><head><meta charset="utf-8">
  li span{color:var(--muted)}
  .ok{background:rgba(47,240,142,.14);border:1px solid rgba(47,240,142,.5);
      border-radius:10px;padding:12px;margin-bottom:14px;display:none}
- a.back{display:inline-block;color:var(--muted);text-decoration:none;
-      font-size:14px;margin-bottom:10px;padding:8px 0}
- a.back:active{color:var(--text)}
+ a.back{display:inline-flex;align-items:center;gap:8px;
+      text-decoration:none;background:var(--card);border:1px solid var(--line);
+      color:var(--text);border-radius:10px;padding:11px 16px;font-size:15px;
+      font-weight:600;margin-bottom:14px}
+ a.back:active{background:#26262b}
+ a.back svg{width:16px;height:16px;fill:none;stroke:currentColor;
+      stroke-width:2.4;stroke-linecap:round;stroke-linejoin:round}
 </style></head><body>
-<a class="back" href="/?token=__TOKEN__">&#8592; All pages</a>
+<a class="back" href="/?token=__TOKEN__"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg><span>All pages</span></a>
 <h1>Add an event</h1>
 <p class="sub">It appears on the panel straight away.</p>
 <div class="ok" id="ok">Added.</div>
