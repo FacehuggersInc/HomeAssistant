@@ -42,6 +42,26 @@ class NighttimeClockPlugin(Plugin):
         self._settle_key = "nighttimeclock:settle"
         self._was_enabled = True
 
+        # The weather, owned here rather than read off the page.
+        #
+        # The page used to reach into the weather widget for it - but the
+        # widget lives on sub.home, and goto() DESTROYS that page on the way
+        # to this one. So by the time the night page looked, the widget was
+        # either gone or a deleted QWidget, and the temperature simply never
+        # appeared. A plugin outlives every page, so it is the right place to
+        # keep this.
+        self.weather: dict = {}
+        self._weather_at = 0.0
+        self._weather_busy = False
+        self._forced_weather: dict = {}
+        self._forced_key = ""
+        # Where to go back to. Updated on every page visit worth returning to -
+        # see _remember_page.
+        self._last_page = ""
+        # Where to go back to. Updated on every page change that is worth
+        # returning to - see _remember_page.
+        self._last_page = ""
+
     ## CORE
 
     def load(self, carryover=None):
@@ -54,8 +74,14 @@ class NighttimeClockPlugin(Plugin):
         self.client.subscribe_to_event("on_interaction", self._on_interaction)
         self.client.subscribe_to_event("on_interaction_timeout", self._on_idle)
         self.client.subscribe_to_event("on_settings_saved", self._on_settings)
+        self.client.subscribe_to_event("on_visit", self._remember_page)
+        # Whatever is up right now counts as the last page.
+        self._remember_page()
 
         self.client.public.expose(self.KEY, "nighttime", {
+            "weather":    lambda: dict(self._forced_weather or self.weather),
+            "condition":  self.condition,
+            "refresh":    self.refresh_weather,
             "schedule":   lambda: self.schedule,
             "is_night":   lambda: self.schedule.is_night(now_minutes()),
             "phase":      lambda: self.schedule.phase(now_minutes()),
@@ -80,11 +106,14 @@ class NighttimeClockPlugin(Plugin):
             # the page it just switched to.
             closes_panel=True)
 
+        self._register_debug_entries()
+
     def unload(self, carryover=None):
         for name, handler in (("on_update", self._tick),
                               ("on_interaction", self._on_interaction),
                               ("on_interaction_timeout", self._on_idle),
-                              ("on_settings_saved", self._on_settings)):
+                              ("on_settings_saved", self._on_settings),
+                              ("on_visit", self._remember_page)):
             try:
                 self.client.unsubscribe_from_event(name, handler)
             except Exception:
@@ -102,6 +131,111 @@ class NighttimeClockPlugin(Plugin):
         self._set_brightness(100, self.FADE_MS)
         if self._on_night_page():
             self._goto(self._default_home())
+
+    ## DEBUG
+
+    #(key, label, icon, the weather to pretend it is)
+    #Temperatures here are Fahrenheit, converted like any other reading -
+    #see environment.to_fahrenheit.
+    FAKE_WEATHER = [
+        ("dbg_clear",   "Clear",   "mdi.weather-night",
+         {"cloud_cover": 5}),
+        ("dbg_cloudy",  "Cloudy",  "mdi.weather-cloudy",
+         {"cloud_cover": 85}),
+        ("dbg_rain",    "Rain",    "mdi.weather-pouring",
+         {"cloud_cover": 95, "rain": 0.25, "wind_speed_10m": 14,
+          "wind_direction_10m": 250}),
+        ("dbg_snow",    "Snow",    "mdi.weather-snowy",
+         {"cloud_cover": 90, "snowfall": 0.25, "temperature_2m": 24,
+          "wind_speed_10m": 8, "wind_direction_10m": 300}),
+        ("dbg_fog",     "Fog",     "mdi.weather-fog",
+         {"cloud_cover": 100, "weather_code": 45}),
+        ("dbg_storm",   "Storm",   "mdi.weather-lightning-rainy",
+         {"cloud_cover": 100, "rain": 0.6, "weather_code": 95,
+          "wind_speed_10m": 30, "wind_direction_10m": 200}),
+        ("dbg_hail",    "Hail",    "mdi.weather-hail",
+         {"cloud_cover": 100, "rain": 0.4, "weather_code": 96,
+          "temperature_2m": 36, "wind_speed_10m": 18,
+          "wind_direction_10m": 260}),
+        ("dbg_drizzle", "Drizzle", "mdi.weather-rainy",
+         {"cloud_cover": 80, "rain": 0.01, "weather_code": 53}),
+        ("dbg_windy",   "Windy",   "mdi.weather-windy",
+         {"cloud_cover": 30, "wind_speed_10m": 34,
+          "wind_gusts_10m": 58, "wind_direction_10m": 270}),
+        ("dbg_freeze",  "Freezing", "mdi.snowflake",
+         {"cloud_cover": 10, "temperature_2m": 12}),
+        # Moon phases shift the DATE the moon is worked out from, since
+        # nothing in the weather can move it.
+        ("dbg_full",    "Full moon", "mdi.moon-full",
+         {"cloud_cover": 5, "_moon_days": 14.77}),
+        ("dbg_crescent", "Crescent", "mdi.moon-waxing-crescent",
+         {"cloud_cover": 5, "_moon_days": 3.5}),
+        ("dbg_real",    "Real",    "mdi.restart",
+         None),
+    ]
+
+    def _register_debug_entries(self) -> None:
+        """
+        Environment switches, for working on this.
+
+        Only while `debug.enabled` is on. Waiting for it to snow to find
+        out whether the snow looks right is not a workflow, and these are not
+        controls a household wants in their quick settings.
+        """
+        if not self._debug():
+            return
+        for key, label, glyph, _fake in self.FAKE_WEATHER:
+            self.client.QUICK.register(
+                self.KEY, key, label, glyph,
+                on_press=lambda k=key: self._force_weather(k),
+                on_state=lambda k=key: self._forced_key == k,
+                order=90, closes_panel=True)
+
+    def _debug(self) -> bool:
+        try:
+            return bool(self.client.debug_mode())
+        except Exception:
+            return False
+
+    def _force_weather(self, key: str) -> None:
+        """Pretend it is doing something else, and show the clock."""
+        entry = next((e for e in self.FAKE_WEATHER if e[0] == key), None)
+        if entry is None:
+            return
+        fake = entry[3]
+        if fake is None:
+            self._forced_weather = {}
+            self._forced_key = ""
+            self.client.log("info", "[Nighttime] Environment back to the real weather.")
+        else:
+            # Marked, so the page knows to rebuild even when the temperature
+            # happens to match what it already had.
+            # _unit pins these to Fahrenheit. They are written as Fahrenheit
+            # literals, and converting them by the panel's own unit setting
+            # would turn a 12F freeze into a 54F evening on a celsius panel.
+            self._forced_weather = {"_forced": key, "_unit": "fahrenheit",
+                                    "temperature_2m": 60,
+                                    "is_day": 0, "precipitation": 0,
+                                    "rain": 0, "showers": 0, "snowfall": 0,
+                                    "cloud_cover": 0, "wind_speed_10m": 0,
+                                    "wind_direction_10m": 0,
+                                    "wind_gusts_10m": 0, "weather_code": 0}
+            self._forced_weather.update(fake)
+            self._forced_key = key
+            self.client.log("info", f"[Nighttime] Forced environment: {entry[1]}.")
+
+        self._goto(NightPage.KEY)
+        page = getattr(self.client, "PAGE", None)
+        if page is not None and getattr(page, "name", "") == NightPage.KEY:
+            self.client.call_on_ui(lambda: self._rebuild_page())
+
+    def _rebuild_page(self) -> None:
+        page = getattr(self.client, "PAGE", None)
+        if page is not None and hasattr(page, "_recheck_weather"):
+            try:
+                page._recheck_weather()
+            except Exception as e:
+                self.client.log("debug", f"[Nighttime] Rebuild failed: {e}")
 
     ## SETTINGS
 
@@ -134,6 +268,16 @@ class NighttimeClockPlugin(Plugin):
         except Exception:
             pass
 
+        # Debug may have been switched on or off since the last save.
+        has_debug = any(self.client.QUICK.get(self.KEY, k) is not None
+                        for k, *_ in self.FAKE_WEATHER)
+        if self._debug() and not has_debug:
+            self._register_debug_entries()
+        elif not self._debug() and has_debug:
+            for key, *_ in self.FAKE_WEATHER:
+                self.client.QUICK.unregister(self.KEY, key)
+            self._forced_weather, self._forced_key = {}, ""
+
         if was_enabled and not enabled:
             # Turned off. Undo everything it was doing rather than freezing
             # the panel dim on a page nothing will now navigate away from.
@@ -154,6 +298,79 @@ class NighttimeClockPlugin(Plugin):
 
     ## TICK
 
+    #how often the weather is refreshed while the plugin is loaded
+    WEATHER_SECONDS = 900
+
+    def refresh_weather(self, force: bool = False) -> None:
+        """
+        Keep a current reading, from whichever source has one.
+
+        The widget first, because it is already fetching on its own timer and
+        a second caller waking the network at three in the morning is exactly
+        what a night page should not do. Only when that has nothing - which is
+        the whole time the night page is up, since its page was destroyed -
+        does this ask the API itself.
+        """
+        now = time.time()
+        if not force and self.weather and \
+                now - self._weather_at < self.WEATHER_SECONDS:
+            return
+        if self._weather_busy:
+            return
+
+        borrowed = self._weather_from_widget()
+        if borrowed:
+            self.weather = borrowed
+            self._weather_at = now
+            return
+
+        api = None
+        try:
+            api = self.client.API.get("weather")
+        except Exception:
+            api = None
+        if api is None:
+            return
+
+        self._weather_busy = True
+
+        def work():
+            data = None
+            try:
+                data = api.get_current_weather()
+            except Exception as e:
+                self.client.log("warning", f"[Nighttime] Weather fetch failed: {e}")
+            finally:
+                self._weather_busy = False
+            if data:
+                self.weather = dict(data)
+                self._weather_at = time.time()
+                self.client.log("debug", "[Nighttime] Weather refreshed.")
+
+        from threading import Thread
+        Thread(target=work, name="__nighttime_weather", daemon=True).start()
+
+    def condition(self) -> str:
+        """The single strongest thing the sky is doing, as one word."""
+        from .environment import condition
+        return condition(self._forced_weather or self.weather)
+
+    def _weather_from_widget(self) -> dict:
+        """Whatever the weather widget last fetched, if it is still alive."""
+        try:
+            widgets = self.client.public.cwb_widgets.get("sub.home", [])
+        except Exception:
+            return {}
+        for widget in widgets:
+            try:
+                data = getattr(widget, "_weather_data", None)
+            except RuntimeError:
+                # The widget was deleted with its page. Expected, not an error.
+                continue
+            if data:
+                return dict(data)
+        return {}
+
     def _tick(self, event=None) -> None:
         if not self._enabled():
             return
@@ -165,6 +382,10 @@ class NighttimeClockPlugin(Plugin):
         minute = now_minutes()
         previous = self._last_minute
         self._last_minute = minute
+
+        # Kept fresh whatever page is up, so the clock has it the moment it
+        # appears rather than a quarter of an hour later.
+        self.refresh_weather()
 
         if previous is None:
             # First look. Put the panel where it should already be, without
@@ -313,15 +534,37 @@ class NighttimeClockPlugin(Plugin):
         page = getattr(self.client, "PAGE", None)
         return bool(page is not None and getattr(page, "name", "") == NightPage.KEY)
 
+    #never worth returning to: transient, or somewhere nobody meant to leave
+    #the panel sitting
+    NEVER_RETURN = ("#settings", NightPage.KEY)
+
+    def _remember_page(self, event=None) -> None:
+        """
+        Track where the panel actually was.
+
+        Settings is excluded deliberately. Somebody who changed a setting at
+        nine and walked away did not choose to leave the panel on Settings,
+        and waking at 2am onto a settings form is nobody's idea of useful.
+        """
+        page = getattr(self.client, "PAGE", None)
+        name = getattr(page, "name", "") if page is not None else ""
+        if name and name not in self.NEVER_RETURN:
+            self._last_page = name
+
     def _home_target(self) -> str:
         """
         Where "off the clock" means.
 
-        The home page, not wherever the panel happened to be when night fell.
-        Waking at 2am onto the Settings page because that is where it was left
-        at nine is not what anybody means by going back.
+        `return_to` picks: `last` goes back to whatever the panel was on
+        before the night started, `home` always goes to the home page. Last is
+        the default because a panel that lives on a particular page should
+        come back to it - but a household that wanders through pages will want
+        home, hence the setting.
         """
-        return self._default_home()
+        mode = str(self._setting("return_to", "last")).strip().lower()
+        if mode.startswith("h"):
+            return self._default_home()
+        return self._last_page or self._default_home()
 
     def _default_home(self) -> str:
         for candidate in ("#cwb_home_page", "#root"):
@@ -353,5 +596,6 @@ class NighttimeClockPlugin(Plugin):
                 "brightness": self._brightness(),
                 "target_brightness": self.schedule.brightness(minute),
                 "woken": self._awake,
+                "condition": self.condition(),
                 "night_at": Schedule.clock(self.schedule.night),
                 "day_at": Schedule.clock(self.schedule.day)}, 200

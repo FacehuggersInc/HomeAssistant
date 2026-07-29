@@ -5,7 +5,7 @@ from datetime import datetime
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel,
-    QFrame, QSlider, QScrollArea,
+    QFrame, QSlider, QScrollArea, QSizePolicy,
 )
 from PyQt6.QtCore import Qt, QEvent, QPoint, QRect, QTimer
 
@@ -59,7 +59,17 @@ class QuickAccessButton(QWidget):
         self._press = None
         self._down = False
 
-        self.setFixedSize(98, 84)
+        # Fixed height, flexible width. Fixed on both axes is what left four
+        # tiles huddled against the left edge of a panel wide enough for
+        # eight, with the rest of the row empty.
+        self.setFixedHeight(84)
+        self.setMinimumWidth(88)
+        # Capped as well as flexible. Stretching to fill was the fix for four
+        # tiles bunched on the left, but with three entries on a wide panel it
+        # would have given three tiles 700px across, which is worse.
+        self.setMaximumWidth(168)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding,
+                           QSizePolicy.Policy.Fixed)
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         if entry.enabled:
             self.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -337,7 +347,11 @@ class QuickSettings(Panel):
         self._quick_grid = QGridLayout(self._quick_host)
         self._quick_grid.setContentsMargins(0, 0, 0, 0)
         self._quick_grid.setSpacing(8)
-        self._quick_grid.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
+        # Centred, not left-hugged. AlignLeft with fixed-width tiles left the
+        # rest of the row empty; centring means a row that cannot fill the
+        # width sits in the middle of it rather than against one edge.
+        self._quick_grid.setAlignment(Qt.AlignmentFlag.AlignTop
+                                      | Qt.AlignmentFlag.AlignHCenter)
         self._quick_card.layout_.addWidget(self._quick_host)
 
         self._quick_empty = QLabel("Nothing registered yet.")
@@ -385,16 +399,58 @@ class QuickSettings(Panel):
                 widget.setParent(None)
                 widget.deleteLater()
         self._tiles = []
+        self._quick_columns_used = 0
 
         entries = self.client.QUICK.entries()
         self._quick_empty.setVisible(not entries)
         self._quick_host.setVisible(bool(entries))
 
-        columns = 4
+        columns = self._quick_columns(len(entries))
         for index, entry in enumerate(entries):
             tile = QuickAccessButton(self.client, entry, self._entry_pressed)
             self._quick_grid.addWidget(tile, index // columns, index % columns)
             self._tiles.append(tile)
+
+        # Equal stretch on every column, so a part-filled last row lines up
+        # with the one above instead of spreading out to fill it.
+        for column in range(columns):
+            self._quick_grid.setColumnStretch(column, 1)
+        for column in range(columns, 16):
+            self._quick_grid.setColumnStretch(column, 0)
+        self._quick_columns_used = columns
+
+    #the width one tile wants before the grid starts adding another column
+    TILE_TARGET = 116
+
+    def _quick_columns(self, count: int) -> int:
+        """
+        How many across, from the room there actually is.
+
+        Was four regardless of panel width. On a 2560px screen that is four
+        tiles in the left third and nothing in the other two.
+        """
+        usable = self._quick_host.width()
+        if usable <= 0:
+            usable = max(0, self.width() - 96)
+        if usable <= 0:
+            return min(4, max(1, count))
+        columns = max(1, int(usable // self.TILE_TARGET))
+        # Never more columns than entries, or the last ones stretch absurdly.
+        return max(1, min(columns, max(1, count)))
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        # Only when the answer actually changed: rebuilding the grid on every
+        # frame of the open animation would be visible.
+        try:
+            entries = self.client.QUICK.entries()
+        except Exception:
+            return
+        if not entries:
+            return
+        if self._quick_columns(len(entries)) != getattr(
+                self, "_quick_columns_used", 0):
+            self.rebuild_quick_access()
 
     def _entry_pressed(self, entry) -> None:
         try:

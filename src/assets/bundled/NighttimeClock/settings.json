@@ -51,6 +51,12 @@
         "suffix": "sec",
         "description": "How long after being touched at night before it dims again."
     },
+    "return_to": {
+        "type": "string",
+        "default": "last",
+        "value": "last",
+        "description": "Where touching it at night goes: 'last' for whatever page it was on before, 'home' for always the home page. Settings is never counted as the last page."
+    },
     "fireflies": {
         "type": "bool",
         "default": true,
@@ -62,5 +68,29 @@
         "default": 16,
         "value": 16,
         "description": "How many. More is prettier and costs more to draw."
+    },
+    "weather_effects": {
+        "type": "bool",
+        "default": true,
+        "value": true,
+        "description": "Draw what the sky is doing - rain, snow, cloud, stars - using the weather the panel already fetched."
+    },
+    "sky_events": {
+        "type": "bool",
+        "default": true,
+        "value": true,
+        "description": "Rare things on a clear night: the occasional shooting star, and a named constellation fading in and out."
+    },
+    "show_moon": {
+        "type": "bool",
+        "default": true,
+        "value": true,
+        "description": "Tonight's moon, at tonight's phase. Worked out, not fetched."
+    },
+    "show_sun": {
+        "type": "bool",
+        "default": true,
+        "value": true,
+        "description": "How long until the next sunrise or sunset."
     }
 }

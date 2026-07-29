@@ -36,6 +36,10 @@ class OpenMeteoAPI:
                     "temperature_2m", "is_day", "precipitation", "rain",
                     "showers", "snowfall", "cloud_cover",
                     "wind_speed_10m", "wind_direction_10m", "wind_gusts_10m",
+                    # Appended, never inserted: get_current_weather() maps the
+                    # response by POSITION in this list, so putting a new field
+                    # anywhere but the end silently relabels every one after it.
+                    "weather_code",
                 ],
                 "temperature_unit":   "fahrenheit",
                 "wind_speed_unit":    "mph",
@@ -89,8 +93,26 @@ class OpenMeteoAPI:
 
     # ── API calls ─────────────────────────────────────────────────────────────
 
+    def unit(self) -> str:
+        """'fahrenheit' or 'celsius', from the setting."""
+        try:
+            value = str(self.plugin.settings.weather.units.value).strip().lower()
+        except Exception:
+            return "fahrenheit"
+        return "celsius" if value.startswith("c") else "fahrenheit"
+
+    def unit_symbol(self) -> str:
+        """The letter to put after the degree sign."""
+        return "C" if self.unit() == "celsius" else "F"
+
     def _sync_params(self) -> None:
+        # Requested in the unit that is wanted rather than converted here:
+        # open-meteo does it properly, including for apparent temperature, and
+        # a conversion in two places is a rounding disagreement waiting to
+        # happen.
+        unit = self.unit()
         for key in ("hourly", "current"):
+            self.PARAMS[key]["temperature_unit"] = unit
             self.PARAMS[key]["latitude"]  = self.plugin.settings.weather.latitude.value
             self.PARAMS[key]["longitude"] = self.plugin.settings.weather.longitude.value
             self.PARAMS[key]["timezone"]  = self.plugin.settings.weather.timezone.value

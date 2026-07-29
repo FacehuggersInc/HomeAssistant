@@ -391,6 +391,23 @@ class Client:
         if was_idle:
             self.iterate_event_callables("on_fresh_interaction", event, True)
 
+    def debug_mode(self) -> bool:
+        """
+        Whether the app is in debug mode.
+
+        One flag the whole app reads, rather than each plugin inventing its
+        own: anything that wants a developer-only control, an extra log line
+        or a way to force a state it would otherwise have to wait for should
+        gate it on this.
+
+        A method rather than an attribute, so it follows the setting without
+        anything having to be told the setting changed.
+        """
+        try:
+            return bool(self.setting("debug.enabled.value", False))
+        except Exception:
+            return False
+
     def reset_interaction_timeout(self, wake: bool = True) -> None:
         """
         Treat now as the last interaction, without there having been one.

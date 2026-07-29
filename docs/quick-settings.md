@@ -149,14 +149,22 @@ See [Updating](updating.md) for how checks and the version marker work.
 
 ## The tiles
 
-Each entry is drawn as a 98x84 tile with a glyph and a caption, and **the whole
-tile takes the press**. It was an icon button with a caption beneath it, so only
+Each entry is drawn as a tile with a glyph and a caption, and **the whole tile
+takes the press**. It was an icon button with a caption beneath it, so only
 the 20px glyph responded and most of what looked like a button did nothing -
 which on a touch screen is the difference between a control and a decoration.
 
 The glyph and caption are mouse-transparent so every press lands on the tile,
 and a press that travels more than a few pixels is treated as a scroll of the
 card rather than a tap. Four visual states: on, off, pressed and disabled.
+
+**The grid fills the panel.** Column count comes from the width rather than
+being fixed at four, which on a wide screen put four tiles in the left third
+and left the rest empty. Tiles are fixed height and flexible width, capped at
+168px so three entries on a 2560px panel do not become three 700px slabs, and
+a row that cannot fill the width is centred rather than hugging one edge. The
+grid re-lays out when the panel is resized, but only when the column count
+actually changes.
 
 ### Closing on press
 

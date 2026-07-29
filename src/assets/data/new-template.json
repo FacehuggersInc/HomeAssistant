@@ -324,5 +324,13 @@
             "suffix": "sec",
             "description": "How long the panel keeps listening after the wake word before giving up. Too short and it stops mid-thought; too long and it sits listening to the room."
         }
+    },
+    "debug": {
+        "enabled": {
+            "type": "bool",
+            "default": false,
+            "value": false,
+            "description": "Developer controls and extra logging. Plugins may add their own switches while this is on."
+        }
     }
 }

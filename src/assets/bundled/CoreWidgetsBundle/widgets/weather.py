@@ -46,7 +46,7 @@ class WeatherWidget(Widget):
         self._icon_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         add_text_shadow(self._icon_lbl, blur=8)
 
-        self._temp_lbl = QLabel("--°", self)
+        self._temp_lbl = QLabel("--\u00b0", self)
         self._temp_lbl.setFont(_font)
         set_style(self._temp_lbl, "widgets", "weather-temp")
         add_text_shadow(self._temp_lbl, blur=8)
@@ -105,7 +105,13 @@ class WeatherWidget(Widget):
         if not self._weather_data:
             return
         temp = int(self._weather_data.get("temperature_2m", 0))
-        self._temp_lbl.setText(f"{temp}°")
+        # With the unit shown. "72°" is ambiguous on a panel somebody else
+        # set up, and it is one character.
+        try:
+            symbol = self.client.API["weather"].unit_symbol()
+        except Exception:
+            symbol = ""
+        self._temp_lbl.setText(f"{temp}\u00b0{symbol}")
 
         try:
             import qtawesome as qta

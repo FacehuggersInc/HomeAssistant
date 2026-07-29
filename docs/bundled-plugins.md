@@ -42,7 +42,9 @@ comes with the app:
   laying the two lines out from it put around 50px of nothing between a 96px
   time and its date. `LINE_GAP` is now the literal number of clear pixels
   between them.
-* **WeatherWidget** - the other half of the default home screen content.
+* **WeatherWidget** - the other half of the default home screen content. The
+  temperature carries its unit; `weather.units` picks fahrenheit or celsius and
+  is sent to the API rather than converted afterwards.
 * **ConfigurationBar** - quick access to a few settings from the page itself.
 * **StickerWidget** - an image or GIF from the sticker folder, `MULTIPLE` so
   several can be up at once. Chosen from a searchable grid at the panel or sent

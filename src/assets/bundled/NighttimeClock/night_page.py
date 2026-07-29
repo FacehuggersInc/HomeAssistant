@@ -1,68 +1,20 @@
 from __future__ import annotations
 
-import math
-import random
 import time
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from PyQt6.QtWidgets import QWidget
-from PyQt6.QtCore import Qt, QTimer, QPointF, QRectF
-from PyQt6.QtGui import (
-    QPainter, QColor, QFontMetrics, QRadialGradient, QLinearGradient,
-)
+from PyQt6.QtCore import QTimer, QPointF
+from PyQt6.QtGui import QPainter, QColor, QFontMetrics, QLinearGradient
 
 from src.ui.page import PageFramework
 from src.styling import make_font, set_style
+from .environment import (
+    layers_for, sky_colours, describe, condition, gusts_for,
+)
 
 if TYPE_CHECKING:
     from src.main import Client
-
-
-class Firefly:
-    """
-    One drifting point of light.
-
-    Plain data with a step(), so the page can move a dozen of them without a
-    QObject each - a QPropertyAnimation per dot would be a dozen timers
-    running all night for something nobody is watching closely.
-    """
-
-    __slots__ = ("x", "y", "vx", "vy", "phase", "speed", "size", "hue")
-
-    def __init__(self, width: float, height: float):
-        self.x = random.uniform(0.05, 0.95) * width
-        self.y = random.uniform(0.05, 0.95) * height
-        angle = random.uniform(0, math.tau)
-        # Slow. These are meant to be noticed only if you look for them.
-        drift = random.uniform(3.0, 11.0)
-        self.vx = math.cos(angle) * drift
-        self.vy = math.sin(angle) * drift
-        self.phase = random.uniform(0, math.tau)
-        self.speed = random.uniform(0.25, 0.7)
-        self.size = random.uniform(2.0, 4.2)
-        self.hue = random.choice((48, 52, 60, 140))
-
-    def step(self, dt: float, width: float, height: float) -> None:
-        self.x += self.vx * dt
-        self.y += self.vy * dt
-        self.phase += self.speed * dt
-
-        # Turned back at the edges rather than wrapped: a dot vanishing on one
-        # side and reappearing on the other reads as a glitch.
-        margin = 20.0
-        if self.x < margin and self.vx < 0:
-            self.vx = -self.vx
-        if self.x > width - margin and self.vx > 0:
-            self.vx = -self.vx
-        if self.y < margin and self.vy < 0:
-            self.vy = -self.vy
-        if self.y > height - margin and self.vy > 0:
-            self.vy = -self.vy
-
-    def glow(self) -> float:
-        """0..1, never fully out - a dot that vanishes looks like a dead pixel."""
-        return 0.25 + 0.75 * (0.5 + 0.5 * math.sin(self.phase))
 
 
 class NightPage(PageFramework):
@@ -99,9 +51,13 @@ class NightPage(PageFramework):
         self.setFixedSize(width, height)
         set_style(self, "common", "page-background")
 
-        self._fireflies: list = []
+        self._layers: list = []
         self._last_step = time.time()
         self._weather = ""
+        self._weather_data: dict = {}
+        self._sun_line = ""
+        self._sky = ([6, 7, 11], [14, 17, 26])
+        self._gusts = None
 
         self._timer = QTimer(self)
         self._timer.setInterval(self.TICK_MS)
@@ -111,8 +67,15 @@ class NightPage(PageFramework):
         self._clock_timer.setInterval(1000)
         self._clock_timer.timeout.connect(self.update)
 
-        self._build_fireflies()
+        # A fetch started as this page opened lands a second or two later.
+        # Without this the page would show nothing until the next night.
+        self._weather_timer = QTimer(self)
+        self._weather_timer.setInterval(20000)
+        self._weather_timer.timeout.connect(self._recheck_weather)
+
+        # Weather first: the layers are chosen from it.
         self._read_weather()
+        self._build_layers()
 
     ## -- settings
 
@@ -122,46 +85,167 @@ class NightPage(PageFramework):
         except Exception:
             return default
 
-    def _build_fireflies(self) -> None:
-        self._fireflies = []
-        if not bool(self._setting("fireflies", True)):
-            return
-        count = max(0, min(60, int(self._setting("firefly_count", 16))))
-        for _ in range(count):
-            self._fireflies.append(Firefly(self.width(), self.height()))
+    def _unit_for(self, weather: dict) -> str:
+        """
+        Which scale this reading is in.
+
+        A forced environment carries its own, because those are written as
+        Fahrenheit literals and must not be reinterpreted by whatever the
+        panel is set to display.
+        """
+        pinned = (weather or {}).get("_unit")
+        if pinned:
+            return str(pinned)
+        try:
+            return self.client.API["weather"].unit()
+        except Exception:
+            return "fahrenheit"
+
+    def _build_layers(self) -> None:
+        """
+        Rebuild the stack from whatever the weather last said.
+
+        Cheap enough to do on every activation and every resize: it allocates
+        the particles once and nothing after that allocates at all.
+        """
+        try:
+            # With effects off it still gets fireflies, because those are
+            # the setting above and were here first.
+            weather = (self._weather_data
+                       if bool(self._setting("weather_effects", True)) else {})
+            # The reading is in whatever unit the weather setting asked for,
+            # and every threshold in there is Fahrenheit.
+            unit = self._unit_for(weather)
+
+            self._layers = layers_for(
+                weather,
+                unit=unit,
+                fireflies=bool(self._setting("fireflies", True)),
+                firefly_count=int(self._setting("firefly_count", 16)),
+                events=bool(self._setting("sky_events", True)),
+                moon=bool(self._setting("show_moon", True)),
+                when=self._moon_when(weather),
+            )
+            # One gust source for all of them, so they lean together rather
+            # than each drifting to its own rhythm.
+            self._gusts = gusts_for(weather)
+            for layer in self._layers:
+                layer.gusts = self._gusts
+        except Exception as e:
+            self.client.log("warning", f"[Nighttime] Could not build the "
+                                       f"environment: {e}")
+            self._layers = []
+        for layer in self._layers:
+            layer.resize(self.width(), self.height())
+        self._sky = sky_colours(self._weather_data,
+                                unit=self._unit_for(self._weather_data))
 
     ## -- weather
 
-    def _read_weather(self) -> None:
+    @staticmethod
+    def _moon_when(weather: dict):
         """
-        Whatever the weather widget already fetched, if anything.
+        The date to work the moon out from.
 
-        Deliberately not its own request: the panel has a widget doing this on
-        a timer already, and a second caller waking the network at three in the
-        morning is exactly the sort of thing a night page should not do.
+        Normally now. A debug switch can pass `_moon_days`, which shifts it -
+        nothing in the weather can move the moon, and waiting a fortnight to
+        see whether the gibbous draws correctly is not a workflow.
         """
         try:
-            widgets = self.client.public.cwb_widgets.get("sub.home", [])
-            for widget in widgets:
-                data = getattr(widget, "_weather_data", None)
-                if data:
-                    temp = int(data.get("temperature_2m", 0))
-                    self._weather = f"{temp}\u00b0"
-                    return
-        except Exception:
-            pass
+            days = float((weather or {}).get("_moon_days") or 0)
+        except (TypeError, ValueError):
+            return None
+        if not days:
+            return None
+        from datetime import datetime, timedelta
+        # Counted from a known new moon, so the offset means what it says.
+        from .astronomy import KNOWN_NEW_MOON, SYNODIC
+        base = datetime(2000, 1, 6, 18, 14)
+        cycles = int((datetime.now() - base).days / SYNODIC)
+        return base + timedelta(days=cycles * SYNODIC + days)
+
+    def _read_weather(self) -> None:
+        """
+        The reading the plugin holds.
+
+        Asked of the plugin rather than of the weather widget: the widget
+        lives on sub.home, and goto() destroys that page on the way here - so
+        by the time this page existed there was nothing to read, which is why
+        the temperature kept not appearing.
+        """
+        self._weather_data = {}
         self._weather = ""
+        try:
+            if self.client.public.has("nighttime"):
+                self._weather_data = dict(
+                    self.client.public.nighttime["weather"]() or {})
+        except Exception:
+            self._weather_data = {}
+        if self._weather_data:
+            try:
+                temp = int(float(self._weather_data.get("temperature_2m", 0)))
+            except (TypeError, ValueError):
+                self._weather = ""
+                return
+            symbol = ""
+            try:
+                symbol = self.client.API["weather"].unit_symbol()
+            except Exception:
+                pass
+            # The condition alongside the number: "38F" alone does not say
+            # whether to expect ice on the way out.
+            state = condition(self._weather_data)
+            self._weather = f"{temp}\u00b0{symbol}"
+            if state and state != "unknown":
+                self._weather += f"  \u00b7  {state}"
+        self._sun_line = self._read_sun()
+
+    def _read_sun(self) -> str:
+        """
+        "Sunrise in 2h 14m". The most useful thing on a clock at 5am.
+
+        Computed, not fetched: it is arithmetic on a date and a position, and
+        this keeps working with the router off.
+        """
+        if not bool(self._setting("show_sun", True)):
+            return ""
+        try:
+            from .astronomy import next_sun_event, describe_wait
+            latitude = float(self.client.setting(
+                "corewidgetsbundle.weather.latitude.value", 0) or 0)
+            longitude = float(self.client.setting(
+                "corewidgetsbundle.weather.longitude.value", 0) or 0)
+            if not latitude and not longitude:
+                return ""
+            name, moment, seconds = next_sun_event(latitude, longitude)
+            if not name or seconds <= 0:
+                return ""
+            return f"{name.capitalize()} in {describe_wait(seconds)}"
+        except Exception:
+            return ""
+
+    def conditions(self) -> str:
+        """Everything the sky is doing, for logs."""
+        return describe(self._weather_data)
+
+    def condition(self) -> str:
+        """The single strongest thing it is doing."""
+        return condition(self._weather_data)
 
     ## -- lifecycle
 
     def start(self) -> None:
         super().start()
         self._last_step = time.time()
-        self._build_fireflies()
         self._read_weather()
-        if self._fireflies:
+        self._build_layers()
+        if self._layers:
             self._timer.start()
         self._clock_timer.start()
+        self._weather_timer.start()
+        if self._weather_data:
+            self.client.log("debug", f"[Nighttime] Environment: "
+                                     f"{self.conditions() or 'unknown'}")
 
     def stop(self) -> None:
         # Stopped, not left running. This page is destroyed on navigation, but
@@ -169,17 +253,32 @@ class NightPage(PageFramework):
         # that is on its way out.
         self._timer.stop()
         self._clock_timer.stop()
+        self._weather_timer.stop()
         try:
             super().stop()
         except AttributeError:
             pass
 
+    def _recheck_weather(self) -> None:
+        """Pick up a reading that arrived after this page was built."""
+        before = self._weather_data.get("temperature_2m")
+        forced = self._weather_data.get("_forced")
+        self._read_weather()
+        if self._weather_data.get("temperature_2m") == before and not forced:
+            return
+        # Only rebuilt when it actually changed: this reallocates every
+        # particle, and doing that every twenty seconds would be visible.
+        self._build_layers()
+
     def _step(self) -> None:
         now = time.time()
         dt = min(0.25, now - self._last_step)
         self._last_step = now
-        for fly in self._fireflies:
-            fly.step(dt, self.width(), self.height())
+        if self._gusts is not None:
+            self._gusts.step(dt)
+        width, height = self.width(), self.height()
+        for layer in self._layers:
+            layer.step(dt, width, height)
         self.update()
 
     ## -- painting
@@ -189,41 +288,27 @@ class NightPage(PageFramework):
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
         self._paint_background(painter)
-        for fly in self._fireflies:
-            self._paint_firefly(painter, fly)
+        for layer in self._layers:
+            layer.paint(painter, self.width(), self.height())
         self._paint_clock(painter)
 
         painter.end()
 
     def _paint_background(self, painter: QPainter) -> None:
-        """A near-black gradient, lighter at the bottom. Barely there."""
+        """
+        A near-black gradient, lighter at the bottom.
+
+        Tinted by temperature and lifted a little by cloud - a cloudy sky is
+        never as black as a clear one, and saying so costs one subtraction.
+        """
+        top, bottom = self._sky
         gradient = QLinearGradient(0, 0, 0, self.height())
-        gradient.setColorAt(0.0, QColor(6, 7, 11))
-        gradient.setColorAt(0.65, QColor(9, 11, 18))
-        gradient.setColorAt(1.0, QColor(14, 17, 26))
+        gradient.setColorAt(0.0, QColor(*top))
+        gradient.setColorAt(0.65, QColor((top[0] + bottom[0]) // 2,
+                                         (top[1] + bottom[1]) // 2,
+                                         (top[2] + bottom[2]) // 2))
+        gradient.setColorAt(1.0, QColor(*bottom))
         painter.fillRect(self.rect(), gradient)
-
-    def _paint_firefly(self, painter: QPainter, fly: Firefly) -> None:
-        glow = fly.glow()
-        colour = QColor()
-        colour.setHsv(fly.hue, 140, 255)
-
-        radius = fly.size * 5.5
-        gradient = QRadialGradient(QPointF(fly.x, fly.y), radius)
-        halo = QColor(colour)
-        halo.setAlpha(int(52 * glow))
-        gradient.setColorAt(0.0, halo)
-        edge = QColor(colour)
-        edge.setAlpha(0)
-        gradient.setColorAt(1.0, edge)
-        painter.setBrush(gradient)
-        painter.setPen(Qt.PenStyle.NoPen)
-        painter.drawEllipse(QPointF(fly.x, fly.y), radius, radius)
-
-        core = QColor(colour)
-        core.setAlpha(int(200 * glow))
-        painter.setBrush(core)
-        painter.drawEllipse(QPointF(fly.x, fly.y), fly.size, fly.size)
 
     def _paint_clock(self, painter: QPainter) -> None:
         now = datetime.now()
@@ -252,6 +337,8 @@ class NightPage(PageFramework):
         block = (-time_ink.top()) + gap + (-date_ink.top())
         if self._weather:
             block += gap + (-date_ink.top())
+        if self._sun_line:
+            block += gap * 0.72 + (-date_ink.top())
 
         top = (self.height() - block) / 2.0
         centre = self.width() / 2.0
@@ -279,6 +366,15 @@ class NightPage(PageFramework):
                         baseline),
                 self._weather)
 
+        if self._sun_line:
+            baseline += gap * 0.72 + (-date_ink.top())
+            painter.setPen(QColor(104, 126, 164, 150))
+            painter.drawText(
+                QPointF(centre - date_m.horizontalAdvance(self._sun_line) / 2.0,
+                        baseline),
+                self._sun_line)
+
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
-        self._build_fireflies()
+        for layer in self._layers:
+            layer.resize(self.width(), self.height())

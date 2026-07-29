@@ -204,6 +204,22 @@ settings live in its `settings.json` and are documented with the plugin.
 | `plugins.weather.longitude` | float | `-95.8608` deg. | The Longitude of your city |
 | `plugins.weather.timezone` | string | `America/Chicago` | The timezone you're in |
 
+### Debug mode
+
+`debug.enabled` is one flag the whole app reads, rather than each plugin
+inventing its own. Anything that wants a developer-only control, an extra log
+line, or a way to force a state it would otherwise have to wait for should gate
+it on this:
+
+```python
+if client.debug_mode():
+    client.QUICK.register(...)
+```
+
+It is a method rather than an attribute so it follows the setting without
+anything having to be told the setting changed. The Nighttime Clock uses it to
+add environment switches — forcing rain or snow beats waiting for weather.
+
 ## Migration
 
 Settings added by an update are folded into the existing data file at startup.

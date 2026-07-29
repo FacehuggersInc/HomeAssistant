@@ -19,6 +19,12 @@
             "value": -95.8608,
             "suffix": "deg.",
             "description": "The Longitude of your city"
+        },
+        "units": {
+            "type": "string",
+            "default": "fahrenheit",
+            "value": "fahrenheit",
+            "description": "fahrenheit or celsius. Changes the API request, not just the label."
         }
     },
     "tiles": {
