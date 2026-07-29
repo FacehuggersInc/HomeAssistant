@@ -30,18 +30,17 @@ comes with the app:
   Publishes `cwb_wallpaper` so the [quick settings](quick-settings.md) header
   can cycle and pin it.
 * **DateTimeWidget** - the time with the full date beneath it, painted as one
-  block rather than stacked labels. Two labels in a column each carried their
-  own metrics, shadow and baseline, and the gap between them was whatever the
-  layout decided, so it read as two widgets that happened to be near each
-  other. Both lines now share a baseline grid and the date is drawn softer, so
-  the pair reads as one thing with a heading. No background and no border: it
-  sits on the wallpaper, and the wallpaper is the background.
+  block rather than stacked labels. Two labels in a column would each carry
+  their own metrics, shadow and baseline, and read as two widgets that happen
+  to be near each other; sharing a baseline grid, with the date drawn softer,
+  makes the pair one thing with a heading. No background and no border: it sits
+  on the wallpaper, and the wallpaper is the background.
 
   Spacing is measured on the **ink** - `tightBoundingRect` - rather than on
   ascent and descent. A font box carries leading above and below the glyphs, so
-  laying the two lines out from it put around 50px of nothing between a 96px
-  time and its date. `LINE_GAP` is now the literal number of clear pixels
-  between them.
+  laying the lines out from it puts around 50px of nothing between a 96px time
+  and its date. `LINE_GAP` is the literal number of clear pixels between
+  them.
 * **WeatherWidget** - the other half of the default home screen content. The
   temperature carries its unit; `weather.units` picks fahrenheit or celsius and
   is sent to the API rather than converted afterwards.
@@ -139,6 +138,20 @@ first time it is read, then cached.
 Feeds are shown as idle panels through `idletriggers`.
 
 ---
+
+### Managing feeds
+
+`/public/rss_feeds` is a page — listed on the index as **Feeds** — for adding
+and removing them from a phone. A name and an address; the name is only used
+for the filename, and the feed's own title is what appears on the panel.
+
+Feeds are stored one per file in the `RSSFeeds` folder as `{"url": "..."}`,
+which is the whole format. A transformer is inferred on first use and does not
+belong in a file somebody typed by hand. The folder is registered as an
+uploadable asset, so the files are reachable the same way stickers are.
+
+Adding one puts it into the live rotation immediately; removing one takes it
+out rather than leaving it until the next restart.
 
 ## Nighttime Clock
 

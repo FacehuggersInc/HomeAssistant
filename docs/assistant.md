@@ -293,16 +293,14 @@ Rate limits and network errors leave it open so a follow-up can retry.
 
 ## A wake nobody followed up on
 
-Saying the wake word and then not saying anything used to leave the panel in
-`LISTENING` until the STT process reset itself - and while it sat there, a
-repeated wake word was **ignored**, because the handler refused to re-arm
-something already listening. Which is exactly what a person does when it looks
-like it did not hear them.
+Saying the wake word and then not saying anything must not leave the panel
+stuck in `LISTENING`.
 
-Two things now prevent that. A repeated wake refreshes the wake rather than
-being dropped, and `assistant.wake_listen_timeout` (12 seconds by default,
-floored at 3) stands the wake down on the client's own clock. The STT process
-still has its own reset; this is the panel not depending on it.
+Two things prevent it. A repeated wake **refreshes** the wake rather than being
+ignored - saying it again is exactly what a person does when it looks like the
+panel did not hear them. And `assistant.wake_listen_timeout` (12 seconds by
+default, floored at 3) stands the wake down on the client's own clock. The STT
+process has its own reset; this is the panel not depending on it.
 
 A wake word with nothing after it clears the wake immediately rather than
 leaving it armed, and an open session is never interrupted by the timeout - a

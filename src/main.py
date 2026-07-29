@@ -279,11 +279,15 @@ class Client:
         self._assistant_config: tuple = ()
 
         ## -- APIS
-        self.API_REGISTRY = APIRegistry(self)
+        # One registry for both: the HTTP endpoints a plugin serves, and the
+        # API classes it provides. These were `API` and a plain `API`
+        # dict beside it - two things called "the API" with different rules,
+        # and nothing owned the dict, so an unloaded plugin left its objects
+        # behind for anything still holding a reference to call into.
+        self.API = APIRegistry(self)
         self.SECRETS      = SecretRegistry(self)
         for _key in self.CORE_SECRETS:
             self.SECRETS.register("client", _key)
-        self.API: dict = {} #This is for custom API Classes (NOT the API_REGISTRY which handles backend.py Flask REST API endpoints)
 
         ## -- OVERLAYS
         self.OVERLAYS             = OverlayManager(self)

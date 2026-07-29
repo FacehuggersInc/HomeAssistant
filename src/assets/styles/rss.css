@@ -1,0 +1,42 @@
+/* RSS feed panels.
+ *
+ * These were inline setStyleSheet calls with hardcoded hex, which kept the
+ * colours out of the one place every other colour in the app lives - and an
+ * inline sheet on a QLabel also stops it inheriting anything else.
+ */
+
+.tag-feed {
+    background: rgba(59,130,246,190);
+    color: #ffffff;
+    border-radius: 9px;
+    padding: 0px 14px;
+}
+
+.tag-date {
+    background: rgba(139,92,246,175);
+    color: #ffffff;
+    border-radius: 9px;
+    padding: 0px 14px;
+}
+
+.tag-author {
+    background: rgba(16,185,129,175);
+    color: #ffffff;
+    border-radius: 9px;
+    padding: 0px 14px;
+}
+
+/* The article body. Transparent so the panel's own background shows through;
+ * a QTextBrowser fills itself by default and would sit as a pale slab. */
+.body {
+    background: transparent;
+    border: 0px;
+    color: rgba(200,205,214,255);
+}
+
+/* The picture strip runs edge to edge across the top of the panel. No radius
+ * and no margin: it is the top of the panel, not a card sitting inside it. */
+.image {
+    background: rgba(0,0,0,90);
+    border: 0px;
+}

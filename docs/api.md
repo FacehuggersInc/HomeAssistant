@@ -180,7 +180,7 @@ Anything a plugin registers with `APIRegistry` is served under `/public/`:
 ```python
 class MyPlugin(Plugin):
     def load(self, carryover=None):
-        self.client.API_REGISTRY.register(
+        self.client.API.register(
             "myplugin", "forecast", self.forecast,
             requires_auth=True, cached=False,
         )
@@ -218,7 +218,7 @@ return shape. Call `endpoint.clear_cache()` to invalidate.
 the endpoint asks for them**:
 
 ```python
-self.client.API_REGISTRY.register(
+self.client.API.register(
     "myplugin", "my_upload", self.handler,
     requires_auth=True, accepts_files=True)
 
@@ -252,7 +252,7 @@ An endpoint that returns a page rather than data can say so, and the index
 picks it up:
 
 ```python
-self.client.API_REGISTRY.register(
+self.client.API.register(
     "myplugin", "myplugin_form", self.api_form, requires_auth=True,
     gui="Add a thing",
     description="A page sized for a phone.")
@@ -267,7 +267,7 @@ An endpoint that *does* something rather than showing something becomes a
 button instead:
 
 ```python
-self.client.API_REGISTRY.register(
+self.client.API.register(
     "calendar", "calendar_sync", self.api_sync, requires_auth=True,
     action="Sync calendars")
 ```
@@ -280,6 +280,26 @@ Plugin actions are listed above the client's own, which are always there and
 always the same.
 
 ---
+
+## API classes, not only endpoints
+
+`client.API` holds both. Alongside `register()` for an HTTP endpoint there is
+`register_api()` for a class other plugins can call into:
+
+```python
+self.client.API.register_api("corewidgetsbundle", "weather",
+                             OpenMeteoAPI(self, self.client))
+```
+
+```python
+api = client.API.get("weather")
+if api:
+    reading = api.get_current_weather()
+```
+
+The Nighttime Clock uses the weather client this way rather than fetching its
+own, and the RSS plugin registers its parser as `RSS`. See
+[Registries](registries.md) for ownership and cleanup.
 
 ## Health
 

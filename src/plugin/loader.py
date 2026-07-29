@@ -429,7 +429,7 @@ class PluginManager():
 			self.client.MIXINS.remove_plugin_mixins( plugin_key )
 
 			# etc a. Auto Unload Registered API Endpoints
-			self.client.API_REGISTRY.unregister(plugin_key)
+			self.client.API.unregister(plugin_key)
 
 			self.client.PAGES.unregister(plugin_key)
 
@@ -573,7 +573,7 @@ class PluginManager():
 
 		try:
 			add("API Endpoints", [f"/public/{name}" for name in
-								  client.API_REGISTRY.endpoints_for(plugin_key)])
+								  client.API.endpoints_for(plugin_key)])
 		except Exception:
 			pass
 

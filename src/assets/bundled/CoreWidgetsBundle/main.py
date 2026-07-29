@@ -40,7 +40,10 @@ class CoreWidgetsBundle(Plugin):
     def load(self, carryover: PluginCarryover = None):
         self.client.public.expose("corewidgetsbundle", "cwb_widgets",   self.widgets)
         self.client.public.expose("corewidgetsbundle", "cwb_sub_pages", self.sub_pages)
-        self.client.API["weather"] = OpenMeteoAPI(self, self.client)
+        # Registered with an owner rather than assigned into a dict, so it
+        # goes when this plugin does.
+        self.client.API.register_api("corewidgetsbundle", "weather",
+                                     OpenMeteoAPI(self, self.client))
 
         # Register pages owned by this plugin
         self.client.add_page("#cwb_home_page", "Home Page", HomePage, owner="corewidgetsbundle")
@@ -93,7 +96,7 @@ class CoreWidgetsBundle(Plugin):
         })
 
         #Register API
-        api_endpoint, registered_flag = self.client.API_REGISTRY.register(
+        api_endpoint, registered_flag = self.client.API.register(
             "corewidgetsbundle",
             "test",
             self.api_endpoint_test,
@@ -101,48 +104,48 @@ class CoreWidgetsBundle(Plugin):
             False
         )
 
-        self.client.API_REGISTRY.register(
+        self.client.API.register(
             "corewidgetsbundle", "timer_start", self.api_timer_start,
             requires_auth=True,
             description="Start a timer. seconds= or minutes=, optional name=.")
         # A page, not an index action. The action fired the endpoint with no
         # arguments at all, so the duration never arrived and the button's own
         # label was a promise nothing kept.
-        self.client.API_REGISTRY.register(
+        self.client.API.register(
             "corewidgetsbundle", "timer_form", self.api_timer_form,
             requires_auth=True, gui="Start a timer",
             description="Choose a duration and start a timer.")
-        self.client.API_REGISTRY.register(
+        self.client.API.register(
             "corewidgetsbundle", "timer_list", self.api_timer_list,
             requires_auth=True,
             description="Every timer the panel is counting.")
-        self.client.API_REGISTRY.register(
+        self.client.API.register(
             "corewidgetsbundle", "timer_cancel", self.api_timer_cancel,
             requires_auth=True,
             description="Cancel one timer by key, or all of them.")
-        self.client.API_REGISTRY.register(
+        self.client.API.register(
             "corewidgetsbundle", "sticker_add", self.api_sticker_add,
             requires_auth=True, accepts_files=True,
             gui="Stickers",
             description="Upload a sticker, or place one from the library.")
-        self.client.API_REGISTRY.register(
+        self.client.API.register(
             "corewidgetsbundle", "sticker_list", self.api_sticker_list,
             requires_auth=True,
             description="Every sticker in the library.")
-        self.client.API_REGISTRY.register(
+        self.client.API.register(
             "corewidgetsbundle", "sticker_place", self.api_sticker_place,
             requires_auth=True,
             description="Place a sticker. sticker=, quadrant=, mode=, timeout=.")
-        self.client.API_REGISTRY.register(
+        self.client.API.register(
             "corewidgetsbundle", "sticker_remove", self.api_sticker_remove,
             requires_auth=True,
             description="Delete a sticker from the library.")
 
-        self.client.API_REGISTRY.register(
+        self.client.API.register(
             "corewidgetsbundle", "widget_show", self.api_widget_show,
             requires_auth=True,
             description="Place a transient widget on the home screen.")
-        self.client.API_REGISTRY.register(
+        self.client.API.register(
             "corewidgetsbundle", "widget_dismiss", self.api_widget_dismiss,
             requires_auth=True,
             description="Take a transient widget away again.")

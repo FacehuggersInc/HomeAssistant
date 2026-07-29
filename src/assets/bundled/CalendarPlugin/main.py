@@ -280,20 +280,20 @@ class Calendar(Plugin):
 
         # Remote events. Authed, because anything that can write here can put
         # arbitrary text on a screen in someone's kitchen.
-        self.client.API_REGISTRY.register(
+        self.client.API.register(
             "calendar", "calendar_add", self.api_add, requires_auth=True)
-        self.client.API_REGISTRY.register(
+        self.client.API.register(
             "calendar", "calendar_upcoming", self.api_upcoming, requires_auth=True)
-        self.client.API_REGISTRY.register(
+        self.client.API.register(
             "calendar", "calendar_sync", self.api_sync, requires_auth=True,
             action="Sync calendars")
-        self.client.API_REGISTRY.register(
+        self.client.API.register(
             "calendar", "calendar_subscriptions", self.api_subscriptions,
             requires_auth=True, gui="Subscribed calendars",
             description="Mirror a Google, Apple or Outlook calendar onto the panel.")
-        self.client.API_REGISTRY.register(
+        self.client.API.register(
             "calendar", "calendar_dump", self.api_dump, requires_auth=True)
-        self.client.API_REGISTRY.register(
+        self.client.API.register(
             "calendar", "calendar_form", self.api_form, requires_auth=True,
             gui="Add an event",
             description="A page sized for a phone. Adds to the panel straight away.")
@@ -561,7 +561,7 @@ class Calendar(Plugin):
                 pass
 
         self.client.public.unexpose("calendar", "calendar")
-        self.client.API_REGISTRY.unregister("calendar")
+        self.client.API.unregister("calendar")
 
     ## SETTINGS
 

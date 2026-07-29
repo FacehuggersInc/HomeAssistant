@@ -30,12 +30,11 @@ about it.
 
 Approving a device sets **both** `awaiting_name` and `awaiting_decision`.
 
-`awaiting_name` means nobody has given the device a name yet. `awaiting_decision`
-means nobody has answered the *second* question - name them here, or let them
-name themselves - and it exists because approving without it told the device
-"you're in" while that question was still on screen. It would then walk off to
-`/access/name` and name itself out from under whoever was mid-way through
-naming it.
+`awaiting_name` means nobody has given the device a name yet.
+`awaiting_decision` means nobody has answered the *second* question - name them
+here, or let them name themselves. Without it a device would be told "you're
+in" while that question is still on screen, walk off to `/access/name`, and
+name itself out from under whoever is mid-way through naming it.
 
 While the decision is open the device is held on the waiting page:
 `/access/state` reports `deciding`, `auth()` sends it back to wait rather than
@@ -52,17 +51,17 @@ A browser arriving with a stale, revoked or unknown token is sent to
 `/access/wait` like any other - but **the refused token is not carried with
 it**, and neither is the one already in the address it was heading for.
 
-That mattered more than it sounds. `next` was built from the full path the
-browser arrived with, so it still held the old token; the wait page then
-appended the new one, giving `?token=OLD&token=NEW`. The first value wins in
-every parser there is, so the browser went back holding exactly the token that
-had just been refused, was refused again, and bounced between the two forever.
-The naming page had the same shape and the same loop.
+That matters more than it sounds. `next` is built from the path the browser
+arrived with, and if the refused token were left on it the wait page would
+append the new one to give `?token=OLD&token=NEW`. The first value wins in
+every parser there is, so the browser would go back holding exactly the token
+that had just been refused, be refused again, and bounce between the two
+forever.
 
-Both now strip `token` and `id` out of a target before adding the real one -
-in the redirect and in the wait page's own JavaScript, which builds the same
-URL client-side. Every other query parameter survives, so a device sent away
-from a form comes back to the same form.
+Both strip `token` and `id` out of a target before adding the real one - in the
+redirect and in the wait page's own JavaScript, which builds the same URL
+client-side. Every other query parameter survives, so a device sent away from a
+form comes back to the same form.
 
 ### The flow
 

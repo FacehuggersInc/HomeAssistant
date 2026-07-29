@@ -216,12 +216,13 @@ sortable grid of things to pick one of - see
 
 ### Enabling a button after it exists
 
-`add_button()` picks the disabled style at construction only, so a button
-toggled later with `setEnabled()` kept looking primary or destructive while
-refusing every tap - which reads as broken rather than unavailable.
+`add_button()` picks its style at construction. Toggling with `setEnabled()`
+alone leaves a button looking primary or destructive while refusing every tap,
+which reads as broken rather than unavailable.
 
-`set_button_state(button, enabled, kind)` does both, and is what to use for
-anything that becomes available once a selection is made.
+`set_button_state(button, enabled, kind)` sets both the state and the style,
+and is what to use for anything that becomes available once a selection is
+made.
 
 ### What a slide costs
 

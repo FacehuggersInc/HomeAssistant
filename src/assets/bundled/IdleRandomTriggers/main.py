@@ -20,6 +20,10 @@ class IdleTriggersPlugin(Plugin):
         self.last_built : list[any, str, str, bool] = [None, None, None, False]
         self.last_timeout_id = None
 
+        # Sprints: a run of panels, then quiet. See _start_break.
+        self._shown_this_sprint = 0
+        self._resting = False
+
     ## CORE
     def load(self, carryover=None):
         self.client.subscribe_to_event(
@@ -108,6 +112,60 @@ class IdleTriggersPlugin(Plugin):
             return True
         return bool(getattr(page, "blocks_idle_triggers", False))
 
+    ## SPRINTS
+    #
+    # A run of panels, then quiet. Rotating forever meant the panel never
+    # settled - which is exactly what an idle screen is supposed to do.
+
+    def _sprint_length(self) -> int:
+        try:
+            return max(0, int(self.settings.sprint_items.value))
+        except Exception:
+            return 0
+
+    def _sprint_break(self) -> float:
+        try:
+            return max(0.0, float(self.settings.sprint_break.value) / 1000.0)
+        except Exception:
+            return 0.0
+
+    def _start_break(self) -> None:
+        """Stop rotating for a while, and dismiss whatever is up."""
+        seconds = self._sprint_break()
+        if seconds <= 0:
+            self._shown_this_sprint = 0
+            return
+
+        self._resting = True
+        self._shown_this_sprint = 0
+        self.client.log("debug",
+                        f"[IdleTriggers] Sprint over - resting {seconds:.0f}s.")
+
+        panel = self.last_built[0]
+        if isinstance(panel, Panel) and self.last_built[3]:
+            self.client.call_on_ui(lambda: panel.close_panel(destroy=True))
+            self.last_built[0] = None
+
+        self.client.TIMEOUTS.add(seconds, self._end_break,
+                                 "idletriggers:sprint", transient=True)
+        self.client.TIMEOUTS.start("idletriggers:sprint")
+
+    def _end_break(self) -> None:
+        self._resting = False
+        self._shown_this_sprint = 0
+        # Only picks up again if the panel is still idle. Somebody walked past
+        # during the break, the rotation stopped, and it should stay stopped.
+        if self.rotating_builders:
+            self.builder_used_timeslot = True
+
+    def _cancel_break(self) -> None:
+        self._resting = False
+        self._shown_this_sprint = 0
+        try:
+            self.client.TIMEOUTS.discard("idletriggers:sprint")
+        except Exception:
+            pass
+
     def check_time_update(self, *args):
         if not self.builders:
             return
@@ -118,6 +176,7 @@ class IdleTriggersPlugin(Plugin):
             if self.rotating_builders:
                 self.rotating_builders = False
                 self.already_called_ids = []
+                self._cancel_break()
 
                 #Dismiss
                 if isinstance(self.last_built[0], Panel) and self.last_built[3] == True:
@@ -128,7 +187,7 @@ class IdleTriggersPlugin(Plugin):
                         self.client.TIMEOUTS.cancel(self.last_timeout_id)
             return
 
-        if self.rotating_builders:
+        if self.rotating_builders and not self._resting:
             if self.builder_used_timeslot == True:
                 self.builder_used_timeslot = False
                 self.client.call_on_ui( self.call_and_handle_random_builder )
@@ -168,8 +227,14 @@ class IdleTriggersPlugin(Plugin):
         return (None, None, None, None)
 
     def call_and_handle_random_builder(self) -> None:
+        limit = self._sprint_length()
+        if limit and self._shown_this_sprint >= limit:
+            self._start_break()
+            return
+
         callable, id, plugin, auto_dismiss = self.get_random_unused_builder()
         if callable:
+            self._shown_this_sprint += 1
             self.last_built[0] = callable( self.settings.rotate_time.value / 1000 )
             self.last_built[1] = id
             self.last_built[2] = plugin

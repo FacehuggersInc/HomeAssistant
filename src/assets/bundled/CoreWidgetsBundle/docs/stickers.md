@@ -143,7 +143,7 @@ curl "http://panel:5000/public/sticker_place?token=...\
 `sticker_add` receives its file because it registered with `accepts_files`:
 
 ```python
-client.API_REGISTRY.register(
+client.API.register(
     "myplugin", "my_upload", self.handler,
     requires_auth=True, accepts_files=True)
 

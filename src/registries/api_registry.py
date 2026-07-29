@@ -77,6 +77,8 @@ class APIRegistry():
     def __init__(self, client):
         self.client : Client = client
         self.__store = {}
+        # key -> (owner plugin key, instance). See register_api.
+        self.__services = {}
 
     def endpoints_for(self, plugin_key:str) -> list[str]:
         """Endpoint names owned by a plugin, sorted."""
@@ -91,6 +93,87 @@ class APIRegistry():
             return True
         
         return False
+
+    ## ── Services ─────────────────────────────────────────────────────────────
+    #
+    # An API *class* rather than an HTTP endpoint: the weather client, the RSS
+    # parser. These lived in a plain `client.API` dict beside this registry,
+    # which meant two things called "the API" with different rules - nothing
+    # owned the dict, so a plugin that unloaded left its object behind for
+    # anything still holding a reference to call into.
+    #
+    # Registered here they have an owner, and go when that owner does.
+
+    def register_api(self, plugin_key: str, key: str, instance,
+                     replace: bool = False):
+        """
+        Register an API class under a key. Returns the instance.
+
+        Refuses to overwrite another plugin's service unless asked, for the
+        same reason endpoints do: two plugins quietly fighting over one key is
+        far harder to find than a warning at startup.
+        """
+        existing = self.__services.get(key)
+        if existing is not None and not replace:
+            owner, _ = existing
+            if owner != plugin_key:
+                self.client.log(
+                    "warning", f"[APIRegistry] '{plugin_key}' cannot register "
+                               f"API '{key}' - already owned by '{owner}'.")
+                return self.__services[key][1]
+        self.__services[key] = (plugin_key, instance)
+        self.client.log("info", f"[APIRegistry] API '{key}' registered under "
+                                f"ownership of '{plugin_key}'")
+        return instance
+
+    def unregister_api(self, plugin_key: str, key: str = "") -> None:
+        """Drop one service, or every service a plugin registered."""
+        if key:
+            entry = self.__services.get(key)
+            if entry and entry[0] == plugin_key:
+                del self.__services[key]
+                self.client.log("info", f"[APIRegistry] API '{key}' un-registered")
+            return
+        for name in [k for k, (owner, _) in self.__services.items()
+                     if owner == plugin_key]:
+            del self.__services[name]
+            self.client.log("info", f"[APIRegistry] API '{name}' un-registered")
+
+    def api(self, key: str, default=None):
+        """The instance registered under a key, or `default`."""
+        entry = self.__services.get(key)
+        return entry[1] if entry else default
+
+    def apis(self) -> dict:
+        """Every registered service, as {key: (owner, instance)}."""
+        return dict(self.__services)
+
+    def api_owner(self, key: str) -> str:
+        entry = self.__services.get(key)
+        return entry[0] if entry else ""
+
+    # Dict access, because `client.API["weather"]` reads better than
+    # `client.API.api("weather")` at a call site and every existing one is
+    # already written that way.
+    def __getitem__(self, key: str):
+        entry = self.__services.get(key)
+        if entry is None:
+            raise KeyError(key)
+        return entry[1]
+
+    def __setitem__(self, key: str, instance) -> None:
+        self.register_api("unowned", key, instance, replace=True)
+
+    def __delitem__(self, key: str) -> None:
+        self.__services.pop(key, None)
+
+    def __contains__(self, key: str) -> bool:
+        return key in self.__services
+
+    def get(self, key: str, default=None):
+        return self.api(key, default)
+
+    ## ── Endpoints ────────────────────────────────────────────────────────────
 
     def plugin_has_endpoint(self, plugin_key:str, endpoint:str):
         endpoints = self.__store.get(plugin_key, None)
@@ -126,6 +209,11 @@ class APIRegistry():
         return None
 
     def unregister(self, plugin_key:str, endpoint:str = ""):
+        # A whole-plugin unregister takes its services with it. They were
+        # registered by the same plugin and nothing else should be calling
+        # into an object whose owner has gone.
+        if plugin_key and not endpoint:
+            self.unregister_api(plugin_key)
         if plugin_key and self.plugin_has_registered(plugin_key):
             if endpoint and self.plugin_has_endpoint(plugin_key, endpoint):
                 del self.__store[plugin_key][endpoint]

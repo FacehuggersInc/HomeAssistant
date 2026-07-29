@@ -4,7 +4,34 @@ Registries manage and store extendable, plugin-ownable objects — things like A
 
 Three concrete registries currently exist. They are not all shaped the same way.
 
-## `APIRegistry` and `PageRegistry`
+## `APIRegistry` — `self.client.API`
+
+**Two things, one registry.** It holds the HTTP endpoints a plugin serves
+*and* the API classes it provides — the weather client, the RSS parser.
+
+Both have an owner, so a plugin that unloads takes its objects with it rather
+than leaving them behind for anything still holding a reference to call into.
+
+```python
+# An API class, with an owner
+self.client.API.register_api("myplugin", "weather", OpenMeteoAPI(self, client))
+
+# Reading one, from anywhere
+api = self.client.API["weather"]          # KeyError if absent
+api = self.client.API.get("weather")      # None if absent
+if "weather" in self.client.API: ...
+```
+
+Registering a key another plugin already owns is refused and logged rather
+than silently winning — two plugins fighting over one key is much harder to
+find than a warning at startup. `replace=True` is the deliberate way past it.
+
+`unregister("myplugin")` with no endpoint name drops **both** the plugin's
+endpoints and its API classes, which is what a plugin unloading wants.
+`unregister_api("myplugin", "weather")` drops one, and refuses if the plugin
+does not own it.
+
+## `APIRegistry` endpoints and `PageRegistry`
 
 These two share the same shape:
 
@@ -16,9 +43,9 @@ registry.unregister(owner, key="")
 `owner` is the plugin's key (or `"client"` for things the Client itself owns, like `#root` and `#settings`). Registering something under your plugin's key means `PluginManager.unload_plugin()` cleans it up automatically when your plugin is unloaded or reloaded — you should not need to manually remove anything you registered this way (see Plugin Lifecycle → `unload()`).
 
 ```python
-# APIRegistry — self.client.API_REGISTRY
-self.client.API_REGISTRY.register("myplugin", "my_endpoint", self.my_callback, False, False)
-self.client.API_REGISTRY.unregister("myplugin", "my_endpoint")
+# APIRegistry — self.client.API
+self.client.API.register("myplugin", "my_endpoint", self.my_callback, False, False)
+self.client.API.unregister("myplugin", "my_endpoint")
 
 # PageRegistry — self.client.PAGES (wrapped by add_page, see [Pages](pages.md))
 self.client.add_page("#mypage", "My Page", MyPage, owner="myplugin")

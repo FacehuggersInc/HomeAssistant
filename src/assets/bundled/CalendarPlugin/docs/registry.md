@@ -118,7 +118,7 @@ token as `?token=`. Pair a device once and approve it on the panel.
 | `http://<panel-ip>:5000/public/calendar_upcoming?token=...&count=5` | What is coming up, as JSON. |
 
 `/public/` is where every plugin-registered endpoint is served — these are
-registered by the Calendar plugin on `client.API_REGISTRY` and disappear with
+registered by the Calendar plugin on `client.API` and disappear with
 it. See [Backend API](/docs/api).
 
 ### The form
@@ -219,7 +219,7 @@ requests. For something immediate, post to `calendar_add` instead.
 
 The list appears in two places — **Settings → Calendar → Subscriptions** and
 the subscriptions dialog on the calendar page — and both build their rows from
-the same `subscription_row()`. They were briefly separate, and had drifted to
+the same `subscription_row()`. Two copies drift immediately - they drifted to
 where one offered four actions and the other only Remove.
 
 Each calendar shows who it is for, its event count and last sync — or the
@@ -242,7 +242,7 @@ places — beside the Subscriptions heading in Settings, and from the
 subscriptions dialog on the calendar page — and both open the same
 `SubscriptionEditorDialog`.
 
-They were briefly two separate dialogs, and they drifted immediately: one grew
+Two separate dialogs would drift immediately: one grows
 the provider hint and the address validation and the other did not, so which
 you got depended on where you started from.
 
@@ -292,7 +292,7 @@ A weekly rule listing several days becomes one event per day — that is how
 Google writes "every Monday, Wednesday and Friday", and by far the commonest
 thing that would otherwise be dropped. `BYMONTH` and `BYMONTHDAY` on a yearly
 rule are accepted and ignored, since they only restate what `DTSTART` says;
-rejecting them silently dropped every birthday and anniversary in a feed.
+rejecting them would drop every birthday and anniversary in a feed.
 
 `INTERVAL` above 1, `BYSETPOS`, `BYWEEKNO` and `BYYEARDAY` are **skipped with
 a logged reason** rather than imported as something simpler. Showing a

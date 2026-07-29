@@ -90,7 +90,7 @@ class NighttimeClockPlugin(Plugin):
             "go_day":     self.enter_day,
         })
 
-        self.client.API_REGISTRY.register(
+        self.client.API.register(
             self.KEY, "nighttime", self.api_state, requires_auth=True,
             description="Whether it is night, and what the brightness is.")
 

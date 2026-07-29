@@ -100,11 +100,9 @@ the date, and the temperature if the weather widget already knows it.
 
 ### Where the weather comes from
 
-**The plugin owns it, not the page.** The page used to read it off the weather
-widget — but that widget lives on `sub.home`, and `goto()` **destroys** that
-page on the way to this one. So by the time the night page looked, the widget
-was either gone or a deleted `QWidget`, and the temperature simply never
-appeared.
+**The plugin owns it, not the page.** The weather widget lives on `sub.home`,
+and `goto()` **destroys** that page on the way to this one — so by the time the
+night page is built, that widget is gone or a deleted `QWidget`.
 
 A plugin outlives every page, so the reading is kept there:
 

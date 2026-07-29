@@ -595,7 +595,7 @@ def FlaskApp(client):
 			 "description": "Send files to anything the panel has opened up.",
 			 "auth": True},
 		]
-		for endpoint in client.API_REGISTRY.gui_endpoints():
+		for endpoint in client.API.gui_endpoints():
 			pages.append({"url": f"/public/{endpoint.key}", "label": endpoint.gui,
 						  "description": endpoint.description, "auth": endpoint.authed})
 
@@ -604,7 +604,7 @@ def FlaskApp(client):
 		actions = []
 		# A plugin's own actions first. They are the ones somebody added on
 		# purpose; the client's are always there and always the same.
-		for endpoint in client.API_REGISTRY.action_endpoints():
+		for endpoint in client.API.action_endpoints():
 			actions.append({"url": f"/public/{endpoint.key}",
 							"label": endpoint.action, "danger": endpoint.danger})
 
@@ -821,7 +821,7 @@ def FlaskApp(client):
 				"loaded":     True,
 				"dependants": client.PLUGIN.get_dependants(key),
 				"can_unload": client.PLUGIN.can_unload(key),
-				"endpoints":  client.API_REGISTRY.endpoints_for(key),
+				"endpoints":  client.API.endpoints_for(key),
 			})
 
 		pending = []
@@ -875,7 +875,7 @@ def FlaskApp(client):
 					"dependants":    client.PLUGIN.get_dependants(plugin_key),
 					"can_unload":    client.PLUGIN.can_unload(plugin_key),
 					"registrations": client.PLUGIN.registration_count(plugin_key),
-					"endpoints":     client.API_REGISTRY.endpoints_for(plugin_key),
+					"endpoints":     client.API.endpoints_for(plugin_key),
 					"requirements":  client.PLUGIN.plugin_requirements(plugin_key),
 				}, 200
 
@@ -943,7 +943,7 @@ def FlaskApp(client):
 		if not client.BUILT: return {"request": "Failed", "reason": "The Application is still building..."}, 200
 
 		if endpoint:
-			api_endpoint = client.API_REGISTRY.get_endpoint(endpoint)
+			api_endpoint = client.API.get_endpoint(endpoint)
 			client.log("debug", str(api_endpoint))
 			if api_endpoint and isinstance(api_endpoint, tuple):
 				owner, end = api_endpoint

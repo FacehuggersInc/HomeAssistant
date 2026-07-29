@@ -16,3 +16,19 @@ dismissed inside a single frame on a page that never wanted it.
 
 This is not `blocks_idle`, which stops the idle clock altogether. A page that
 refuses triggers still goes idle and still times out normally.
+
+## Sprints
+
+Rotating forever meant the panel never settled, which is the one thing an idle
+screen is supposed to do.
+
+| Setting | Default | Meaning |
+|---|---|---|
+| `rotate_time` | 60000ms | How long each panel stays up. |
+| `sprint_items` | 4 | How many in a row before a pause. `0` never pauses. |
+| `sprint_break` | 300000ms | How long the screen is left alone between runs. |
+
+A break dismisses whatever is up and stops rotating. When it ends the rotation
+only resumes **if the panel is still idle** - somebody walking past during a
+break stops it, and it should stay stopped. An interaction cancels the break
+outright rather than leaving a timer to fire into a screen somebody is using.

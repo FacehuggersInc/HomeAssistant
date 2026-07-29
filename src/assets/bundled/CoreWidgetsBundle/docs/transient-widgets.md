@@ -238,10 +238,8 @@ backing out of every other conversation.
 
 `/public/timer_form` is the page for it, listed on the index as **Start a
 timer**. Presets fill the fields rather than submitting, so a duration can be
-adjusted before it starts - which is why this is a page and not the index
-button it used to be. That button fired the endpoint with **no arguments at
-all**, so the duration never arrived and its own label was a promise nothing
-kept.
+adjusted before it starts - which is why this is a page rather than an index
+button, since an index button fires its endpoint with no arguments at all.
 
 On the panel, the **timer button** on the configuration bar opens a duration picker — hours,
 minutes and seconds as steppers. A preset list can only offer what somebody
