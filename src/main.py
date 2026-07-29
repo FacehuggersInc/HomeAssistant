@@ -1409,6 +1409,16 @@ class Client:
                 self.iterate_event_callables("on_update", None, True)
                 self._check_interaction_timeout()
 
+                # A wake nobody followed up on. The STT process resets itself
+                # eventually, but until it does the panel refuses new wake
+                # words - so it is watched here as well, on the client's own
+                # clock.
+                if self.STT is not None:
+                    try:
+                        self.STT.check_wake_timeout()
+                    except Exception:
+                        pass
+
                 time.sleep(0.05)
 
         if self.RESTART:

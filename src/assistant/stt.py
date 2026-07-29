@@ -136,6 +136,9 @@ class STTProcessing():
 		self.processing : bool = False
 
 		self.woke_with : str = None
+		# When the wake word was heard, so a wake nobody followed up on can be
+		# stood down. See check_wake_timeout().
+		self.woke_at : float = 0.0
 
 		self.session :Session = None
 		self.route = "wake"
@@ -212,7 +215,12 @@ class STTProcessing():
 			self.client.log("info", f"[STTProcessing] Routing -> '{processed}' to {self.route}")
 			Thread(target = self.process_phrase, args = [self.clean_text( phrase.strip() ), ] ).start()
 		else:
+			# The wake word on its own, with nothing after it. Stood back down
+			# rather than left armed: woke_with lingering here is how the
+			# panel ended up believing it was mid-conversation with nobody.
 			self.processing = False
+			self.woke_with = None
+			self.woke_at = 0.0
 			self.client.ASSIST_STATUS = "LIVE"
 
 	def routing(self, processed:str):
@@ -255,6 +263,41 @@ class STTProcessing():
 				self.routing( processed )
 
 
+	def wake_timeout_seconds(self) -> float:
+		"""How long to stay listening after a wake with nothing said."""
+		try:
+			return max(3.0, float(self.client.setting(
+				"assistant.wake_listen_timeout.value", 12)))
+		except Exception:
+			return 12.0
+
+	def check_wake_timeout(self) -> None:
+		"""
+		Stand down a wake nobody followed up on.
+
+		Called from the client tick. The STT process has its own reset, but
+		the panel used to sit in LISTENING until that arrived, refusing new
+		wake words the whole time - so waking it and then pausing to think
+		left it unusable rather than simply idle.
+
+		Self-healing on the panel's own clock, so a process that never sends
+		its reset cannot strand the assistant.
+		"""
+		if not self.woke_at or self.is_session():
+			return
+		if self.client.ASSIST_STATUS not in ("LISTENING",):
+			return
+		if time.time() - self.woke_at < self.wake_timeout_seconds():
+			return
+
+		self.client.log("info",
+			"[STTProcessing] Wake timed out with nothing said - standing down.")
+		self.woke_at = 0.0
+		self.woke_with = None
+		self.processing = False
+		self.client.ASSIST_STATUS = "LIVE"
+		self.client.ASSIST_VOICE_ACTIVITY_LEVEL = 0.0
+
 	def cancel(self, reason: str = "") -> None:
 		"""
 		Abandon whatever the assistant is doing and go back to waiting for the
@@ -269,6 +312,7 @@ class STTProcessing():
 			self.close_session()
 
 		self.woke_with = None
+		self.woke_at = 0.0
 		self.processing = False
 		self.route = "wake"
 		self.client.ASSIST_STATUS = "LIVE"
@@ -361,13 +405,20 @@ class STTProcessing():
 										self.client.ASSIST_VOICE_ACTIVITY_LEVEL = 0.2
 
 								case "woke":
-									if not self.client.ASSIST_STATUS == "LISTENING":
-										self.woke_with = data.strip()
-										self.client.ASSIST_STATUS = "LISTENING"
+									# Refreshed rather than ignored while already
+									# listening. Ignoring it meant that once the
+									# panel was stuck in LISTENING, saying the wake
+									# word again did nothing at all - which is
+									# exactly what a person does when it looks like
+									# it did not hear them.
+									self.woke_with = data.strip()
+									self.woke_at = time.time()
+									self.client.ASSIST_STATUS = "LISTENING"
 
 								case "wait":
 									self.client.ASSIST_STATUS = "LIVE"
 									self.processing = False
+									self.woke_at = 0.0
 									if self.woke_with: self.woke_with = None
 
 								case "audio_error":

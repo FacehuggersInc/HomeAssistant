@@ -13,6 +13,7 @@ Settings live under **Assistant**:
 | `input_device` | Microphone name, or empty for the system default |
 | `model` | Whisper model, default `tiny.en`. Downloaded on first use |
 | `voice_bar` | The activity bar along the bottom of the screen |
+| `wake_listen_timeout` | Seconds to keep listening after the wake word with nothing said |
 | `tts_enabled` | Whether replies are spoken |
 | `elevenlabs_key` | ElevenLabs API key, stored in `.env` (see [Registries](registries.md)) |
 
@@ -289,6 +290,23 @@ Errors are also classed as fatal or not. A rejected key, an account with no
 credit, or a model this account cannot use ends the conversation - there is
 no point holding a session open that will fail again on the next question.
 Rate limits and network errors leave it open so a follow-up can retry.
+
+## A wake nobody followed up on
+
+Saying the wake word and then not saying anything used to leave the panel in
+`LISTENING` until the STT process reset itself - and while it sat there, a
+repeated wake word was **ignored**, because the handler refused to re-arm
+something already listening. Which is exactly what a person does when it looks
+like it did not hear them.
+
+Two things now prevent that. A repeated wake refreshes the wake rather than
+being dropped, and `assistant.wake_listen_timeout` (12 seconds by default,
+floored at 3) stands the wake down on the client's own clock. The STT process
+still has its own reset; this is the panel not depending on it.
+
+A wake word with nothing after it clears the wake immediately rather than
+leaving it armed, and an open session is never interrupted by the timeout - a
+skill holding a conversation is waiting on purpose.
 
 ## Backing out
 

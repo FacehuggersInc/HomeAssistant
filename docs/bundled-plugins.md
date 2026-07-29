@@ -29,7 +29,20 @@ comes with the app:
 * **CyclingBackground** - the wallpaper, fading between images on a timer.
   Publishes `cwb_wallpaper` so the [quick settings](quick-settings.md) header
   can cycle and pin it.
-* **DateTimeWidget**, **WeatherWidget** - the default home screen content.
+* **DateTimeWidget** - the time with the full date beneath it, painted as one
+  block rather than stacked labels. Two labels in a column each carried their
+  own metrics, shadow and baseline, and the gap between them was whatever the
+  layout decided, so it read as two widgets that happened to be near each
+  other. Both lines now share a baseline grid and the date is drawn softer, so
+  the pair reads as one thing with a heading. No background and no border: it
+  sits on the wallpaper, and the wallpaper is the background.
+
+  Spacing is measured on the **ink** - `tightBoundingRect` - rather than on
+  ascent and descent. A font box carries leading above and below the glyphs, so
+  laying the two lines out from it put around 50px of nothing between a 96px
+  time and its date. `LINE_GAP` is now the literal number of clear pixels
+  between them.
+* **WeatherWidget** - the other half of the default home screen content.
 * **ConfigurationBar** - quick access to a few settings from the page itself.
 * **StickyNote** - a `MULTIPLE` template, so the widgets panel can add as many
   copies as you like, each with its own key and saved text.

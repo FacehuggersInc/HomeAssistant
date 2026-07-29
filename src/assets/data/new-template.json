@@ -295,6 +295,13 @@
             "env": "ELEVENLABS_KEY",
             "value": "",
             "description": "ElevenLabs API key, used for spoken replies. Stored in your .env file, not here. Leave empty and the assistant still works, it just does not talk back."
+        },
+        "wake_listen_timeout": {
+            "type": "int",
+            "default": 12,
+            "value": 12,
+            "suffix": "sec",
+            "description": "How long the panel keeps listening after the wake word before giving up. Too short and it stops mid-thought; too long and it sits listening to the room."
         }
     }
 }
