@@ -380,6 +380,40 @@ def cmd_ping(args, config):
     return EXIT_OK if state == "ready" else EXIT_FAILED
 
 
+def cmd_backlight(args, config):
+    """
+    What is driving the screen brightness, and what else could.
+
+    The useful one when dimming does nothing: it says which backend was
+    picked, and with --survey why the others were not.
+    """
+    target = resolve_target(args, config)
+    params = {"survey": "true"} if args.survey else {}
+    status, body = call(target, "/backlight", params, timeout=args.timeout)
+    if status != 200 or not isinstance(body, dict):
+        return report(status, body, args.json)
+    if args.json:
+        return report(status, body, True)
+
+    print(f"  brightness : {body.get('brightness')}%")
+    print(f"  driving    : {body.get('label')}"
+          f"{'  (' + body['detail'] + ')' if body.get('detail') else ''}")
+    print(f"  setting    : {body.get('preferred')}")
+    if body.get("floor"):
+        print(f"  overlay    : below {body['floor']}%")
+    if not body.get("available"):
+        print("  -> no hardware control; the dark overlay is doing the work.")
+
+    survey = body.get("survey")
+    if survey:
+        print("\n  available on this machine:")
+        for name, info in survey.items():
+            mark = "yes" if info.get("available") else " no"
+            detail = f"  {info['detail']}" if info.get("detail") else ""
+            print(f"    {mark}  {name}{detail}")
+    return EXIT_OK
+
+
 def cmd_update(args, config):
     target = resolve_target(args, config)
 
@@ -572,6 +606,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("ping", help="check whether the panel is up and built")
 
+    backlight = sub.add_parser(
+        "backlight", help="what is driving the screen brightness")
+    backlight.add_argument(
+        "--survey", action="store_true",
+        help="probe every backend, not just the one in use (slower)")
+
     update = sub.add_parser("update", help="stage an update and restart")
     update.add_argument("--check", action="store_true",
                         help="only report whether one exists; download nothing")
@@ -643,6 +683,7 @@ def build_parser() -> argparse.ArgumentParser:
 HANDLERS = {
     "hosts": cmd_hosts,
     "ping": cmd_ping,
+    "backlight": cmd_backlight,
     "update": cmd_update,
     "restart": cmd_restart,
     "terminate": cmd_terminate,

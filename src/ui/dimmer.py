@@ -11,12 +11,17 @@ if TYPE_CHECKING:
 
 class Dimmer(QWidget):
     """
-    A black wash over the whole window, standing in for monitor brightness.
+    Display brightness: the real thing where possible, a black wash otherwise.
 
-    Real backlight control needs a DDC/CI channel the display may not expose,
-    root on most Linux setups, and a different API on every platform. Painting
-    over the window gets the same result for a wall panel in a dark room, with
-    nothing to fail at runtime.
+    `src/ui/backlight.py` tries sysfs, systemd-logind, brightnessctl/light and
+    DDC/CI in that order. When one of them answers, this drives it - the
+    backlight actually changes, the panel draws less power, and a dark room
+    stays dark. When none does, it paints over the window instead, which works
+    everywhere and fails nowhere.
+
+    The two are not exclusive. Hardware handles the range it covers; the
+    overlay covers below `floor`, because plenty of monitors at brightness
+    zero are still far too bright for a bedroom at 3am.
 
     It lives on OVERLAYS.passthrough because that layer is
     WA_TransparentForMouseEvents - Qt skips it entirely during hit testing, so
@@ -34,9 +39,63 @@ class Dimmer(QWidget):
         self._level = 0.0          # 0.0 = untouched, 1.0 = as dark as it goes
         self._anim_timer = None
 
+        # Below this the overlay takes over, because the hardware has run out
+        # of range. 0 means the hardware covers everything.
+        self.floor = 0
+        self.backlight = None
+        self._start_backlight()
+
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
         self.setAttribute(Qt.WidgetAttribute.WA_NoSystemBackground, True)
         self.hide()
+
+    ## -- hardware
+
+    def _start_backlight(self) -> None:
+        from src.ui.backlight import BacklightController
+        try:
+            mode = str(self.client.setting(
+                "application.backlight.mode.value", "auto"))
+            device = str(self.client.setting(
+                "application.backlight.device.value", ""))
+            self.floor = max(0, min(90, int(self.client.setting(
+                "application.backlight.floor.value", 0))))
+        except Exception:
+            mode, device = "auto", ""
+
+        self.backlight = BacklightController(log=self.client.log,
+                                             preferred=mode, device=device)
+        # Probing runs on its own thread: ddcutil detect alone can take
+        # seconds, and this is called while the window is being built.
+        self.backlight.start()
+
+    def hardware_available(self) -> bool:
+        return bool(self.backlight is not None and self.backlight.available())
+
+    def describe(self) -> dict:
+        if self.backlight is None:
+            return {"available": False, "backend": "overlay"}
+        detail = self.backlight.describe()
+        detail["floor"] = self.floor
+        detail["brightness"] = self.brightness()
+        return detail
+
+    def _split(self, percent: int) -> tuple:
+        """
+        (hardware percent, overlay level) for a wanted brightness.
+
+        Above the floor the hardware does all of it and the overlay is off.
+        Below it the hardware sits at the floor and the overlay makes up the
+        difference - which is the only way to get darker than the panel's own
+        minimum.
+        """
+        percent = max(0, min(100, int(percent)))
+        if not self.hardware_available():
+            return percent, 1.0 - (percent / 100.0)
+        if not self.floor or percent >= self.floor:
+            return percent, 0.0
+        # percent == floor -> no wash, percent == 0 -> full wash
+        return self.floor, (self.floor - percent) / float(self.floor)
 
     ## -- level
 
@@ -44,12 +103,31 @@ class Dimmer(QWidget):
         return self._level
 
     def brightness(self) -> int:
-        """The level as a brightness percentage, which is how it is presented."""
+        """
+        The level as a brightness percentage, which is how it is presented.
+
+        The wanted value, not the overlay's - with hardware in play the
+        overlay is off for most of the range, and deriving the number from it
+        would report 100% at every level above the floor.
+        """
+        wanted = getattr(self, "_wanted_percent", None)
+        if wanted is not None:
+            return int(wanted)
         return int(round((1.0 - self._level) * 100))
 
     def set_brightness(self, percent: int) -> None:
         self.stop_animation()
-        self.set_level(1.0 - (max(0, min(100, int(percent))) / 100.0))
+        self._apply(percent)
+
+    def _apply(self, percent: int) -> None:
+        """Split a wanted brightness between the hardware and the overlay."""
+        percent = max(0, min(100, int(percent)))
+        self._wanted_percent = percent
+        hardware, overlay = self._split(percent)
+        if self.backlight is not None:
+            # Returns immediately; the worker coalesces and rate limits.
+            self.backlight.set(hardware)
+        self.set_level(overlay)
 
     def animate_brightness(self, percent: int, duration_ms: int = 900,
                            on_done=None) -> None:
@@ -65,9 +143,8 @@ class Dimmer(QWidget):
         would be more machinery than a ~30 step interpolation.
         """
         percent = max(0, min(100, int(percent)))
-        target = 1.0 - (percent / 100.0)
-        start = self._level
-        if abs(target - start) < 0.001:
+        start = self.brightness()
+        if start == percent:
             self.stop_animation()
             if callable(on_done):
                 on_done()
@@ -84,7 +161,7 @@ class Dimmer(QWidget):
             progress = state["i"] / steps
             # Ease out, so it settles rather than arriving at full speed.
             eased = 1 - (1 - progress) ** 3
-            self.set_level(start + (target - start) * eased)
+            self._apply(int(round(start + (percent - start) * eased)))
             if state["i"] >= steps:
                 self.stop_animation()
                 if callable(on_done):

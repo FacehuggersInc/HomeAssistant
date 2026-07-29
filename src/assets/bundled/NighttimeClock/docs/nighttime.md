@@ -179,8 +179,15 @@ brightness.
 
 ## The dimmer
 
-This plugin drives `client.DIMMER`, which is a black wash over the window
-rather than real backlight control — see [Dialogs and overlays](dialogs.md).
+This plugin drives `client.DIMMER`, which uses **real backlight control**
+where the machine allows it and falls back to a black wash over the window
+where it does not — see [Screen brightness](backlight.md). Run
+`hactl.py backlight --survey` to find out which route your panel got.
+
+On a wall panel that route is usually DDC/CI over the HDMI cable, which is
+slow: a write takes tens to hundreds of milliseconds. The fade is still
+smooth, because the overlay does the interpolation and the hardware is sent
+only the value it settles on.
 
 It gained `animate_brightness(percent, duration_ms)` for this: a wall panel
 changing level **on its own** is startling as a step change and unremarkable as

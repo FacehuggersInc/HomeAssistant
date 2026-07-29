@@ -229,6 +229,27 @@
                 "suffix": "sec",
                 "description": "If a freshly-applied update crashes within this window, the launcher rolls back to the previous version and relaunches it."
             }
+        },
+        "backlight": {
+            "mode": {
+                "type": "string",
+                "default": "auto",
+                "value": "auto",
+                "description": "How to dim the screen. 'auto' tries real backlight control and falls back to the overlay. 'overlay' never touches the hardware. Or name one: sysfs, logind, ddcutil, brightnessctl, light."
+            },
+            "device": {
+                "type": "string",
+                "default": "",
+                "value": "",
+                "description": "Which display, if the machine has more than one. A name from /sys/class/backlight, or a ddcutil display number. Blank picks the first that works."
+            },
+            "floor": {
+                "type": "int",
+                "default": 0,
+                "value": 0,
+                "suffix": "%",
+                "description": "Below this the dark overlay takes over, for monitors whose own minimum is still too bright. 0 lets the hardware cover the whole range."
+            }
         }
     },
     "assistant": {

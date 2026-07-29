@@ -293,6 +293,11 @@ index as a button.
  "device": "Chris"}
 ```
 
+`GET /backlight` reports what is driving the screen brightness. Add
+`survey=1` to probe every route rather than only the one in use - slower,
+because it includes a `ddcutil detect`, but it is the difference between "it
+is using the overlay" and knowing why.
+
 ## Writing a page endpoint
 
 Pages served to a phone are plain HTML strings - a form with a handful of

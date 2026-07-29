@@ -180,9 +180,11 @@ stuck open. Both bundled navigating entries use it: *Night clock* and
 
 ## Brightness
 
-The slider drives `client.DIMMER`, a black wash over the window standing in for
-backlight control - real DDC/CI needs a channel the display may not expose,
-root on most Linux setups, and a different API per platform.
+The slider drives `client.DIMMER`, which uses **real backlight control** where
+the machine allows it - sysfs, systemd-logind, brightnessctl/light or DDC/CI -
+and falls back to a black wash over the window where it does not. See
+[Screen brightness](backlight.md) for the routes, the setup each needs, and
+`hactl.py backlight --survey` for finding out which one your panel got.
 
 `set_brightness(percent)` snaps to a level. `animate_brightness(percent,
 duration_ms)` eases to one, which is what anything changing the level *on its

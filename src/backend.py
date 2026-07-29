@@ -646,6 +646,29 @@ def FlaskApp(client):
 				"uptime": f"{hours}h {minutes}m" if hours else f"{minutes}m",
 				"device": user.name if user else "this device"}, 200
 
+	@app.route("/backlight", methods=["GET"])
+	def backlight():
+		"""
+		What is driving the screen brightness, and what else could.
+
+		`survey=1` probes every backend rather than reporting the chosen one -
+		slower, because it includes a ddcutil detect, but it is the difference
+		between "using the overlay" and knowing why.
+		"""
+		log()
+		err = auth()
+		if err: return err
+		dimmer = getattr(client, "DIMMER", None)
+		if dimmer is None:
+			return {"request": "Failed", "reason": "No dimmer yet."}, 409
+
+		body = {"request": "Success"}
+		body.update(dimmer.describe())
+		if _coerce(request.args.get("survey", "false")) is True:
+			from src.ui.backlight import BacklightController
+			body["survey"] = BacklightController.survey()
+		return body, 200
+
 	@app.route("/users", methods=["GET"])
 	def users_list():
 		"""Who can own something, for a picker rather than a text field."""
