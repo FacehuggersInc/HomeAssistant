@@ -81,7 +81,34 @@ thing is at `GET /backlight`.
 
 ## Getting it working
 
-### Arch (and CachyOS, EndeavourOS, Manjaro)
+Run all of this **on the machine with the display**, not over `hactl`.
+
+### Laptop panels
+
+Usually nothing to do — either sysfs is already writable, or `logind` handles
+it. If neither works, install `brightnessctl`, which has already solved the
+permission problem:
+
+```bash
+sudo pacman -S brightnessctl     # Arch
+sudo apt install brightnessctl   # Mint / Ubuntu / Debian
+```
+
+### External monitors (DDC/CI)
+
+This is the usual case for a wall panel. **Confirmed working on Linux Mint and
+on Arch** with the steps below.
+
+**Linux Mint, Ubuntu, Debian**
+
+```bash
+sudo apt install ddcutil i2c-tools
+sudo modprobe i2c-dev
+echo i2c-dev | sudo tee /etc/modules-load.d/i2c-dev.conf   # survives a reboot
+sudo usermod -aG i2c $USER
+```
+
+**Arch, CachyOS, EndeavourOS, Manjaro**
 
 ```bash
 sudo pacman -S ddcutil i2c-tools
@@ -90,41 +117,56 @@ echo i2c-dev | sudo tee /etc/modules-load.d/i2c-dev.conf
 ```
 
 Recent `ddcutil` ships `/usr/lib/udev/rules.d/60-ddcutil-i2c.rules`, which uses
-the `uaccess` tag to grant the seated user read/write on the right `/dev/i2c-*`
-devices. If yours does not, or the machine uses eudev, fall back to the group:
+the `uaccess` tag to grant the seated user read/write on the right
+`/dev/i2c-*` devices, so the group step is often unnecessary. If it does not
+work, or the machine uses eudev, fall back to the group as above.
+
+**Then log out and back in.** Group membership does not apply to a session that
+already exists. Restart the panel afterwards, and re-run the survey.
+
+Nvidia's proprietary driver additionally needs
+`/usr/share/ddcutil/data/90-nvidia-i2c.conf` copied into
+`/etc/X11/xorg.conf.d/`.
+
+### When the survey still says no
+
+Work down this list. Each step tells you which of the four possible causes it
+is, and they are in decreasing order of likelihood.
 
 ```bash
-sudo usermod -aG i2c $USER      # log out and back in
+which ddcutil          # 1. installed at all?
+lsmod | grep i2c_dev   # 2. module loaded?
+ls /dev/i2c-*          # 3. buses exposed?
+sudo ddcutil detect    # 4. does the monitor answer, as root?
+ddcutil detect         # 5. and as you?
 ```
 
-Nvidia's proprietary driver needs `/usr/share/ddcutil/data/90-nvidia-i2c.conf`
-copied into `/etc/X11/xorg.conf.d/`.
-
-### Linux Mint (and Ubuntu, Debian)
-
-```bash
-sudo apt install ddcutil i2c-tools
-sudo modprobe i2c-dev
-echo i2c-dev | sudo tee /etc/modules-load.d/i2c-dev.conf
-sudo usermod -aG i2c $USER      # log out and back in
-```
+| What you see | What it means |
+|---|---|
+| `sudo` works, plain does not | **Permissions.** The `usermod` above fixes it; check with `groups` after logging back in. |
+| No `/dev/i2c-*` | **Module.** `sudo modprobe i2c-dev` and look again. Some GPU drivers do not expose the buses until it is loaded. |
+| Buses exist, `detect` finds nothing | Either the monitor does not implement DDC/CI, or **it is switched off in the monitor's own menu**. Look under Settings / Others / System for "DDC/CI" — it ships disabled on some Dell and BenQ models. |
+| `detect` works but this program does not | Restart the panel. Backends are probed once at startup. |
 
 ### Checking it by hand
 
 ```bash
 ddcutil detect            # does anything answer at all
 ddcutil getvcp 10         # feature x10 is brightness
-ddcutil setvcp 10 40
+ddcutil setvcp 10 40      # and setting it
 ```
 
-If `detect` finds nothing, the problem is permissions or the module, not this
-program. If it works as root but not as you, it is permissions.
+If `setvcp` changes the screen and the panel still does not, that is a bug
+here rather than a setup problem — say so.
 
-### Laptop panels
+### If it genuinely cannot work
 
-Usually nothing to do — either sysfs is already writable, or `logind` handles
-it. If neither works, `sudo pacman -S brightnessctl` (or `apt install
-brightnessctl`) installs a tool that has already solved it.
+Set `application.backlight.mode` to `overlay` on that panel. It stops probing
+`ddcutil` at every start, which takes a few seconds and will never succeed.
+
+The overlay is a reasonable fallback for a room that is not pitch dark. What it
+cannot do is reduce the actual light output, so on a bedroom wall at 3am it
+will still glow.
 
 ---
 

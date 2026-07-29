@@ -406,8 +406,11 @@ def cmd_backlight(args, config):
 
     survey = body.get("survey")
     if survey:
+        panel = survey.pop("_panel", None)
+        if panel is not None:
+            print(f"\n  internal panel : {panel.get('detail')}")
         print("\n  available on this machine:")
-        for name, info in survey.items():
+        for name, info in sorted(survey.items()):
             mark = "yes" if info.get("available") else " no"
             detail = f"  {info['detail']}" if info.get("detail") else ""
             print(f"    {mark}  {name}{detail}")
