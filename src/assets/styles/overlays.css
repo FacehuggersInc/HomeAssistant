@@ -136,3 +136,23 @@
     color: #666666;
     padding: 0 16px;
 }
+
+/* Item grid tiles. Used by ItemGridDialog for anything picked from a large
+ * searchable set - the sticker library first. */
+
+.grid-tile {
+    background: rgba(255,255,255,10);
+    border: 1px solid rgba(255,255,255,22);
+    border-radius: 12px;
+}
+
+.grid-tile:hover {
+    background: rgba(255,255,255,18);
+    border: 1px solid rgba(255,255,255,45);
+}
+
+.grid-tile-selected {
+    background: rgba(45,108,192,70);
+    border: 2px solid #6fa8e0;
+    border-radius: 12px;
+}

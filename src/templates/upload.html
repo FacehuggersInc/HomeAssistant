@@ -1,85 +1,156 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Upload — {{ key }}</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='upload.css') }}">
-    <style>
-        .top-bar {
-            position: fixed;
-            top: 0; left: 0; right: 0;
-            height: 52px;
-            background: #0d0d0d;
-            border-bottom: 1px solid #1a1a1a;
-            display: flex;
-            align-items: center;
-            padding: 0 20px;
-            gap: 16px;
-            z-index: 100;
-        }
-        .back-btn {
-            display: flex;
-            align-items: center;
-            gap: 6px;
-            padding: 6px 14px;
-            background: #1a1a1a;
-            border: 1px solid #2a2a2a;
-            border-radius: 6px;
-            color: #aaa;
-            font-size: 13px;
-            text-decoration: none;
-            transition: background 0.15s, color 0.15s;
-        }
-        .back-btn:hover { background: #222; color: #fff; }
-        .top-bar-title {
-            font-size: 15px;
-            font-weight: 600;
-            color: #fff;
-        }
-        .top-bar-key {
-            font-size: 13px;
-            color: #444;
-            font-family: monospace;
-        }
-        .layout { padding-top: 52px; }
-    </style>
-</head>
-<body>
-    <div class="top-bar">
-        <a class="back-btn" href="/upload?token={{ token }}">&#8592; Back</a>
-        <span class="top-bar-title">Upload</span>
-        <span class="top-bar-key">{{ key }}</span>
-    </div>
+<!doctype html><html lang="en"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Upload &mdash; {{ key }}</title>
+<style>
+ :root{--bg:#151517;--card:#1c1c1f;--line:#2c2c31;--text:#e6e6e8;
+       --muted:#9a9aa2;--accent:#2ff08e;--bad:#e08a8a}
+ *{box-sizing:border-box}
+ body{margin:0;background:var(--bg);color:var(--text);
+      font:16px/1.5 -apple-system,"Segoe UI",Roboto,sans-serif;padding:18px}
+ a.back{color:var(--muted);text-decoration:none;font-size:14px}
+ h1{font-size:22px;margin:10px 0 2px}
+ p.sub{color:var(--muted);margin:0 0 18px;font-size:12px;
+      font-family:ui-monospace,monospace;word-break:break-all}
+ section{background:var(--card);border:1px solid var(--line);
+      border-radius:14px;padding:16px;margin-bottom:16px}
+ .drop{border:2px dashed var(--line);border-radius:12px;padding:26px 16px;
+      text-align:center;color:var(--muted)}
+ .drop.over{border-color:var(--accent);color:var(--text)}
+ .drop .big{font-size:30px;display:block;margin-bottom:6px}
+ label.browse{display:block;margin-top:14px;padding:15px;border-radius:10px;
+      background:var(--accent);color:#10281c;font-size:17px;font-weight:600;
+      text-align:center}
+ button{width:100%;margin-top:12px;padding:15px;border:0;border-radius:10px;
+      background:var(--accent);color:#10281c;font-size:17px;font-weight:600}
+ button:disabled{opacity:.45}
+ ul{list-style:none;padding:0;margin:14px 0 0}
+ li{display:flex;justify-content:space-between;align-items:center;gap:12px;
+    padding:11px 0;border-bottom:1px solid var(--line);font-size:14px}
+ li .nm{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+ li .sz{color:var(--muted);font-size:12px;white-space:nowrap}
+ li .x{color:var(--bad);padding:0 8px;font-size:20px;line-height:1}
+ .ok{color:var(--accent)} .bad{color:var(--bad)}
+ .empty{color:var(--muted);font-size:14px;padding:8px 0}
+</style></head><body>
+<a class="back" href="/?token={{ token }}">&#8592; All pages</a>
+<a class="back" href="/upload?token={{ token }}" style="margin-left:16px">&#8592; All folders</a>
+<h1>Upload to {{ key }}</h1>
+<p class="sub">{{ path }}</p>
 
-    <div class="layout">
-        <aside class="sidebar">
-            <div class="sidebar-header">
-                <span class="sidebar-title">Uploading to</span>
-                <span class="sidebar-key">{{ key }}</span>
-                <span class="sidebar-path">{{ path }}</span>
-            </div>
-            <div class="file-list" id="fileList">
-                <p class="empty-hint">No files queued yet.</p>
-            </div>
-            <button class="upload-btn" id="uploadBtn" disabled>
-                Upload All
-            </button>
-        </aside>
+<section>
+  <div class="drop" id="drop">
+    <span class="big">&#8679;</span>
+    Drop files here
+  </div>
+  <label class="browse" for="pick">Choose files</label>
+  <input type="file" id="pick" multiple hidden>
 
-        <main class="main">
-            <div class="drop-zone" id="dropZone">
-                <div class="drop-icon">&#8679;</div>
-                <div class="drop-label">Drag &amp; drop files here</div>
-                <div class="drop-sub">or</div>
-                <label class="browse-btn" for="fileInput">Browse Files</label>
-                <input type="file" id="fileInput" multiple hidden>
-                <div class="drop-sub supported">Supported: images, zip archives</div>
-            </div>
-            <div class="result-area" id="resultArea"></div>
-        </main>
-    </div>
+  <ul id="list"><li class="empty">Nothing queued yet.</li></ul>
+  <button id="send" disabled>Upload</button>
+</section>
 
-    <script src="{{ url_for('static', filename='upload.js') }}"></script>
-</body>
-</html>
+<section id="resultBox" style="display:none">
+  <ul id="results"></ul>
+</section>
+
+<script>
+ var KEY = {{ key|tojson }};
+ var TOKEN = {{ token|tojson }};
+ var queue = [];
+
+ var drop = document.getElementById('drop');
+ var list = document.getElementById('list');
+ var send = document.getElementById('send');
+ var results = document.getElementById('results');
+ var resultBox = document.getElementById('resultBox');
+
+ function human(n) {
+   if (n < 1024) return n + ' B';
+   if (n < 1048576) return (n / 1024).toFixed(1) + ' KB';
+   return (n / 1048576).toFixed(1) + ' MB';
+ }
+
+ function draw() {
+   list.innerHTML = '';
+   if (!queue.length) {
+     list.innerHTML = '<li class="empty">Nothing queued yet.</li>';
+     send.disabled = true;
+     send.textContent = 'Upload';
+     return;
+   }
+   queue.forEach(function (f, i) {
+     var li = document.createElement('li');
+     var nm = document.createElement('span');
+     nm.className = 'nm'; nm.textContent = f.name;
+     var sz = document.createElement('span');
+     sz.className = 'sz'; sz.textContent = human(f.size);
+     var x = document.createElement('span');
+     x.className = 'x'; x.textContent = '\u00d7';
+     x.addEventListener('click', function () { queue.splice(i, 1); draw(); });
+     li.appendChild(nm); li.appendChild(sz); li.appendChild(x);
+     list.appendChild(li);
+   });
+   send.disabled = false;
+   send.textContent = 'Upload ' + queue.length +
+                      ' file' + (queue.length === 1 ? '' : 's');
+ }
+
+ function add(files) {
+   for (var i = 0; i < files.length; i++) { queue.push(files[i]); }
+   draw();
+ }
+
+ document.getElementById('pick').addEventListener('change', function () {
+   add(this.files); this.value = '';
+ });
+
+ ['dragenter', 'dragover'].forEach(function (e) {
+   drop.addEventListener(e, function (ev) {
+     ev.preventDefault(); drop.classList.add('over');
+   });
+ });
+ ['dragleave', 'drop'].forEach(function (e) {
+   drop.addEventListener(e, function (ev) {
+     ev.preventDefault(); drop.classList.remove('over');
+   });
+ });
+ drop.addEventListener('drop', function (ev) {
+   if (ev.dataTransfer && ev.dataTransfer.files) { add(ev.dataTransfer.files); }
+ });
+
+ function report(name, ok, detail) {
+   resultBox.style.display = 'block';
+   var li = document.createElement('li');
+   var nm = document.createElement('span');
+   nm.className = 'nm'; nm.textContent = name;
+   var st = document.createElement('span');
+   st.className = ok ? 'ok' : 'bad';
+   st.textContent = ok ? 'uploaded' : (detail || 'failed');
+   li.appendChild(nm); li.appendChild(st);
+   results.appendChild(li);
+ }
+
+ send.addEventListener('click', function () {
+   if (!queue.length) { return; }
+   send.disabled = true;
+   var pending = queue.slice();
+   queue = [];
+   draw();
+   var left = pending.length;
+   pending.forEach(function (file) {
+     var body = new FormData();
+     body.append('file', file);
+     fetch('/upload/' + encodeURIComponent(KEY) +
+           '?token=' + encodeURIComponent(TOKEN),
+           { method: 'POST', body: body })
+       .then(function (r) { return r.json().catch(function () { return {}; }); })
+       .then(function (b) {
+         report(file.name, b.request === 'Success', b.reason);
+       })
+       .catch(function (e) { report(file.name, false, String(e)); })
+       .finally(function () { if (--left === 0) { send.disabled = false; } });
+   });
+ });
+</script>
+</body></html>

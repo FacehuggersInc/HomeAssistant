@@ -1,121 +1,56 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Upload</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='upload.css') }}">
-    <style>
-        .index-wrap {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            min-height: 100vh;
-            gap: 32px;
-            padding: 40px;
-        }
-        .index-title { font-size: 28px; font-weight: 700; color: #fff; }
-        .index-sub   { font-size: 14px; color: #444; margin-top: -20px; }
+<!doctype html><html lang="en"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Upload</title>
+<style>
+ :root{--bg:#151517;--card:#1c1c1f;--line:#2c2c31;--text:#e6e6e8;
+       --muted:#9a9aa2;--accent:#2ff08e}
+ *{box-sizing:border-box}
+ body{margin:0;background:var(--bg);color:var(--text);
+      font:16px/1.5 -apple-system,"Segoe UI",Roboto,sans-serif;padding:18px}
+ h1{font-size:22px;margin:0 0 4px}
+ p.sub{color:var(--muted);margin:0 0 18px;font-size:14px}
+ a.card{display:flex;align-items:center;gap:14px;text-decoration:none;
+      background:var(--card);border:1px solid var(--line);border-radius:14px;
+      padding:16px;margin-bottom:12px;color:var(--text)}
+ a.card:active{background:#232328}
+ .glyph{width:44px;height:44px;flex:0 0 44px;border-radius:11px;
+      background:#111114;border:1px solid var(--line);display:flex;
+      align-items:center;justify-content:center;font-size:20px}
+ .meta{flex:1;min-width:0}
+ .key{font-size:17px;font-weight:600;display:block}
+ .path{color:var(--muted);font-size:12px;white-space:nowrap;overflow:hidden;
+      text-overflow:ellipsis;display:block;font-family:ui-monospace,monospace}
+ .stats{color:var(--muted);font-size:13px;white-space:nowrap}
+ .missing{color:#e08a8a}
+ .empty{background:var(--card);border:1px solid var(--line);border-radius:14px;
+      padding:20px;color:var(--muted);font-size:14px}
+ a.back{display:inline-block;color:var(--muted);text-decoration:none;
+      font-size:14px;margin-bottom:10px;padding:8px 0}
+ a.back:active{color:var(--text)}
+</style></head><body>
+<a class="back" href="/?token={{ token }}">&#8592; All pages</a>
+<h1>Upload</h1>
+<p class="sub">Folders this panel will accept files into.</p>
 
-        .asset-grid {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 16px;
-            justify-content: center;
-            max-width: 900px;
-        }
-
-        .asset-card {
-            display: flex;
-            flex-direction: column;
-            gap: 10px;
-            padding: 24px 28px;
-            background: #141414;
-            border: 1px solid #222;
-            border-radius: 12px;
-            text-decoration: none;
-            color: #ccc;
-            min-width: 220px;
-            transition: border-color 0.15s, background 0.15s;
-        }
-        .asset-card:hover { border-color: #2a7d4f; background: #0e1f17; }
-
-        .card-top {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-        }
-        .card-icon  { font-size: 32px; }
-        .card-key   { font-size: 17px; font-weight: 600; color: #fff; }
-
-        .card-path {
-            font-size: 11px;
-            color: #333;
-            font-family: monospace;
-            word-break: break-all;
-        }
-
-        .card-stats {
-            display: flex;
-            gap: 16px;
-            padding-top: 10px;
-            border-top: 1px solid #1e1e1e;
-        }
-        .stat {
-            display: flex;
-            flex-direction: column;
-            gap: 2px;
-        }
-        .stat-value { font-size: 15px; font-weight: 600; color: #ccc; }
-        .stat-label { font-size: 10px; color: #444; text-transform: uppercase; letter-spacing: 1px; }
-
-        .no-exist {
-            font-size: 11px;
-            color: #6e2a2a;
-            padding: 4px 8px;
-            background: #1f0e0e;
-            border-radius: 4px;
-            display: inline-block;
-        }
-
-        .empty { font-size: 15px; color: #444; }
-    </style>
-</head>
-<body>
-    <div class="index-wrap">
-        <div class="index-title">Upload</div>
-        <div class="index-sub">Select a destination</div>
-
-        {% if assets %}
-        <div class="asset-grid">
-            {% for asset in assets %}
-            <a class="asset-card" href="/upload/{{ asset.key }}?token={{ token }}">
-                <div class="card-top">
-                    <span class="card-icon">📁</span>
-                    <span class="card-key">{{ asset.key }}</span>
-                </div>
-                <div class="card-path">{{ asset.path }}</div>
-                {% if asset.exists %}
-                <div class="card-stats">
-                    <div class="stat">
-                        <span class="stat-value">{{ asset.file_count }}</span>
-                        <span class="stat-label">Files</span>
-                    </div>
-                    <div class="stat">
-                        <span class="stat-value">{{ asset.size }}</span>
-                        <span class="stat-label">Total Size</span>
-                    </div>
-                </div>
-                {% else %}
-                <span class="no-exist">Folder does not exist yet</span>
-                {% endif %}
-            </a>
-            {% endfor %}
-        </div>
-        {% else %}
-        <p class="empty">No uploadable assets are registered.</p>
-        {% endif %}
-    </div>
-</body>
-</html>
+{% if assets %}
+  {% for a in assets %}
+  <a class="card" href="/upload/{{ a.key }}?token={{ token }}">
+    <span class="glyph">&#8679;</span>
+    <span class="meta">
+      <span class="key">{{ a.key }}</span>
+      <span class="path">{{ a.path }}</span>
+    </span>
+    <span class="stats">
+      {% if a.exists %}{{ a.file_count }} file{{ '' if a.file_count == 1 else 's' }}<br>{{ a.size }}
+      {% else %}<span class="missing">missing</span>{% endif %}
+    </span>
+  </a>
+  {% endfor %}
+{% else %}
+  <div class="empty">
+    No uploadable folders. A plugin marks one with
+    <code>Asset(path).mark_uploadable()</code>.
+  </div>
+{% endif %}
+</body></html>

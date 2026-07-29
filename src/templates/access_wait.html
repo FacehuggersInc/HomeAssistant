@@ -35,11 +35,26 @@
  var dots = document.getElementById('dots');
  var ticks = 0;
 
+ // Any token already in the target is dropped before the real one is added.
+ // Appending gives "?token=OLD&token=NEW", and the FIRST value wins in every
+ // parser - so the browser went back holding the token that was just refused
+ // and bounced straight back here.
+ function stripToken(url) {
+   var parts = String(url || '/').split('?');
+   var path = parts[0] || '/';
+   var query = parts.slice(1).join('?');
+   if (!query) { return path; }
+   var kept = query.split('&').filter(function (pair) {
+     var key = pair.split('=')[0];
+     return pair && key !== 'token' && key !== 'id';
+   });
+   return kept.length ? path + '?' + kept.join('&') : path;
+ }
+
  function go() {
-   var join = next.indexOf('?') === -1 ? '?' : '&';
-   // Trailing '?' is what Flask's full_path leaves on a query-less URL.
-   if (next.slice(-1) === '?') { next = next.slice(0, -1); join = '?'; }
-   location.replace(next + join + 'token=' + encodeURIComponent(token));
+   var target = stripToken(next);
+   var join = target.indexOf('?') === -1 ? '?' : '&';
+   location.replace(target + join + 'token=' + encodeURIComponent(token));
  }
 
  function poll() {

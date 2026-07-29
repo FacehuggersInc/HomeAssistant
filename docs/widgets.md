@@ -458,6 +458,25 @@ whatever placed it can react; a timer uses that to stop the real countdown.
 Provided by `corewidgetsbundle`. Full detail, and the timer service built on
 it, are in that plugin's own documentation.
 
+## Asking something before a widget is added
+
+A `MULTIPLE` template may need to know something before a copy can be built -
+which sticker, which feed. A widget class can define a chooser, and the panel
+defers building the copy until it calls back:
+
+```python
+@classmethod
+def choose_before_add(cls, client, then):
+    client.dialog(MyDialog(client, on_chosen=lambda value: then(thing=value)))
+```
+
+Those keywords go to the widget's constructor. Cancelling simply never calls
+back, so nothing is placed - which is the point of doing it this way rather
+than placing an empty widget and expecting it to be edited afterwards.
+
+`StickerWidget` uses this to open the sticker library; anything without a
+chooser is added immediately, as before.
+
 ## Masks and hit testing
 
 A `QWidget` mask clips **painting** as well as input. Mask a widget to only

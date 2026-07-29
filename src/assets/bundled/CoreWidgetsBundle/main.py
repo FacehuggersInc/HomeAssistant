@@ -1,10 +1,12 @@
 from src.mixins import mixin
+from src.constants import get_data_dir, APP_NAME
 from src.plugin.template import Plugin
 from src.ui.icons import Icons
 from src.plugin.carryover import PluginCarryover
 
 from .widgets.cycling_background import CyclingBackground
 from .widgets.datetime import DateTimeWidget
+from .widgets.sticker import StickerWidget
 from .widgets.weather import WeatherWidget
 from .widgets.configuration_bar import ConfigurationBar
 from .widgets.sticky_note import StickyNote
@@ -43,6 +45,30 @@ class CoreWidgetsBundle(Plugin):
         # Register pages owned by this plugin
         self.client.add_page("#cwb_home_page", "Home Page", HomePage, owner="corewidgetsbundle")
         self.client.DEFAULT_PAGE = "#cwb_home_page"
+
+        # Stickers. The store is plain filesystem logic with no Qt in it, so
+        # it is usable from the API thread as well as the UI.
+        from .stickers import StickerStore
+        sticker_dir = get_data_dir(APP_NAME) / "stickers"
+        self.stickers = StickerStore(sticker_dir, log=self.client.log)
+        self.client.public.expose("corewidgetsbundle", "stickers", {
+            "store":  self.stickers,
+            "list":   self.stickers.all_stickers,
+            "search": self.stickers.search,
+            "get":    self.stickers.get,
+            "add":    self.stickers.add_bytes,
+            "remove": self.stickers.remove,
+            "dir":    sticker_dir,
+        })
+        # Reachable over the API, which is how a phone gets a sticker onto the
+        # panel without a file share.
+        # An Asset, not a str. register_asset stores whatever it is given
+        # when forced_type is set, so a plain string registered fine and then
+        # failed far away in the download route on `path / filename`.
+        from src.enums import Asset
+        sticker_asset = Asset(sticker_dir)
+        sticker_asset.mark_uploadable()
+        self.client.register_asset("stickers", sticker_asset, "FOLDER")
 
         # Timers. The service owns the countdowns; the widget only draws one.
         from .timers import TimerService
@@ -87,6 +113,24 @@ class CoreWidgetsBundle(Plugin):
             "corewidgetsbundle", "timer_cancel", self.api_timer_cancel,
             requires_auth=True,
             description="Cancel one timer by key, or all of them.")
+        self.client.API_REGISTRY.register(
+            "corewidgetsbundle", "sticker_add", self.api_sticker_add,
+            requires_auth=True, accepts_files=True,
+            gui="Stickers",
+            description="Upload a sticker, or place one from the library.")
+        self.client.API_REGISTRY.register(
+            "corewidgetsbundle", "sticker_list", self.api_sticker_list,
+            requires_auth=True,
+            description="Every sticker in the library.")
+        self.client.API_REGISTRY.register(
+            "corewidgetsbundle", "sticker_place", self.api_sticker_place,
+            requires_auth=True,
+            description="Place a sticker. sticker=, quadrant=, mode=, timeout=.")
+        self.client.API_REGISTRY.register(
+            "corewidgetsbundle", "sticker_remove", self.api_sticker_remove,
+            requires_auth=True,
+            description="Delete a sticker from the library.")
+
         self.client.API_REGISTRY.register(
             "corewidgetsbundle", "widget_show", self.api_widget_show,
             requires_auth=True,
@@ -199,7 +243,221 @@ class CoreWidgetsBundle(Plugin):
             return {"request": "Failed", "reason": f"No timer '{key}'."}, 404
         return {"request": "Success", "cancelled": 1}, 200
 
-    ## TRANSIENT WIDGET API
+    ## STICKER API
+
+    def _request_token(self) -> str:
+        try:
+            from flask import request as _request
+            return (_request.args.get("token")
+                    or _request.headers.get("X-Client-Token") or "")
+        except Exception:
+            return ""
+
+    def api_sticker_list(self, **_ignored):
+        """GET /public/sticker_list?token=... - the library, as JSON."""
+        return {"request": "Success",
+                "directory": str(self.stickers.directory),
+                "stickers": [s.as_dict()
+                             for s in self.stickers.all_stickers(refresh=True)]}, 200
+
+    def api_sticker_remove(self, key: str = "", **_ignored):
+        if not key:
+            return {"request": "Failed", "reason": "Pass key=<filename>."}, 400
+        if not self.stickers.remove(key):
+            return {"request": "Failed", "reason": f"No sticker '{key}'."}, 404
+        return {"request": "Success", "removed": key}, 200
+
+    def api_sticker_add(self, sticker: str = "", quadrant: str = "center",
+                        mode: str = "permanent", timeout=0, x=None, y=None,
+                        scale="1", size=0, delete_after=None, remove: str = "",
+                        files=None, **_ignored):
+        """
+        The page a phone does this from, and the actions it posts back.
+
+        One endpoint for both: a form that posts to the address it was served
+        from needs no second URL, and a bookmarked page can do the whole job.
+
+        `files` only arrives because this endpoint registered with
+        accepts_files - see APIRegistry.
+        """
+        from .api.sticker_page import render_page
+
+        token = self._request_token()
+        message, bad = "", False
+
+        # An upload. Validated by the store, which is where the rules about
+        # size, type and overwriting already live.
+        if files is not None:
+            upload = None
+            try:
+                upload = files.get("file")
+            except Exception:
+                upload = None
+            if upload is None or not getattr(upload, "filename", ""):
+                message, bad = "No file arrived.", True
+            else:
+                data = upload.read()
+                made, reason = self.stickers.add_bytes(upload.filename, data)
+                if made is None:
+                    message, bad = reason, True
+                else:
+                    message = f"Added {made.label}. Pick it below to place it."
+
+        # A deletion, from the page's Remove button.
+        elif remove:
+            entry = self.stickers.get(remove)
+            if entry is None:
+                message, bad = f"There is no sticker called '{remove}'.", True
+            elif self.stickers.remove(remove):
+                message = f"Deleted {entry.label}."
+                sticker = ""
+            else:
+                message, bad = f"Could not delete {entry.label}.", True
+
+        # A placement.
+        elif sticker:
+            placed, reason = self._place_sticker(
+                sticker, quadrant=quadrant, mode=mode, timeout=timeout,
+                x=x, y=y, scale=scale, size=size, delete_after=delete_after)
+            message, bad = reason, not placed
+
+        stickers = self.stickers.all_stickers(refresh=True)
+        # Handed back what was submitted, so the quadrant, size and duration
+        # survive a placement rather than resetting on every one.
+        page = render_page(token, stickers, message=message, bad=bad, form={
+            "sticker":  sticker,
+            "quadrant": quadrant,
+            "mode":     mode,
+            "timeout":  timeout,
+            "scale":    scale,
+            "size":     size,
+            "delete_after": delete_after,
+        })
+        return page, 200, {"Content-Type": "text/html; charset=utf-8"}
+
+    def api_sticker_place(self, sticker: str = "", quadrant: str = "center",
+                          mode: str = "permanent", timeout=0, x=None, y=None,
+                          scale="1", size=0, delete_after=None, **_ignored):
+        """The same placement, as JSON, for a script rather than a person."""
+        if not sticker:
+            return {"request": "Failed", "reason": "Pass sticker=<filename>."}, 400
+        placed, reason = self._place_sticker(
+            sticker, quadrant=quadrant, mode=mode, timeout=timeout,
+            x=x, y=y, scale=scale, size=size, delete_after=delete_after)
+        if not placed:
+            return {"request": "Failed", "reason": reason}, 400
+        return {"request": "Success", "sticker": sticker, "detail": reason}, 200
+
+    @staticmethod
+    def _longest_side(scale="1", size=0) -> int:
+        """
+        The starting size in pixels, from either control.
+
+        `size` wins when given, because "exact size" is a more specific answer
+        than a multiplier. Both are clamped: the page is HTML anyone can post
+        to, and a sticker 9000px across is not a sticker.
+        """
+        from .widgets.sticker import StickerWidget
+        try:
+            exact = int(float(size or 0))
+        except (TypeError, ValueError):
+            exact = 0
+        if exact > 0:
+            return max(StickerWidget.MIN_W, min(StickerWidget.MAX_W, exact))
+        try:
+            factor = float(scale or 1)
+        except (TypeError, ValueError):
+            factor = 1.0
+        factor = max(0.1, min(6.0, factor))
+        return max(StickerWidget.MIN_W,
+                   min(StickerWidget.MAX_W,
+                       int(StickerWidget.DEFAULT_SIDE * factor)))
+
+    def _place_sticker(self, name: str, quadrant: str = "center",
+                       mode: str = "permanent", timeout=0, x=None, y=None,
+                       scale="1", size=0, delete_after=None):
+        """
+        Put a sticker on the home screen. Returns (ok, message).
+
+        Permanent stickers go through the same path the widgets panel uses, so
+        they are saved in the layout and come back after a restart. Temporary
+        ones go through the transient API, which deliberately never persists.
+        """
+        entry = self.stickers.get(name)
+        if entry is None:
+            return False, f"There is no sticker called '{name}'."
+        if entry.kind == "video":
+            return False, ("Video stickers cannot be shown on the panel yet - "
+                           "only images and GIFs.")
+
+        sub_home = self._sub_home()
+        if sub_home is None or not sub_home.has_feature("widget_framework"):
+            return False, "The home page is not on screen."
+
+        framework = sub_home.features().widget_framework
+        temporary = str(mode or "").strip().lower() in ("temporary", "temp", "1", "true")
+
+        seconds = 0.0
+        if temporary:
+            try:
+                seconds = max(0.0, float(timeout or 0))
+            except (TypeError, ValueError):
+                seconds = 0.0
+
+        center = None
+        if x not in (None, "") and y not in (None, ""):
+            try:
+                center = (int(x), int(y))
+            except (TypeError, ValueError):
+                return False, "x and y must be whole numbers."
+
+        longest = self._longest_side(scale, size)
+        # Only ever for a temporary sticker. A permanent one deleting its own
+        # source would break every other copy of it on the screen.
+        wipe = temporary and str(delete_after or "").strip().lower() in (
+            "1", "true", "on", "yes")
+
+        def place():
+            try:
+                if temporary:
+                    widget = framework.make_transient(
+                        "sticker", sticker=name, longest_side=longest,
+                        delete_after=wipe)
+                    if widget is None:
+                        return
+                    sub_home.features().show_transient(
+                        widget, center=center, quadrant=quadrant,
+                        timeout=seconds,
+                        on_expired=widget.delete_source if wipe else None)
+                else:
+                    widget = framework._make_copy("sticker", sticker=name,
+                                                  longest_side=longest)
+                    if widget is None:
+                        return
+                    # Placed where it was asked for rather than at the default
+                    # anchor, so the quadrant means something for a permanent
+                    # sticker too.
+                    point = framework._transient_position(
+                        widget, center, quadrant, bundle=False)
+                    widget.float_x, widget.float_y = point
+                    widget.move(*point)
+                    framework.schedule_save()
+            except Exception as e:
+                self.client.log("warning",
+                                f"[Stickers] Could not place '{name}': {e}",
+                                include_traceback=True)
+
+        # A Flask worker; building and placing a widget is the UI thread's.
+        self.client.call_on_ui(place)
+
+        where = f"in the {quadrant.replace('-', ' ')}" if quadrant else ""
+        also = " The file goes with it." if wipe else ""
+        if temporary and seconds:
+            return True, f"Placed {entry.label} {where} for {int(seconds)}s.{also}"
+        if temporary:
+            return True, f"Placed {entry.label} {where} until you remove it.{also}"
+        return True, f"Placed {entry.label} {where}."
+
 
     def _sub_home(self):
         entry = self.client.PAGES.get_entry("#cwb_home_page")
@@ -335,6 +593,9 @@ class CoreWidgetsBundle(Plugin):
         # StickyNote is a template: register() returns None for those, since
         # the panel offers it and each Add makes a copy with its own key.
         register(StickyNote)
+        # The same, except Add asks which image first - see
+        # StickerWidget.choose_before_add.
+        register(StickerWidget)
 
         self.client.public.cwb_widgets["sub.home"] = [
             w for w in (

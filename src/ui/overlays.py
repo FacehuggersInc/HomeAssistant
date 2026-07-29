@@ -932,6 +932,26 @@ class BaseDialog(QFrame):
         "disabled":    "dialog-button-disabled",
     }
 
+    def set_button_state(self, button, enabled: bool,
+                         kind: str = "secondary") -> None:
+        """
+        Enable or disable a button, and make it *look* it.
+
+        add_button() picks the disabled style at construction only, so a button
+        toggled later stayed styled as primary or destructive while refusing
+        every tap - which reads as broken rather than as unavailable.
+        """
+        if button is None:
+            return
+        button.setEnabled(bool(enabled))
+        if enabled:
+            button.setCursor(Qt.CursorShape.PointingHandCursor)
+            set_style(button, "overlays",
+                      self.STYLES.get(kind, self.STYLES["secondary"]))
+        else:
+            button.setCursor(Qt.CursorShape.ForbiddenCursor)
+            set_style(button, "overlays", self.STYLES["disabled"])
+
     def add_button(self, text: str, on_click, kind: str = "secondary",
                    enabled: bool = True) -> QPushButton:
         btn = QPushButton(text)

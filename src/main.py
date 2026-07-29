@@ -1514,6 +1514,12 @@ class Client:
         return None
 
     def register_asset(self, key: str, asset: Asset, forced_type: str) -> None:
+        # Coerced, because a str registered fine and then failed a long way
+        # from here: the asset routes do `path / filename`, and the type error
+        # surfaced as a 500 on a download rather than as a bad registration.
+        if not isinstance(asset, Path):
+            asset = Asset(str(asset))
+
         if not forced_type and not asset.is_dir():
             for ext in asset.suffixes:
                 t = ext.upper().lstrip(".")

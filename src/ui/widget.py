@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import math
 import pathlib
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Optional, Callable
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QSizePolicy, QLabel, QPushButton,
@@ -549,11 +549,14 @@ class WidgetFramework(QWidget):
         return widget
 
     def _make_copy(self, template_key: str, instance_key: str = None,
-                   state: dict = None):
+                   state: dict = None, **extra):
         entry = self.templates.get(template_key)
         if entry is None:
             return None
         widget_class, args, kwargs = entry
+        # A chooser's answer, merged over whatever the template was
+        # registered with - see _add_copy_from_panel.
+        kwargs = {**kwargs, **extra}
 
         if instance_key is None:
             index = 1
@@ -1583,7 +1586,8 @@ class WidgetFramework(QWidget):
     TRANSIENT_TRIES = 40
 
     def show_transient(self, widget: Widget, center=None, quadrant: str = "",
-                       timeout: float = 0, bundle: bool = True) -> Widget:
+                       timeout: float = 0, bundle: bool = True,
+                       on_expired: Callable = None) -> Widget:
         """
         Place a widget that exists because something happened.
 
@@ -1593,7 +1597,8 @@ class WidgetFramework(QWidget):
         the clock is worse than one a few pixels from where it was asked for.
 
         `timeout` in seconds dismisses it again. Nothing else happens on
-        expiry: whatever asked for the widget is responsible for saying so.
+        expiry unless `on_expired` is given: whatever asked for the widget is
+        responsible for saying so, and for any tidying up that goes with it.
         """
         widget.transient = True
         widget.floating = True
@@ -1614,9 +1619,18 @@ class WidgetFramework(QWidget):
 
         if timeout and timeout > 0:
             key = f"transient:{self.page_key}:{widget.KEY}"
-            self.client.TIMEOUTS.add(float(timeout),
-                                     lambda k=widget.KEY: self.dismiss_transient(k),
-                                     key, transient=True)
+
+            def expire(k=widget.KEY, hook=on_expired):
+                self.dismiss_transient(k)
+                if callable(hook):
+                    try:
+                        hook()
+                    except Exception as e:
+                        self.client.log("warning",
+                                        f"[Widgets] on_expired for '{k}' "
+                                        f"failed: {e}", include_traceback=True)
+
+            self.client.TIMEOUTS.add(float(timeout), expire, key, transient=True)
             self.client.TIMEOUTS.start(key)
         return widget
 
@@ -1891,6 +1905,36 @@ class WidgetFramework(QWidget):
         return row
 
     def _add_copy_from_panel(self, template_key: str) -> None:
+        """
+        Add another copy of a template.
+
+        A template may need to know something first - which sticker, which
+        feed - so a widget class can define `choose_before_add(client, then)`
+        and the copy is deferred until it calls back. Anything without it is
+        added immediately, as before.
+        """
+        entry = self.templates.get(template_key)
+        widget_class = entry[0] if entry else None
+        chooser = getattr(widget_class, "choose_before_add", None)
+
+        if callable(chooser):
+            def then(**kwargs):
+                widget = self._make_copy(template_key, **kwargs)
+                self._refresh_panel()
+                if widget is None:
+                    self.client.log("warning",
+                                    f"[WidgetFramework] '{template_key}' was "
+                                    f"chosen but could not be built.")
+            if self.panel is not None:
+                self.panel.close_panel()
+            try:
+                chooser(self.client, then)
+            except Exception as e:
+                self.client.log("warning",
+                                f"[WidgetFramework] '{template_key}' chooser "
+                                f"failed: {e}", include_traceback=True)
+            return
+
         self._make_copy(template_key)
         self._refresh_panel()
         if self.panel is not None:

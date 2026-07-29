@@ -12,7 +12,7 @@ class APIEndpoint():
 
     def __init__(self, owner:str, key:str, authed:bool, cached:bool, callback:Callable,
                  gui:str = "", description:str = "", action:str = "",
-                 danger:bool = False):
+                 danger:bool = False, accepts_files:bool = False):
         self.owner : str = owner
         self.key : str = key
         self.authed : bool = authed
@@ -27,20 +27,38 @@ class APIEndpoint():
         # point is that it ran.
         self.action : str = action
         self.danger : bool = danger
+        # Whether a multipart upload should be forwarded to this callback as
+        # a `files` keyword. Opt-in rather than always: every other endpoint
+        # would otherwise get an unexpected keyword and raise TypeError.
+        self.accepts_files : bool = accepts_files
         self.__callback : Callable = callback
         self.data = self._NOTHING
 
     def clear_cache(self) -> None:
         self.data = self._NOTHING
 
-    def call(self, *args, **kwargs) -> tuple[any, int]:
+    def call(self, *args, **kwargs):
         data = self.__callback(*args, **kwargs)
 
         # 200, not 0. A status of 0 is not a valid HTTP status: werkzeug writes
         # the status line "HTTP/1.0 0 UNKNOWN" and every client rejects it, so
         # any endpoint whose callback returned a bare value instead of a
         # (body, status) tuple was unreachable over HTTP.
-        body, status = data if isinstance(data, tuple) else (data, 200)
+        #
+        # Three shapes are accepted, because an endpoint serving a page wants
+        # to say so: (body), (body, status) and (body, status, headers).
+        # Unpacking into two names regardless meant a callback setting a
+        # Content-Type failed with "too many values to unpack" - which reaches
+        # the caller as a bad-arguments error naming nothing useful.
+        headers = None
+        if isinstance(data, tuple) and len(data) == 3:
+            body, status, headers = data
+        elif isinstance(data, tuple) and len(data) == 2:
+            body, status = data
+        elif isinstance(data, tuple) and len(data) == 1:
+            body, status = data[0], 200
+        else:
+            body, status = data, 200
 
         if self.cached:
             # Applied to every return shape. Caching used to live in the tuple
@@ -48,8 +66,10 @@ class APIEndpoint():
             # did nothing at all and gave no indication of it.
             if self.data is self._NOTHING:
                 self.data = body
-            return self.data, status
+            body = self.data
 
+        if headers is not None:
+            return body, status, headers
         return body, status
 
 
@@ -114,7 +134,7 @@ class APIRegistry():
                 del self.__store[plugin_key]
                 self.client.log("info", f"[APIRegistry] '{plugin_key}' had it API endpoints unloaded")
 
-    def register(self, plugin_key:str, endpoint:str, callback: Callable, requires_auth:bool, cached:bool = False, gui:str = "", description:str = "", action:str = "", danger:bool = False) -> tuple[APIEndpoint, bool]:
+    def register(self, plugin_key:str, endpoint:str, callback: Callable, requires_auth:bool, cached:bool = False, gui:str = "", description:str = "", action:str = "", danger:bool = False, accepts_files:bool = False) -> tuple[APIEndpoint, bool]:
         if not self.plugin_has_registered(plugin_key):
             self.__store.setdefault(plugin_key, {})
 
@@ -135,7 +155,8 @@ class APIRegistry():
         # straight back out of the index.
         api_endpoint = APIEndpoint(plugin_key, endpoint, requires_auth, cached,
                                    callback, gui=gui, description=description,
-                                   action=action, danger=danger)
+                                   action=action, danger=danger,
+                                   accepts_files=accepts_files)
         self.__store[plugin_key][endpoint] = api_endpoint
         self.client.log("info", f"[APIRegistry] Endpoint '{endpoint}' is registered under ownership of '{plugin_key}'")
         return api_endpoint, True

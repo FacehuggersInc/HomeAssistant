@@ -43,6 +43,32 @@ def FlaskApp(client):
 		accepts = request.headers.get("Accept", "")
 		return "text/html" in accepts and "application/json" not in accepts.split(",")[0]
 
+	def _strip_token(target: str) -> str:
+		"""Remove any token/id from a URL a browser is about to be sent to."""
+		from urllib.parse import urlsplit, urlunsplit, parse_qsl
+		parts = urlsplit(target or "/")
+		kept = [(k, v) for k, v in parse_qsl(parts.query, keep_blank_values=True)
+				if k not in ("token", "id")]
+		return urlunsplit(("", "", parts.path or "/", urlencode(kept), ""))
+
+	def _next_target() -> str:
+		"""
+		Where to send a browser back to, with any credential stripped out.
+
+		request.full_path carries the query string the browser arrived with -
+		including the token that has just been rejected. Appending a fresh one
+		produces `?token=OLD&token=NEW`, and the FIRST value wins in every
+		parser there is, so the browser was sent straight back holding the bad
+		token and bounced between here and /access/wait forever. The same
+		applies to /access/name, which is the naming half of the same loop.
+		"""
+		from urllib.parse import urlsplit, urlunsplit, parse_qsl
+		parts = urlsplit(request.full_path or "/")
+		kept = [(k, v) for k, v in parse_qsl(parts.query, keep_blank_values=True)
+				if k not in ("token", "id")]
+		path = parts.path or "/"
+		return urlunsplit(("", "", path, urlencode(kept), ""))
+
 	def auth():
 		"""
 		A per-device token, checked against the approved list.
@@ -60,7 +86,7 @@ def FlaskApp(client):
 				# page it is not allowed to see should be walked through
 				# getting access and put back where it was going, not handed
 				# an error and left to find /access/request on its own.
-				return redirect("/access/wait?" + urlencode({"next": request.full_path}))
+				return redirect("/access/wait?" + urlencode({"next": _next_target()}))
 			return {"request": "Failed",
 					"reason": "No device token. Request access at /access/request.",
 					"state": "unknown"}, 401
@@ -74,7 +100,7 @@ def FlaskApp(client):
 			if user.awaiting_name and _wants_html() and \
 					not request.path.startswith("/access/"):
 				return redirect("/access/name?" + urlencode(
-					{"token": token, "next": request.full_path}))
+					{"token": token, "next": _next_target()}))
 
 			# Recorded on the request, so an endpoint can tell who called it -
 			# the calendar tags what it stores with this.
@@ -83,8 +109,11 @@ def FlaskApp(client):
 
 		state = client.USERS.state_of(token)
 		if _wants_html():
+			# The token is NOT forwarded. It is the one that was just refused,
+			# and handing it back to the wait page means it asks about a token
+			# nobody will ever approve rather than requesting a new one.
 			return redirect("/access/wait?" + urlencode(
-				{"next": request.full_path, "token": token}))
+				{"next": _next_target()}))
 		return {"request": "Failed",
 				"reason": f"This device is {state}.", "state": state}, 403
 
@@ -646,7 +675,10 @@ def FlaskApp(client):
 			client.USERS.rename(token, name)
 			client.simple_notify("account-check", "Users",
 								 f"'{name}' named themselves.")
-			target = request.args.get("next") or "/"
+			# Stripped, not appended to. A `next` still carrying the old
+			# token would win over the one added here and send the browser
+			# back into naming forever.
+			target = _strip_token(request.args.get("next") or "/")
 			joiner = "&" if "?" in target else "?"
 			return redirect(f"{target}{joiner}token={token}")
 
@@ -875,6 +907,13 @@ def FlaskApp(client):
 							params.update(body)
 						elif request.form:
 							params.update(request.form.to_dict())
+
+						# Uploads, for endpoints that asked for them. Opt-in:
+						# forwarding files to every endpoint would hand each
+						# one an unexpected keyword and raise TypeError, which
+						# is the same trap `id` and `token` already sprang.
+						if getattr(end, "accepts_files", False) and request.files:
+							params["files"] = request.files
 
 					return end.call(**params)
 				except TypeError as e:

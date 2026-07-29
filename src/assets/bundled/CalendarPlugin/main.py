@@ -45,7 +45,11 @@ SUBS_PAGE = """<!doctype html><html><head><meta charset="utf-8">
        border-radius:10px;padding:12px;margin-bottom:14px;font-size:14px}
  details{margin-top:18px;color:var(--muted);font-size:13.5px}
  summary{cursor:pointer;color:var(--text)}
+ a.back{display:inline-block;color:var(--muted);text-decoration:none;
+      font-size:14px;margin-bottom:10px;padding:8px 0}
+ a.back:active{color:var(--text)}
 </style></head><body>
+<a class="back" href="/?token=__TOKEN__">&#8592; All pages</a>
 <h1>Subscribed calendars</h1>
 <p class="sub">Mirrored onto the panel, one way. Nothing is sent back.</p>
 __MESSAGE_BLOCK__
@@ -129,7 +133,11 @@ FORM_PAGE = """<!doctype html><html><head><meta charset="utf-8">
  li span{color:var(--muted)}
  .ok{background:rgba(47,240,142,.14);border:1px solid rgba(47,240,142,.5);
      border-radius:10px;padding:12px;margin-bottom:14px;display:none}
+ a.back{display:inline-block;color:var(--muted);text-decoration:none;
+      font-size:14px;margin-bottom:10px;padding:8px 0}
+ a.back:active{color:var(--text)}
 </style></head><body>
+<a class="back" href="/?token=__TOKEN__">&#8592; All pages</a>
 <h1>Add an event</h1>
 <p class="sub">It appears on the panel straight away.</p>
 <div class="ok" id="ok">Added.</div>

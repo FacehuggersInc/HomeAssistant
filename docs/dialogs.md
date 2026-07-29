@@ -201,6 +201,15 @@ other side panels — several places share it, and a literal will drift.
 a blurred snapshot of the page behind, refreshed on open and on resize, so it
 costs nothing while the panel is closed.
 
+### Enabling a button after it exists
+
+`add_button()` picks the disabled style at construction only, so a button
+toggled later with `setEnabled()` kept looking primary or destructive while
+refusing every tap - which reads as broken rather than unavailable.
+
+`set_button_state(button, enabled, kind)` does both, and is what to use for
+anything that becomes available once a selection is made.
+
 ### What a slide costs
 
 Two things made opening a panel slower than it looks, and both are worth

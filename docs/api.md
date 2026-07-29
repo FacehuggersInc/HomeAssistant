@@ -197,14 +197,39 @@ Query parameters become keyword arguments. `id` is stripped first - it is the
 API's, not the endpoint's. `POST` bodies (JSON or form) are merged in on top of
 the query string.
 
-A callback may return a bare value or a `(body, status)` tuple. Bare values are
-sent as **200**.
+A callback may return a bare value, `(body, status)`, or
+`(body, status, headers)`. Bare values are sent as **200**.
+
+The third form is how an endpoint serves a page rather than data:
+
+```python
+return html, 200, {"Content-Type": "text/html; charset=utf-8"}
+```
 
 Bad arguments return **400** with the `TypeError` text, which is far easier to
 diagnose than a generic failure.
 
 `cached=True` caches the first body and serves it thereafter, regardless of
 return shape. Call `endpoint.clear_cache()` to invalidate.
+
+### Receiving an upload
+
+`POST` bodies reach an endpoint as keyword arguments, but **files do not unless
+the endpoint asks for them**:
+
+```python
+self.client.API_REGISTRY.register(
+    "myplugin", "my_upload", self.handler,
+    requires_auth=True, accepts_files=True)
+
+def handler(self, files=None, **params):
+    upload = files.get("file") if files else None
+    data = upload.read() if upload else b""
+```
+
+`files` is Flask's `request.files`. Opt-in rather than always: forwarding it to
+every endpoint would hand each one an unexpected keyword and raise `TypeError`,
+which is the same trap `id` and `token` already sprang.
 
 ---
 
@@ -267,6 +292,10 @@ Registered like any other plugin endpoint, and served under `/public/`.
 | `timer_cancel` | Core Widgets | Cancel one by `key=`, or `all=1`. |
 | `widget_show` | Core Widgets | Place a transient widget on the home screen. |
 | `widget_dismiss` | Core Widgets | Take one away. |
+| `sticker_add` | Core Widgets | A page to upload and place stickers from a phone. |
+| `sticker_list` | Core Widgets | The sticker library. |
+| `sticker_place` | Core Widgets | Place one, permanently or for a while. |
+| `sticker_remove` | Core Widgets | Delete one from the library. |
 | `calendar_add` | Calendar | Add an event. |
 | `calendar_upcoming` | Calendar | The next few events. |
 | `calendar_sync` | Calendar | Refresh every subscribed feed. |

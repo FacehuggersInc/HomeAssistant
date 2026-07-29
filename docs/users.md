@@ -26,6 +26,24 @@ Told apart by the `Accept` header: a script wants a 401 it can read, and a
 person looking at a blank page with some JSON on it wants to be told what to do
 about it.
 
+### Coming back with a token that is no longer good
+
+A browser arriving with a stale, revoked or unknown token is sent to
+`/access/wait` like any other - but **the refused token is not carried with
+it**, and neither is the one already in the address it was heading for.
+
+That mattered more than it sounds. `next` was built from the full path the
+browser arrived with, so it still held the old token; the wait page then
+appended the new one, giving `?token=OLD&token=NEW`. The first value wins in
+every parser there is, so the browser went back holding exactly the token that
+had just been refused, was refused again, and bounced between the two forever.
+The naming page had the same shape and the same loop.
+
+Both now strip `token` and `id` out of a target before adding the real one -
+in the redirect and in the wait page's own JavaScript, which builds the same
+URL client-side. Every other query parameter survives, so a device sent away
+from a form comes back to the same form.
+
 ### The flow
 
 ```
