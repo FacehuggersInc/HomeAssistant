@@ -550,3 +550,30 @@ event, a worker or a skill has to go through `client.call_on_ui`.
 Qt does not raise when this is got wrong — it **aborts the process**. There is
 no traceback and nothing to catch, so a function that both spawns work and
 touches a widget is worth reading twice.
+
+## A size somebody chose
+
+`place()` calls `_fit_to_content()`, which releases a widget's fixed size and
+grows it to whatever its content needs. That is right for a widget pinned by its
+constructor to a size its labels have since outgrown — it would otherwise clip
+them with no way to tell from inside.
+
+It is wrong for a **resizable** widget. That size is a decision: it was dragged
+to, or restored from the layout saved the last time it was. And `place()` runs on
+every page rebuild, so leaving the home page and coming back would hand the
+widget a different width than it was left at.
+
+`has_chosen_size()` tells the two apart. It is true once something has set the
+size — a drag, or `apply_layout_state()` — and false while `content_size()` would
+only be answering with whatever Qt happened to have laid the widget out at.
+Qt's default is 640x480, which is not a width anybody picked and must not be
+preserved as though it were.
+
+So a resizable widget keeps its chosen size, growing only where the content
+genuinely does not fit, and never past `MAX_W`/`MAX_H`. A widget that cannot be
+resized behaves exactly as before.
+
+**This is worth knowing because the saved file stays correct the whole time.**
+`content_size()` holds the chosen number, so what is written to disk is the width
+the person picked; only what is on screen differs. Checking the layout file to
+diagnose it would have shown nothing wrong.

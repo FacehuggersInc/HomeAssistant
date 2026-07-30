@@ -41,6 +41,21 @@ def FlaskApp(client):
 		static_folder=os.path.join(here, "static"),
 	)
 
+	@app.context_processor
+	def _panel_identity():
+		"""
+		The panel's name, in every template.
+
+		A context processor rather than a keyword on each render_template():
+		there are several pages and adding one is how a heading ends up saying
+		"Home Assistant" on a panel somebody named something else. This way a
+		new page gets the name without having to remember to ask for it.
+		"""
+		try:
+			return {"panel": client.panel_name()}
+		except Exception:
+			return {"panel": APP_NAME}
+
 	# AUTH & HELPERS
 	def _wants_html() -> bool:
 		"""

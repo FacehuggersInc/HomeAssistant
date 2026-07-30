@@ -145,6 +145,20 @@ class Widget(QWidget):
 
     def set_content_size(self, width: int, height: int) -> None:
         self._content_w, self._content_h = int(width), int(height)
+        #A size that was decided, rather than one read off an unlaid-out
+        #widget. See has_chosen_size().
+        self._sized = True
+
+    def has_chosen_size(self) -> bool:
+        """
+        Whether this widget's size is a decision rather than a fallback.
+
+        True once something has set it: a drag, or a restore from the saved
+        layout. False means content_size() would be answering with whatever
+        Qt happened to have laid the widget out at, which is not a size
+        anybody picked and must not be preserved as though it were.
+        """
+        return bool(getattr(self, "_sized", False))
 
     def rotated_bounds(self, width: int = None, height: int = None):
         """The box needed to hold this content at the current angle."""
@@ -707,6 +721,16 @@ class WidgetFramework(QWidget):
         page = self._read_layout_file().get(self.page_key, {})
         if not getattr(self, "_load_logged", False):
             self._load_logged = True
+            sizes = ", ".join(
+                f"{key}={entry.get('w')}x{entry.get('h')}"
+                for key, entry in sorted(page.items()) if entry.get("w"))
+            if sizes:
+                # Said out loud because a size that is not restored and a size
+                # that was never saved look identical on screen, and only one
+                # of them is a bug in the restoring.
+                self.client.log("debug",
+                                f"[WidgetFramework:{self.page_key}] sizes on "
+                                f"disk: {sizes}")
             self.client.log("debug",
                             f"[WidgetFramework:{self.page_key}] loaded {len(page)} "
                             f"saved widgets from {self._layout_path()}")
@@ -793,6 +817,11 @@ class WidgetFramework(QWidget):
 
         hint = widget.sizeHint()
         minimum = widget.minimumSizeHint()
+
+        if widget.can_resize():
+            self._fit_resizable(widget, hint, minimum)
+            return
+
         wanted_w = max(widget.width(), hint.width(), minimum.width())
         wanted_h = max(widget.height(), hint.height(), minimum.height())
 
@@ -805,6 +834,47 @@ class WidgetFramework(QWidget):
             # resize() on its next pass. The hierarchy is zone -> row -> widget,
             # so every layout up the chain has to be told the hint changed
             # before the new size sticks.
+            widget.updateGeometry()
+            self._relayout_zone_of(widget)
+
+    def _fit_resizable(self, widget: Widget, hint, minimum) -> None:
+        """
+        Keep a size somebody chose, while never clipping the content.
+
+        A resizable widget's size is a decision, not a guess: it was dragged to
+        that width, or restored from the saved layout of the last time it was.
+        Releasing the fixed size and growing to the content hint - which is
+        what a widget that cannot be resized needs - throws that decision away
+        on **every page rebuild**, so leaving the home page and coming back
+        made the widget a different size than it was left at.
+
+        It is subtle because the saved file stays right the whole time.
+        `content_size()` keeps the chosen number, so what is written to disk is
+        the width the person picked; only what is on screen differs. Reading
+        the layout file to check would have shown nothing wrong.
+
+        The content still wins where it genuinely does not fit, which is what
+        the growing was for.
+        """
+        chosen_w, chosen_h = widget.content_size()
+
+        if not widget.has_chosen_size():
+            # Never sized, and no saved layout to restore. The content hint is
+            # the sensible starting point - the lazy fallback in
+            # content_size() is Qt's default 640x480, which is not a width
+            # anybody picked either.
+            chosen_w = max(hint.width(), minimum.width())
+            chosen_h = max(hint.height(), minimum.height())
+
+        wanted_w = max(widget.MIN_W, min(widget.MAX_W,
+                                         max(chosen_w, minimum.width())))
+        wanted_h = max(widget.MIN_H, min(widget.MAX_H,
+                                         max(chosen_h, minimum.height())))
+
+        widget.set_content_size(wanted_w, wanted_h)
+        bounds_w, bounds_h = widget.rotated_bounds()
+        if (widget.width(), widget.height()) != (bounds_w, bounds_h):
+            widget.setFixedSize(bounds_w, bounds_h)
             widget.updateGeometry()
             self._relayout_zone_of(widget)
 

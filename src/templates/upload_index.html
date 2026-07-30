@@ -1,7 +1,7 @@
 <!doctype html><html lang="en"><head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Upload</title>
+<title>Upload &mdash; {{ panel }}</title>
 <style>
 {{ chrome|safe }}
  *{box-sizing:border-box}
@@ -30,6 +30,7 @@
 </style></head><body>
 <div class="backrow"><a class="back" href="/?token={{ token }}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg><span>All pages</span></a></div>
 <h1>Upload</h1>
+<p class="sub">{{ panel }}</p>
 <p class="sub">Folders this panel will accept files into.</p>
 
 {% if assets %}

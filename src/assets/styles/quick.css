@@ -72,3 +72,18 @@
     background: #2ff08e;
     border: 2px solid #ffffff;
 }
+
+/* The network, as a button. Left-aligned: it is a status line you can press,
+ * not a call to action, and centred text reads as the latter. */
+.quick-wifi {
+    background: rgba(255,255,255,14);
+    border: 0px;
+    border-radius: 10px;
+    color: rgba(235,238,245,235);
+    text-align: left;
+    padding: 0px 10px;
+}
+
+.quick-wifi:pressed {
+    background: rgba(255,255,255,34);
+}

@@ -354,3 +354,13 @@ fallen through — comes back to `LIVE` and stays there.
 
 The Data API key goes in `SECRETS` under `musicplugin` / `youtube_api_key`.
 Without one, search falls back to scraping.
+
+## When nothing is playing
+
+A poll that finds **no MPRIS player at all** publishes a stopped state rather
+than publishing nothing. Every player having closed is not the same as one being
+paused, and staying quiet leaves the registry holding whatever was last true —
+so the card sits on the wallpaper showing a track that stopped existing.
+
+A read that *errored* is treated differently and stays quiet. That is not
+knowing, and the last state is a better guess than claiming silence.

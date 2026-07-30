@@ -204,6 +204,45 @@ settings live in its `settings.json` and are documented with the plugin.
 | `plugins.weather.longitude` | float | `-95.8608` deg. | The Longitude of your city |
 | `plugins.weather.timezone` | string | `America/Chicago` | The timezone you're in |
 
+## Naming the panel
+
+`application.panel_name`, edited in **Info**. `client.panel_name()` is the only
+reader — empty falls back to the application name, so a panel nobody has named
+still reads as something rather than as a blank heading.
+
+The setting is marked `hidden`, so the generated Application section does not
+show a raw text field beside the proper control. The control writes into the
+page's **working copy** like every other control here: saved by the Save button,
+discarded by leaving without one. Writing to the live settings instead would be
+overwritten by the next Save anyway.
+
+The control indexes the working copy **through the Settings object**, the way
+`builder()` resolves a live setting — `working["application"]["panel_name"]`, not
+`working.to_dict()[...]`. `to_dict()` rebuilds a fresh dict on every call, so a
+control that mutates what it returns is writing into a throwaway: the value
+looks accepted on screen and is gone at Save.
+
+The name is collapsed to single spaces and capped at 64 characters, because it
+lands in a window title and an HTML heading and a name with newlines in it is
+neither.
+
+Every page the panel serves gets it through a Flask **context processor** rather
+than a keyword on each `render_template()`. There are five pages and adding a
+sixth is how a heading ends up saying "Home Assistant" on a panel somebody named
+something else.
+
+## The sort toolbar
+
+Shown only where the content carries at least two sort labels — the same test
+`_sorted_content()` uses to do the sorting, so the toolbar cannot appear above
+content it would not reorder.
+
+Two rather than one: reordering a single card does nothing, and offering a
+control that appears to have no effect invites the question of why.
+
+The test is not `system=True`. Plugins is a system page and does sort; Wi-Fi,
+Info and Users are live views whose cards carry no sort label at all.
+
 ## Plugin readmes
 
 A plugin's readme appears on its settings page **folded away**, with a header

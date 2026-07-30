@@ -79,6 +79,7 @@ can subscribe to.
 | [Users](users.md) | Device approval, tokens, and identifying a caller. |
 | [The web page](webpage.md) | The built-in browser page and its locks. |
 | [Quick settings](quick-settings.md) | The global controls panel and its registry. |
+| [Wi-Fi](wifi.md) | The network section, joining a network, and throughput. |
 | [What is playing](player.md) | The source-agnostic player contract. |
 | [Cancelling](cancel.md) | What "stop" means, and who decides. |
 | [Screen brightness](backlight.md) | Real backlight control, and the overlay fallback. |

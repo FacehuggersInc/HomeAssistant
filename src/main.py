@@ -596,6 +596,23 @@ class Client:
     def has_page(self, query: str) -> bool:
         return self.PAGES.has_page(query)
 
+    def panel_name(self) -> str:
+        """
+        What this panel is called.
+
+        One accessor rather than a value read in five places: the name appears
+        in Info, in the window title and on every page the panel serves, and
+        those drifting apart is the whole reason it is worth naming.
+
+        Empty falls back to the application name, so a panel nobody has named
+        reads as something rather than as a blank heading.
+        """
+        try:
+            name = str(self.SETTINGS.application.panel_name.value or "").strip()
+        except Exception:
+            name = ""
+        return name or self.WINDOW_NAME
+
     def get_page_data(self, name: str):
         return self.PAGES.get_entry(name)
 
@@ -677,7 +694,7 @@ class Client:
         w = int(self.SETTINGS.application.window.size.value[0])
         h = int(self.SETTINGS.application.window.size.value[1])
 
-        self.window.setWindowTitle(self.WINDOW_NAME)
+        self.window.setWindowTitle(self.panel_name())
         self.window.setWindowFlags(
             Qt.WindowType.FramelessWindowHint |
             Qt.WindowType.WindowStaysOnTopHint
@@ -1285,7 +1302,8 @@ class Client:
             self.window.showFullScreen()
 
     def title(self, text: str = "") -> None:
-        title = f"{self.WINDOW_NAME} | {text}" if text else self.WINDOW_NAME
+        name = self.panel_name()
+        title = f"{name} | {text}" if text else name
         self.window.setWindowTitle(title)
         self.log("info", f"Title changed to '{title}'")
 

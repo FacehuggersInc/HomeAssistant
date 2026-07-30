@@ -129,6 +129,13 @@
     background: rgba(255,255,255,12);
 }
 
+/* The up/down figures. Monospaced, or the numbers jump sideways every
+ * second as the digits change width. */
+.wifi-rates {
+    color: rgba(160,220,255,235);
+    font-family: monospace;
+}
+
 .settings-collapsible {
     background: transparent;
     border: 1px solid rgba(255,255,255,20);

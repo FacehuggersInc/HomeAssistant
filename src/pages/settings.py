@@ -719,7 +719,82 @@ def _build_users_page(client) -> list:
 
 # ── Info page ─────────────────────────────────────────────────────────────────
 
-def _build_info_page(client) -> list:
+def _info_label_width(labels, font) -> int:
+    """
+    Wide enough for the longest label there is.
+
+    Measured rather than picked: the column was a hardcoded 120px, which fits
+    "Python" and clips "Approved devices" by half. A number chosen once is a
+    number that goes wrong the first time somebody adds a row, and a clipped
+    label is not obviously a layout bug from the outside - it reads as a
+    truncated name.
+    """
+    from PyQt6.QtGui import QFontMetrics
+    metrics = QFontMetrics(font)
+    widest = max((metrics.horizontalAdvance(str(text)) for text in labels),
+                 default=0)
+    # A little air, and a ceiling so one long label cannot squeeze the values
+    # off the card.
+    return max(120, min(320, widest + 12))
+
+
+def _build_panel_name_card(client, setting: dict, label_width: int = 160) -> QFrame:
+    """What this panel is called, with a button to change it."""
+    card = QFrame()
+    card.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+    set_style(card, "settings", "setting-block")
+    card.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+
+    row = QHBoxLayout(card)
+    row.setContentsMargins(14, 10, 14, 10)
+    row.setSpacing(12)
+
+    label = QLabel("Panel name")
+    label.setFont(make_font(SIZES.S2, bold=True))
+    set_style(label, "common", "text-muted")
+    label.setFixedWidth(label_width)
+    row.addWidget(label)
+
+    def shown() -> str:
+        # The fallback is shown as the fallback rather than as the name, so it
+        # is clear the panel has not been named yet.
+        current = str(setting.get("value") or "").strip()
+        return current or f"{client.WINDOW_NAME}  (not named)"
+
+    value = QLabel(shown())
+    value.setFont(make_font(SIZES.S2))
+    value.setWordWrap(True)
+    set_style(value, "common", "text-strong")
+    row.addWidget(value, stretch=1)
+
+    change = QPushButton("Change")
+    change.setFont(make_font(SIZES.S1, bold=True))
+    change.setFixedHeight(38)
+    change.setCursor(Qt.CursorShape.PointingHandCursor)
+    set_style(change, "overlays", "dialog-button-secondary")
+
+    def rename():
+        from src.ui.keyboard import KeyboardDialog
+        holder = QLineEdit(str(setting.get("value") or ""))
+
+        def done(text: str):
+            # Collapsed and capped: this ends up in a window title and in an
+            # HTML heading, and a name with newlines in it is neither.
+            setting["value"] = " ".join(str(text or "").split())[:64]
+            try:
+                value.setText(shown())
+            except RuntimeError:
+                pass
+
+        client.dialog(KeyboardDialog(client, holder, mode="text",
+                                     label="Panel name", on_done=done))
+
+    change.clicked.connect(lambda _=False: rename())
+    row.addWidget(change)
+    return card
+
+
+def _build_info_page(client, working=None) -> list:
     import socket, platform
 
     def _local_ip() -> str:
@@ -734,6 +809,7 @@ def _build_info_page(client) -> list:
 
     rows = [
         ("Application",  client.WINDOW_NAME),
+        ("Serving as",   client.panel_name()),
         ("Approved devices", str(len(client.USERS.all_users()))),
         ("Local IP",     _local_ip()),
         ("API Port",     "5000"),
@@ -743,6 +819,36 @@ def _build_info_page(client) -> list:
     ]
 
     widgets = []
+
+    # The name, first and editable.
+    #
+    # Written into the page's working copy rather than into the live settings,
+    # the same as every other control here - so it is saved by the Save button
+    # and discarded by leaving without one, instead of being a single value
+    # that behaves differently from the rest of the page.
+    # Walked through the Settings object, not through to_dict().
+    #
+    # to_dict() rebuilds a fresh dict on every call, so a control that mutates
+    # what it returns is writing into a throwaway - the value looks accepted
+    # and is gone at Save. The builder resolves live objects the same way, by
+    # indexing the pointer.
+    name_setting = None
+    if working is not None:
+        try:
+            name_setting = working["application"]["panel_name"]
+        except (KeyError, TypeError, AttributeError):
+            name_setting = None
+
+    # One width for the name card and every row below it, so the values line up.
+    label_font = make_font(SIZES.S2, bold=True)
+    label_width = _info_label_width(
+        ["Panel name", "Documentation"] + [label for label, _ in rows],
+        label_font)
+
+    if name_setting is not None:
+        widgets.append(
+            _build_panel_name_card(client, name_setting, label_width))
+
     for label, value in rows:
         card = QFrame()
         card.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
@@ -753,9 +859,9 @@ def _build_info_page(client) -> list:
         row.setSpacing(12)
 
         lbl = QLabel(label)
-        lbl.setFont(make_font(SIZES.S2, bold=True))
+        lbl.setFont(label_font)
         set_style(lbl, "common", "text-muted")
-        lbl.setFixedWidth(120)
+        lbl.setFixedWidth(label_width)
 
         val = QLabel(str(value))
         val.setFont(make_font(SIZES.S2))
@@ -793,9 +899,9 @@ def _build_info_page(client) -> list:
     docs_row.setSpacing(12)
 
     docs_label = QLabel("Documentation")
-    docs_label.setFont(make_font(SIZES.S2, bold=True))
+    docs_label.setFont(label_font)
     set_style(docs_label, "common", "text-muted")
-    docs_label.setFixedWidth(120)
+    docs_label.setFixedWidth(label_width)
 
     docs_value = QLabel(docs_url)
     docs_value.setFont(make_font(SIZES.S2))
@@ -1140,8 +1246,15 @@ class SettingsPage(PageFramework):
     def _generate_settings(self, pointer, grouped_dict: dict) -> None:
         for key in grouped_dict:
             self.new_category(key.lower(), self.builder(pointer, grouped_dict, key, key))
+        # Live, like Users: the list changes while it is on screen and joining
+        # a network happens immediately rather than on a Save button.
+        from src.pages.wifi import build_wifi_page
+        self.new_category("wifi", build_wifi_page(self.client),
+                          label="Wi-Fi", system=True)
         # Info is always last
-        self.new_category("info", _build_info_page(self.client), system=True)
+        self.new_category("info",
+                          _build_info_page(self.client, self._working_settings),
+                          system=True)
         # Live, like Info. There is no settings path behind it - the list is
         # whatever the registry holds when the page is built, and the buttons
         # act on the registry rather than writing a value to be saved.
@@ -1520,6 +1633,19 @@ class SettingsPage(PageFramework):
         arrow = "mdi.arrow-down-bold" if direction == "desc" else "mdi.arrow-up-bold"
         return self._compose_dual_icon(concept, arrow)
 
+    @staticmethod
+    def _is_sortable(content) -> bool:
+        """
+        Whether a section has enough sortable blocks to be worth the toolbar.
+
+        Two, not one: a control that reorders a single card does nothing, and
+        offering it invites the question of why it appears to have no effect.
+        Wi-Fi, Info and Users are live views whose cards carry no sort label at
+        all, so they get nothing.
+        """
+        labelled = [w for w in (content or []) if hasattr(w, "sort_label")]
+        return len(labelled) >= 2
+
     def _build_sort_toolbar(self, in_plugins_category: bool = False) -> QWidget:
         bar = QWidget()
         set_style(bar, "common", "transparent")
@@ -1800,8 +1926,36 @@ class SettingsPage(PageFramework):
                         self._nav_buttons[sub_path] = sub_btn
                     self._nav_list.addWidget(rail)
 
-        if first_path:
+        # A section asked for by whatever opened the page wins over the first
+        # one, so "tap the network in the quick panel" lands on Wi-Fi rather
+        # than on the top of the list with the right thing three taps away.
+        wanted = self._requested_section()
+        if wanted is not None and wanted in self._nav_buttons:
+            self._select_path(wanted)
+        elif first_path:
             self._select_path(first_path)
+
+    def _requested_section(self):
+        """
+        The nav path goto() asked for, if it exists.
+
+        Checked against the buttons that were actually built rather than
+        trusted: a section can be missing because its plugin failed to load,
+        and a stale deep link should land somewhere real instead of on a blank
+        page.
+        """
+        data = getattr(self, "data", None) or {}
+        name = str(data.get("section") or "").strip().lower()
+        if not name:
+            return None
+        sub = data.get("subsection")
+        path = (name, str(sub).strip().lower() if sub else None)
+        if path in self._nav_buttons:
+            return path
+        if (name, None) in self._nav_buttons:
+            return (name, None)
+        self.client.log("info", f"[Settings] No '{name}' section to open.")
+        return None
 
     def _apply_nav_style(self, btn: QPushButton, state: str, indent: bool = False) -> None:
         bg = {"active": "rgba(255,255,255,18)",
@@ -1867,8 +2021,17 @@ class SettingsPage(PageFramework):
             for extra in self._plugin_settings_blocks(target.get("plugin")):
                 self._content_layout.insertWidget(self._content_layout.count() - 1, extra)
 
-        toolbar = self._build_sort_toolbar(in_plugins_category=(cat_key == "plugins"))
-        self._content_layout.insertWidget(self._content_layout.count() - 1, toolbar)
+        # Only where there is something to sort.
+        #
+        # Not "only on generated sections": Plugins is a system page and does
+        # sort. The test is whether the content actually carries sort labels,
+        # which is the same test _sorted_content() uses to do the sorting - so
+        # the toolbar cannot appear above content it would not reorder.
+        if self._is_sortable(target["content"]):
+            toolbar = self._build_sort_toolbar(
+                in_plugins_category=(cat_key == "plugins"))
+            self._content_layout.insertWidget(
+                self._content_layout.count() - 1, toolbar)
 
         for block in self._sorted_content(target["content"]):
             if isinstance(block, QWidget):

@@ -1,7 +1,7 @@
 <!doctype html>
 <html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>What should we call you?</title>
+<title>{{ panel }}</title>
 <style>
  :root{--bg:#151517;--card:#1c1c1f;--line:#2c2c31;--text:#e6e6e8;
        --muted:#9a9aa2;--accent:#2ff08e}
@@ -22,7 +22,7 @@
 <body>
 <div class="card">
   <h1>What should we call you?</h1>
-  <p>The panel knows this device as "{{ suggested }}". A person's name is more
+  <p>The panel ({{ panel }}) knows this device as "{{ suggested }}". A person's name is more
      use — it is what your events will be filed under.</p>
   <form id="f">
     <input id="name" name="name" required autofocus

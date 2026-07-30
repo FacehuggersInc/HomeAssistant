@@ -6,7 +6,7 @@ from threading import Thread
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel,
-    QFrame, QSlider, QScrollArea, QSizePolicy,
+    QFrame, QSlider, QScrollArea, QSizePolicy, QPushButton,
 )
 from PyQt6.QtCore import Qt, QEvent, QPoint, QRect, QTimer
 
@@ -16,6 +16,7 @@ from src.ui.controls.buttons import IconButton
 from src.ui.icons import Icons, icon as resolve_icon
 from src.system import volume as system_volume
 from src.system import media_keys
+from src.system import wifi
 
 
 def _local_ip() -> str:
@@ -280,8 +281,11 @@ class QuickSettings(Panel):
         self._clock_timer.setInterval(1000)
         self._clock_timer.timeout.connect(self._tick_clock)
         self._clock_timer.timeout.connect(self._tick_volume)
+        self._clock_timer.timeout.connect(self._tick_wifi)
         #so a slow read does not stack up behind itself
         self._volume_busy = False
+        self._wifi_busy = False
+        self._wifi_button = None
 
         self._timeout_id = self.client.TIMEOUTS.add(
             self.AUTO_CLOSE, self.close_panel, "__timeout_quick_settings")
@@ -385,6 +389,64 @@ class QuickSettings(Panel):
         except RuntimeError:
             self._clock_timer.stop()
 
+    def _build_wifi_row(self) -> QWidget:
+        """The current network, which opens Settings at its section."""
+        self._wifi_button = QPushButton()
+        self._wifi_button.setFont(make_font(SIZES.S1, bold=True))
+        self._wifi_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        # Fixed, or it stretches to whatever height the card has spare.
+        self._wifi_button.setFixedHeight(40)
+        self._wifi_button.setSizePolicy(QSizePolicy.Policy.Preferred,
+                                        QSizePolicy.Policy.Fixed)
+        set_style(self._wifi_button, "quick", "quick-wifi")
+        self._wifi_button.setText("  Wi-Fi\u2026")
+        self._wifi_button.clicked.connect(self._open_wifi_settings)
+        return self._wifi_button
+
+    def _open_wifi_settings(self) -> None:
+        self.close_panel()
+        # Straight to the section rather than to the top of Settings.
+        self.client.goto("#settings", data={"section": "wifi"}, override=True)
+
+    def _tick_wifi(self) -> None:
+        """
+        Keep the network label current while the panel is open.
+
+        On a worker: reading the connection shells out, and a radio that has
+        gone away takes the timeout to say so.
+        """
+        button = getattr(self, "_wifi_button", None)
+        if button is None or not self.isVisible():
+            return
+        if self._wifi_busy:
+            return
+        self._wifi_busy = True
+
+        def work():
+            connection = None
+            try:
+                connection = wifi.current()
+            except Exception:
+                connection = None
+            finally:
+                self._wifi_busy = False
+            self.client.call_on_ui(lambda: self._show_wifi(connection))
+
+        Thread(target=work, name="__quick_wifi", daemon=True).start()
+
+    def _show_wifi(self, connection) -> None:
+        button = getattr(self, "_wifi_button", None)
+        if button is None:
+            return
+        try:
+            if connection is None:
+                button.setText("  Not connected")
+            else:
+                bars = "\u2588" * connection.bars + "\u2581" * (4 - connection.bars)
+                button.setText(f"  {bars}  {connection.ssid}")
+        except RuntimeError:
+            self._wifi_button = None
+
     def _build_media_row(self) -> QWidget:
         """Previous, play/pause, next - centred under the sliders."""
         row = QWidget()
@@ -471,6 +533,13 @@ class QuickSettings(Panel):
             self._volume = None
             self.client.log("info", "[QuickSettings] No system volume backend "
                                     "found - the volume slider is hidden.")
+
+        # The network, as a button. A wall panel that has dropped its wireless
+        # is worth noticing from here rather than only from inside Settings.
+        if wifi.available():
+            self._system_card.layout_.addWidget(self._build_wifi_row())
+        else:
+            self._wifi_button = None
 
         # Media keys for whatever the machine is playing - a browser tab, a
         # music player, anything that registered for them. Not this panel's own
@@ -783,6 +852,7 @@ class QuickSettings(Panel):
         self.rebuild_quick_access()
         self._refresh_header()
         self._sync_sliders()
+        self._tick_wifi()
         self._tick_clock()
         super().open_panel()
         self._clock_timer.start()

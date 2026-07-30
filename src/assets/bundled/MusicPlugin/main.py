@@ -524,12 +524,25 @@ class MusicPlugin(Plugin):
 
         def work():
             playing = None
+            failed = False
             try:
                 playing = self.system.read()
             except Exception as e:
+                failed = True
                 self.client.log("debug", f"[Music] System read failed: {e}")
+
             if playing is not None:
                 self.client.PLAYER.publish("system", playing)
+            elif not failed:
+                # Nothing is playing, and that has to be said out loud.
+                #
+                # A read that finds no MPRIS player at all means every player
+                # has closed - not that one is paused. Publishing nothing
+                # leaves the registry holding whatever was last true, so the
+                # card sits on the wallpaper showing a track that stopped
+                # existing. A read that *errored* is different: that is not
+                # knowing, and the last state is the better guess.
+                self.client.PLAYER.publish("system", NowPlaying(state=STOPPED))
 
         # On a worker: this shells out, and on_update runs twenty times a
         # second on the UI thread.
