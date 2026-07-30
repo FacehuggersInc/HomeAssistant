@@ -39,6 +39,7 @@ brightnessctl/light  Small wrappers that already solved the permission problem
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import subprocess
 import threading
@@ -68,17 +69,47 @@ def backlight_devices() -> list:
         return []
 
 
+#Why a call did not succeed, when it did not.
+#
+#A timeout and a missing tool both used to come back as (False, "") and were
+#therefore indistinguishable. They are not the same problem: one means the
+#route does not exist on this machine, the other means it does and was too slow
+#to answer this time - and only one of those is worth trying again.
+TIMED_OUT = "timeout"
+FAILED = "failed"
+MISSING = "missing"
+
+
 def _run(args: list, timeout: float = CALL_TIMEOUT) -> tuple:
     """(ok, stdout). Never raises, never hangs."""
+    ok, out, _ = _run_reason(args, timeout)
+    return ok, out
+
+
+def _run_reason(args: list, timeout: float = CALL_TIMEOUT) -> tuple:
+    """(ok, stdout, reason). `reason` is empty when it worked."""
     try:
         done = subprocess.run(args, capture_output=True, text=True,
                               timeout=timeout, check=False)
-        return done.returncode == 0, (done.stdout or "").strip()
-    except (OSError, subprocess.SubprocessError):
-        return False, ""
+        if done.returncode == 0:
+            return True, (done.stdout or "").strip(), ""
+        detail = (done.stderr or done.stdout or "").strip().splitlines()
+        return False, (done.stdout or "").strip(), (
+            f"{FAILED}: {detail[-1][:90]}" if detail else FAILED)
+    except subprocess.TimeoutExpired:
+        return False, "", f"{TIMED_OUT} after {timeout:g}s"
+    except FileNotFoundError:
+        return False, "", MISSING
+    except (OSError, subprocess.SubprocessError) as e:
+        return False, "", f"{FAILED}: {e}"
 
 
 class Backend:
+    #Why detect() last returned False. Empty when it has not been asked, or
+    #when it succeeded. Read by the controller so a rejection can be logged
+    #rather than silently skipped.
+    reason = ""
+
     """One way of setting the brightness."""
 
     name = "none"
@@ -263,31 +294,87 @@ class DdcutilBackend(Backend):
         self.display = str(display or "")
         self.found = False
 
-    def _base(self) -> list:
+    #Shortens DDC's inter-message waits to this fraction. Faster, and a common
+    #reason a monitor stops answering: the timings in the spec are what slower
+    #panels actually need. Used only once a display has proven it responds.
+    FAST_MULTIPLIER = "0.4"
+
+    def _base(self, patient: bool = False) -> list:
         args = ["ddcutil"]
         if self.display:
             args += ["--display", self.display]
-        # Retries help on monitors that answer intermittently; the terse
-        # output is far easier to parse than the default.
-        args += ["--sleep-multiplier", "0.4"]
+        if not patient:
+            args += ["--sleep-multiplier", self.FAST_MULTIPLIER]
         return args
 
-    def detect(self) -> bool:
+    @staticmethod
+    def _parse_displays(out: str) -> list:
+        """
+        Every display number ddcutil reported, in order.
+
+        By regex rather than by splitting a line on whitespace, because the
+        exact shape of `detect` output varies between ddcutil versions and a
+        parse that reads the number as "the second word" silently produces
+        nothing when it does not. Nothing then becomes an empty --display flag,
+        which on a machine with three monitors is a question ddcutil cannot
+        answer.
+        """
+        numbers = re.findall(r"^\s*Display\s+(\d+)\b", out, re.MULTILINE)
+        if numbers:
+            return numbers
+        # Older output, or a format that changed again: fall back to the bus
+        # numbers, which ddcutil also accepts via --bus.
+        return []
+
+    #Why detect() last said no. Read by the controller for its log.
+    reason = ""
+
+    def detect(self, timeout: float = 8.0) -> bool:
+        self.reason = ""
         if not shutil.which("ddcutil"):
+            self.reason = "ddcutil is not installed"
             return False
         # detect is slower than a get, but it is the only call that says
-        # whether anything is actually reachable.
-        ok, out = _run(["ddcutil", "detect", "--brief"], timeout=8.0)
-        if not ok or "Display" not in out:
-            return False
-        if not self.display:
-            for line in out.splitlines():
-                line = line.strip()
-                if line.startswith("Display "):
-                    self.display = line.split()[1].strip()
-                    break
-        self.found = self.get() is not None
-        return self.found
+        # whether anything is actually reachable. It walks every I2C bus, so
+        # under load - which startup is - it can take longer than it does from
+        # a prompt on an idle machine.
+        if self.display:
+            candidates = [self.display]
+        else:
+            ok, out, why = _run_reason(["ddcutil", "detect", "--brief"],
+                                       timeout=timeout)
+            if not ok:
+                self.reason = why or "ddcutil detect found nothing"
+                return False
+            candidates = self._parse_displays(out)
+            if not candidates:
+                self.reason = ("ddcutil answered but no display number could "
+                               "be read from it")
+                return False
+
+        # Every one of them, not just the first.
+        #
+        # A desk with three monitors on it is the normal case for this backend,
+        # and there is no reason the first one ddcutil lists is the one that
+        # answers VCP 10 - plenty of monitors do not implement it at all.
+        # Giving up after one meant a working display two rows down was never
+        # asked.
+        tried = []
+        for number in candidates:
+            self.display = number
+            # Patiently: the shortened timings are for a display already known
+            # to work, and using them to decide whether one works is how a
+            # slower panel gets written off.
+            if self.get(patient=True) is not None:
+                self.found = True
+                return True
+            tried.append(number)
+
+        self.display = ""
+        self.found = False
+        self.reason = ("no display reported a brightness value (tried "
+                       + ", ".join(tried) + ")")
+        return False
 
     def set(self, percent: int) -> bool:
         percent = max(0, min(100, int(percent)))
@@ -295,8 +382,9 @@ class DdcutilBackend(Backend):
                      timeout=8.0)
         return ok
 
-    def get(self) -> Optional[int]:
-        ok, out = _run(self._base() + ["getvcp", "--brief", self.BRIGHTNESS_VCP],
+    def get(self, patient: bool = False) -> Optional[int]:
+        ok, out = _run(self._base(patient) +
+                       ["getvcp", "--brief", self.BRIGHTNESS_VCP],
                        timeout=8.0)
         if not ok or not out:
             return None
@@ -443,31 +531,74 @@ class BacklightController:
         self._stop.set()
         self._wake.set()
 
-    def _probe(self) -> None:
+    def _probe(self, timeout: float = None) -> None:
         if self.preferred in ("off", "overlay", "none"):
             self.log("info", "[Backlight] Hardware control disabled by setting.")
             return
 
         order = (BACKEND_ORDER if self.preferred == "auto"
                  else (self.preferred,))
+        rejected = []
         for name in order:
             backend = build_backend(name, self.device)
             if backend is None:
                 self.log("warning", f"[Backlight] Unknown backend '{name}'.")
                 continue
             try:
-                if backend.detect():
+                # A longer leash on the retry, where the machine is idle and
+                # the extra wait costs nobody anything.
+                detected = (backend.detect(timeout=timeout)
+                            if timeout and name == "ddcutil"
+                            else backend.detect())
+                if detected:
                     self.backend = backend
                     self.log("info", f"[Backlight] Using {backend.label}"
                                      f"{' - ' + backend.detail() if backend.detail() else ''}.")
                     return
+                rejected.append((name, getattr(backend, "reason", "")
+                                 or "not available"))
             except Exception as e:
-                self.log("debug", f"[Backlight] {name} probe failed: {e}")
+                rejected.append((name, f"probe raised: {e}"))
 
+        # Said in full, not swallowed.
+        #
+        # "No hardware control available" on its own is not something anybody
+        # can act on - especially when the same machine reports a working
+        # ddcutil from a prompt a minute later. The reason each route was
+        # passed over is the whole difference between "this box cannot" and
+        # "this box was busy".
+        for name, why in rejected:
+            self.log("info", f"[Backlight]   {name}: {why}")
         self.log("info", "[Backlight] No hardware control available - "
                          "falling back to the overlay.")
+        self._retry_pending = bool(
+            [1 for _, why in rejected if TIMED_OUT in why])
+
+    #How long after a timed-out probe to try once more, and how much longer to
+    #let it take. Startup is the busiest the machine gets: plugins loading, a
+    #browser engine starting, a speech model being read off disk. A DDC/CI
+    #round trip over I2C is slow at the best of times and this is not one of
+    #them, so a single attempt at second one is the worst possible moment to
+    #decide a monitor cannot be controlled.
+    RETRY_AFTER = 25.0
+    RETRY_TIMEOUT = 20.0
+
+    def _maybe_retry(self) -> None:
+        """One more probe, once the machine has settled."""
+        if not getattr(self, "_retry_pending", False):
+            return
+        if time.time() - self._started_at < self.RETRY_AFTER:
+            return
+        self._retry_pending = False
+        self.log("info", "[Backlight] Trying again now that startup is over "
+                         "- the first probe timed out.")
+        self._probe(timeout=self.RETRY_TIMEOUT)
+        if self.backend is None:
+            self.log("info", "[Backlight] Still nothing; staying on the overlay.")
 
     def _run(self) -> None:
+        self._started_at = time.time()
+        self._retry_pending = False
         self._probe()
         self.ready.set()
 
@@ -477,6 +608,7 @@ class BacklightController:
             if self._stop.is_set():
                 return
             if self.backend is None:
+                self._maybe_retry()
                 continue
 
             with self._lock:

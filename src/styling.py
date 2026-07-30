@@ -63,6 +63,21 @@ SIZES = Settings({
 })
 
 
+def line_height(size: int, bold: bool = False, padding: int = 0) -> int:
+    """
+    How tall a single line of this font actually needs to be.
+
+    Measured, not guessed. A fixed height picked by eye clips the descenders of
+    anything larger than it was chosen for, and the result does not look like a
+    layout bug from outside - it looks like the font is wrong. S3 bold needs 31
+    pixels; a row built at 28 loses the bottom of every 'g' in it.
+
+    `padding` is added on top for a row that also wants breathing room.
+    """
+    from PyQt6.QtGui import QFontMetrics
+    return QFontMetrics(make_font(size, bold=bold)).height() + int(padding)
+
+
 def make_font(size: int, bold: bool = False, family: str = FONT) -> QFont:
     f = QFont(family, size)
     f.setBold(bold)

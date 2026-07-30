@@ -422,13 +422,14 @@ class SkillIntentEngine:
 	def remove_skill(self, plugin_key:str, skill_key:str):
 		if plugin_key in self.registered:
 			self.registered[plugin_key] = [s for s in self.registered[plugin_key] if s.key != skill_key]
-			# Rebuild PhraseMatcher for that plugin to keep it consistent
-			pm = nlp.new_phrase_matcher(attr="LEMMA")
-			for s in self.registered[plugin_key]:
-				docs = s.get_patterns()
-				if docs:
-					self._pm_add_patterns(pm, s.key, docs)
-			self._pm_by_plugin[plugin_key] = pm
+			# Nothing else to rebuild.
+			#
+			# There was a per-plugin PhraseMatcher rebuilt here. It called a
+			# method that does not exist, so reaching this line raised; and it
+			# stored the result in `_pm_by_plugin`, which nothing ever read. It
+			# was dead and broken at once, which is why neither showed up.
+			# Matching goes through `self.matcher`, which `rebuild_idf()` and
+			# the skills' own `add()` calls keep current.
 
 	def un_register(self, plugin_key:str):
 		if plugin_key in self.registered:

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import sys
+import threading
 from pathlib import Path
 from typing import Optional
 
@@ -161,37 +162,150 @@ def resolve(name: str = "") -> tuple[Optional[int], str]:
 
 ## -- PROBE ------------------------------------------------------------------
 
+#How long to wait for a device to open before giving up on it.
+#
+#Opening a stream is not cheap and it is not guaranteed to return. PortAudio
+#calls into ALSA, which on a machine whose `default` points at a wedged or
+#exclusively-held device blocks with no error and no end. There is no way to
+#cancel that from outside, so the wait is bounded and the attempt abandoned.
+PROBE_TIMEOUT = 6.0
+
+
+#Tried in order when the chosen device will not open. `default` first because it
+#is what the machine says it wants; the servers next, since they are usually what
+#`default` was pointing at anyway; real hardware last, which always works when
+#nothing else will but bypasses whatever mixing the desktop expects.
+FALLBACK_NAMES = ("pipewire", "pulse", "sysdefault")
+
+
+def working_input(preferred: str = "",
+                  timeout: float = None,
+                  on_attempt=None) -> tuple:
+    """
+    The first input device that actually opens.
+
+    Returns (index_or_None, name, note). A listed device is not an openable one,
+    and the one the system calls `default` is no more trustworthy than the rest -
+    if it points at something wedged, opening it hangs, and the panel used to
+    hang with it.
+
+    So each candidate is tried in turn, bounded, and the first that opens wins.
+    A panel that comes up listening through `pipewire` because `default` would
+    not answer is worth much more than one that does not come up.
+
+    `on_attempt(name, ok, reason)` is called for each candidate as it is tried.
+    It exists so the caller can say something while this is happening: the
+    search takes seconds per device that will not answer, and a panel sitting
+    silently through that looks broken rather than busy. Nothing is said on a
+    machine where the first attempt works, which is most of them.
+    """
+    if timeout is None:
+        timeout = PROBE_TIMEOUT
+
+    candidates = []
+    if preferred:
+        index, note = resolve(preferred)
+        candidates.append((index, preferred, note))
+    candidates.append((None, "system default", ""))
+
+    listed = {d["name"]: d["index"]
+              for d in input_devices(include_helpers=True)}
+    for name in FALLBACK_NAMES:
+        if name in listed:
+            candidates.append((listed[name], name, ""))
+    # Real hardware last.
+    for d in input_devices(include_helpers=False):
+        candidates.append((d["index"], d["name"], ""))
+
+    tried, seen = [], set()
+    for index, name, note in candidates:
+        key = (index, name)
+        if key in seen:
+            continue
+        seen.add(key)
+        ok, reason = probe(index, timeout=timeout)
+        if on_attempt is not None:
+            try:
+                on_attempt(name, ok, reason)
+            except Exception:
+                # A caller's notification must not decide whether the
+                # microphone works.
+                pass
+        if ok:
+            extra = ""
+            if tried:
+                # Said, because a panel listening through something other than
+                # what was asked for should not be a silent substitution.
+                extra = (f"Using '{name}' - "
+                         f"{'; '.join(tried)} would not open.")
+            return index, name, (note or extra)
+        tried.append(f"'{name}' ({reason.rstrip('.')})")
+
+    return None, "", ("No audio input could be opened. Tried: "
+                      + "; ".join(tried) if tried else "No audio input found.")
+
+
 def probe(device: Optional[int] = None,
           samplerate: int = DEFAULT_SAMPLE_RATE,
-          channels: int = 1) -> tuple[bool, str]:
+          channels: int = 1,
+          timeout: float = PROBE_TIMEOUT) -> tuple[bool, str]:
     """
-    Actually open the stream briefly.
+    Actually open the stream briefly, and give up if it will not.
 
     query_devices() listing a microphone does not mean it can be opened - it may
     be claimed exclusively by another process, or exist only as a stale entry
-    after the hardware was removed. This is the check that matters, and it is
-    cheap.
+    after the hardware was removed. This is the check that matters.
+
+    **Bounded, because it can hang rather than fail.** The open runs on its own
+    thread and is abandoned if it does not come back. The thread may stay stuck
+    inside PortAudio for the life of the process; it is a daemon, so that costs
+    a thread rather than the application. Blocking here froze the panel during
+    startup with no error and nothing in the log after the attempt began.
     """
     ok, reason = available()
     if not ok:
         return False, reason
 
-    sd = _sd()
-    try:
-        with sd.InputStream(samplerate=samplerate, channels=channels,
-                            dtype="int16", device=device):
-            pass
+    answer: dict = {}
+
+    def attempt():
+        sd = _sd()
+        try:
+            with sd.InputStream(samplerate=samplerate, channels=channels,
+                               dtype="int16", device=device):
+                pass
+            answer["ok"] = True
+        except Exception as e:  # noqa: BLE001 - reported, not handled
+            answer["error"] = e
+
+    worker = threading.Thread(target=attempt, daemon=True,
+                              name="__audio_probe")
+    worker.start()
+    worker.join(timeout)
+
+    if worker.is_alive():
+        return False, (f"Opening the microphone did not finish within "
+                       f"{timeout:.0f}s. The device may be held by another "
+                       f"application, or the audio server may not be "
+                       f"responding.")
+    if answer.get("ok"):
         return True, ""
-    except Exception as e:
+
+    e = answer.get("error")
+    if e is None:
+        return False, "Could not open the microphone."
+    try:
         text = str(e)
-        if "Invalid number of channels" in text:
-            return False, "The selected audio input does not support mono recording."
-        if "Device unavailable" in text or "busy" in text.lower():
-            return False, "The microphone is in use by another application."
-        if "Invalid sample rate" in text:
-            return False, (f"The selected audio input does not support "
-                           f"{samplerate} Hz recording.")
-        return False, f"Could not open the microphone ({e})."
+    except Exception:
+        text = ""
+    if "Invalid number of channels" in text:
+        return False, "The selected audio input does not support mono recording."
+    if "Device unavailable" in text or "busy" in text.lower():
+        return False, "The microphone is in use by another application."
+    if "Invalid sample rate" in text:
+        return False, (f"The selected audio input does not support "
+                       f"{samplerate} Hz recording.")
+    return False, f"Could not open the microphone ({e})."
 
 
 def describe(device: Optional[int]) -> str:

@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 from PyQt6.QtWidgets import (
-    QPushButton, QToolButton, QMenu, QSizePolicy,
+    QPushButton, QToolButton, QMenu, QSizePolicy, QWidget, QHBoxLayout,
 )
 from PyQt6.QtCore import Qt, QSize
 from PyQt6.QtGui import QIcon
 
-from src.styling import STYLES, make_font, add_text_shadow, set_style
+from src.styling import STYLES, SIZES, make_font, add_text_shadow, set_style
 from src.ui.icons import icon as resolve_to_icon, resolve as resolve_name
 
 
@@ -158,10 +158,22 @@ class DropdownButton(QToolButton):
         self.setMenu(self._menu)
 
     def _rebuild_menu(self) -> None:
+        """
+        Entries are (label, callback), or (label, callback, icon).
+
+        The three-part form exists so a menu can carry the same icons the
+        buttons it replaced did - a list of bare words is harder to pick from
+        than the row of buttons it came from, which defeats the point.
+        """
         self._menu.clear()
-        for label, cb in self._items:
+        for entry in self._items:
+            label, cb = entry[0], entry[1]
+            glyph = entry[2] if len(entry) > 2 else None
             action = self._menu.addAction(label)
-            action.triggered.connect(cb)
+            if glyph:
+                action.setIcon(resolve_to_icon(glyph, color="#e8ecf4")
+                               if isinstance(glyph, str) else glyph)
+            action.triggered.connect(lambda _=False, fn=cb: fn())
 
     def set_items(self, items: list[tuple[str, callable]]) -> None:
         self._items = items
@@ -174,3 +186,144 @@ class DropdownButton(QToolButton):
     @property
     def data(self):
         return self._data
+
+class ActionButton(QPushButton):
+    """
+    An icon and a label, at the same size as every other one.
+
+    Built because every page was making its own. A `QPushButton` with
+    `setFixedHeight(38)` written out at each call site drifts - one page uses 38,
+    the next 40, a third leaves it to the layout - and a row of them ends up
+    uneven for no reason anybody chose. Worse, none of them carried an icon, so
+    a page of buttons read as a wall of similar words.
+
+    `kind` picks the meaning rather than the colour: what a button does to the
+    thing it belongs to is the decision, and the palette follows from it.
+
+    * `primary`     - the thing this row is for. Join, Connect, Save.
+    * `secondary`   - a reasonable alternative. Disconnect, Rename, Cancel.
+    * `destructive` - loses something. Forget, Revoke, Delete.
+    * `quiet`       - navigation and toggles that change nothing.
+    """
+
+    HEIGHT = 40
+    ICON = 18
+    #Wide enough that "Join" and "Disconnect" in the same row line up. Below
+    #this a short label makes a stub of a button beside a long one.
+    MIN_WIDTH = 118
+    KINDS = ("primary", "secondary", "destructive", "quiet")
+
+    def __init__(self, icon, label: str, func=None,
+                 kind: str = "secondary", size: int = None,
+                 min_width: int = None, enabled: bool = True,
+                 icon_size: int = None):
+        super().__init__()
+        self.kind = kind if kind in self.KINDS else "secondary"
+        self._icon_name = icon
+        self._label = str(label or "")
+
+        self.setFixedHeight(int(size or self.HEIGHT))
+        self.setMinimumWidth(int(self.MIN_WIDTH if min_width is None
+                                 else min_width))
+        # Fixed vertically, or a button in a card with spare height stretches
+        # into a slab; Preferred across, so a long label still fits.
+        self.setSizePolicy(QSizePolicy.Policy.Preferred,
+                           QSizePolicy.Policy.Fixed)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.setFont(make_font(SIZES.S1, bold=True))
+        # Scales with the button. A taller button with a bigger label and an
+        # 18px glyph beside it reads as a small icon that was forgotten about.
+        glyph = int(icon_size or self.ICON)
+        self.setIconSize(QSize(glyph, glyph))
+        self.setText(f" {self._label}" if self._label else "")
+        self._apply()
+
+        self.setEnabled(bool(enabled))
+        if func is not None:
+            self.clicked.connect(lambda _=False: func())
+
+    def _apply(self) -> None:
+        colour = {
+            "primary":     "#0f2418",
+            "secondary":   "#e8ecf4",
+            "destructive": "#ffd9d9",
+            "quiet":       "#b9bec9",
+        }[self.kind]
+        if self._icon_name:
+            self.setIcon(resolve_to_icon(self._icon_name, color=colour))
+        set_style(self, "buttons", f"action-{self.kind}")
+
+    def set_kind(self, kind: str) -> None:
+        """Change what the button means, and its look with it."""
+        if kind in self.KINDS and kind != self.kind:
+            self.kind = kind
+            self._apply()
+
+    def set_label(self, label: str, icon=None) -> None:
+        self._label = str(label or "")
+        self.setText(f" {self._label}" if self._label else "")
+        if icon is not None:
+            self._icon_name = icon
+        self._apply()
+
+
+def action_column(*buttons, slots: int = 2, spacing: int = 8) -> QWidget:
+    """
+    A fixed-width tray for a row's actions.
+
+    Rows in a list do not all have the same actions - a saved network has
+    Forget beside Join, a new one only has Join - so right-aligning them puts
+    the last button in a different place on every row and the column zigzags
+    down the page. Every button being the same width does not help: it is the
+    *count* that differs.
+
+    So the tray is always `slots` buttons wide, whatever it holds, and short
+    rows are padded on the left. The right edge then lines up all the way down,
+    and the primary action is always the last thing before it.
+    """
+    tray = QWidget()
+    set_style(tray, "common", "transparent")
+    row = QHBoxLayout(tray)
+    row.setContentsMargins(0, 0, 0, 0)
+    row.setSpacing(spacing)
+
+    given = [b for b in buttons if b is not None]
+    width = (ActionButton.MIN_WIDTH * slots) + (spacing * max(0, slots - 1))
+    tray.setFixedWidth(width)
+    tray.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Preferred)
+
+    # Padded on the left, so what is present stays hard against the right edge.
+    row.addStretch()
+    for button in given:
+        row.addWidget(button)
+    return tray
+
+
+def row_menu(client, title: str, items, size: int = 22) -> IconButton:
+    """
+    The actions for one row of a list, behind a single glyph.
+
+    A row of labelled buttons works on a page that has one row. In a **list** it
+    does not: every row repeats the same words, the words are the widest thing
+    in each row, and on a narrow panel they are the first thing cut off. They
+    are also the least useful part - nobody is reading them again by the third
+    row.
+
+    Tapping opens an `ActionSheet`, not a `QMenu`. A QMenu's items are the
+    height of a line of text and it expects a press-drag-release that a finger
+    does not perform; on a wall panel that is a row of targets a few
+    millimetres tall. The sheet is the same list as full-width rows in a dialog
+    this panel already knows how to centre and dim behind.
+
+    `items` are (label, callback[, icon[, kind]]). None entries are dropped, so
+    a caller can build the list conditionally.
+    """
+    entries = [i for i in items if i]
+
+    def open_sheet():
+        from src.ui.dialogs import ActionSheet
+        client.dialog(ActionSheet(client, title, entries))
+
+    return IconButton("dots-vertical", open_sheet, size=size,
+                      color="#c8cedb")

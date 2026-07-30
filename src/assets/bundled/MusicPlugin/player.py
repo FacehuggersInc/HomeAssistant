@@ -127,6 +127,17 @@ class WebPlayer(QObject):
         if self.page is not None:
             return
 
+        from src.system import safemode
+        if safemode.no_webengine():
+            # Nothing plays through this backend with the page absent, which is
+            # the point: an embedded browser is the largest thing in the
+            # process and the first thing worth ruling out when the panel will
+            # not start.
+            self.client.log("warning", "[Music] Hidden player page off "
+                                       "(HA_NO_WEBENGINE) - YouTube playback "
+                                       "is unavailable this run.")
+            return
+
         # Its own profile, off the record. The panel is a shared device in a
         # house and nothing here should be leaving cookies or history behind.
         self._profile = QWebEngineProfile(self)

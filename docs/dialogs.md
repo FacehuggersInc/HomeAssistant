@@ -122,6 +122,25 @@ parent into the overlay layer wants one or the other.
 
 ---
 
+## Action sheets
+
+`ActionSheet` is the row-actions dialog behind `row_menu()`: a title and a
+column of full-width rows, **one tap each**.
+
+It exists because `QMenu` is desktop furniture. Its items are the height of a
+line of text, it opens wherever the pointer happens to be, and it expects a
+press-drag-release that a finger does not perform — on a panel prodded from
+standing height that is a row of targets a few millimetres tall.
+
+Rows are 56px, comfortably past the 44 usually quoted as a minimum, and full
+width: a row that spans only its own text is a smaller target than the button it
+replaced, which would defeat the point. A destructive row keeps its own colour,
+so the tap that loses something does not look like the one beside it.
+
+There is no Select step. Each row is a button in every sense but its shape, and
+a button does not ask twice. The sheet closes **before** it calls, so an action that opens its own
+dialog — Forget asks for confirmation — is not fighting this one on the way out.
+
 ## Refusing to close
 
 A dialog can veto its own dismissal by defining `can_close()`:

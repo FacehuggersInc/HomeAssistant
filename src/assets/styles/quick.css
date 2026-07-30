@@ -75,6 +75,35 @@
 
 /* The network, as a button. Left-aligned: it is a status line you can press,
  * not a call to action, and centred text reads as the latter. */
+/* A state button. On reads as lit, off as present-but-quiet - the difference
+ * has to be legible from across a room, which is the distance a wall panel is
+ * usually looked at from. */
+.quick-state-on {
+    background: rgba(90,150,235,42);
+    border: 1px solid rgba(120,175,255,90);
+    border-radius: 12px;
+    color: rgba(234,242,255,240);
+    text-align: left;
+    padding: 0px 12px;
+}
+
+.quick-state-on:pressed {
+    background: rgba(90,150,235,80);
+}
+
+.quick-state-off {
+    background: rgba(255,255,255,10);
+    border: 1px solid rgba(255,255,255,22);
+    border-radius: 12px;
+    color: rgba(139,143,152,225);
+    text-align: left;
+    padding: 0px 12px;
+}
+
+.quick-state-off:pressed {
+    background: rgba(255,255,255,28);
+}
+
 .quick-wifi {
     background: rgba(255,255,255,14);
     border: 0px;

@@ -490,3 +490,60 @@ class DependencyDialog(BaseDialog):
         else:
             self.client.simple_notify("error", "Plugins",
                                       f"Could not install packages for {len(failed)} plugin(s). See the log.")
+
+
+class ActionSheet(BaseDialog):
+    """
+    A row's actions, as things big enough to hit.
+
+    A `QMenu` is desktop furniture: its items are the height of a line of text,
+    it opens wherever the pointer happens to be, and it expects a press-drag-
+    release that a finger does not perform. On a wall panel it is a row of
+    targets a few millimetres tall.
+
+    This is the same list as full-width rows in a dialog the panel already knows
+    how to show - centred, dimmed behind, sized for a thumb. **One tap acts**,
+    with no Select step: these are the actions that used to be buttons, and a
+    button does not ask twice.
+
+    A destructive entry keeps its own colour, so the tap that loses something
+    does not look like the tap beside it.
+    """
+
+    #Comfortably past the ~44px usually quoted as a minimum touch target, since
+    #this panel is looked at and prodded from standing height.
+    ROW_HEIGHT = 56
+    WIDTH = 520
+
+    def __init__(self, client: "Client", title: str, items: list):
+        super().__init__(client, title=title, width=self.WIDTH)
+        from src.ui.controls.buttons import ActionButton
+
+        for entry in items:
+            if not entry:
+                continue
+            label, callback = entry[0], entry[1]
+            glyph = entry[2] if len(entry) > 2 else ""
+            kind = entry[3] if len(entry) > 3 else "secondary"
+
+            button = ActionButton(glyph, label, None, kind=kind,
+                                  size=self.ROW_HEIGHT, icon_size=22)
+            button.setFont(make_font(SIZES.S2, bold=True))
+            # Full width: a row that only spans its text is a smaller target
+            # than the row it replaced, which defeats the point.
+            button.setSizePolicy(QSizePolicy.Policy.Expanding,
+                                 QSizePolicy.Policy.Fixed)
+            button.clicked.connect(
+                lambda _=False, fn=callback: self._pick(fn))
+            self.content.addWidget(button)
+
+        self.add_button("Cancel", self.close, kind="secondary")
+
+    def _pick(self, callback) -> None:
+        # Closed first, so a callback that opens its own dialog - Forget asks
+        # for confirmation - is not fighting this one on the way out.
+        self.close()
+        try:
+            callback()
+        except Exception as e:
+            self.client.log("warning", f"[ActionSheet] {e}")

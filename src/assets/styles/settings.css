@@ -131,6 +131,23 @@
 
 /* The up/down figures. Monospaced, or the numbers jump sideways every
  * second as the digits change width. */
+/* A small labelled fact. Networks and devices carry several, and a run of them
+ * joined by middots reads as one sentence to be parsed rather than a set of
+ * things to scan. */
+.chip {
+    color: rgba(154,163,178,240);
+}
+
+/* A battery worth doing something about. */
+.chip-low {
+    color: rgba(240,175,120,245);
+}
+
+/* The one that changes what a tap will do. */
+.chip-known {
+    color: rgba(140,225,175,245);
+}
+
 .wifi-rates {
     color: rgba(160,220,255,235);
     font-family: monospace;

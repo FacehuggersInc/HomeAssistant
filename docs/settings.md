@@ -204,6 +204,60 @@ settings live in its `settings.json` and are documented with the plugin.
 | `plugins.weather.longitude` | float | `-95.8608` deg. | The Longitude of your city |
 | `plugins.weather.timezone` | string | `America/Chicago` | The timezone you're in |
 
+## Buttons
+
+Every labelled button is an `ActionButton` (`src/ui/controls/buttons.py`): one
+height, one icon size, one shared minimum width so that "Join" and "Disconnect"
+in the same row come out the same size.
+
+It exists because each page was making its own. A `QPushButton` with
+`setFixedHeight(38)` written out at the call site drifts — one page used 38, the
+next 44, a third left it to the layout — and a row of them ended up uneven for no
+reason anybody chose. None of them carried an icon either, so a page of buttons
+read as a wall of similar words.
+
+A row in a **list** gets `row_menu()` — one glyph that opens a menu — while a
+page devoted to a single thing keeps its buttons.
+
+A row of labelled buttons works when there is one row. In a list it does not:
+every row repeats the same words, those words are the widest thing in the row, so
+they are the first thing cut off on a narrow panel — and they are the least
+useful part, since nobody is reading them again by the third row. The labels move
+into the menu, where there is room to say what the action does to *this* item.
+
+The Plugins overview is a list and uses the menu; a specific plugin's own page
+keeps the four buttons, where they are read once and worth the space.
+
+A page with a fixed set of actions uses `action_column()` — a tray that is always the same
+number of slots wide, whatever it holds, padded on the left.
+
+Rows in a list do not all carry the same actions: a saved network has Forget
+beside Join, a new one only has Join. Right-aligning a varying count puts the
+last button in a different place on every row and the column zigzags down the
+page. **Every button being the same width does not fix that** — it is the count
+that differs, not the size.
+
+`kind` picks the **meaning**, and the palette follows from it:
+
+| | |
+|---|---|
+| `primary` | the thing this row is for — Join, Connect, Save |
+| `secondary` | a reasonable alternative — Disconnect, Rename |
+| `destructive` | loses something — Forget, Revoke |
+| `quiet` | navigation and toggles that change nothing |
+
+Turning something off is `secondary`, not `destructive`: it is reversible.
+
+## Heights are measured
+
+`styling.line_height(size, bold)` gives what a line of that font actually needs.
+Anywhere a label is pinned to stop it stretching, the number comes from there.
+
+A height picked by eye clips the descenders of anything larger than it was
+chosen for, and from outside that does not look like a layout bug — it looks like
+the font is wrong. The registry title is S3 bold, which needs 31px; it was pinned
+at 28.
+
 ## Naming the panel
 
 `application.panel_name`, edited in **Info**. `client.panel_name()` is the only

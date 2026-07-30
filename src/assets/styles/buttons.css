@@ -55,3 +55,58 @@
 .dropdown-menu::item:selected {
     background: #333333;
 }
+
+/* ── Action buttons ───────────────────────────────────────────────────────────
+ * One set of metrics for every labelled button in the app. The variants say
+ * what a button does to the thing it belongs to, not what colour it is - the
+ * palette follows from the meaning. */
+
+.action-primary {
+    background: rgba(120,225,170,235);
+    border: 1px solid rgba(150,240,195,255);
+    border-radius: 9px;
+    color: #0f2418;
+    padding: 0px 14px;
+}
+.action-primary:hover   { background: rgba(140,240,185,255); }
+.action-primary:pressed { background: rgba(95,195,145,255); }
+.action-primary:disabled {
+    background: rgba(120,225,170,60);
+    color: rgba(15,36,24,120);
+    border: 1px solid rgba(150,240,195,70);
+}
+
+.action-secondary {
+    background: rgba(255,255,255,20);
+    border: 1px solid rgba(255,255,255,40);
+    border-radius: 9px;
+    color: rgba(232,236,244,240);
+    padding: 0px 14px;
+}
+.action-secondary:hover   { background: rgba(255,255,255,34); }
+.action-secondary:pressed { background: rgba(255,255,255,52); }
+.action-secondary:disabled {
+    background: rgba(255,255,255,8);
+    color: rgba(232,236,244,90);
+    border: 1px solid rgba(255,255,255,16);
+}
+
+.action-destructive {
+    background: rgba(215,90,90,60);
+    border: 1px solid rgba(230,120,120,120);
+    border-radius: 9px;
+    color: rgba(255,217,217,245);
+    padding: 0px 14px;
+}
+.action-destructive:hover   { background: rgba(215,90,90,95); }
+.action-destructive:pressed { background: rgba(215,90,90,135); }
+
+.action-quiet {
+    background: transparent;
+    border: 1px solid rgba(255,255,255,26);
+    border-radius: 9px;
+    color: rgba(185,190,201,235);
+    padding: 0px 14px;
+}
+.action-quiet:hover   { background: rgba(255,255,255,14); }
+.action-quiet:pressed { background: rgba(255,255,255,26); }

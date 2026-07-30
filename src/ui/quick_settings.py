@@ -8,7 +8,7 @@ from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel,
     QFrame, QSlider, QScrollArea, QSizePolicy, QPushButton,
 )
-from PyQt6.QtCore import Qt, QEvent, QPoint, QRect, QTimer
+from PyQt6.QtCore import Qt, QEvent, QPoint, QRect, QTimer, QSize
 
 from src.styling import make_font, SIZES, set_style
 from src.ui.overlays import Panel
@@ -17,6 +17,8 @@ from src.ui.icons import Icons, icon as resolve_icon
 from src.system import volume as system_volume
 from src.system import media_keys
 from src.system import wifi
+from src.system import bluetooth
+from src.system import requirements
 
 
 def _local_ip() -> str:
@@ -153,14 +155,20 @@ class _Card(QFrame):
     growing to fit whatever happens to be registered.
     """
 
-    def __init__(self, title: str):
+    def __init__(self, title: str, compact: bool = False):
         super().__init__()
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         set_style(self, "quick", "quick-card")
 
+        # Padding is the cheapest thing to give up on a short screen: it costs
+        # nothing anybody has to touch or read.
         outer = QVBoxLayout(self)
-        outer.setContentsMargins(14, 10, 14, 10)
-        outer.setSpacing(6)
+        if compact:
+            outer.setContentsMargins(12, 7, 12, 7)
+            outer.setSpacing(3)
+        else:
+            outer.setContentsMargins(14, 10, 14, 10)
+            outer.setSpacing(6)
 
         heading = QLabel(title)
         heading.setFont(make_font(SIZES.S1, bold=True))
@@ -177,7 +185,7 @@ class _Card(QFrame):
         set_style(self._body, "common", "transparent")
         self.layout_ = QVBoxLayout(self._body)
         self.layout_.setContentsMargins(0, 0, 0, 0)
-        self.layout_.setSpacing(8)
+        self.layout_.setSpacing(5 if compact else 8)
 
         self.scroll.setWidget(self._body)
         outer.addWidget(self.scroll)
@@ -186,13 +194,27 @@ class _Card(QFrame):
 class _LabelledSlider(QWidget):
     """A system control: icon, name, slider, live readout."""
 
-    def __init__(self, icon_name: str, title: str, value: int, on_change):
+    def __init__(self, icon_name: str, title: str, value: int, on_change,
+                 compact: bool = False):
+        """
+        `compact` puts the label and the slider on one line.
+
+        Two rows - a label line above a track - costs about seventy pixels per
+        control, and on a short screen the card ran off the bottom. One line is
+        roughly forty, and **the track keeps its full height**: the thing being
+        squeezed is empty space and a line break, not the target somebody has to
+        hit with a finger.
+
+        The name is given a fixed column so two sliders line up down the card
+        rather than each starting wherever its own word ends.
+        """
         super().__init__()
         self._on_change = on_change
+        self._compact = bool(compact)
 
         row = QVBoxLayout(self)
         row.setContentsMargins(0, 0, 0, 0)
-        row.setSpacing(6)
+        row.setSpacing(2 if self._compact else 6)
 
         top = QHBoxLayout()
         top.setContentsMargins(0, 0, 0, 0)
@@ -206,13 +228,22 @@ class _LabelledSlider(QWidget):
         name = QLabel(title)
         name.setFont(make_font(SIZES.S2))
         set_style(name, "common", "text-strong")
+        if self._compact:
+            name.setFixedWidth(84)
         top.addWidget(name)
-        top.addStretch()
+        if not self._compact:
+            top.addStretch()
 
         self.readout = QLabel(f"{value}%")
         self.readout.setFont(make_font(SIZES.S1))
+        # A fixed column, or the slider jumps sideways as the number goes from
+        # "9%" to "100%".
+        self.readout.setFixedWidth(46)
+        self.readout.setAlignment(Qt.AlignmentFlag.AlignRight
+                                  | Qt.AlignmentFlag.AlignVCenter)
         set_style(self.readout, "common", "text-muted")
-        top.addWidget(self.readout)
+        if not self._compact:
+            top.addWidget(self.readout)
         row.addLayout(top)
 
         self.slider = QSlider(Qt.Orientation.Horizontal)
@@ -226,7 +257,12 @@ class _LabelledSlider(QWidget):
         self.slider.setMinimumHeight(38)
         set_style(self.slider, "quick", "quick-slider")
         self.slider.valueChanged.connect(self._changed)
-        row.addWidget(self.slider)
+        if self._compact:
+            # Onto the same line, with the readout after it.
+            top.addWidget(self.slider, stretch=1)
+            top.addWidget(self.readout)
+        else:
+            row.addWidget(self.slider)
 
     def _changed(self, value: int) -> None:
         self.readout.setText(f"{value}%")
@@ -282,10 +318,13 @@ class QuickSettings(Panel):
         self._clock_timer.timeout.connect(self._tick_clock)
         self._clock_timer.timeout.connect(self._tick_volume)
         self._clock_timer.timeout.connect(self._tick_wifi)
+        self._clock_timer.timeout.connect(self._tick_bluetooth)
         #so a slow read does not stack up behind itself
         self._volume_busy = False
         self._wifi_busy = False
         self._wifi_button = None
+        self._bt_busy = False
+        self._bt_button = None
 
         self._timeout_id = self.client.TIMEOUTS.add(
             self.AUTO_CLOSE, self.close_panel, "__timeout_quick_settings")
@@ -389,21 +428,86 @@ class QuickSettings(Panel):
         except RuntimeError:
             self._clock_timer.stop()
 
-    def _build_wifi_row(self) -> QWidget:
-        """The current network, which opens Settings at its section."""
-        self._wifi_button = QPushButton()
-        self._wifi_button.setFont(make_font(SIZES.S1, bold=True))
-        self._wifi_button.setCursor(Qt.CursorShape.PointingHandCursor)
-        # Fixed, or it stretches to whatever height the card has spare.
-        self._wifi_button.setFixedHeight(40)
-        self._wifi_button.setSizePolicy(QSizePolicy.Policy.Preferred,
-                                        QSizePolicy.Policy.Fixed)
-        set_style(self._wifi_button, "quick", "quick-wifi")
-        self._wifi_button.setText("  Wi-Fi\u2026")
-        self._wifi_button.clicked.connect(self._open_wifi_settings)
-        return self._wifi_button
+    #Below this the roomy layout does not fit alongside everything else on the
+    #System side. Chosen from what the controls need rather than from a list of
+    #screen sizes: two sliders, two state buttons, a media row and the card's
+    #own padding.
+    COMPACT_BELOW = 900
 
-    def _open_wifi_settings(self) -> None:
+    def _needs_compact(self) -> bool:
+        try:
+            host = self.client.OVERLAYS
+            height = host.height() if host is not None else 0
+        except Exception:
+            height = 0
+        if height <= 0:
+            try:
+                height = int(self.client.SETTINGS.application.window.size.value[1])
+            except Exception:
+                height = 1080
+        return height < self.COMPACT_BELOW
+
+    def _build_state_row(self) -> QWidget:
+        """Wi-Fi and Bluetooth, side by side, each showing its own state."""
+        row = QWidget()
+        set_style(row, "common", "transparent")
+        layout = QHBoxLayout(row)
+        layout.setContentsMargins(0, 0, 0, 4)
+        layout.setSpacing(10)
+
+        self._wifi_button = self._state_button(self._on_wifi_pressed)
+        layout.addWidget(self._wifi_button, stretch=1)
+
+        self._bt_button = self._state_button(self._on_bluetooth_pressed)
+        layout.addWidget(self._bt_button, stretch=1)
+
+        # Painted as "asking" rather than by reading anything here.
+        #
+        # Working out whether Bluetooth exists is a round trip to the system
+        # bus, and this runs while the application is still starting. Doing it
+        # here froze the panel before it had drawn - and if BlueZ is not
+        # running, D-Bus tries to start it, which waits far longer than anyone
+        # will believe the app is still alive for.
+        self._show_wifi(None)
+        self._paint_state(self._bt_button, Icons.BLUETOOTH, "Bluetooth", False)
+        return row
+
+    def _state_button(self, on_press) -> QPushButton:
+        button = QPushButton()
+        button.setFont(make_font(SIZES.S1, bold=True))
+        button.setCursor(Qt.CursorShape.PointingHandCursor)
+        # Fixed, or two buttons in a card with spare height become slabs.
+        button.setFixedHeight(58)
+        button.setSizePolicy(QSizePolicy.Policy.Preferred,
+                             QSizePolicy.Policy.Fixed)
+        button.setIconSize(QSize(22, 22))
+        button.clicked.connect(lambda _=False: on_press())
+        return button
+
+    def _paint_state(self, button, icon_name: str, text: str,
+                     on: bool) -> None:
+        """
+        A state button reads as its state before it is read as text.
+
+        The icon changes with the state rather than only the label, because
+        that is what is legible from across a room - which is the distance a
+        wall panel is usually looked at from.
+        """
+        try:
+            colour = "#eaf2ff" if on else "#8b8f98"
+            button.setIcon(resolve_icon(icon_name, color=colour))
+            button.setText(f"  {text}")
+            set_style(button, "quick",
+                      "quick-state-on" if on else "quick-state-off")
+        except RuntimeError:
+            pass
+
+    ## -- wi-fi
+
+    def _on_wifi_pressed(self) -> None:
+        if not wifi.available():
+            requirements.explain(self.client, "wifi")
+            return
         self.close_panel()
         # Straight to the section rather than to the top of Settings.
         self.client.goto("#settings", data={"section": "wifi"}, override=True)
@@ -418,7 +522,7 @@ class QuickSettings(Panel):
         button = getattr(self, "_wifi_button", None)
         if button is None or not self.isVisible():
             return
-        if self._wifi_busy:
+        if not wifi.available() or self._wifi_busy:
             return
         self._wifi_busy = True
 
@@ -438,14 +542,105 @@ class QuickSettings(Panel):
         button = getattr(self, "_wifi_button", None)
         if button is None:
             return
-        try:
-            if connection is None:
-                button.setText("  Not connected")
-            else:
-                bars = "\u2588" * connection.bars + "\u2581" * (4 - connection.bars)
-                button.setText(f"  {bars}  {connection.ssid}")
-        except RuntimeError:
-            self._wifi_button = None
+        if not wifi.available():
+            self._paint_state(button, Icons.WIFI_OFF, "Wi-Fi unavailable", False)
+            return
+        if connection is None:
+            self._paint_state(button, Icons.WIFI_OFF, "Not connected", False)
+            return
+        bars = max(1, min(4, connection.bars))
+        icon = getattr(Icons, f"WIFI_{bars}", Icons.WIFI)
+        self._paint_state(button, icon, connection.ssid, True)
+
+    ## -- bluetooth
+
+    def _on_bluetooth_pressed(self) -> None:
+        # Answered from the cache. It is filled by the first tick, which runs
+        # on a worker; before that this opens the section and lets it explain
+        # itself, rather than blocking a press on a bus round trip.
+        reason = bluetooth.missing() if bluetooth.known() else ""
+        if reason:
+            requirements.explain(self.client, reason)
+            return
+        self.close_panel()
+        self.client.goto("#settings", data={"section": "bluetooth"},
+                         override=True)
+
+    def _tick_bluetooth(self) -> None:
+        button = getattr(self, "_bt_button", None)
+        if button is None or not self.isVisible():
+            return
+        if self._bt_busy:
+            return
+        # Nothing is read here. Whether Bluetooth exists at all is worked out
+        # on the worker below, because the first answer costs a bus round trip.
+        if bluetooth.known() and bluetooth.missing():
+            self._paint_state(button, Icons.BLUETOOTH_OFF,
+                              "Bluetooth unavailable", False)
+            return
+        self._bt_busy = True
+
+        def work():
+            reason, state = "", None
+            try:
+                reason = bluetooth.missing()
+                if not reason:
+                    state = bluetooth.snapshot()
+            except Exception:
+                reason, state = "bluetooth", None
+            finally:
+                self._bt_busy = False
+            self.client.call_on_ui(
+                lambda: self._show_bluetooth(
+                    state.connected if state else None,
+                    bool(state and state.powered), reason))
+
+        Thread(target=work, name="__quick_bt", daemon=True).start()
+
+    def _show_bluetooth(self, device, on: bool, reason: str = "") -> None:
+        """Painting only. Everything it needs is handed to it."""
+        button = getattr(self, "_bt_button", None)
+        if button is None:
+            return
+        if reason:
+            self._paint_state(button, Icons.BLUETOOTH_OFF,
+                              "Bluetooth unavailable", False)
+            return
+        if not on:
+            self._paint_state(button, Icons.BLUETOOTH_OFF, "Bluetooth off", False)
+            return
+        if device is None:
+            self._paint_state(button, Icons.BLUETOOTH, "No device", True)
+            return
+        # The charge belongs on the button: it is the reason to glance at it.
+        charge = f"  {device.battery}%" if device.has_battery else ""
+        self._paint_state(button, Icons.BLUETOOTH_CONNECTED,
+                          f"{device.label}{charge}", True)
+
+    ## -- a control that cannot work yet
+
+    def _unavailable_row(self, label: str, requirement: str) -> QWidget:
+        """
+        A greyed control that says what it needs when pressed.
+
+        Hiding it was worse. Somebody who has used this panel elsewhere looks
+        for the control, finds nothing, and has no way to learn that a package
+        is missing - there is no console on a wall panel, and the log is on the
+        machine they are not sitting at.
+        """
+        button = QPushButton()
+        button.setFont(make_font(SIZES.S1, bold=True))
+        button.setCursor(Qt.CursorShape.PointingHandCursor)
+        button.setFixedHeight(40)
+        button.setSizePolicy(QSizePolicy.Policy.Preferred,
+                             QSizePolicy.Policy.Fixed)
+        button.setIcon(resolve_icon(Icons.INFO, color="#8b8f98"))
+        button.setIconSize(QSize(18, 18))
+        button.setText(f"  {label} unavailable")
+        set_style(button, "quick", "quick-state-off")
+        button.clicked.connect(
+            lambda _=False: requirements.explain(self.client, requirement))
+        return button
 
     def _build_media_row(self) -> QWidget:
         """Previous, play/pause, next - centred under the sliders."""
@@ -485,12 +680,22 @@ class QuickSettings(Panel):
     ## -- cards
 
     def _build_cards(self) -> None:
+        # Decided first, because both cards are built with it.
+        #
+        # Measured against what the panel actually has rather than a device
+        # name: a card grows with the controls in it, so a 1080-tall screen with
+        # four of them has less room than a 1440 one with two.
+        compact = self._needs_compact()
+        if compact:
+            self.client.log("info", "[QuickSettings] Compact layout - the "
+                                    "panel is short on height.")
+
         cards = QHBoxLayout()
         cards.setContentsMargins(0, 0, 0, 0)
         cards.setSpacing(12)
 
         # Left: whatever has registered itself. The card already scrolls.
-        self._quick_card = _Card("Quick Access")
+        self._quick_card = _Card("Quick Access", compact=compact)
 
         self._quick_host = QWidget()
         set_style(self._quick_host, "common", "transparent")
@@ -514,32 +719,41 @@ class QuickSettings(Panel):
         cards.addWidget(self._quick_card, stretch=3)
 
         # Right: things the app itself owns.
-        self._system_card = _Card("System")
+        self._system_card = _Card("System", compact=compact)
+
+        # The two radios first, above the sliders.
+        #
+        # They are what somebody opens this panel to check - whether the thing
+        # is on the network and what it is playing through - and a slider is
+        # something you come here knowing you want. Reading order should match.
+        self._system_card.layout_.addWidget(self._build_state_row())
 
         self._brightness = _LabelledSlider(
             Icons.BRIGHTNESS, "Brightness",
-            self.client.DIMMER.brightness(), self._set_brightness)
+            self.client.DIMMER.brightness(), self._set_brightness,
+            compact=compact)
         self._system_card.layout_.addWidget(self._brightness)
 
         if system_volume.available():
-            current = system_volume.get_volume()
+            # Started at nothing and filled in by the first tick, which runs on
+            # a worker. Reading the volume shells out, and this runs while the
+            # application is still starting - a mixer that is slow to answer
+            # would hold the whole build up.
             self._volume = _LabelledSlider(
-                Icons.VOLUME_UP, "Volume",
-                current if current >= 0 else 50, self._set_volume)
+                Icons.VOLUME_UP, "Volume", 0, self._set_volume,
+                compact=compact)
             self._system_card.layout_.addWidget(self._volume)
         else:
-            # Hidden rather than shown dead: on a wall panel there is no
-            # console to check why a control does nothing.
-            self._volume = None
-            self.client.log("info", "[QuickSettings] No system volume backend "
-                                    "found - the volume slider is hidden.")
-
-        # The network, as a button. A wall panel that has dropped its wireless
-        # is worth noticing from here rather than only from inside Settings.
-        if wifi.available():
-            self._system_card.layout_.addWidget(self._build_wifi_row())
-        else:
-            self._wifi_button = None
+            # Shown, not hidden. A control that vanishes leaves somebody
+            # wondering where a feature went, and a wall panel has no console
+            # to check - so it stays, greyed, and says what is missing when it
+            # is pressed.
+            self._volume = _LabelledSlider(
+                Icons.VOLUME_UP, "Volume", 0, lambda _v: None)
+            self._volume.setEnabled(False)
+            self._system_card.layout_.addWidget(
+                self._unavailable_row("Volume", "volume"))
+            self.client.log("info", "[QuickSettings] No system volume backend.")
 
         # Media keys for whatever the machine is playing - a browser tab, a
         # music player, anything that registered for them. Not this panel's own
@@ -549,9 +763,9 @@ class QuickSettings(Panel):
             self.client.log("info", f"[QuickSettings] Media keys via "
                                     f"{media_keys.describe()}.")
         else:
-            # Hidden rather than dead, for the same reason as the slider.
-            self.client.log("info", "[QuickSettings] No media-key tool found - "
-                                    "install playerctl for media controls.")
+            self._system_card.layout_.addWidget(
+                self._unavailable_row("Media controls", "media_keys"))
+            self.client.log("info", "[QuickSettings] No media-key tool found.")
 
         self._system_card.layout_.addStretch()
         cards.addWidget(self._system_card, stretch=2)
@@ -834,7 +1048,11 @@ class QuickSettings(Panel):
         self._restart_timeout()
 
     def _set_volume(self, percent: int) -> None:
-        system_volume.set_volume(percent)
+        # On a worker: a drag emits this continuously, and one subprocess per
+        # emission on the UI thread makes the slider judder under the finger.
+        value = int(percent)
+        Thread(target=lambda: system_volume.set_volume(value),
+               name="__set_volume", daemon=True).start()
         self._restart_timeout()
 
     ## -- lifecycle
@@ -853,6 +1071,7 @@ class QuickSettings(Panel):
         self._refresh_header()
         self._sync_sliders()
         self._tick_wifi()
+        self._tick_bluetooth()
         self._tick_clock()
         super().open_panel()
         self._clock_timer.start()
@@ -874,13 +1093,9 @@ class QuickSettings(Panel):
         self._brightness.readout.setText(f"{self.client.DIMMER.brightness()}%")
         self._brightness.slider.blockSignals(False)
 
-        if self._volume is not None:
-            current = system_volume.get_volume()
-            if current >= 0:
-                self._volume.slider.blockSignals(True)
-                self._volume.slider.setValue(current)
-                self._volume.readout.setText(f"{current}%")
-                self._volume.slider.blockSignals(False)
+        # The volume is not read here. _tick_volume() does it on a worker and
+        # runs immediately on opening, so the slider fills in a moment later
+        # rather than the panel waiting on a subprocess before it appears.
 
     ## -- dismissal
 

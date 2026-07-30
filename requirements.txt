@@ -51,3 +51,9 @@ feedparser
 
 # Encrypts local caches that record what was searched for.
 cryptography
+
+# ── Bluetooth ─────────────────────────────────────────────────────────────────
+# Speaks D-Bus to BlueZ. Pure Python, so there is nothing to compile and no
+# system bindings to match against the interpreter. Optional: without it the
+# Bluetooth section says what is missing instead of failing.
+jeepney

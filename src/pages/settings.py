@@ -19,8 +19,9 @@ from src.mixins import mixin_target
 from src.settings import Settings, scrub_secrets
 from src.ui.page import PageFramework
 from src.ui.widget import WidgetFramework
+from src.ui.controls.buttons import ActionButton, action_column, row_menu
 from src.ui.icons import Icons, icon, resolve_plugin_icon
-from src.styling import COLORS, SIZES, make_font, set_style, get_style_sheet
+from src.styling import line_height, COLORS, SIZES, make_font, set_style, get_style_sheet
 from src.ui.keyboard import make_keyboard
 
 if TYPE_CHECKING:
@@ -671,11 +672,6 @@ def _build_users_page(client) -> list:
 
         row.addLayout(column, stretch=1)
 
-        rename = QPushButton("Rename")
-        rename.setFont(make_font(SIZES.S1, bold=True))
-        rename.setFixedHeight(38)
-        rename.setCursor(Qt.CursorShape.PointingHandCursor)
-        set_style(rename, "overlays", "dialog-button-secondary")
 
         def _rename(token=user.token, current=user.name):
             from src.ui.keyboard import KeyboardDialog
@@ -688,14 +684,8 @@ def _build_users_page(client) -> list:
             client.dialog(KeyboardDialog(client, holder, mode="text",
                                          label="Name", on_done=done))
 
-        rename.clicked.connect(lambda _=False, fn=_rename: fn())
-        row.addWidget(rename)
 
-        revoke = QPushButton("Revoke")
-        revoke.setFont(make_font(SIZES.S1, bold=True))
-        revoke.setFixedHeight(38)
-        revoke.setCursor(Qt.CursorShape.PointingHandCursor)
-        set_style(revoke, "overlays", "dialog-button-destructive")
+
 
         def _revoke(token=user.token, label=user.name):
             # Confirmed: the device stops working immediately and has to ask
@@ -710,8 +700,11 @@ def _build_users_page(client) -> list:
                 destructive = True,
             )
 
-        revoke.clicked.connect(lambda _=False, fn=_revoke: fn())
-        row.addWidget(revoke)
+        row.addWidget(row_menu(client, user.name, [
+            ("Rename this device", _rename, Icons.PENCIL, "secondary"),
+            ("Revoke its access", _revoke, Icons.ACCOUNT_REMOVE,
+             "destructive"),
+        ]))
         widgets.append(card)
 
     return widgets
@@ -749,6 +742,12 @@ def _build_panel_name_card(client, setting: dict, label_width: int = 160) -> QFr
     row.setContentsMargins(14, 10, 14, 10)
     row.setSpacing(12)
 
+    mark = QLabel()
+    mark.setPixmap(icon(Icons.PENCIL, color="#8b93a3").pixmap(QSize(16, 16)))
+    mark.setFixedSize(16, 16)
+    set_style(mark, "common", "transparent")
+    row.addWidget(mark)
+
     label = QLabel("Panel name")
     label.setFont(make_font(SIZES.S2, bold=True))
     set_style(label, "common", "text-muted")
@@ -767,11 +766,6 @@ def _build_panel_name_card(client, setting: dict, label_width: int = 160) -> QFr
     set_style(value, "common", "text-strong")
     row.addWidget(value, stretch=1)
 
-    change = QPushButton("Change")
-    change.setFont(make_font(SIZES.S1, bold=True))
-    change.setFixedHeight(38)
-    change.setCursor(Qt.CursorShape.PointingHandCursor)
-    set_style(change, "overlays", "dialog-button-secondary")
 
     def rename():
         from src.ui.keyboard import KeyboardDialog
@@ -789,8 +783,8 @@ def _build_panel_name_card(client, setting: dict, label_width: int = 160) -> QFr
         client.dialog(KeyboardDialog(client, holder, mode="text",
                                      label="Panel name", on_done=done))
 
-    change.clicked.connect(lambda _=False: rename())
-    row.addWidget(change)
+    row.addWidget(ActionButton(Icons.PENCIL, "Change", rename,
+                               kind="secondary"))
     return card
 
 
@@ -807,15 +801,18 @@ def _build_info_page(client, working=None) -> list:
         except Exception:
             return "unavailable"
 
+    # Each row carries an icon for what it is, not a generic bullet. A page of
+    # label-value pairs is read by scanning down the left column, and a picture
+    # of the *kind* of thing is faster to land on than the word for it.
     rows = [
-        ("Application",  client.WINDOW_NAME),
-        ("Serving as",   client.panel_name()),
-        ("Approved devices", str(len(client.USERS.all_users()))),
-        ("Local IP",     _local_ip()),
-        ("API Port",     "5000"),
-        ("Platform",     f"{platform.system()} {platform.release()}"),
-        ("Python",       platform.python_version()),
-        ("Data Path",    str(client.DATAPATH)),
+        ("Application",  client.WINDOW_NAME,                     Icons.INFO_OUTLINE),
+        ("Serving as",   client.panel_name(),                    Icons.EARTH),
+        ("Approved devices", str(len(client.USERS.all_users())), Icons.ACCOUNT_MULTIPLE),
+        ("Local IP",     _local_ip(),                            Icons.EARTH),
+        ("API Port",     "5000",                                 Icons.KEY),
+        ("Platform",     f"{platform.system()} {platform.release()}", Icons.TUNE),
+        ("Python",       platform.python_version(),              Icons.PUZZLE),
+        ("Data Path",    str(client.DATAPATH),                   Icons.SAVE_CONTENT),
     ]
 
     widgets = []
@@ -842,14 +839,14 @@ def _build_info_page(client, working=None) -> list:
     # One width for the name card and every row below it, so the values line up.
     label_font = make_font(SIZES.S2, bold=True)
     label_width = _info_label_width(
-        ["Panel name", "Documentation"] + [label for label, _ in rows],
+        ["Panel name", "Documentation"] + [label for label, _, _ in rows],
         label_font)
 
     if name_setting is not None:
         widgets.append(
             _build_panel_name_card(client, name_setting, label_width))
 
-    for label, value in rows:
+    for label, value, glyph in rows:
         card = QFrame()
         card.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         set_style(card, "settings", "setting-block")
@@ -858,8 +855,15 @@ def _build_info_page(client, working=None) -> list:
         row.setContentsMargins(14, 10, 14, 10)
         row.setSpacing(12)
 
+        mark = QLabel()
+        mark.setPixmap(icon(glyph, color="#8b93a3").pixmap(QSize(16, 16)))
+        mark.setFixedSize(16, 16)
+        set_style(mark, "common", "transparent")
+        row.addWidget(mark)
+
         lbl = QLabel(label)
         lbl.setFont(label_font)
+        lbl.setMinimumHeight(line_height(SIZES.S2, bold=True))
         set_style(lbl, "common", "text-muted")
         lbl.setFixedWidth(label_width)
 
@@ -897,6 +901,12 @@ def _build_info_page(client, working=None) -> list:
     docs_row = QHBoxLayout(docs_card)
     docs_row.setContentsMargins(14, 10, 14, 10)
     docs_row.setSpacing(12)
+
+    docs_mark = QLabel()
+    docs_mark.setPixmap(icon(Icons.INFO_OUTLINE, color="#8b93a3").pixmap(QSize(16, 16)))
+    docs_mark.setFixedSize(16, 16)
+    set_style(docs_mark, "common", "transparent")
+    docs_row.addWidget(docs_mark)
 
     docs_label = QLabel("Documentation")
     docs_label.setFont(label_font)
@@ -994,19 +1004,35 @@ class _Collapsible(QFrame):
         self._header.clicked.connect(self.toggle)
         outer.addWidget(self._header)
 
-        content.setVisible(self._open)
-        outer.addWidget(content)
+        # Inside the frame's border rather than against it. A readme's first
+        # line otherwise sits on the rule and reads as a rendering fault.
+        holder = QWidget()
+        set_style(holder, "common", "transparent")
+        inner = QVBoxLayout(holder)
+        inner.setContentsMargins(12, 8, 12, 12)
+        inner.setSpacing(0)
+        inner.addWidget(content)
+
+        holder.setVisible(self._open)
+        self._content = holder
+        outer.addWidget(holder)
 
         self._sync_header()
 
     def _sync_header(self) -> None:
-        arrow = "\u25be" if self._open else "\u25b8"
+        # A real icon, not a text triangle. The characters sit on the baseline
+        # and render at whatever weight the font has, so they read as
+        # punctuation beside every other control in the page.
+        self._header.setIcon(icon(
+            Icons.CHEVRON_DOWN if self._open else Icons.CHEVRON_RIGHT,
+            color="#c8cedb"))
+        self._header.setIconSize(QSize(18, 18))
         suffix = ""
         if not self._open and self._lines:
             # Said on the closed header, so it is clear there is something in
             # there and roughly how much.
             suffix = f"   {self._lines} line{'s' if self._lines != 1 else ''}"
-        self._header.setText(f"  {arrow}  {self._title}{suffix}")
+        self._header.setText(f"  {self._title}{suffix}")
 
     def toggle(self) -> None:
         self._open = not self._open
@@ -1042,6 +1068,9 @@ class SettingsPage(PageFramework):
         self._grid.setGeometry(0, 0, w, h)
 
         NAV_W   = 360
+        #Room to start a scroll without hitting the nav. A nav button changes
+        #the page, so a mis-started drag costs somebody their place.
+        NAV_GUTTER = 18
         BAR_H   = 70
         PAD     = 24
 
@@ -1055,12 +1084,12 @@ class SettingsPage(PageFramework):
         tl.setContentsMargins(PAD, 0, PAD, 0)
         tl.setSpacing(0)
 
-        back_btn = QPushButton("← Save and Return")
+        # Two icons, because it does two things: it leaves *and* it saves, and
+        # an arrow alone says only the first.
+        back_btn = ActionButton(Icons.SAVE_CONTENT, "Save and Return",
+                                self.return_and_save, kind="primary",
+                                size=44, min_width=210, icon_size=24)
         back_btn.setFont(make_font(SIZES.S3, bold=True))
-        back_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        back_btn.setFixedHeight(44)
-        set_style(back_btn, "settings", "settings-back-button")
-        back_btn.clicked.connect(self.return_and_save)
 
         tl.addWidget(back_btn)
         tl.addStretch()
@@ -1073,6 +1102,12 @@ class SettingsPage(PageFramework):
 
         bl = QHBoxLayout(body)
         bl.setContentsMargins(0, 0, 0, 0)
+        # No gap between the two panels.
+        #
+        # A layout spacing here is dead ground: it belongs to neither widget, so
+        # a drag that starts in it scrolls nothing. The gutter is added to the
+        # content's own margin instead, below - inside the scroll area, where
+        # QScroller has the viewport and a drag anywhere in it works.
         bl.setSpacing(0)
 
         # Nav panel
@@ -1102,7 +1137,11 @@ class SettingsPage(PageFramework):
         self._content_widget = QWidget()
         set_style(self._content_widget, "common", "transparent")
         self._content_layout = QVBoxLayout(self._content_widget)
-        self._content_layout.setContentsMargins(PAD, PAD, PAD, 100)
+        # The left margin carries the gutter. It is inside the scroll area, so
+        # it is somewhere a drag can start - unlike spacing between the panels,
+        # which is dead ground that scrolls nothing. Far enough from the nav
+        # that a thumb aiming at the page does not change it.
+        self._content_layout.setContentsMargins(PAD + NAV_GUTTER, PAD, PAD, 100)
         self._content_layout.setSpacing(8)
         self._content_layout.addStretch()
         self._content_scroll.setWidget(self._content_widget)
@@ -1251,6 +1290,9 @@ class SettingsPage(PageFramework):
         from src.pages.wifi import build_wifi_page
         self.new_category("wifi", build_wifi_page(self.client),
                           label="Wi-Fi", system=True)
+        from src.pages.bluetooth import build_bluetooth_page
+        self.new_category("bluetooth", build_bluetooth_page(self.client),
+                          label="Bluetooth", system=True)
         # Info is always last
         self.new_category("info",
                           _build_info_page(self.client, self._working_settings),
@@ -1268,7 +1310,7 @@ class SettingsPage(PageFramework):
             icon_value = plugin.config.get_path("plugin.icon", None)
             overview.append(self._build_category_header(
                 plugin.config.plugin.name,
-                plugin=plugin, plugin_key=key,
+                plugin=plugin, plugin_key=key, in_list=True,
                 has_content=True, icon=icon_value, readme=None,
             ))
 
@@ -1323,6 +1365,7 @@ class SettingsPage(PageFramework):
 
         title = QLabel(item.name)
         title.setFont(make_font(SIZES.M1, bold=True))
+        title.setMinimumHeight(line_height(SIZES.M1, bold=True))
         set_style(title, "common", "text-pending")
         top_row.addWidget(title)
 
@@ -1395,6 +1438,7 @@ class SettingsPage(PageFramework):
     # ── Category header (title card) ────────────────────────────────────────
 
     def _build_category_header(self, label: str, plugin=None, plugin_key: str = None,
+                                in_list: bool = False,
                                 has_content: bool = True, icon: str = None,
                                 readme: str = None, pending=None) -> QFrame:
         if pending is not None:
@@ -1424,13 +1468,33 @@ class SettingsPage(PageFramework):
 
         title = QLabel(label)
         title.setFont(make_font(SIZES.M1, bold=True))
+        # Guaranteed the room its font needs. Nothing else in this row is as
+        # tall, so the row's own hint does not reserve it and the descenders
+        # come off the bottom.
+        title.setMinimumHeight(line_height(SIZES.M1, bold=True))
         set_style(title, "common", "text-strong")
         top_row.addWidget(title)
         top_row.addStretch()
 
         if plugin_key:
-            for btn in self._build_plugin_actions(plugin, plugin_key):
-                top_row.addWidget(btn)
+            # In a list, one glyph; on the plugin's own page, the buttons.
+            #
+            # The same header serves both, and they want different things. A
+            # page devoted to one plugin has room for four labelled buttons and
+            # somebody reads them once. Eight plugins in a row repeat the same
+            # four words eight times, and those words are the widest thing in
+            # each row - the first to be cut off, and the least worth reading
+            # again by the third one.
+            if in_list:
+                top_row.addWidget(row_menu(
+                    self.client, label,
+                    self._plugin_menu_items(plugin, plugin_key)))
+            else:
+                actions = self._build_plugin_actions(plugin, plugin_key)
+                # Four slots: three always, plus Uninstall when the plugin
+                # declares requirements. Reserving the space means a plugin
+                # with one and a plugin without still line up.
+                top_row.addWidget(action_column(*actions, slots=4))
 
         layout.addLayout(top_row)
 
@@ -1534,11 +1598,14 @@ class SettingsPage(PageFramework):
         top.setContentsMargins(0, 0, 0, 0)
         top.setSpacing(8)
 
-        # Both fixed. A QLabel defaults to a Preferred policy on both axes, so
-        # in a card with spare height the name and the badge stretch to fill it
-        # - a one-line title becomes a tall block and a two-character count
-        # becomes a stripe.
-        ROW_HEIGHT = 28
+        # Both fixed, at the height the font actually needs.
+        #
+        # A QLabel defaults to a Preferred policy on both axes, so in a card
+        # with spare height the name and the badge stretch to fill it. Pinning
+        # them stops that - but pinning them to a number picked by eye clips
+        # instead: this title is S3 bold, which needs 31px, and 28 lost the
+        # bottom of every descender in it.
+        ROW_HEIGHT = line_height(SIZES.S3, bold=True)
 
         title = QLabel(name)
         title.setFont(make_font(SIZES.S3, bold=True))
@@ -1739,41 +1806,80 @@ class SettingsPage(PageFramework):
         set_style(line, "common", "text-muted")
         return line
 
-    def _build_plugin_actions(self, plugin, plugin_key: str) -> list[QPushButton]:
-        copy_btn = QPushButton("Copy Key")
-        copy_btn.setFont(make_font(SIZES.S2, bold=True))
-        copy_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        copy_btn.setFixedHeight(44)
-        copy_btn.setMinimumWidth(100)
-        set_style(copy_btn, "settings", "plugin-action-copy")
-        copy_btn.clicked.connect(lambda: self._copy_plugin_key(plugin_key))
+    def _plugin_menu_items(self, plugin, plugin_key: str) -> list:
+        """
+        The same actions as the buttons, as menu entries.
 
-        reload_btn = QPushButton("Reload")
-        reload_btn.setFont(make_font(SIZES.S2, bold=True))
-        reload_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        reload_btn.setFixedHeight(44)
-        reload_btn.setMinimumWidth(90)
-        set_style(reload_btn, "settings", "plugin-action-reload")
-        reload_btn.clicked.connect(lambda: self._reload_plugin(plugin_key))
+        Built separately rather than by reading labels off the buttons: a menu
+        line has room to say what the action does to *this* plugin, which a
+        button on a crowded row does not.
+        """
+        dependants = self.client.PLUGIN.get_dependants(plugin_key)
+        items = [
+            ("Copy its key", lambda: self._copy_plugin_key(plugin_key),
+             Icons.KEY),
+            ("Reload it", lambda: self._reload_plugin(plugin_key),
+             Icons.REFRESH),
+        ]
+        if dependants:
+            # Present but honest. Leaving it out entirely would raise the
+            # question of why this plugin has fewer options than the last one.
+            items.append((f"Cannot unload - needed by {len(dependants)} other",
+                          lambda: self.client.alert(
+                              "Cannot unload",
+                              "Still required by: " + ", ".join(dependants)),
+                          Icons.POWER, "quiet"))
+        else:
+            items.append(("Unload it", lambda: self._unload_plugin(plugin_key),
+                          Icons.POWER, "destructive"))
 
-        unload_btn = QPushButton("Unload")
-        unload_btn.setFont(make_font(SIZES.S2, bold=True))
-        unload_btn.setFixedHeight(44)
-        unload_btn.setMinimumWidth(90)
+        specs = self.client.PLUGIN.plugin_requirements(plugin_key)
+        if specs:
+            from src.plugin import dependencies as deps
+            removable, kept = deps.removable_for(
+                specs, self.client.PLUGIN.other_plugin_requirements(plugin_key))
+            if removable:
+                items.append((
+                    "Uninstall its packages",
+                    lambda r=removable, k=kept:
+                        self._uninstall_plugin_packages(plugin_key, r, k),
+                    Icons.DELETE_OUTLINE, "destructive"))
+            else:
+                # The same reasoning the button's tooltip carries, said in a
+                # place somebody will actually see it - a tooltip on a touch
+                # screen is a tooltip nobody reads.
+                reasons = "; ".join(f"{n} - {r}" for n, r in kept.items())
+                items.append((
+                    "Nothing to uninstall",
+                    lambda why=reasons: self.client.alert(
+                        "Nothing to uninstall",
+                        why or "No packages installed."),
+                    Icons.DELETE_OUTLINE, "quiet"))
+        return items
+
+    def _build_plugin_actions(self, plugin, plugin_key: str) -> list:
+        # All the same size, all carrying an icon. Three buttons at 44px with
+        # three different minimum widths and three separate stylesheet classes
+        # is how a row of them ended up looking hand-placed.
+        copy_btn = ActionButton(Icons.KEY, "Copy Key",
+                                lambda: self._copy_plugin_key(plugin_key),
+                                kind="quiet")
+        reload_btn = ActionButton(Icons.REFRESH, "Reload",
+                                  lambda: self._reload_plugin(plugin_key),
+                                  kind="secondary")
 
         dependants = self.client.PLUGIN.get_dependants(plugin_key)
+        unload_btn = ActionButton(
+            Icons.POWER, "Unload",
+            None if dependants else (lambda: self._unload_plugin(plugin_key)),
+            kind="destructive", enabled=not dependants)
         if dependants:
-            unload_btn.setEnabled(False)
             unload_btn.setCursor(Qt.CursorShape.ForbiddenCursor)
+            # Said, not merely greyed. A disabled button with no reason on it is
+            # a dead end.
             unload_btn.setToolTip(
                 "Can't unload — required by currently loaded plugin(s): "
-                + ", ".join(dependants)
-            )
-            set_style(unload_btn, "settings", "plugin-action-unload-disabled")
-        else:
-            unload_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-            set_style(unload_btn, "settings", "plugin-action-unload")
-            unload_btn.clicked.connect(lambda: self._unload_plugin(plugin_key))
+                + ", ".join(dependants))
 
         buttons = [copy_btn, reload_btn, unload_btn]
 

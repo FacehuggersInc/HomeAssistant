@@ -688,6 +688,12 @@ class Client:
 
     @mixin_target("client.build")
     def build(self) -> None:
+        from src.system import safemode
+        note = safemode.describe()
+        if note:
+            # Said loudly. A panel started with something switched off and then
+            # forgotten about is a panel with a mysteriously missing feature.
+            self.log("warning", f"[SafeMode] {note}")
         self.log("info", "Building Application...")
         self.BUILT = False
 
@@ -1057,6 +1063,10 @@ class Client:
             return "alexa"
 
     def assistant_enabled(self) -> bool:
+        from src.system import safemode
+        if safemode.no_assistant():
+            self.log("info", "[Assistant] Off (HA_NO_ASSISTANT).")
+            return False
         try:
             return bool(self.SETTINGS.assistant.enabled.value)
         except Exception:
@@ -1178,20 +1188,61 @@ class Client:
             self.log("info", f"[Assistant] Input device {d['index']}: {d['name']}"
                              f"{' (default)' if d['is_default'] else ''}")
 
-        device, note = audio.resolve(device_name)
+        # Logged stage by stage from here on.
+        #
+        # Each of these can hang rather than fail: opening a microphone waits
+        # on the audio server, and loading a model waits on disk and on the
+        # network the first time. A log that stops between two of them says
+        # only "somewhere in the assistant", which is not enough to act on -
+        # and the whole point of a startup log is that it is the only thing
+        # left after a freeze.
+        # Each candidate is opened in turn until one answers, rather than
+        # trusting the one the system calls `default`.
+        #
+        # A listed device is not an openable one, and `default` can point at
+        # something that blocks with no error and no end - which froze the panel
+        # here, during startup, with nothing in the log after the attempt began.
+        self.log("info", "[Assistant] Looking for an input that opens...")
+
+        # Said out loud, but only once something has actually gone wrong.
+        #
+        # Each device that will not answer costs the probe timeout, so a search
+        # that falls back twice is a quiet quarter of a minute with nothing on
+        # screen - which looks broken rather than busy. A machine whose first
+        # attempt works says nothing at all.
+        announced = {"said": False}
+
+        def attempted(name: str, ok: bool, reason: str) -> None:
+            if ok or announced["said"]:
+                return
+            announced["said"] = True
+            self.simple_notify(
+                "microphone", "Assistant",
+                f"'{name}' would not open. Trying the other audio inputs\u2026")
+
+        device, chosen, note = audio.working_input(device_name,
+                                                  on_attempt=attempted)
         if note:
             self.log("warning", f"[Assistant] {note}")
             self.simple_notify("assistant", "Assistant", note)
 
-        ok, reason = audio.probe(device)
-        if not ok:
-            self.log("warning", f"[Assistant] Microphone probe failed: {reason}")
+        if not chosen:
+            self.log("warning", f"[Assistant] No usable microphone. {note}")
             self.simple_notify("error", "Assistant", "Microphone unavailable.")
             self.alert("Microphone unavailable",
-                       "Speech-to-text could not open the microphone.",
-                       detail=reason)
+                       "Speech-to-text could not open any audio input. "
+                       "Everything else works normally.",
+                       detail=note)
             return
+        self.log("info", f"[Assistant] Listening through '{chosen}'.")
+        if announced["said"]:
+            # Only worth a second notification if the first one warned that
+            # something was wrong. Otherwise this is a startup step nobody
+            # needs told about.
+            self.simple_notify("microphone", "Assistant",
+                               f"Listening through '{chosen}'.")
 
+        self.log("info", f"[Assistant] Checking for the '{model}' model...")
         if not audio.model_is_cached(model):
             size = audio.model_size_hint(model)
             self.confirm(
@@ -1207,6 +1258,8 @@ class Client:
             )
             return
 
+        self.log("info", f"[Assistant] Loading '{model}'. The first load on a "
+                         f"cold cache is slow.")
         self._launch_assistant(device, model)
 
     def _start_tts(self) -> None:

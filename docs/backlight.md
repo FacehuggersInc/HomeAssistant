@@ -209,3 +209,65 @@ visible way back; one percent of the range is dim, not off.
 Every subprocess call has a timeout and swallows its errors. A missing binary,
 a hung `ddcutil`, a monitor that stops answering — all of them fall back to
 the overlay rather than taking the panel down.
+
+## Choosing a monitor
+
+`ddcutil detect` is parsed for **every** display it reports, and each is asked
+for VCP 10 in turn until one answers.
+
+A desk with three monitors on it is the normal case for this backend, and there
+is no reason the first one ddcutil lists is the one that implements brightness —
+plenty of monitors do not implement it at all. Stopping after the first means a
+working display two rows down never gets asked.
+
+The display numbers come out by regex rather than by reading "the second word"
+of a line. The exact shape of `detect` output varies between ddcutil versions,
+and a parse that assumes one silently produces nothing when it meets another —
+which becomes an empty `--display` flag, and on a machine with three monitors
+that is a question ddcutil cannot answer.
+
+Setting `application.backlight.device` to a number skips detection entirely.
+
+## Patience while probing
+
+`--sleep-multiplier 0.4` shortens DDC's inter-message waits to 40%. It is faster,
+and it is a common reason a monitor stops answering: the timings in the spec are
+what slower panels actually need.
+
+So it is used **only once a display has proven it responds**. Deciding whether
+one works is exactly when not to be rushing it.
+
+## When it falls back to the overlay
+
+The log names **every** route it passed over and why, not just the one it chose:
+
+```
+[Backlight]   sysfs: no /sys/class/backlight entries
+[Backlight]   logind: no seated session
+[Backlight]   ddcutil: timeout after 8s
+[Backlight] No hardware control available - falling back to the overlay.
+```
+
+That list exists because the message on its own is not something anybody can act
+on — least of all when the same machine reports a working `ddcutil` from a
+prompt a minute later.
+
+`_run_reason()` tells the three cases apart: **timed out**, **missing**, and
+**failed**. They are not the same problem — a route that is merely slow is not a
+route that does not exist, and only one of them is worth trying again. A helper
+that answers `(False, "")` to all three cannot support that distinction, which is
+why the reason is carried rather than discarded.
+
+## The retry
+
+If anything **timed out**, the probe runs once more 25 seconds later with a
+longer leash.
+
+Startup is the busiest the machine ever is: plugins loading, a browser engine
+starting, a speech model coming off disk. A DDC/CI round trip goes over I2C and
+is slow at the best of times; `ddcutil detect` walks every bus. Deciding at
+second one that a monitor cannot be controlled is deciding at the worst possible
+moment.
+
+Once, not on a loop, and only for a timeout — a machine with no `ddcutil`
+installed is not going to grow one while the panel is running.

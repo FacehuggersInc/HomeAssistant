@@ -189,6 +189,22 @@ class STTProcessing():
 		if self.woke_with: self.woke_with = None
 		self.processing = False
 
+		# Stood back down, here, rather than left to the wake timeout.
+		#
+		# A skill that has run is finished, and nothing else was resetting the
+		# status on this path - only the no-skill branch of
+		# detect_wake_words_full() did. So a question that worked left the pill
+		# reading "listening" over its own answer, until the timeout noticed
+		# some seconds later. That is the wrong way round: the timeout is a
+		# safety net for a process that never reports back, not the mechanism.
+		#
+		# Unless a session was opened - a skill expecting a follow-up - in which
+		# case listening is the truth and saying otherwise would be worse.
+		if not self.is_session():
+			self.woke_at = 0.0
+			self.client.ASSIST_STATUS = "LIVE"
+			self.client.ASSIST_VOICE_ACTIVITY_LEVEL = 0.0
+
 	def detect_wake_words_full(self, processed:str):
 		found_skill = False
 		for wake, max_words, min_words in self.client.SKILLS.wake_args:

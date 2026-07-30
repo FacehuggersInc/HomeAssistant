@@ -21,7 +21,9 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt, QTimer
 
-from src.styling import make_font, SIZES, set_style
+from src.styling import make_font, SIZES, set_style, line_height
+from src.ui.controls.buttons import ActionButton, action_column, row_menu
+from src.ui.icons import Icons, icon as resolve_icon
 from src.system import wifi
 
 if TYPE_CHECKING:
@@ -32,13 +34,59 @@ if TYPE_CHECKING:
 RATE_INTERVAL_MS = 1000
 #How often the network list refreshes itself, without a rescan.
 LIST_INTERVAL_MS = 15000
-ROW_HEIGHT = 30
 
 
-def _bar_glyph(bars: int) -> str:
-    """Signal as blocks. A picture of the number, at a glance."""
-    filled = max(0, min(4, int(bars)))
-    return "\u2588" * filled + "\u2581" * (4 - filled)
+def _row_height(size: int, bold: bool = False) -> int:
+    """A single line of this font, plus nothing. See styling.line_height()."""
+    return line_height(size, bold)
+
+
+def _signal_icon(bars: int) -> str:
+    """
+    Signal as the icon set's own strength glyphs.
+
+    Blocks drawn out of \u2588 and \u2581 worked, but they read as a text
+    decoration beside real icons rather than as a meter - and they sit on the
+    text baseline, so a row of them looks like a font problem.
+    """
+    return {0: Icons.WIFI_OFF, 1: Icons.WIFI_1, 2: Icons.WIFI_2,
+            3: Icons.WIFI_3, 4: Icons.WIFI_4}.get(max(0, min(4, int(bars))),
+                                                  Icons.WIFI)
+
+
+def _security_icon(network) -> str:
+    return Icons.LOCK_OPEN if network.open else Icons.LOCK
+
+
+def _chip(text: str, icon_name: str = "", tone: str = "chip") -> QWidget:
+    """
+    A small labelled fact.
+
+    Networks carry four or five of these - security, band, whether it is saved -
+    and a run of them joined by middots reads as one long sentence to be parsed.
+    Separate chips are scannable, which is what a list of networks is for.
+    """
+    holder = QWidget()
+    set_style(holder, "common", "transparent")
+    row = QHBoxLayout(holder)
+    row.setContentsMargins(0, 0, 0, 0)
+    row.setSpacing(5)
+
+    if icon_name:
+        glyph = QLabel()
+        glyph.setPixmap(resolve_icon(icon_name, color="#9aa3b2").pixmap(14, 14))
+        glyph.setFixedSize(14, 14)
+        row.addWidget(glyph)
+
+    label = QLabel(str(text))
+    label.setFont(make_font(SIZES.S1))
+    label.setFixedHeight(18)
+    label.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)
+    set_style(label, "settings", tone)
+    row.addWidget(label)
+
+    holder.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)
+    return holder
 
 
 class WifiSection(QWidget):
@@ -74,13 +122,30 @@ class WifiSection(QWidget):
         self._current_layout.setSpacing(6)
         self._layout.addWidget(self._current_card)
 
+        title_row = QHBoxLayout()
+        title_row.setContentsMargins(0, 0, 0, 0)
+        title_row.setSpacing(10)
+
+        self._ssid_icon = QLabel()
+        self._ssid_icon.setFixedSize(22, 22)
+        self._ssid_icon.hide()
+        title_row.addWidget(self._ssid_icon)
+
         self._ssid = QLabel()
         self._ssid.setFont(make_font(SIZES.S3, bold=True))
-        self._ssid.setFixedHeight(ROW_HEIGHT)
+        self._ssid.setFixedHeight(_row_height(SIZES.S3, True))
         self._ssid.setSizePolicy(QSizePolicy.Policy.Preferred,
                                  QSizePolicy.Policy.Fixed)
         set_style(self._ssid, "common", "text-strong")
-        self._current_layout.addWidget(self._ssid)
+        title_row.addWidget(self._ssid)
+        title_row.addStretch()
+        self._current_layout.addLayout(title_row)
+
+        #the facts about this connection, as chips rather than one long line
+        self._chips = QHBoxLayout()
+        self._chips.setContentsMargins(0, 0, 0, 0)
+        self._chips.setSpacing(8)
+        self._current_layout.addLayout(self._chips)
 
         self._detail = QLabel()
         self._detail.setFont(make_font(SIZES.S1))
@@ -90,38 +155,37 @@ class WifiSection(QWidget):
 
         self._rates = QLabel()
         self._rates.setFont(make_font(SIZES.S2, bold=True))
-        self._rates.setFixedHeight(ROW_HEIGHT)
+        self._rates.setFixedHeight(_row_height(SIZES.S3, True))
         self._rates.setSizePolicy(QSizePolicy.Policy.Preferred,
                                   QSizePolicy.Policy.Fixed)
         set_style(self._rates, "settings", "wifi-rates")
         self._current_layout.addWidget(self._rates)
 
-        self._disconnect = QPushButton("Disconnect")
-        self._disconnect.setFont(make_font(SIZES.S1, bold=True))
-        self._disconnect.setFixedHeight(38)
-        self._disconnect.setCursor(Qt.CursorShape.PointingHandCursor)
-        set_style(self._disconnect, "overlays", "dialog-button-secondary")
-        self._disconnect.clicked.connect(self._on_disconnect)
-        self._current_layout.addWidget(self._disconnect)
+        # In its own row, aligned right, so the card reads name -> facts ->
+        # action rather than putting a full-width button under the name.
+        action_row = QHBoxLayout()
+        action_row.setContentsMargins(0, 6, 0, 0)
+        action_row.addStretch()
+        self._disconnect = ActionButton(Icons.LINK_OFF, "Disconnect",
+                                       self._on_disconnect, kind="secondary")
+        action_row.addWidget(self._disconnect)
+        self._current_layout.addLayout(action_row)
 
         #the list header, with its own scan button
         header = QHBoxLayout()
         header.setContentsMargins(0, 0, 0, 0)
         heading = QLabel("Networks in range")
         heading.setFont(make_font(SIZES.M1, bold=True))
-        heading.setFixedHeight(ROW_HEIGHT)
+        heading.setFixedHeight(_row_height(SIZES.S3, True))
         heading.setSizePolicy(QSizePolicy.Policy.Preferred,
                               QSizePolicy.Policy.Fixed)
         set_style(heading, "common", "text-strong")
         header.addWidget(heading)
         header.addStretch()
 
-        self._scan_button = QPushButton("Scan")
-        self._scan_button.setFont(make_font(SIZES.S1, bold=True))
-        self._scan_button.setFixedHeight(38)
-        self._scan_button.setCursor(Qt.CursorShape.PointingHandCursor)
-        set_style(self._scan_button, "overlays", "dialog-button-secondary")
-        self._scan_button.clicked.connect(lambda: self._refresh(rescan=True))
+        self._scan_button = ActionButton(
+            Icons.MAGNIFY, "Scan", lambda: self._refresh(rescan=True),
+            kind="secondary")
         header.addWidget(self._scan_button)
         self._layout.addLayout(header)
 
@@ -238,19 +302,31 @@ class WifiSection(QWidget):
             return
 
         connection = self._current
-        self._ssid.setText(f"{_bar_glyph(connection.bars)}  {connection.ssid}")
-        bits = []
-        if connection.security:
-            bits.append(connection.security)
-        else:
-            bits.append("open network")
+        self._ssid.setText(connection.ssid)
+        self._ssid_icon.setPixmap(
+            resolve_icon(_signal_icon(connection.bars),
+                         color="#8fe3b0").pixmap(22, 22))
+        self._ssid_icon.show()
+
+        while self._chips.count():
+            item = self._chips.takeAt(0)
+            if item.widget() is not None:
+                item.widget().setParent(None)
+                item.widget().deleteLater()
+        facts = []
+        facts.append((connection.security or "Open",
+                      Icons.LOCK if connection.security else Icons.LOCK_OPEN))
         if connection.signal:
-            bits.append(f"{connection.signal}% signal")
+            facts.append((f"{connection.signal}%", Icons.SIGNAL))
         if connection.ip_address:
-            bits.append(connection.ip_address)
+            facts.append((connection.ip_address, Icons.EARTH))
         if connection.interface:
-            bits.append(connection.interface)
-        self._detail.setText("  \u00b7  ".join(bits))
+            facts.append((connection.interface, Icons.TUNE))
+        for text, glyph in facts:
+            self._chips.addWidget(_chip(text, glyph))
+        self._chips.addStretch()
+
+        self._detail.hide()
         self._disconnect.setVisible(wifi.can_connect())
 
     def _render_list(self) -> None:
@@ -281,49 +357,51 @@ class WifiSection(QWidget):
         row.setContentsMargins(14, 10, 14, 10)
         row.setSpacing(12)
 
-        column = QVBoxLayout()
-        column.setSpacing(1)
+        # A signal meter of its own, at the left edge, so the strength of every
+        # network in the list can be compared down a column instead of read
+        # out of each row separately.
+        meter = QLabel()
+        meter.setPixmap(resolve_icon(_signal_icon(network.bars),
+                                     color="#c8cedb").pixmap(24, 24))
+        meter.setFixedSize(24, 24)
+        row.addWidget(meter)
 
-        name = QLabel(f"{_bar_glyph(network.bars)}  {network.ssid}")
+        column = QVBoxLayout()
+        column.setSpacing(3)
+
+        name = QLabel(network.ssid)
         name.setFont(make_font(SIZES.S2, bold=True))
-        name.setFixedHeight(ROW_HEIGHT)
+        name.setFixedHeight(_row_height(SIZES.S2, True))
         name.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
         set_style(name, "common", "text-strong")
         column.addWidget(name)
 
-        bits = [network.security or "open"]
+        chips = QHBoxLayout()
+        chips.setContentsMargins(0, 0, 0, 0)
+        chips.setSpacing(8)
+        chips.addWidget(_chip(network.security or "Open",
+                              _security_icon(network)))
         if network.frequency:
-            bits.append(network.frequency)
+            chips.addWidget(_chip(network.frequency, Icons.SIGNAL))
         if network.known:
-            # Said, because it is the difference between one tap and typing a
-            # password.
-            bits.append("saved")
-        detail = QLabel("  \u00b7  ".join(bits))
-        detail.setFont(make_font(SIZES.S1))
-        detail.setFixedHeight(ROW_HEIGHT)
-        detail.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
-        set_style(detail, "common", "text-muted")
-        column.addWidget(detail)
+            # Its own chip, tinted: this is the difference between one tap and
+            # typing a password, which is the most useful thing in the row.
+            chips.addWidget(_chip("Saved", Icons.CHECK_CIRCLE, "chip-known"))
+        chips.addStretch()
+        column.addLayout(chips)
 
         row.addLayout(column, stretch=1)
 
-        if network.known:
-            forget = QPushButton("Forget")
-            forget.setFont(make_font(SIZES.S1, bold=True))
-            forget.setFixedHeight(38)
-            forget.setCursor(Qt.CursorShape.PointingHandCursor)
-            set_style(forget, "overlays", "dialog-button-destructive")
-            forget.clicked.connect(
-                lambda _=False, s=network.ssid: self._on_forget(s))
-            row.addWidget(forget)
-
-        join = QPushButton("Join")
-        join.setFont(make_font(SIZES.S1, bold=True))
-        join.setFixedHeight(38)
-        join.setCursor(Qt.CursorShape.PointingHandCursor)
-        set_style(join, "overlays", "dialog-button-primary")
-        join.clicked.connect(lambda _=False, n=network: self._on_join(n))
-        row.addWidget(join)
+        # One glyph, not a row of words. Every row of this list would otherwise
+        # repeat "Forget" and "Join", and those labels are the widest thing in
+        # each row - the first thing to be cut off on a narrow panel, and the
+        # least worth reading by the third row.
+        row.addWidget(row_menu(self.client, network.ssid, [
+            ("Join this network", lambda n=network: self._on_join(n),
+             Icons.LINK, "primary"),
+            ("Forget it", lambda s=network.ssid: self._on_forget(s),
+             Icons.DELETE_OUTLINE, "destructive") if network.known else None,
+        ]))
 
         return card
 

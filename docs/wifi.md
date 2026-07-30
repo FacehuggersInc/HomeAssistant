@@ -34,6 +34,20 @@ Failure messages are nmcli's own, with one substitution: *"Secrets were
 required"* becomes something a person can act on. A wrong password and a network
 out of range fail differently and it matters which.
 
+## Reading a list of networks
+
+Each row carries its own **signal meter** at the left edge, so strength can be
+compared down a column rather than read out of every row separately. It is the
+icon set's own strength glyph — block characters drawn from `█` and `▁` worked,
+but they sit on the text baseline and read as a font problem beside real icons.
+
+The facts about a network are **chips**, not one line joined by middots. A
+network has four or five of them, and a run of middots reads as a sentence to be
+parsed; separate chips are scanned, which is what a list is for.
+
+`Saved` is tinted, because it is the difference between one tap and typing a
+password — the most useful thing in the row.
+
 ## Throughput
 
 Sampled once a second while the section is on screen.

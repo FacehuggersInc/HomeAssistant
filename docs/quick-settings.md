@@ -184,6 +184,51 @@ The panel closes even if the press raised, so a broken entry cannot leave it
 stuck open. Both bundled navigating entries use it: *Night clock* and
 *Widgets*.
 
+## A short screen
+
+Below 900px of panel height the System side lays out **compact**: the slider's
+label and its track share one line instead of stacking, and the card gives up
+some padding.
+
+The track keeps its full 38px either way. What is being squeezed is empty space
+and a line break — not the thing somebody has to hit with a finger, and not the
+text they have to read. That returns roughly 66px, which is enough for the
+controls to fit without a scrollbar.
+
+The threshold is measured against the height the panel actually has rather than a
+device name: the card grows with whatever is registered in it, so a 1080-tall
+screen with four controls has less room than a 1440 one with two.
+
+## The two radios
+
+Wi-Fi and Bluetooth sit **above the sliders**, as state buttons. They are what
+somebody opens this panel to check — whether the thing is on the network, what it
+is playing through — while a slider is something you arrive already wanting.
+Reading order should match that.
+
+Each shows its own state in its **icon**, not only its label: signal bars for
+Wi-Fi, a struck-through symbol when Bluetooth is off, the connected device and
+its charge when it is on. The icon is what is legible from across a room, which
+is the distance a wall panel is usually looked at from.
+
+Pressing one opens its section in Settings. Pressing one that cannot work
+explains what is missing instead.
+
+## Controls that cannot work yet
+
+A control whose tooling is absent is **shown greyed and says what it needs when
+pressed**, rather than being hidden.
+
+Hiding was the earlier answer and it was worse. Somebody who has used this panel
+on another machine looks for the control, finds nothing at all, and has no way to
+learn that a package is missing — there is no console on a wall panel, and the
+log is on a machine they are not sitting at.
+
+`src/system/requirements.py` holds what each capability needs: the tool, why it
+is needed rather than merely wanted, and a starting point for installing it. The
+install line is a best guess at a package name rather than a promise, since the
+panel may not be on the distribution it was written for.
+
 ## Volume
 
 The slider **follows the system volume** while the panel is open, re-read once a
