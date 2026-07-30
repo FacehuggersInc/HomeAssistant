@@ -58,17 +58,38 @@ class UIBridge(QObject):
 
     ui_call = pyqtSignal(object)
 
-    def __init__(self):
+    def __init__(self, log=None):
         super().__init__()
+        # A logger handed in, not reached for.
+        #
+        # This is a bare QObject: it has no client and no log() of its own, so
+        # calling self.log() here raised AttributeError **inside the exception
+        # handler** - out of a Qt slot, taking the application with it. A
+        # queued callable that merely failed became a crash, and the failure
+        # that started it never got written down.
+        self._log = log
         #QueuedConnection required for safe cross-thread signal delivery
         self.ui_call.connect(self.execute, Qt.ConnectionType.QueuedConnection)
+
+    def _report(self, message: str) -> None:
+        """Never raises. This runs while something else is already wrong."""
+        try:
+            if self._log is not None:
+                self._log("warning", message)
+                return
+        except Exception:
+            pass
+        print(message)
 
     def execute(self, fn) -> None:
         try:
             fn()
         except Exception as e:
-            self.log("warning", f"[UIBridge] Error executing {fn}: {e}")
-            traceback.print_exc()
+            self._report(f"[UIBridge] Error executing {fn}: {e}")
+            try:
+                traceback.print_exc()
+            except Exception:
+                pass
 
     def dispatch(self, fn: Callable) -> None:
         self.ui_call.emit(fn)
@@ -164,7 +185,9 @@ class Client:
 
         self.app    = QApplication.instance() or QApplication(sys.argv)
         self.window = AppWindow(self)
-        self.bridge = UIBridge()
+        # The client's own log, so a failed UI callable is written down
+        # rather than printed and lost.
+        self.bridge = UIBridge(log=self.log)
 
         self._last_interaction_time = time.time()
         self._interaction_idle      = False

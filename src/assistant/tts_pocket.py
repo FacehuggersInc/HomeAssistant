@@ -25,6 +25,8 @@ from pathlib import Path
 from threading import Event, Lock, Thread
 from typing import TYPE_CHECKING, Optional
 
+from src.assistant.speakable import speakable
+
 if TYPE_CHECKING:
     from src.main import Client
 
@@ -270,16 +272,26 @@ class PocketTTSProcessing:
         """
         if not self._wait_ready():
             return None
+        # Rewritten for speech before the model sees it.
+        #
+        # An answer is written for the screen: "5 x 3 = 15" is unambiguous
+        # there and unreadable aloud, because "=" is not a word and "x" is a
+        # letter. Done here rather than at each caller so every backend and
+        # every skill gets it without asking.
+        spoken = speakable(text)
+        if not spoken:
+            return None
+
         try:
             state = self._state_for(voice or self.voice_name)
             # Serialised. Two phrases arriving together is normal - a skill
             # speaking while the assistant acknowledges - and the model cannot
             # take both.
-            words = len(str(text).split())
+            words = len(spoken.split())
             tail = (TAIL_FRAMES_SHORT if words < SHORT_PHRASE_WORDS
                     else TAIL_FRAMES_LONG)
             with self._generating:
-                audio = self.model.generate_audio(state, str(text),
+                audio = self.model.generate_audio(state, spoken,
                                                   frames_after_eos=tail)
         except Exception as e:
             self.client.log("warning", f"[TTS] Could not synthesise: {e}")
