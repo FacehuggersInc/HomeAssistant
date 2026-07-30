@@ -14,6 +14,7 @@ adapter, no BlueZ, or no jeepney should say so and carry on.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from threading import Lock
 from typing import Optional
 
 BLUEZ = "org.bluez"
@@ -283,38 +284,99 @@ def discovering() -> bool:
                             ADAPTER_IFACE).get("Discovering"))
 
 
+#The connection that owns the current scan, if there is one.
+#
+#BlueZ ties discovery to the D-Bus client that asked for it: when that client
+#disconnects, discovery stops. Every other call here opens a connection, uses
+#it and closes it, which is right for a one-shot read and fatal for this - the
+#scan ended the instant it began, so the only devices ever listed were the ones
+#already known to the adapter. A controller in pairing mode was never seen.
+_SCAN_CONNECTION = None
+_SCAN_LOCK = Lock()
+
+
+def scanning() -> bool:
+    with _SCAN_LOCK:
+        return _SCAN_CONNECTION is not None
+
+
+def _close_scan_connection() -> None:
+    global _SCAN_CONNECTION
+    if _SCAN_CONNECTION is None:
+        return
+    try:
+        _SCAN_CONNECTION.close()
+    except Exception:
+        pass
+    _SCAN_CONNECTION = None
+
+
 def start_scan() -> bool:
+    global _SCAN_CONNECTION
     path = adapter_path()
     if path is None:
         return False
-    connection = _bus()
-    if connection is None:
-        return False
-    try:
-        return _call(connection, _message(
-            path, ADAPTER_IFACE, "StartDiscovery")) is not None
-    finally:
+
+    with _SCAN_LOCK:
+        if _SCAN_CONNECTION is not None:
+            # Already scanning on a connection we are holding. Asking twice is
+            # not an error; BlueZ would answer InProgress and the scan is
+            # running either way.
+            return True
+
+        connection = _bus()
+        if connection is None:
+            return False
+
+        # A filter, so a classic controller is not excluded.
+        #
+        # The default transport is "auto", but saying so explicitly costs
+        # nothing and makes the intent readable - and DuplicateData off stops
+        # BlueZ re-reporting the same advertisement, which is noise for a list
+        # that is rebuilt from the object tree anyway.
         try:
-            connection.close()
+            _call(connection, _message(
+                path, ADAPTER_IFACE, "SetDiscoveryFilter", "a{sv}",
+                ({"Transport": ("s", "auto"),
+                  "DuplicateData": ("b", False)},)))
         except Exception:
+            # An adapter or a BlueZ old enough not to have it still scans.
             pass
+
+        started = _call(connection, _message(
+            path, ADAPTER_IFACE, "StartDiscovery")) is not None
+        if not started:
+            try:
+                connection.close()
+            except Exception:
+                pass
+            return False
+
+        # Kept open. Closing it here is what stopped the scan.
+        _SCAN_CONNECTION = connection
+        return True
 
 
 def stop_scan() -> bool:
+    global _SCAN_CONNECTION
     path = adapter_path()
-    if path is None:
-        return False
-    connection = _bus()
-    if connection is None:
-        return False
-    try:
-        return _call(connection, _message(
-            path, ADAPTER_IFACE, "StopDiscovery")) is not None
-    finally:
+
+    with _SCAN_LOCK:
+        connection = _SCAN_CONNECTION
+        if connection is None:
+            return False
         try:
-            connection.close()
+            if path is not None:
+                _call(connection, _message(
+                    path, ADAPTER_IFACE, "StopDiscovery"))
         except Exception:
             pass
+        finally:
+            # Closed either way: dropping the connection stops discovery on
+            # its own, so a StopDiscovery that fails is not a scan left
+            # running.
+            _close_scan_connection()
+        return True
 
 
 ## -- devices

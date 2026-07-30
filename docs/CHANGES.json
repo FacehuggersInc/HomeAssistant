@@ -1,6 +1,16 @@
 {
  "log": [
   {
+   "at": 1785453627.5898519,
+   "note": "bluetooth discovery holds its connection open",
+   "pages": [
+    {
+     "slug": "bluetooth",
+     "state": "updated"
+    }
+   ]
+  },
+  {
    "at": 1785453031.2782626,
    "note": "the wifi button reference survives construction",
    "pages": [
@@ -531,9 +541,9 @@
    "state": "updated"
   },
   "bluetooth": {
-   "at": 1785382817.1855633,
-   "hash": "38049f6bef59029e",
-   "opened": 1785383835.6080253,
+   "at": 1785453627.5894582,
+   "hash": "fdf47cd86dc6e63c",
+   "opened": 0,
    "state": "updated"
   },
   "bundled-plugins": {

@@ -30,6 +30,9 @@ if TYPE_CHECKING:
 
 
 LIST_INTERVAL_MS = 5000
+#While a scan is running. Discovery finds things continuously, so the list has
+#to be re-read often enough that "found" and "shown" are the same moment.
+SCAN_INTERVAL_MS = 1500
 #How long a scan runs before it is stopped. Discovery keeps the radio busy and
 #drains anything battery-powered nearby, so it is not left on.
 SCAN_SECONDS = 20
@@ -326,6 +329,14 @@ class BluetoothSection(QWidget):
         self._scan_button.setText("Scanning\u2026")
         self._scan_stop.start()
 
+        # Faster while looking.
+        #
+        # Discovery reports a device the moment it hears one, but this list is
+        # rebuilt from the object tree on a timer - so at the resting interval
+        # a controller could be found and still not appear for another five
+        # seconds. That reads as the scan having missed it.
+        self._timer.setInterval(SCAN_INTERVAL_MS)
+
         def work():
             bluetooth.start_scan()
             self.client.call_on_ui(self._refresh)
@@ -333,6 +344,8 @@ class BluetoothSection(QWidget):
         Thread(target=work, name="__bt_scan", daemon=True).start()
 
     def _end_scan(self) -> None:
+        self._timer.setInterval(LIST_INTERVAL_MS)
+
         def work():
             bluetooth.stop_scan()
             def done():

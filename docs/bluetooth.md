@@ -89,3 +89,27 @@ HA_NO_BLUETOOTH=1 python app.py
 
 Every call answers immediately without touching the bus. A suspicion that cannot
 be tested is not worth much on hardware you have to walk to.
+
+## Why a scan needs its connection kept
+
+BlueZ ties discovery to the **D-Bus client that asked for it**. When that client
+disconnects, discovery stops.
+
+Every other call in `src/system/bluetooth.py` opens a connection, uses it and
+closes it — right for a one-shot read, and fatal here: the scan ended the instant
+it began. The only devices ever listed were the ones the adapter already knew
+about, so anything already paired appeared and nothing new ever did.
+
+`start_scan()` therefore keeps its connection in `_SCAN_CONNECTION`, and
+`stop_scan()` closes it. Dropping the connection stops discovery by itself, so a
+`StopDiscovery` that fails still leaves nothing running.
+
+A discovery filter is set with `Transport: auto` — classic and low energy — and
+`DuplicateData: false`, since the list is rebuilt from the object tree and
+re-reported advertisements are noise. A BlueZ too old to have
+`SetDiscoveryFilter` still scans.
+
+The list also refreshes every 1.5s while scanning rather than every 5. Discovery
+reports a device the moment it hears one, and at the resting interval something
+could be found and not appear for another five seconds — which reads as the scan
+having missed it.
