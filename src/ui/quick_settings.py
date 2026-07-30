@@ -9,7 +9,7 @@ from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel,
     QFrame, QSlider, QScrollArea, QSizePolicy, QPushButton,
 )
-from PyQt6.QtGui import QFontMetrics
+from PyQt6.QtGui import QFontMetrics, QPainter, QColor
 from PyQt6.QtCore import Qt, QEvent, QPoint, QRect, QTimer, QSize
 
 from src.styling import make_font, SIZES, set_style
@@ -278,6 +278,62 @@ class _LabelledSlider(QWidget):
             self._on_change(value)
         except Exception:
             pass
+
+
+class _StateButton(QPushButton):
+    """
+    A state button that can carry a count.
+
+    The count is painted rather than written into the label. The label already
+    holds a name and a charge - "Buds  90%" - and a third thing in it is read
+    word by word, which is not how this button is used: it is glanced at from
+    across a room. A dot in the corner is seen without being read.
+    """
+
+    #A circle in the top-right, clear of the text baseline.
+    BADGE_SIZE = 20
+    BADGE_INSET = 6
+
+    def __init__(self):
+        super().__init__()
+        self._badge = 0
+
+    def set_badge(self, count: int) -> None:
+        count = max(0, int(count or 0))
+        if count == self._badge:
+            return
+        self._badge = count
+        self.update()
+
+    def paintEvent(self, event) -> None:
+        super().paintEvent(event)
+        if self._badge <= 0:
+            return
+
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        size = self.BADGE_SIZE
+        x = self.width() - size - self.BADGE_INSET
+        y = self.BADGE_INSET
+
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QColor("#2ff08e"))
+        painter.drawEllipse(x, y, size, size)
+
+        painter.setPen(QColor("#0f2418"))
+        # The pixel size is set outright, so the size passed in only decides
+        # the family and weight. 12px is what fits a two-character badge in a
+        # 20px circle.
+        font = make_font(SIZES.S1, bold=True)
+        font.setPixelSize(12)
+        painter.setFont(font)
+        # "+9" past nine: the exact number stops mattering and the badge stops
+        # fitting at the same point.
+        text = f"+{self._badge}" if self._badge < 10 else "9+"
+        painter.drawText(x, y, size, size,
+                         Qt.AlignmentFlag.AlignCenter, text)
+        painter.end()
 
 
 class QuickSettings(Panel):
@@ -550,8 +606,10 @@ class QuickSettings(Panel):
         self._paint_state(self._bt_button, Icons.BLUETOOTH, "Bluetooth", False)
         return row
 
+    ## -- state buttons
+
     def _state_button(self, on_press) -> QPushButton:
-        button = QPushButton()
+        button = _StateButton()
         button.setFont(make_font(SIZES.S1, bold=True))
         button.setCursor(Qt.CursorShape.PointingHandCursor)
         # Fixed, or two buttons in a card with spare height become slabs.
@@ -563,7 +621,7 @@ class QuickSettings(Panel):
         return button
 
     def _paint_state(self, button, icon_name: str, text: str,
-                     on: bool) -> None:
+                     on: bool, extra: int = 0) -> None:
         """
         A state button reads as its state before it is read as text.
 
@@ -575,6 +633,12 @@ class QuickSettings(Panel):
             colour = "#eaf2ff" if on else "#8b8f98"
             button.setIcon(resolve_icon(icon_name, color=colour))
             button.setText(f"  {text}")
+            # How many more are connected, drawn as a badge rather than said
+            # in the label. The label is already a name and a charge; a third
+            # thing in it stops being readable at a glance, which is the only
+            # way this button is ever read.
+            if hasattr(button, "set_badge"):
+                button.set_badge(extra)
             set_style(button, "quick",
                       "quick-state-on" if on else "quick-state-off")
         except RuntimeError:
@@ -749,11 +813,13 @@ class QuickSettings(Panel):
             self.client.call_on_ui(
                 lambda: self._show_bluetooth(
                     state.connected if state else None,
-                    bool(state and state.powered), reason))
+                    bool(state and state.powered), reason,
+                    extra=max(0, (state.connected_count if state else 0) - 1)))
 
         Thread(target=work, name="__quick_bt", daemon=True).start()
 
-    def _show_bluetooth(self, device, on: bool, reason: str = "") -> None:
+    def _show_bluetooth(self, device, on: bool, reason: str = "",
+                        extra: int = 0) -> None:
         """Painting only. Everything it needs is handed to it."""
         button = getattr(self, "_bt_button", None)
         if button is None:
@@ -771,7 +837,7 @@ class QuickSettings(Panel):
         # The charge belongs on the button: it is the reason to glance at it.
         charge = f"  {device.battery}%" if device.has_battery else ""
         self._paint_state(button, Icons.BLUETOOTH_CONNECTED,
-                          f"{device.label}{charge}", True)
+                          f"{device.label}{charge}", True, extra=extra)
 
     ## -- a control that cannot work yet
 

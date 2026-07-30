@@ -277,3 +277,38 @@ Every piece of state is initialised **before** the methods that fill it in.
 the buttons on screen with nothing referring to them — so the ticks that update
 them see nothing to paint, for the life of the process. The panel looked right
 and never changed.
+
+## Which Bluetooth device the button shows
+
+`connected_devices()` orders by **what a device is for**, matched against
+BlueZ's own `Icon` hint rather than guessed from its name:
+
+| | |
+|---|---|
+| 0 | headset, headphones, audio, speaker |
+| 1 | phone |
+| 2 | computer |
+| 3 | gaming, joystick |
+| 4 | keyboard, mouse, input |
+| 5 | anything else |
+
+Audio first because it is the one you are currently hearing — a headset that has
+dropped to 8% is worth knowing about, while a controller sitting on the table is
+not. Input last: a keyboard is either working or obviously not.
+
+Whether it reports a charge, and then its name, only break ties. The name keeps
+the answer stable as BlueZ reorders its object tree, so the button does not flip
+between two equivalent devices.
+
+`snapshot()` uses the same key rather than a second copy of it — the two drifted
+apart once already.
+
+### Saying there are others
+
+A **badge** in the corner, painted rather than written into the label. The label
+already holds a name and a charge — `Buds  90%` — and a third thing in it is read
+word by word, which is not how this button is used: it is glanced at from across
+a room. A dot is seen without being read.
+
+`+1` through `+9`, then `9+`. The exact number stops mattering and the badge
+stops fitting at about the same point.

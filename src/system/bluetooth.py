@@ -174,6 +174,9 @@ class Snapshot:
     powered: bool = False
     devices: list = None
     connected: Optional["Device"] = None
+    #How many are connected in total, so the button can say there are others
+    #without listing them.
+    connected_count: int = 0
 
     def __post_init__(self):
         if self.devices is None:
@@ -199,10 +202,14 @@ def snapshot() -> Snapshot:
 
     on = bool(_properties(objects.get(path, {}), ADAPTER_IFACE).get("Powered"))
     found = parse_devices(objects) if on else []
-    joined = [d for d in found if d.connected]
-    joined.sort(key=lambda d: (not d.has_battery, d.label.lower()))
+    # The same ranking connected_devices() uses, rather than a second copy of
+    # it here - the two drifted apart once already.
+    joined = sorted((d for d in found if d.connected),
+                    key=lambda d: (kind_rank(d), not d.has_battery,
+                                   d.label.lower()))
     return Snapshot(powered=on, devices=found,
-                    connected=joined[0] if joined else None)
+                    connected=joined[0] if joined else None,
+                    connected_count=len(joined))
 
 
 def _managed_objects() -> dict:
@@ -426,13 +433,53 @@ def devices() -> list:
     return parse_devices(_managed_objects())
 
 
-def connected_device() -> Optional[Device]:
-    """The one in use, for the quick panel. Prefers one reporting a battery."""
+#What a device is for, in the order somebody cares about it.
+#
+#Matched against BlueZ's own Icon hint rather than guessed from the name: a
+#device called "Office" is not necessarily a speaker.
+#
+#Audio first because it is the one you are currently HEARING - a headset that
+#has dropped to 8% is the thing worth knowing about, while a controller sitting
+#on the table is not. Phones next, since a connection there is deliberate and
+#recent. Input last: a keyboard is either working or obviously not.
+KIND_ORDER = (
+    ("headset",  0), ("headphone", 0), ("audio", 0), ("speaker", 0),
+    ("phone",    1),
+    ("computer", 2),
+    ("gaming",   3), ("joystick", 3),
+    ("keyboard", 4), ("mouse", 4), ("input", 4),
+)
+KIND_OTHER = 5
+
+
+def kind_rank(device: Device) -> int:
+    """Lower is more worth showing."""
+    hint = (device.icon or "").lower()
+    for token, rank in KIND_ORDER:
+        if token in hint:
+            return rank
+    return KIND_OTHER
+
+
+def connected_devices() -> list:
+    """
+    Everything connected, most worth showing first.
+
+    Ordered by what a device is for, then by whether it reports a charge, then
+    by name. The name is only a tiebreak - it keeps the answer stable as BlueZ
+    reorders its object tree, so the button does not flip between two
+    equivalent devices.
+    """
     joined = [d for d in devices() if d.connected]
-    if not joined:
-        return None
-    joined.sort(key=lambda d: (not d.has_battery, d.label.lower()))
-    return joined[0]
+    joined.sort(key=lambda d: (kind_rank(d), not d.has_battery,
+                               d.label.lower()))
+    return joined
+
+
+def connected_device() -> Optional[Device]:
+    """The one worth showing, for the quick panel."""
+    joined = connected_devices()
+    return joined[0] if joined else None
 
 
 def _device_action(path: str, member: str, timeout: float) -> tuple:

@@ -1,6 +1,16 @@
 {
  "log": [
   {
+   "at": 1785454134.5601535,
+   "note": "the bluetooth button ranks by device kind and badges the rest",
+   "pages": [
+    {
+     "slug": "quick-settings",
+     "state": "updated"
+    }
+   ]
+  },
+  {
    "at": 1785453627.5898519,
    "note": "bluetooth discovery holds its connection open",
    "pages": [
@@ -643,8 +653,8 @@
    "state": "updated"
   },
   "quick-settings": {
-   "at": 1785453031.2780442,
-   "hash": "39a5b5f905937548",
+   "at": 1785454134.5599382,
+   "hash": "03acbdb71128255d",
    "opened": 0,
    "state": "updated"
   },
