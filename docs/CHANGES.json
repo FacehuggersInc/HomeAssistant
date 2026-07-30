@@ -1,6 +1,16 @@
 {
  "log": [
   {
+   "at": 1785447638.5133705,
+   "note": "updates skip identical files, keep modes, and honour install_once",
+   "pages": [
+    {
+     "slug": "updating",
+     "state": "updated"
+    }
+   ]
+  },
+  {
    "at": 1785446149.7258554,
    "note": "a removed widget is forgotten from the layout file",
    "pages": [
@@ -637,8 +647,8 @@
    "state": "updated"
   },
   "updating": {
-   "at": 1785384140.012635,
-   "hash": "05a61304ea0c57aa",
+   "at": 1785447638.5132778,
+   "hash": "3fb8821924b47bb8",
    "opened": 0,
    "state": "updated"
   },

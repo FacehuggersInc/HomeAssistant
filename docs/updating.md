@@ -131,3 +131,37 @@ known to be usable. A missing or malformed settings file falls back to
 defaults rather than refusing to start.
 
 ---
+
+## What an update does not touch
+
+**A file whose bytes have not changed is not copied at all.** That is not a
+saving, it is a correctness fix: `shutil.copy2` takes the **source's**
+permissions, and a payload extracted from a zip has none worth having — so
+every update stripped the executable bit off `startup.sh` and the panel stopped
+starting on boot until somebody ran `chmod` again.
+
+When a file **has** changed, the destination's mode is read before the copy and
+ORed back afterwards. Adding back only what was there: a payload that makes a
+file more permissive keeps that, and one that arrives without an execute bit
+does not take it away.
+
+### `install_once`
+
+A plugin can name files it ships once and never replaces:
+
+```toml
+[update]
+install_once = ["config.json", "data/*.csv"]
+```
+
+Paths are relative to the plugin's own directory, so it does not need to know
+where it is installed. This is for a file the plugin ships a starting version of
+and the person then edits — shipping a default and overwriting their edits with
+it on every update is the same as not shipping one.
+
+A file that is **not** there yet is still written, so a fresh install gets its
+defaults.
+
+Checked in order: preserved paths first, then `install_once`, then unchanged.
+A merged file is never skipped as unchanged, since its content differs from the
+payload by design.
