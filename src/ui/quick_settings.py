@@ -472,9 +472,16 @@ class QuickSettings(Panel):
         """Re-read the height, and re-lay-out if it changed."""
         try:
             wanted = self._panel_height(self.client)
-            if wanted == self.height():
+            if wanted == self.panel_height:
                 return
-            self.setFixedHeight(wanted)
+            # The FIELD, not setFixedHeight().
+            #
+            # _sync_geometry() recomputes from self.panel_height and calls
+            # setFixedSize, so setting the widget height directly is undone by
+            # the very call meant to apply it. The panel is kept between
+            # openings (destroy_on_close is False), so without this the value
+            # read at construction is the one it has until a restart.
+            self.panel_height = wanted
             self._sync_geometry()
             self.client.log("info", f"[QuickSettings] Height now {wanted}px.")
         except RuntimeError:

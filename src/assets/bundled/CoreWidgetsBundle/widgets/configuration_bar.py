@@ -55,7 +55,7 @@ class ConfigurationBar(Widget):
         row.addWidget(self.notifications)
 
         self._widgets_btn = IconButton(
-            Icons.WIDGETS if hasattr(Icons, "WIDGETS") else Icons.SETTINGS,
+            Icons.WIDGETS,
             self._open_widgets_panel, size=self.BUTTON // 2,
         )
         self._widgets_btn.setFixedSize(self.BUTTON, self.BUTTON)

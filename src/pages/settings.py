@@ -1741,6 +1741,9 @@ class SettingsPage(PageFramework):
             btn.setFixedSize(64, 44)
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
             set_style(btn, "settings", "sort-button-active" if is_active else "sort-button")
+            # Carried on the widget so _refresh_sort_toolbar() can restyle it
+            # without rebuilding the bar.
+            btn.setProperty("sort_axis", axis)
             btn.clicked.connect(lambda _, a=axis: self._click_sort_axis(a))
 
             cap_lbl = QLabel(captions[axis])
@@ -1773,20 +1776,86 @@ class SettingsPage(PageFramework):
             self._active_sort_mode = None
             self._sort_direction[axis] = "asc"
 
-        # Rebuilt after the tap has finished being delivered, not during it.
+        # Reordered, not rebuilt.
         #
-        # The content area has QScroller grabbing LeftMouseButtonGesture, which
-        # does not pass a press straight through: it holds it, decides whether
-        # the finger is scrolling, and **replays** press and release to the
-        # child if it was a tap. _show_category() destroys and re-adds every
-        # block, so a rebuild that lands inside that replay delivers the
-        # replayed press to whatever now occupies the position - which is how
-        # tapping a sort button opened the keyboard for a setting.
+        # _show_category() takes every widget out of the layout with
+        # setParent(None) and puts them all back. The content area has
+        # QScroller grabbing LeftMouseButtonGesture, which holds a press,
+        # decides whether the finger is scrolling, and **replays** press and
+        # release to the child if it was a tap - so a teardown landing inside
+        # that replay delivers the replayed press to whichever widget now
+        # occupies the position, which is how tapping a sort button opened the
+        # keyboard for a setting.
         #
-        # singleShot(0) was not enough: it fires on the next event loop turn,
-        # which is still inside the replay. This waits past it.
-        QTimer.singleShot(self.SORT_REBUILD_DELAY,
-                          lambda: self._show_category(self._active_path))
+        # Deferring it was not enough, because the teardown is the problem
+        # rather than its timing. Moving the blocks within the layout leaves
+        # every widget parented and shown throughout, so there is nothing for a
+        # replayed press to land on by accident.
+        self._reorder_content()
+
+    def _reorder_content(self) -> None:
+        """
+        Put the content blocks in the sorted order, in place.
+
+        No teardown: each block is removed from the layout and reinserted, so
+        it keeps its parent and stays visible. Rebuilding the section instead
+        works, and is what a page switch does - but doing it from inside a tap
+        is what put a settings field under the finger that had just pressed a
+        sort button.
+        """
+        path = getattr(self, "_active_path", None)
+        if path is None:
+            return
+        cat_key, sub_key = path
+        entry = self.categories.get(cat_key)
+        if not entry:
+            return
+        target = entry if sub_key is None else entry["subs"].get(sub_key)
+        if not target:
+            return
+
+        # Where the blocks start: after the header, the extras and the toolbar.
+        blocks = [b for b in target["content"] if isinstance(b, QWidget)]
+        if not blocks:
+            return
+        positions = [self._content_layout.indexOf(b) for b in blocks]
+        positions = [i for i in positions if i >= 0]
+        if not positions:
+            return
+        first = min(positions)
+
+        for offset, block in enumerate(self._sorted_content(target["content"])):
+            if not isinstance(block, QWidget):
+                continue
+            self._content_layout.removeWidget(block)
+            self._content_layout.insertWidget(
+                first + offset, block,
+                stretch=1 if getattr(block, "fills_height", False) else 0)
+
+        self._refresh_sort_toolbar()
+
+    def _refresh_sort_toolbar(self) -> None:
+        """
+        Restyle the toolbar buttons for the axis now active.
+
+        The toolbar is built with the active button already styled, so a
+        rebuild used to be how that got updated. Restyling in place keeps the
+        buttons the person is pressing exactly where they were.
+        """
+        toolbar = getattr(self, "_sort_toolbar", None)
+        if toolbar is None:
+            return
+        try:
+            for button in toolbar.findChildren(QPushButton):
+                axis = button.property("sort_axis")
+                if not axis:
+                    continue
+                button.setIcon(self._icon_for_axis(axis))
+                set_style(button, "settings",
+                          "sort-button-active"
+                          if self._active_sort_mode == axis else "sort-button")
+        except RuntimeError:
+            pass
 
     def _sorted_content(self, content: list) -> list:
         if not self._active_sort_mode:
@@ -2162,9 +2231,11 @@ class SettingsPage(PageFramework):
         # sort. The test is whether the content actually carries sort labels,
         # which is the same test _sorted_content() uses to do the sorting - so
         # the toolbar cannot appear above content it would not reorder.
+        self._sort_toolbar = None
         if self._is_sortable(target["content"]):
             toolbar = self._build_sort_toolbar(
                 in_plugins_category=(cat_key == "plugins"))
+            self._sort_toolbar = toolbar
             self._content_layout.insertWidget(
                 self._content_layout.count() - 1, toolbar)
 
