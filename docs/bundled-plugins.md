@@ -238,3 +238,22 @@ CoreWidgetsBundle/
 Nothing enforces that structure - `main.py` and `plugin.toml` are the only
 required files - but every bundled plugin follows it, and it scales better
 than one long module. See [Plugins](plugins.md).
+
+## Music
+
+Plays from a hidden `QWebEnginePage` driving the YouTube IFrame Player API, and
+publishes into [`client.PLAYER`](player.md) — so the now-playing widget, and
+anything else that shows or controls playback, never learns which source is
+involved.
+
+* **No window.** A page with no view attached runs scripts exactly as a visible
+  one does. It needs `PlaybackRequiresUserGesture = False`, an origin to load
+  under, and its own off-the-record profile.
+* **The API, not the site.** Every command is a documented IFrame API call;
+  nothing reads YouTube's generated markup.
+* **Search** uses the Data API when a key is present and falls back to the
+  results page when it is not, or when the daily quota runs out.
+* **Ducking** fades on the wake word and restores when the assistant settles.
+
+`play-music` uses a [payload argument](skills.md), so a title of any length
+arrives whole.

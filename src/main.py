@@ -34,6 +34,8 @@ from src.registries.public_registry import PublicRegistry
 from src.registries.page_registry import PageRegistry
 from src.registries.secret_registry import SecretRegistry
 from src.registries.quick_access_registry import QuickAccessRegistry
+from src.registries.player_registry import PlayerRegistry
+from src.registries.cancel_registry import CancelRegistry
 from src.registries.user_registry import UserRegistry
 from src.backend import FlaskApp, FlaskService
 from src.assistant.skill import Skill, SkillIntentEngine
@@ -313,6 +315,12 @@ class Client:
         self.PAGE           = None
         self.PAGES          = PageRegistry(self)
         self.QUICK          = QuickAccessRegistry(self)
+        # What is playing, whatever is playing it. Backends register;
+        # widgets and skills talk to this rather than to a backend.
+        self.PLAYER         = PlayerRegistry(self)
+        # What "stop" means right now. Whatever can be cancelled
+        # registers its own words and its own condition.
+        self.CANCEL         = CancelRegistry(self)
         self.USERS          = UserRegistry(
             self, get_data_dir(APP_NAME) / "users.json")
         self.DEFAULT_PAGE   = ""
@@ -551,11 +559,13 @@ class Client:
     def create_panel(self, content: QWidget = None, width: int = None,
                       edge: str = "right", bgcolor: str = "#1e1e1e",
                       key: str = None, destroy_on_close: bool = True,
-                      on_created: Optional[Callable[[Panel], None]] = None
+                      on_created: Optional[Callable[[Panel], None]] = None,
+                      dismiss_on_outside_click: bool = False
                       ) -> Optional[Panel]:
         def _build() -> Panel:
             panel = Panel(self, width=width, edge=edge, bgcolor=bgcolor, key=key,
-                           destroy_on_close=destroy_on_close)
+                           destroy_on_close=destroy_on_close,
+                           dismiss_on_outside_click=dismiss_on_outside_click)
             if content is not None:
                 panel.add_content(content)
             panel.open_panel()

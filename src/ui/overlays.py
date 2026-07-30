@@ -444,7 +444,11 @@ class OverlayedWidget(QWidget):
             outer.addLayout(row)
 
         # Animation
-        self._anim = QPropertyAnimation(self, b"pos")
+        # The third argument is the PARENT. Without it the animation belongs
+        # to nothing, outlives the widget it animates, and fires `finished`
+        # into an object that has gone - which inside a Qt signal aborts the
+        # process rather than raising.
+        self._anim = QPropertyAnimation(self, b"pos", self)
         self._anim.setDuration(animation_speed)
         self._anim.setEasingCurve(QEasingCurve.Type.OutCubic)
 
@@ -1033,6 +1037,42 @@ class _ClickBlocker(QWidget):
 
 # ── Panel (generic full-height side panel) ────────────────────────────────────
 
+class _PanelScrim(QWidget):
+    """
+    The ground beside a panel, which presses land on.
+
+    Barely tinted rather than clear: a panel that swallows a press with no
+    sign of why looks broken, and a slight darkening says the panel is in
+    front of everything without dimming the page into unreadability.
+    """
+
+    #alpha out of 255
+    TINT = 46
+
+    def __init__(self, parent: QWidget, panel: "Panel"):
+        super().__init__(parent)
+        self.panel = panel
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, False)
+        self.setCursor(Qt.CursorShape.ArrowCursor)
+
+    def paintEvent(self, event) -> None:
+        painter = QPainter(self)
+        painter.fillRect(self.rect(), QColor(0, 0, 0, self.TINT))
+        painter.end()
+
+    def mousePressEvent(self, event) -> None:
+        # Accepted rather than passed on: the press was "get rid of this", and
+        # letting it through would also hit whatever is underneath.
+        event.accept()
+        try:
+            self.panel.close_panel()
+        except RuntimeError:
+            pass
+
+    def mouseReleaseEvent(self, event) -> None:
+        event.accept()
+
+
 class Panel(QWidget):
 
     DEFAULT_WIDTH = 680   #shared by TilePanel/NotificationPanel/create_panel() — see apply_frosted_style()
@@ -1051,6 +1091,7 @@ class Panel(QWidget):
         destroy_on_close:  bool = False,
         height:            int  = None,      #None fills the cross axis; set it for a panel that does not reach the far edge
         margin:            int  = 0,         #inset from the screen edges — non-zero makes the panel float
+        dismiss_on_outside_click: bool = False,
     ):
         super().__init__(client.OVERLAYS)
         self.client            = client
@@ -1068,6 +1109,16 @@ class Panel(QWidget):
         self.panel_height      = height
         self.blur_radius       = blur_radius if blur_radius is not None else self.BLUR_RADIUS
         self.destroy_on_close  = destroy_on_close   #see close_panel()/_destroy() below
+        # Whether pressing anywhere else closes it.
+        #
+        # Opt-in rather than the default: a transient panel put up by the idle
+        # rotation is dismissed by that rotation on its own schedule, and
+        # closing it on the first touch would swallow the very tap that woke
+        # the screen to read it. A panel somebody opened deliberately is the
+        # other way round - there is nothing else to press, and no obvious close button
+        # is a panel that cannot be got rid of.
+        self.dismiss_on_outside_click = bool(dismiss_on_outside_click)
+        self._scrim: Optional[QWidget] = None
         self._destroyed        = False
         self._close_connected  = False
         self._slide_connected  = False
@@ -1086,7 +1137,11 @@ class Panel(QWidget):
         self.content_layout.setContentsMargins(0, 0, 0, 0)
         self.content_layout.setSpacing(0)
 
-        self._anim = QPropertyAnimation(self, b"pos")
+        # The third argument is the PARENT. Without it the animation belongs
+        # to nothing, outlives the widget it animates, and fires `finished`
+        # into an object that has gone - which inside a Qt signal aborts the
+        # process rather than raising.
+        self._anim = QPropertyAnimation(self, b"pos", self)
         self._anim.setDuration(animation_speed)
 
         self.client.OVERLAYS.installEventFilter(self)
@@ -1174,9 +1229,45 @@ class Panel(QWidget):
     # ── Geometry ──────────────────────────────────────────────────────────────
 
     def eventFilter(self, obj, event) -> bool:  # type: ignore[override]
-        if obj is self.client.OVERLAYS and event.type() == QEvent.Type.Resize:
-            self._sync_geometry()
+        if obj is self.client.OVERLAYS:
+            if event.type() == QEvent.Type.Resize:
+                self._sync_geometry()
         return super().eventFilter(obj, event)
+
+    ## -- dismissing by pressing elsewhere
+
+    def _build_scrim(self) -> None:
+        """
+        A full-overlay catcher behind the panel.
+
+        Not an event filter on the overlay, which cannot work: the overlay
+        masks itself to where its children can paint, and **a QWidget mask
+        clips input as well as painting** - so a press beside the panel never
+        reaches the overlay at all, it goes straight to the page underneath.
+
+        A sibling widget covering the whole overlay is inside that mask by
+        definition, because the mask is built from its children's geometry.
+        """
+        if self._scrim is not None or not self.dismiss_on_outside_click:
+            return
+
+        scrim = _PanelScrim(self.parentWidget(), self)
+        scrim.setGeometry(self.parentWidget().rect())
+        scrim.show()
+        # Behind the panel, so the panel's own presses are its own.
+        scrim.stackUnder(self)
+        self._scrim = scrim
+
+    def _release_scrim(self) -> None:
+        scrim, self._scrim = self._scrim, None
+        if scrim is None:
+            return
+        try:
+            scrim.hide()
+            scrim.setParent(None)
+            scrim.deleteLater()
+        except RuntimeError:
+            pass
 
     def _sync_geometry(self) -> None:
         ov_w = self.client.OVERLAYS.width()
@@ -1260,6 +1351,7 @@ class Panel(QWidget):
         self._sync_geometry()
         self.move(self._hidden_pos)
         self.refresh_backdrop()
+        self._build_scrim()
         self.show()
         self.raise_()
 
@@ -1307,6 +1399,7 @@ class Panel(QWidget):
         self._anim.start()
 
     def _on_closed(self) -> None:
+        self._release_scrim()
         if not self._closing:
             # The animation that just finished was an open, not a close.
             return
@@ -1329,6 +1422,7 @@ class Panel(QWidget):
         self._backdrop = None
 
     def _destroy(self) -> None:
+        self._release_scrim()
         if self._destroyed:
             return
         self._destroyed = True

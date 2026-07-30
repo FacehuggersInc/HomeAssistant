@@ -112,7 +112,11 @@ class SubPageFramework(QWidget):
         self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
 
         # Position animation — used by the parent page to slide between sub-pages
-        self._anim = QPropertyAnimation(self, b"pos")
+        # The third argument is the PARENT. Without it the animation belongs
+        # to nothing, outlives the widget it animates, and fires `finished`
+        # into an object that has gone - which inside a Qt signal aborts the
+        # process rather than raising.
+        self._anim = QPropertyAnimation(self, b"pos", self)
         self._anim.setDuration(250)
         self._anim.setEasingCurve(QEasingCurve.Type.InOutCubic)
 

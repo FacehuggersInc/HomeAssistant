@@ -96,6 +96,9 @@ class Session():
 
 		if phrase is _CANCELLED or not self.is_open:
 			return None
+		# A follow-up question inside a session. Backing out here is still
+		# handled directly: there is no intent matching in a session, so there
+		# is no skill to route it to.
 		if normalize.is_cancel(phrase):
 			self.__client.log("info", f"[Session] Cancelled by '{phrase}'.")
 			self.cancel()
@@ -205,12 +208,6 @@ class STTProcessing():
 	def start_skill_parse(self, wake:str, processed:str):
 		phrase = self.strip_wake(processed, wake)
 
-		# Handled before intent matching so backing out works even when no
-		# plugin has registered a cancel skill.
-		if normalize.is_cancel(phrase):
-			self.cancel("user said cancel")
-			return
-
 		if wake and phrase:
 			self.client.log("info", f"[STTProcessing] Routing -> '{processed}' to {self.route}")
 			Thread(target = self.process_phrase, args = [self.clean_text( phrase.strip() ), ] ).start()
@@ -253,6 +250,18 @@ class STTProcessing():
 
 	def pre_processing(self, transcribed:str):
 		if not self.client.TTS.is_speaking():
+			# Dropped before anything else looks at it.
+			#
+			# The transcriber invents end-screen boilerplate and subtitle
+			# credits when it is given silence or music rather than speech,
+			# and a panel with speakers hears its own music through its
+			# microphone. Acting on that means the panel doing something
+			# nobody asked for, mid-song.
+			if normalize.is_hallucination(transcribed):
+				self.client.log("debug",
+					f"[STTProcessing] Ignored '{transcribed}' - nothing was said.")
+				return
+
 			if not self.processing:
 				self.processing = True
 				self.client.ASSIST_STATUS = "THINKING"

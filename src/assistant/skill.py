@@ -108,6 +108,8 @@ class Skill:
 		examples: List[str],
 		patterns : list[list[dict]] = None,
 		arguments: dict[str, list[list[dict]]] = None,
+		payload: dict[str, list[str]] = None,
+		wants_phrase: bool = False,
 		func: Optional[Callable] = None,
 		words_leeway: int = 5
 	):
@@ -116,6 +118,28 @@ class Skill:
 		self.wake = wake_word
 		self.key = skill_key
 		self.plugin = plugin_key
+
+		# {name: [anchor phrase, ...]}. Everything after an anchor is the
+		# value, taken verbatim - see payload_span().
+		#
+		# Set up first: the patterns and the lemma sets below are all built
+		# from the command part of each example, which needs the anchors.
+		# Whether the whole utterance is passed in as `phrase`. For a skill
+		# whose behaviour depends on which of its examples was said - "stop"
+		# and "nevermind" mean different things - rather than on an argument
+		# extracted from it.
+		self.wants_phrase = bool(wants_phrase)
+
+		self.payload = payload or {}
+		self._anchors = []
+		for name, phrases in self.payload.items():
+			for phrase in phrases:
+				tokens = tuple(t.lower_ for t in nlp.model()(phrase)
+							   if not t.is_space)
+				if tokens:
+					self._anchors.append((name, tokens))
+		# Longest first, so "put on" wins over "put".
+		self._anchors.sort(key=lambda entry: len(entry[1]), reverse=True)
 
 		# Phrase Pattern Matching
 		self.matcher = nlp.shared_matcher()
@@ -126,13 +150,17 @@ class Skill:
 		self.intent_name = f"{self.plugin}:{self.key}"
 		self.matcher.add(self.intent_name, self.patterns)
 		self.id = self.nlp.vocab.strings[self.intent_name]
-		self.lemmas = [{t.lemma_.lower() for t in doc if t.is_alpha} for doc in self.docs]
+		# Command parts, so an example is compared the same way an utterance
+		# is - see _command_part.
+		self.command_docs = [self._command_part(doc) for doc in self.docs]
+		self.lemmas = [{t.lemma_.lower() for t in doc if t.is_alpha}
+					   for doc in self.command_docs]
 
 		# Stopwords stripped: "the"/"a"/"for" appear in nearly every phrase and
 		# would let unrelated skills score against each other.
 		self.content_lemmas = [
 			{t.lemma_.lower() for t in doc if t.is_alpha and not t.is_stop}
-			for doc in self.docs
+			for doc in self.command_docs
 		]
 
 		#Argument Pattern Matching
@@ -141,6 +169,8 @@ class Skill:
 		if arguments:
 			for arg_pattern_key, patterns in arguments.items():
 				self.arg_matcher.add( arg_pattern_key, patterns)
+
+
 
 		self.word_max: int = 0
 		self.word_min: int = 100
@@ -174,7 +204,13 @@ class Skill:
 		patterns = []
 		for phrase in phrases:
 			pattern = []
-			for token in self.nlp(phrase):
+			# An example carries a payload of its own - "put on some music" is
+			# the command "put on" and a stand-in value. Compiling the value
+			# into the pattern means only that exact title ever matches, which
+			# defeats the point of declaring a payload at all.
+			doc = self.nlp(phrase)
+			doc = self._command_part(doc)
+			for token in doc:
 				lemma = token.lemma_.lower()
 				# spaCy's LEMMA matching is case sensitive and it capitalises
 				# some lemmas ("i" -> "I"), so a lowercased pattern could never
@@ -241,6 +277,73 @@ class Skill:
 			value = doc[trimmed:end].text.strip()
 			args[arg_label] = value or span.text
 		return args
+
+	## -- payload
+
+	def _command_part(self, doc):
+		"""
+		The doc with this skill's payload removed.
+
+		Applied to examples as well as to what somebody said, so a command is
+		compared against a command. Comparing "put on" to "put on some music"
+		measures the stand-in title, which is exactly the noise a payload
+		exists to keep out.
+		"""
+		span = self.payload_span(doc)
+		return doc[:span[1]] if span else doc
+
+	def payload_span(self, doc) -> tuple:
+		"""
+		(name, start, end) for the opaque part of an utterance, or None.
+
+		`start` is the first token of the value; `end` is the end of the doc.
+		Anchors are searched anywhere rather than only at the beginning, so
+		"can you play X" works as well as "play X".
+		"""
+		if not self._anchors:
+			return None
+
+		lowered = [token.lower_ for token in doc]
+		for name, anchor in self._anchors:
+			width = len(anchor)
+			for index in range(len(lowered) - width + 1):
+				if tuple(lowered[index:index + width]) != anchor:
+					continue
+				start = index + width
+				if start >= len(doc):
+					# The anchor with nothing after it - "play" on its own is
+					# a legitimate request, it simply carries no value.
+					return None
+				return name, start, len(doc)
+		return None
+
+	def payload_value(self, doc) -> dict:
+		"""
+		The payload as {name: text}, taken **verbatim**.
+
+		No trimming, unlike extract_args. A title is not a phrase with filler
+		on the front: "Let It Be" is three stopwords and trimming leaves "be".
+		"""
+		span = self.payload_span(doc)
+		if span is None:
+			return {}
+		name, start, end = span
+		text = doc[start:end].text.strip()
+		return {name: text} if text else {}
+
+	def command_lemmas(self, doc, content_only: bool = False) -> set:
+		"""
+		The lemmas of an utterance with this skill's payload removed.
+
+		Scoring a song title against a skill's examples measures nothing: the
+		title is words no example contains, so a longer one scores worse - the
+		opposite of what it should do. Removing it means "play <anything>"
+		scores exactly as well as "play".
+		"""
+		span = self.payload_span(doc)
+		limit = span[1] if span else len(doc)
+		return {token.lemma_.lower() for token in doc[:limit]
+				if token.is_alpha and (not content_only or not token.is_stop)}
 
 	def get_patterns(self):
 		return self.normalized_patterns
@@ -357,6 +460,11 @@ class SkillIntentEngine:
 	
 	def __skill_call_with_status_update(self, best_skill:Skill, match):
 		args = best_skill.extract_args(match)
+		# The payload wins where both name the same argument: it is the
+		# verbatim value, and extract_args would have trimmed it.
+		args.update(best_skill.payload_value(match))
+		if best_skill.wants_phrase:
+			args["phrase"] = match.text if hasattr(match, "text") else str(match)
 		self.client.log("info", f"Intent Args: {args}")
 		if args:
 			try:
@@ -398,7 +506,7 @@ class SkillIntentEngine:
 	def lemma_weight(self, lemma: str) -> float:
 		return getattr(self, "idf", {}).get(lemma, math.log(1 + len(self.skills()) or 1))
 
-	def rule_match(self, input_content: set) -> tuple:
+	def rule_match(self, input_content: set, doc=None) -> tuple:
 		"""
 		Fallback for phrases the Matcher missed: how much of a skill's example
 		does this utterance cover?
@@ -416,6 +524,12 @@ class SkillIntentEngine:
 			self.rebuild_idf()
 
 		for skill in self.skills():
+			# Same reason as the Matcher phase: a payload is not command
+			# vocabulary and must not be scored as though it were.
+			content = input_content
+			if skill.payload and doc is not None:
+				content = skill.command_lemmas(doc, content_only=True) or input_content
+
 			for example in skill.content_lemmas:
 				if not example:
 					continue
@@ -427,7 +541,7 @@ class SkillIntentEngine:
 					weight = self.lemma_weight(lemma)
 					total += weight
 					best_token = 0.0
-					for candidate in input_content:
+					for candidate in content:
 						similarity = fuzzy_equal(lemma, candidate)
 						if similarity > best_token:
 							best_token, best_match = similarity, candidate
@@ -442,7 +556,7 @@ class SkillIntentEngine:
 				# Precision keeps a long rambling phrase from matching a tiny
 				# example on one shared word. Harmonic mean, so both have to
 				# hold up.
-				precision = len(used) / max(1, len(input_content))
+				precision = len(used) / max(1, len(content))
 				score = (2 * recall * precision / (recall + precision)) if (recall + precision) else 0.0
 
 				if score > best_score:
@@ -477,6 +591,11 @@ class SkillIntentEngine:
 		candidates = [self.id2skill[m[0]] for m in results]
 
 		for skill in candidates:
+			# A payload skill is scored on its command words alone. Its value
+			# is words no example contains, so leaving it in makes a longer
+			# request score worse - the opposite of what it should do.
+			skill_lemmas = (skill.command_lemmas(match_doc) if skill.payload
+							else input_lemmas)
 			for example_lemmas in skill.lemmas:
 				# Both coverages, not just one. Dividing the overlap by the
 				# example length alone gives a one-word example a perfect score
@@ -492,11 +611,11 @@ class SkillIntentEngine:
 				# reason.
 				if not example_lemmas:
 					continue
-				overlap = len(input_lemmas & example_lemmas)
+				overlap = len(skill_lemmas & example_lemmas)
 				if not overlap:
 					continue
 				recall    = overlap / len(example_lemmas)
-				precision = overlap / max(1, len(input_lemmas))
+				precision = overlap / max(1, len(skill_lemmas))
 				score = (2 * recall * precision / (recall + precision)
 				         if (recall + precision) else 0.0)
 				if score > best_score:
@@ -526,7 +645,7 @@ class SkillIntentEngine:
 			# A confident Matcher hit is still taken as-is; a weak one now has
 			# to beat the rule phase, which scores against content words with
 			# their discriminating weight.
-			rule_skill, rule_score = self.rule_match(input_content)
+			rule_skill, rule_score = self.rule_match(input_content, match_doc)
 			if rule_skill is not None and rule_score > best_score:
 				best_skill, best_score = rule_skill, rule_score
 

@@ -26,6 +26,25 @@ Told apart by the `Accept` header: a script wants a 401 it can read, and a
 person looking at a blank page with some JSON on it wants to be told what to do
 about it.
 
+### Being remembered
+
+An accepted token is stored in a `ha_device_token` cookie, and read back as a
+third source alongside the query string and the `X-Client-Token` header.
+
+Without it an approved device is asked to pair again every time somebody types
+the bare address: a browser sends no `X-Client-Token`, and `<ip>:port` on its
+own carries no query string, so there is nothing left identifying the device.
+
+It is set **only after the token has been checked**, so a rejected one is never
+stored, and only when the value actually changes, so an ordinary page load
+carries no `Set-Cookie` it does not need. `HttpOnly`, and `SameSite=Lax` rather
+than `Strict` - a device following a link from a message app is still the same
+device, and `Strict` would drop the cookie and start the whole dance again.
+
+A token in the URL still wins over the cookie, and the cookie is replaced with
+whichever one worked. Revoking a device on the panel takes effect on its next
+request regardless of what it is holding.
+
 ### Two holds, not one
 
 Approving a device sets **both** `awaiting_name` and `awaiting_decision`.

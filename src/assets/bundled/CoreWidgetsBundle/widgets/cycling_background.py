@@ -58,7 +58,11 @@ class CyclingBackground(QWidget):
             self._next_path = p2
 
         # Animation drives _progress
-        self._anim = QPropertyAnimation(self, b"crossfadeProgress")
+        # The third argument is the PARENT. Without it the animation belongs
+        # to nothing, outlives the widget it animates, and fires `finished`
+        # into an object that has gone - which inside a Qt signal aborts the
+        # process rather than raising.
+        self._anim = QPropertyAnimation(self, b"crossfadeProgress", self)
         self._anim.setDuration(self._animation_ms)
         self._anim.setEasingCurve(QEasingCurve.Type.InOutCubic)
         self._anim.finished.connect(self._on_fade_done)

@@ -1,0 +1,28 @@
+{
+    "volume": {
+        "type": "int",
+        "default": 80,
+        "value": 80,
+        "suffix": "%",
+        "description": "Playback volume."
+    },
+    "duck_on_wake": {
+        "type": "bool",
+        "default": true,
+        "value": true,
+        "description": "Quieten the music while the assistant is listening."
+    },
+    "duck_volume": {
+        "type": "int",
+        "default": 5,
+        "value": 5,
+        "suffix": "%",
+        "description": "How quiet to go while the assistant is listening. Low on purpose: the microphone hears the speakers, and music loud enough to hear is loud enough to be transcribed as speech."
+    },
+    "pause_on_wake": {
+        "type": "bool",
+        "default": false,
+        "value": false,
+        "description": "Pause outright rather than quietening. Surer than any volume, at the cost of losing your place for a moment."
+    }
+}

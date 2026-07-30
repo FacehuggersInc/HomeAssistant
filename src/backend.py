@@ -7,10 +7,20 @@ from src.constants import APP_NAME
 
 from urllib.parse import urlencode
 
-from flask import Flask, jsonify, redirect, send_from_directory, request, render_template
+from flask import Flask, jsonify, redirect, send_from_directory, request, render_template, make_response
 
 ADDRESS = "0.0.0.0"
 PORT = 5000
+
+#Where an approved device's token is remembered.
+#
+#A browser sends no X-Client-Token header and a bare address carries no query
+#string, so without this an approved device is asked to request access again
+#every time somebody types the address in.
+TOKEN_COOKIE = "ha_device_token"
+#A year. The token is revocable from the panel, so expiry adds nothing except
+#somebody being asked to pair again for no reason.
+TOKEN_COOKIE_AGE = 365 * 24 * 60 * 60
 
 def FlaskService(stop_event, client, flask):
 	from werkzeug.serving import make_server
@@ -79,6 +89,7 @@ def FlaskApp(client):
 		"""
 		token = (request.args.get("token")
 				 or request.headers.get("X-Client-Token")
+				 or request.cookies.get(TOKEN_COOKIE)
 				 or "").strip()
 		if not token:
 			if _wants_html():
@@ -113,6 +124,11 @@ def FlaskApp(client):
 			# Recorded on the request, so an endpoint can tell who called it -
 			# the calendar tags what it stores with this.
 			request.environ["ha.user"] = user
+			# Remembered, so the next visit does not have to carry the token.
+			# A browser sends no X-Client-Token header, and a bare address has
+			# no query string - without this an approved device is asked to
+			# request access again every time somebody types the address.
+			request.environ["ha.set_token"] = token
 			return None
 
 		state = client.USERS.state_of(token)
@@ -427,7 +443,9 @@ def FlaskApp(client):
 		# Passed through so the page's own links and its POST carry the token
 		# that fetched it - the browser has no other way to authenticate.
 		token = request.args.get("token", "")
-		return render_template("upload_index.html", assets=uploadable, token=token)
+		from src.webui import chrome_css
+		return render_template("upload_index.html", assets=uploadable,
+							   token=token, chrome=chrome_css())
 
 	@app.route("/upload/<key>", methods=["GET"])
 	def upload_page(key):
@@ -443,7 +461,13 @@ def FlaskApp(client):
 			return {"request": "Failed", "reason": f"Asset '{key}' is not marked as uploadable"}, 403
 
 		token = request.args.get("token", "")
-		return render_template("upload.html", key=key, path=str(path), token=token)
+		# The shared chrome rather than a copy in the template. Two templates
+		# each carrying their own copy of the same CSS is how one of them
+		# ended up with no size on its back-button icon, and an SVG with no
+		# size fills whatever contains it.
+		from src.webui import chrome_css
+		return render_template("upload.html", key=key, path=str(path),
+							   token=token, chrome=chrome_css())
 
 	@app.route("/upload/<key>", methods=["POST"])
 	def upload_file(key):
@@ -765,6 +789,29 @@ def FlaskApp(client):
 				# The waiting page sends them on to name themselves rather
 				# than straight to where they were going.
 				"needs_name": client.USERS.needs_name(token)}, 200
+
+	@app.after_request
+	def remember_token(response):
+		"""
+		Put the accepted token in a cookie.
+
+		Only after it has been checked, so an unknown one is never stored -
+		and only when it is not already the cookie's value, so an ordinary
+		page load does not carry a Set-Cookie it does not need.
+		"""
+		token = request.environ.get("ha.set_token")
+		if token and request.cookies.get(TOKEN_COOKIE) != token:
+			response.set_cookie(
+				TOKEN_COOKIE, token,
+				max_age=TOKEN_COOKIE_AGE,
+				path="/",
+				httponly=True,
+				# Lax rather than Strict: a device following a link from a
+				# message app is still the same device, and Strict would drop
+				# the cookie and start the whole request-access dance again.
+				samesite="Lax",
+			)
+		return response
 
 	## DOCUMENTATION
 	@app.route("/docs", methods=["GET"])

@@ -98,6 +98,10 @@ def set_timer(self, duration: str = ""):
     ...
 ```
 
+For a value with no fixed shape — a song title, a search phrase — see
+[Payloads](#payloads--an-open-ended-value) instead. Matching those as arguments
+trims them and lowers the skill's score.
+
 ### The shape of `arguments`
 
 ```
@@ -214,6 +218,91 @@ yourself — `"ten"` and `"10"` can both reach you, and
 not a guarantee.
 
 ---
+
+## Payloads — an open-ended value
+
+`arguments` matches a *shape*. Some requests do not have one:
+
+```
+play never gonna give you up
+search for how tall the eiffel tower is
+remind me to take the bins out
+```
+
+The value is arbitrary text the engine cannot know anything about. Two things
+go wrong if you try to match it as an argument.
+
+**It drags the score down.** A skill is scored on how much of what you said its
+examples explain, so words no example contains lower it — and a title is
+nothing but such words. Scored that way, the more distinctive the title the
+*less* likely it routes:
+
+| Said | Score against `play a song` |
+|---|---|
+| `play yesterday` | 0.57 |
+| `play everlong` | 0.40 |
+| `play never gonna give you up` | 0.20 |
+
+**And it gets trimmed.** `arguments` strips leading determiners, verbs and
+prepositions, which is right for `"call it Eggs"` and ruinous for a title:
+`Let It Be` is three stopwords and comes out as `be`.
+
+### Declaring one
+
+`payload` maps an argument name to the words that introduce it:
+
+```python
+Skill(
+    wake_word   = "computer",
+    skill_key   = "play-music",
+    plugin_key  = "musicplugin",
+    examples    = ["play something", "put on some music", "play a song"],
+    payload     = {"track": ["play", "put on"]},
+    func        = self.play,
+)
+```
+
+`self.play(track="never gonna give you up")`.
+
+Three things follow from the declaration:
+
+* **Everything after the anchor is the value**, taken verbatim. Nothing is
+  trimmed, so a title made entirely of stopwords survives intact.
+* **The value is removed before scoring.** `play <anything>` scores exactly as
+  well as `play`, whatever the title's length.
+* **Patterns are built from the command part**, so `put on some music` compiles
+  to `put on` rather than requiring the word *music*.
+
+Examples have their payloads stripped too — a command is compared against a
+command, never against the stand-in title in your example.
+
+### Choosing anchors
+
+The anchor is what somebody says *before* the value, and it is matched anywhere
+in the phrase, so `can you play X` works as well as `play X`.
+
+**The longest match wins**, so listing both `put` and `put on` gives the value
+`some jazz` rather than `on some jazz`. List the longer forms; there is no cost
+to having several.
+
+```python
+payload = {"query": ["search for", "look up", "google"]}
+payload = {"reminder": ["remind me to", "remember to"]}
+payload = {"item": ["add", "put"]}
+```
+
+**Anchor on words that mean the command and nothing else.** `play` is safe;
+`for` would fire on half the timer requests. A payload skill only competes when
+its anchor is actually said, so a specific anchor keeps it out of everything
+else.
+
+An anchor with nothing after it carries no value — `"play"` alone still routes,
+and `func()` is called without the argument. Handle that case.
+
+### Both together
+
+A skill can declare `arguments` and `payload`. Where both name the same key the
+payload wins, since it is the verbatim value.
 
 ## Speaking back
 

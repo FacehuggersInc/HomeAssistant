@@ -257,3 +257,34 @@ testing for the life of the process.
 
 If you animate something of your own on the overlay layer, bracket it the same
 way and pass the ground it covers.
+
+## Dismissing a panel by pressing beside it
+
+```python
+client.create_panel(content, dismiss_on_outside_click=True)
+```
+
+A panel with no close button and nothing else to press cannot be got rid of at
+all, so anything opened deliberately should set this.
+
+**It cannot be done with an event filter on the overlay.** The overlay masks
+itself to where its children can paint, and a `QWidget` mask clips **input** as
+well as painting — so a press beside the panel never reaches the overlay, it
+goes straight to the page underneath. What catches it is a `_PanelScrim`: a
+sibling widget covering the whole overlay, stacked under the panel, which is
+inside that mask by definition because the mask is built from its children's
+geometry.
+
+The scrim is faintly darkened rather than clear. A panel that swallows a press
+with no sign of why looks broken, and a slight tint says it is in front of
+everything without dimming the page into unreadability. The press is
+**accepted**, not passed on — it meant "get rid of this", and letting it
+through would also hit whatever is underneath.
+
+Built on `open_panel()` rather than in the constructor, so a panel that is never
+opened leaves nothing behind, and released on both exits.
+
+**Off by default.** A transient panel put up by the idle rotation is dismissed
+on its own schedule, and closing it on the first touch would swallow the very
+tap that woke the screen to read it. The AI answer panel does not need it
+either — it already ends its conversation on any interaction.

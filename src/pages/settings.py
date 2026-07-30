@@ -82,7 +82,11 @@ class ToggleSwitch(QWidget):
         self._thumb_x  = float(self.W - self.H + 4) if checked else float(4)
         self._callbacks: list = []
 
-        self._anim = QPropertyAnimation(self, b"thumbX")
+        # The third argument is the PARENT. Without it the animation belongs
+        # to nothing, outlives the widget it animates, and fires `finished`
+        # into an object that has gone - which inside a Qt signal aborts the
+        # process rather than raising.
+        self._anim = QPropertyAnimation(self, b"thumbX", self)
         self._anim.setDuration(160)
         self._anim.setEasingCurve(QEasingCurve.Type.InOutQuad)
 
@@ -848,6 +852,66 @@ def _build_info_page(client) -> list:
 
 # ── Settings page ─────────────────────────────────────────────────────────────
 
+class _Collapsible(QFrame):
+    """
+    A header that folds something away.
+
+    Built for plugin readmes, which run to pages: a settings page that opens
+    with one expanded has pushed the settings somebody came for off the bottom
+    of the screen.
+    """
+
+    def __init__(self, title: str, content: QWidget, lines: int = 0,
+                 open_at_start: bool = False):
+        super().__init__()
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        set_style(self, "settings", "settings-collapsible")
+
+        self._content = content
+        self._open = bool(open_at_start)
+
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
+
+        self._header = QPushButton()
+        self._header.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._header.setFont(make_font(SIZES.S1, bold=True))
+        # Fixed height, or the button stretches to whatever the layout has
+        # spare and a one-line header becomes a slab.
+        self._header.setFixedHeight(38)
+        self._header.setSizePolicy(QSizePolicy.Policy.Preferred,
+                                   QSizePolicy.Policy.Fixed)
+        set_style(self._header, "settings", "settings-collapsible-header")
+        self._title = title
+        self._lines = int(lines)
+        self._header.clicked.connect(self.toggle)
+        outer.addWidget(self._header)
+
+        content.setVisible(self._open)
+        outer.addWidget(content)
+
+        self._sync_header()
+
+    def _sync_header(self) -> None:
+        arrow = "\u25be" if self._open else "\u25b8"
+        suffix = ""
+        if not self._open and self._lines:
+            # Said on the closed header, so it is clear there is something in
+            # there and roughly how much.
+            suffix = f"   {self._lines} line{'s' if self._lines != 1 else ''}"
+        self._header.setText(f"  {arrow}  {self._title}{suffix}")
+
+    def toggle(self) -> None:
+        self._open = not self._open
+        self._content.setVisible(self._open)
+        self._sync_header()
+
+    def set_open(self, value: bool) -> None:
+        if bool(value) != self._open:
+            self.toggle()
+
+
 class SettingsPage(PageFramework):
 
     @mixin_target("settings.__init__")
@@ -957,7 +1021,17 @@ class SettingsPage(PageFramework):
 
     # ── Builder ───────────────────────────────────────────────────────────────
 
-    def new_category(self, name: str, controls: list, label: str = None) -> None:
+    def new_category(self, name: str, controls: list, label: str = None,
+                     system: bool = False) -> None:
+        """
+        A top-level nav entry.
+
+        `system` separates the pages that exist in their own right - Users,
+        Plugins, Info - from the ones generated out of the settings file.
+        They behave differently enough to be worth telling apart: a settings
+        section is a list of values to change and save, while Users is a live
+        view of a registry with buttons that act immediately.
+        """
         self.categories[name] = {
             "label":      label or format_name(name),
             "content":    controls,
@@ -967,6 +1041,7 @@ class SettingsPage(PageFramework):
             "icon":       None,
             "readme":     None,
             "pending":    None,
+            "system":     bool(system),
         }
 
     def new_subcategory(self, parent: str, name: str, controls: list,
@@ -1066,11 +1141,11 @@ class SettingsPage(PageFramework):
         for key in grouped_dict:
             self.new_category(key.lower(), self.builder(pointer, grouped_dict, key, key))
         # Info is always last
-        self.new_category("info", _build_info_page(self.client))
+        self.new_category("info", _build_info_page(self.client), system=True)
         # Live, like Info. There is no settings path behind it - the list is
         # whatever the registry holds when the page is built, and the buttons
         # act on the registry rather than writing a value to be saved.
-        self.new_category("users", _build_users_page(self.client))
+        self.new_category("users", _build_users_page(self.client), system=True)
 
     def _page_additions(self) -> None:
         plugins = self.client.PLUGIN.get_plugins()
@@ -1087,7 +1162,7 @@ class SettingsPage(PageFramework):
         for item in self.client.PLUGIN.pending_plugins():
             overview.append(self._build_pending_header(item))
 
-        self.new_category("plugins", overview, label="Plugins")
+        self.new_category("plugins", overview, label="Plugins", system=True)
 
         for plugin, key in plugins:
             blocks = []
@@ -1346,8 +1421,19 @@ class SettingsPage(PageFramework):
         top.setContentsMargins(0, 0, 0, 0)
         top.setSpacing(8)
 
+        # Both fixed. A QLabel defaults to a Preferred policy on both axes, so
+        # in a card with spare height the name and the badge stretch to fill it
+        # - a one-line title becomes a tall block and a two-character count
+        # becomes a stripe.
+        ROW_HEIGHT = 28
+
         title = QLabel(name)
         title.setFont(make_font(SIZES.S3, bold=True))
+        title.setFixedHeight(ROW_HEIGHT)
+        title.setAlignment(Qt.AlignmentFlag.AlignLeft
+                           | Qt.AlignmentFlag.AlignVCenter)
+        title.setSizePolicy(QSizePolicy.Policy.Preferred,
+                            QSizePolicy.Policy.Fixed)
         set_style(title, "common", "text-strong")
         top.addWidget(title)
 
@@ -1355,6 +1441,10 @@ class SettingsPage(PageFramework):
         count.setFont(make_font(SIZES.S1, bold=True))
         count.setAlignment(Qt.AlignmentFlag.AlignCenter)
         count.setMinimumWidth(26)
+        count.setFixedHeight(ROW_HEIGHT)
+        # Maximum, so the badge is as wide as its number and no wider.
+        count.setSizePolicy(QSizePolicy.Policy.Maximum,
+                            QSizePolicy.Policy.Fixed)
         set_style(count, "settings", "registry-count")
         top.addWidget(count)
         top.addStretch()
@@ -1370,7 +1460,7 @@ class SettingsPage(PageFramework):
 
         return card
 
-    def _build_readme_block(self, readme_path: str) -> QLabel | None:
+    def _build_readme_block(self, readme_path: str):
         if not readme_path:
             return None
         path = Path(readme_path)
@@ -1392,7 +1482,16 @@ class SettingsPage(PageFramework):
         label.setTextInteractionFlags(Qt.TextInteractionFlag.TextBrowserInteraction)
         label.setOpenExternalLinks(True)
         set_style(label, "common", "text-muted")
-        return label
+
+        # Folded away to start with. A plugin readme can run to pages, and a
+        # page that opens on one has pushed the settings somebody came for off
+        # the bottom of the screen.
+        return _Collapsible("Readme", label, lines=self._readme_lines(text))
+
+    @staticmethod
+    def _readme_lines(text: str) -> int:
+        """A rough line count, for the summary."""
+        return len([line for line in text.splitlines() if line.strip()])
 
 
     SORT_AXES = ("alpha", "dependants", "type")
@@ -1647,33 +1746,59 @@ class SettingsPage(PageFramework):
         return btn
 
     @mixin_target("settings.setup.tab.generation")
+    def _nav_heading(self, text: str) -> QLabel:
+        label = QLabel(text.upper())
+        label.setFont(make_font(SIZES.S1, bold=True))
+        set_style(label, "settings", "settings-nav-heading")
+        return label
+
     def _build_nav(self) -> None:
         self._nav_buttons: dict[tuple, QPushButton] = {}
         first_path = None
 
-        for cat_key, entry in self.categories.items():
-            path = (cat_key, None)
-            btn = self._make_nav_button(entry["label"], indent=False)
-            btn.clicked.connect(lambda _, p=path: self._switch_tab(p))
-            self._nav_list.addWidget(btn)
-            self._nav_buttons[path] = btn
-            if first_path is None:
-                first_path = path
+        # Two sections. A settings page is a list of values to change and
+        # save; System pages are live views that act as you press them, and
+        # mixing them in one list gives no clue which is which.
+        system = [(k, e) for k, e in self.categories.items() if e.get("system")]
+        settings = [(k, e) for k, e in self.categories.items()
+                    if not e.get("system")]
 
-            subs = entry.get("subs") or {}
-            if subs:
-                rail = QFrame()
-                set_style(rail, "settings", "settings-nav-rail")
-                rail_layout = QVBoxLayout(rail)
-                rail_layout.setContentsMargins(14, 4, 0, 4)
-                rail_layout.setSpacing(4)
-                for sub_key, sub_entry in subs.items():
-                    sub_path = (cat_key, sub_key)
-                    sub_btn = self._make_nav_button(sub_entry["label"], indent=True, icon=sub_entry.get("icon"))
-                    sub_btn.clicked.connect(lambda _, p=sub_path: self._switch_tab(p))
-                    rail_layout.addWidget(sub_btn)
-                    self._nav_buttons[sub_path] = sub_btn
-                self._nav_list.addWidget(rail)
+        for heading, group in (("System", system), ("Settings", settings)):
+            if not group:
+                continue
+            if self._nav_list.count():
+                spacer = QWidget()
+                spacer.setFixedHeight(14)
+                set_style(spacer, "common", "transparent")
+                self._nav_list.addWidget(spacer)
+            self._nav_list.addWidget(self._nav_heading(heading))
+
+            for cat_key, entry in group:
+                path = (cat_key, None)
+                btn = self._make_nav_button(entry["label"], indent=False)
+                btn.clicked.connect(lambda _, p=path: self._switch_tab(p))
+                self._nav_list.addWidget(btn)
+                self._nav_buttons[path] = btn
+                # The first entry of the FIRST section, so the page opens on
+                # something rather than on whichever happened to be built
+                # first.
+                if first_path is None:
+                    first_path = path
+
+                subs = entry.get("subs") or {}
+                if subs:
+                    rail = QFrame()
+                    set_style(rail, "settings", "settings-nav-rail")
+                    rail_layout = QVBoxLayout(rail)
+                    rail_layout.setContentsMargins(14, 4, 0, 4)
+                    rail_layout.setSpacing(4)
+                    for sub_key, sub_entry in subs.items():
+                        sub_path = (cat_key, sub_key)
+                        sub_btn = self._make_nav_button(sub_entry["label"], indent=True, icon=sub_entry.get("icon"))
+                        sub_btn.clicked.connect(lambda _, p=sub_path: self._switch_tab(p))
+                        rail_layout.addWidget(sub_btn)
+                        self._nav_buttons[sub_path] = sub_btn
+                    self._nav_list.addWidget(rail)
 
         if first_path:
             self._select_path(first_path)

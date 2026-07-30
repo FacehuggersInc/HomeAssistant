@@ -518,3 +518,35 @@ legible with no child hit targets to fall out of alignment. Tapping it opens
 the keyboard dialog in body mode. Its text and colour ride along in
 `layout_state()`, which is the pattern for any widget that needs to persist
 more than geometry.
+
+## Anything that emits needs a parent
+
+A Qt object that emits on its own — `QMovie`, `QTimer`, `QPropertyAnimation` —
+**must not outlive the widget it calls into.** A widget's C++ object can be
+deleted while its Python wrapper is still alive, and an emitter held only by a
+Python attribute keeps going: the callback then touches a deleted object, and
+because that happens inside a Qt signal handler it **aborts the process**
+rather than raising something catchable.
+
+```python
+movie = QMovie(path, parent=self)                       # dies with the widget
+anim  = QPropertyAnimation(self, b"pos", self)          # third argument!
+timer = QTimer(self)
+```
+
+`QPropertyAnimation` is the trap: its first argument is the **target**, not a
+parent, so `QPropertyAnimation(tile, b"pos")` looks parented and is not.
+
+Parenting is the fix; guarding the callback with `except RuntimeError` is the
+belt to its braces, for a signal already queued when the widget went.
+
+## And only from the UI thread
+
+Qt objects may only be touched from the thread that made them. **No event
+handler is on that thread**: `on_update` comes from the update loop and
+`on_woke_assistant` from a thread the STT spawns, so anything reached from an
+event, a worker or a skill has to go through `client.call_on_ui`.
+
+Qt does not raise when this is got wrong — it **aborts the process**. There is
+no traceback and nothing to catch, so a function that both spawns work and
+touches a widget is worth reading twice.

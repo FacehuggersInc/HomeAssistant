@@ -28,6 +28,13 @@ Full detail in [docs/installation.md](docs/installation.md).
 
 ---
 
+## Optional: real screen dimming
+
+Dimming uses a dark overlay by default. For real backlight control install
+`ddcutil` (external monitors) or `brightnessctl` (laptop panels) and restart -
+`python3 hactl.py backlight --survey` shows what it picked up. See
+[docs/backlight.md](docs/backlight.md).
+
 ## Documentation
 
 The full documentation lives in the [`docs/`](docs/) folder as plain markdown,
@@ -105,5 +112,9 @@ Each is a page in the docs.
 ## Requirements
 
 Python 3.10 or newer. PyQt6, Flask, and the packages in `requirements.txt`.
+
 The voice assistant additionally wants a working microphone and will download a
-Whisper model on first use; everything else runs without it.
+Whisper model on first use. Real screen dimming wants `ddcutil` for an external
+monitor or `brightnessctl` for a laptop panel. Everything else runs without
+either - the assistant simply stays off, and dimming falls back to a dark
+overlay.

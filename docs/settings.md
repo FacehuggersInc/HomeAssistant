@@ -204,6 +204,29 @@ settings live in its `settings.json` and are documented with the plugin.
 | `plugins.weather.longitude` | float | `-95.8608` deg. | The Longitude of your city |
 | `plugins.weather.timezone` | string | `America/Chicago` | The timezone you're in |
 
+## Plugin readmes
+
+A plugin's readme appears on its settings page **folded away**, with a header
+saying how many lines are in there. They run to pages, and a page that opens
+with one expanded has pushed the settings somebody came for off the bottom of
+the screen.
+
+## The navigation
+
+Two sections.
+
+**System** holds the pages that exist in their own right — Users, Plugins,
+Info. They are live views of a registry whose buttons act the moment you press
+them.
+
+**Settings** holds everything generated from the settings file, plus each
+plugin's own section. Those are lists of values to change and save.
+
+The two behave differently enough to be worth telling apart, and mixing them in
+one list gives no clue which is which. `new_category(..., system=True)` puts an
+entry in the first; the default is the second, so a plugin adding a category
+lands where a reader expects.
+
 ### Debug mode
 
 `debug.enabled` is one flag the whole app reads, rather than each plugin

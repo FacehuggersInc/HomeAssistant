@@ -32,13 +32,19 @@ class StickerWidget(Widget):
     DESCRIPTION = "An image or GIF from your sticker folder."
 
     RESIZABLE = True
+    #A picture. Dragging a corner freely squashes it, and nobody drags a
+    #corner meaning to distort what is inside.
+    KEEP_ASPECT = True
     ROTATABLE = True
     FLOATABLE = True
     REMOVABLE = True
     MULTIPLE  = True        # each Add is another sticker
 
-    MIN_W, MIN_H = 64, 64
-    MAX_W, MAX_H = 640, 640
+    MIN_W, MIN_H = 48, 48
+    #Room to be genuinely large. 640 was the binding constraint on every
+    #choice above "normal": on a 2560px panel it is a quarter of the width, so
+    #"huge" came out the same size as "large".
+    MAX_W, MAX_H = 1600, 1600
     DEFAULT_ANCHOR = "top-right"
 
     DEFAULT_SIDE = 180
@@ -97,11 +103,27 @@ class StickerWidget(Widget):
 
         path = str(entry.path)
         if entry.kind == "animated":
-            movie = QMovie(path)
+            # Parented to this widget. Without a parent the movie's lifetime
+            # is only the Python reference, so it keeps running after the
+            # widget's C++ object has gone and fires frameChanged into
+            # something deleted - which aborts rather than raising, because it
+            # happens inside a Qt signal.
+            movie = QMovie(path, parent=self)
             if movie.isValid() and movie.frameCount() != 1:
                 movie.setCacheMode(QMovie.CacheMode.CacheNone)
-                movie.frameChanged.connect(lambda _i: self.update())
+                # Guarded as well as parented. A frame already queued when the
+                # widget went is still delivered, and there is nothing left to
+                # repaint.
+                movie.frameChanged.connect(self._on_frame)
                 self._movie = movie
+                # Sized from the source before the movie is scaled to it.
+                #
+                # This branch used to return without fitting at all, so an
+                # animated sticker kept the placeholder square it was built
+                # with and every size choice produced the same 180px - the
+                # still-image path below was the only one that ever read
+                # `longest_side`.
+                self._fit_to_source()
                 self._apply_movie_size()
                 movie.start()
                 self.update()
@@ -120,9 +142,7 @@ class StickerWidget(Widget):
         self.update()
 
     def _release(self) -> None:
-        if self._movie is not None:
-            self._movie.stop()
-            self._movie = None
+        self._stop_movie()
         self._pixmap = None
         self._scaled = None
         self._scaled_for = None
@@ -132,6 +152,15 @@ class StickerWidget(Widget):
     def _source_size(self) -> Optional[QSize]:
         if self._movie is not None:
             size = self._movie.currentPixmap().size()
+            if not (size.isValid() and size.width() > 0):
+                # Nothing has been decoded yet. currentPixmap() is empty until
+                # the movie has a frame, so asking for one is what makes the
+                # source size readable - and this runs before start().
+                try:
+                    self._movie.jumpToFrame(0)
+                    size = self._movie.currentPixmap().size()
+                except Exception:
+                    size = QSize()
             if size.isValid() and size.width() > 0:
                 return size
         if self._pixmap is not None and not self._pixmap.isNull():
@@ -158,6 +187,35 @@ class StickerWidget(Widget):
         self.set_content_size(width, height)
         bounds_w, bounds_h = self.rotated_bounds(width, height)
         self.setFixedSize(bounds_w, bounds_h)
+
+    def _on_frame(self, _index: int = 0) -> None:
+        try:
+            self.update()
+        except RuntimeError:
+            # The widget has gone. Stop the movie so it is not asked again.
+            movie, self._movie = self._movie, None
+            if movie is not None:
+                try:
+                    movie.stop()
+                except RuntimeError:
+                    pass
+
+    def closeEvent(self, event) -> None:
+        self._stop_movie()
+        super().closeEvent(event)
+
+    def _stop_movie(self) -> None:
+        movie, self._movie = self._movie, None
+        if movie is None:
+            return
+        try:
+            movie.frameChanged.disconnect(self._on_frame)
+        except (TypeError, RuntimeError):
+            pass
+        try:
+            movie.stop()
+        except RuntimeError:
+            pass
 
     def _apply_movie_size(self) -> None:
         if self._movie is None:

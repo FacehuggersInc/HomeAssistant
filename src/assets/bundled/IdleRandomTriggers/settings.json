@@ -2,7 +2,7 @@
     "rotate_time": {
         "type": "int",
         "default": 10000,
-        "value": 5000,
+        "value": 60000,
         "description": "Time in ms before the Carousel rotates to the next builder"
     },
     "sprint_items": {
@@ -14,7 +14,7 @@
     "sprint_break": {
         "type": "int",
         "default": 300000,
-        "value": 5000,
+        "value": 300000,
         "suffix": "ms",
         "description": "How long the screen is left alone between runs."
     }

@@ -296,6 +296,9 @@ class CoreSkills(Plugin):
                     "disregard that", "scratch that", "dont worry about it",
                 ],
                 func=self.nevermind,
+                # Which word was said decides what it does, so the whole
+                # utterance is needed rather than an argument out of it.
+                wants_phrase=True,
             ),
             Skill(
                 wake_word=wake, skill_key="quit-application", plugin_key=key,
@@ -411,12 +414,27 @@ class CoreSkills(Plugin):
 
     ## SKILL BODIES
 
-    def nevermind(self):
-        # STTProcessing.cancel() already short-circuits cancel phrases before
-        # intent matching, so this mostly exists so the skill is discoverable
-        # in Settings and so the bar acknowledges it.
-        self.client.cancel_assistant("nevermind")
+    def nevermind(self, phrase: str = "", **_ignored):
+        """
+        Back out of whatever is in front.
 
+        What that means depends on what is going on: an answer panel should
+        close, music should stop, and with neither of those the assistant
+        should simply stand down. And the words are not interchangeable -
+        "stop" fits music where "nevermind" does not - so each thing that can
+        be cancelled registers its own words and its own condition on
+        `client.CANCEL`, and this asks rather than holding a list of cases that
+        would grow every time something new appeared.
+        """
+        action = self.client.CANCEL.run(phrase)
+
+        if action is None:
+            # Nothing was in front. Standing down is the whole instruction.
+            self.client.cancel_assistant("nevermind")
+            return
+
+        if action.stops_listening:
+            self.client.cancel_assistant(f"nevermind: {action.key}")
     def quit_application(self):
         try:
             confirm = bool(self.settings.general.confirm_quit.value)

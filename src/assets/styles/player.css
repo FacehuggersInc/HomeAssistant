@@ -1,0 +1,13 @@
+/* The now-playing widget. Source-agnostic: nothing here knows or cares what
+ * is doing the playing.
+ *
+ * The card's own background is painted rather than set here - a stylesheet
+ * gradient on a QWidget does not follow a resize, and this card is as wide as
+ * its title.
+ */
+
+.cover {
+    background: rgba(255,255,255,20);
+    border: 1px solid rgba(255,255,255,32);
+    border-radius: 8px;
+}

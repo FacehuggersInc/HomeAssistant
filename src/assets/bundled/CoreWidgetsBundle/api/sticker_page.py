@@ -124,7 +124,7 @@ __MESSAGE__
     <div id="sizeRow" style="display:__SIZE_ROW__">
       <label for="size">Longest side (pixels)</label>
       <input id="size" name="size" type="number" min="32" max="1200"
-             value="__SIZE__">
+             value="__SIZE__"__SIZE_OFF__>
     </div>
 
     <button type="submit" id="go" __GO_STATE__>__GO_LABEL__</button>
@@ -172,8 +172,12 @@ __MESSAGE__
      this.value === 'temporary' ? 'block' : 'none';
  });
  document.getElementById('scale').addEventListener('change', function(){
-   document.getElementById('sizeRow').style.display =
-     this.value === 'custom' ? 'block' : 'none';
+   var custom = this.value === 'custom';
+   document.getElementById('sizeRow').style.display = custom ? 'block' : 'none';
+   // Disabled as well as hidden. display:none hides a field; it does not stop
+   // the browser submitting it, and a stray pixel value arriving alongside a
+   // named size is exactly what made the names look identical.
+   document.getElementById('size').disabled = !custom;
  });
  // Asked first. This removes a file, and the grid is where a mis-tap lands.
  document.getElementById('rm').addEventListener('click', function(e){
@@ -190,8 +194,19 @@ __MESSAGE__
 MODES = [("permanent", "Permanently, until I remove it"),
          ("temporary", "Temporarily")]
 
-SCALES = [("0.5", "Small"), ("1", "Normal"), ("1.5", "Large"),
-          ("2", "Huge"), ("custom", "Exact size\u2026")]
+#Named, not numbered.
+#
+#Each name is a share of the panel's width rather than a multiplier on a fixed
+#number: "huge" as 2x180px was 360px, which on a 2560px panel is a seventh of
+#the width - the same size "large" looks, and nothing like the word.
+#
+#Names rather than the fractions themselves because the two ranges overlap. The
+#old values were 0.5 to 2 and a share is 0.02 to 0.95, so "0.5" could mean
+#either the old "small" or half the screen. A word cannot be mistaken for
+#either, and a link still passing a number keeps its old meaning exactly.
+SCALES = [("small", "Small"), ("normal", "Normal"), ("large", "Large"),
+          ("huge", "Huge"), ("enormous", "Enormous"),
+          ("custom", "Exact size\u2026")]
 
 
 def _options(choices, chosen: str) -> str:
@@ -216,7 +231,7 @@ def render_page(token: str, stickers: list, message: str = "",
     form = form or {}
     quadrant = str(form.get("quadrant") or "center")
     mode = str(form.get("mode") or "permanent")
-    scale = str(form.get("scale") or "1")
+    scale = str(form.get("scale") or "normal")
     timeout = str(form.get("timeout") or "300")
     size = str(form.get("size") or "180")
     chosen = str(form.get("sticker") or "")
@@ -269,6 +284,7 @@ def render_page(token: str, stickers: list, message: str = "",
             .replace("__SIZE__", _escape(size))
             .replace("__TIMEOUT_ROW__", "block" if mode == "temporary" else "none")
             .replace("__SIZE_ROW__", "block" if scale == "custom" else "none")
+            .replace("__SIZE_OFF__", "" if scale == "custom" else " disabled")
             .replace("__GO_STATE__", "" if chosen else "disabled")
             .replace("__GO_LABEL__",
                      f'Place "{_escape(label)}"' if chosen

@@ -199,7 +199,11 @@ class CoreWidgetsBundle(Plugin):
 
     ## CALLBACKS
     def api_endpoint_test(self, *args, **kwargs):
-        panel = self.client.create_panel(on_created=self.panel_callback)
+        # Dismissable by pressing beside it as well as by the timer below -
+        # fifteen seconds is a long time to look at a test panel you have
+        # finished with.
+        panel = self.client.create_panel(on_created=self.panel_callback,
+                                         dismiss_on_outside_click=True)
         return {"request": "Success"}, 200
 
     def panel_callback(self, panel):
@@ -319,7 +323,7 @@ class CoreWidgetsBundle(Plugin):
 
     def api_sticker_add(self, sticker: str = "", quadrant: str = "center",
                         mode: str = "permanent", timeout=0, x=None, y=None,
-                        scale="1", size=0, delete_after=None, remove: str = "",
+                        scale="normal", size=0, delete_after=None, remove: str = "",
                         files=None, **_ignored):
         """
         The page a phone does this from, and the actions it posts back.
@@ -387,7 +391,7 @@ class CoreWidgetsBundle(Plugin):
 
     def api_sticker_place(self, sticker: str = "", quadrant: str = "center",
                           mode: str = "permanent", timeout=0, x=None, y=None,
-                          scale="1", size=0, delete_after=None, **_ignored):
+                          scale="normal", size=0, delete_after=None, **_ignored):
         """The same placement, as JSON, for a script rather than a person."""
         if not sticker:
             return {"request": "Failed", "reason": "Pass sticker=<filename>."}, 400
@@ -398,34 +402,80 @@ class CoreWidgetsBundle(Plugin):
             return {"request": "Failed", "reason": reason}, 400
         return {"request": "Success", "sticker": sticker, "detail": reason}, 200
 
-    @staticmethod
-    def _longest_side(scale="1", size=0) -> int:
+    #What each name means, as a share of the panel's width. A share rather
+    #than a pixel count so the words mean the same thing on any panel.
+    SIZE_SHARES = {
+        "small":    0.08,
+        "normal":   0.16,
+        "large":    0.30,
+        "huge":     0.50,
+        "enormous": 0.75,
+    }
+
+    def _longest_side(self, scale="normal", size=0) -> int:
         """
         The starting size in pixels, from either control.
 
+        `scale` is a **share of the panel's width**, not a multiplier on a
+        fixed number. A multiplier means whatever the panel happens to be:
+        "huge" as 2x180px is 360px, which on a 2560px screen is a seventh of
+        the width - indistinguishable from "large", and nothing like the word.
+
         `size` wins when given, because "exact size" is a more specific answer
-        than a multiplier. Both are clamped: the page is HTML anyone can post
-        to, and a sticker 9000px across is not a sticker.
+        than a share. Both are clamped: the page is HTML anyone can post to,
+        and a sticker 9000px across is not a sticker.
         """
         from .widgets.sticker import StickerWidget
-        try:
-            exact = int(float(size or 0))
-        except (TypeError, ValueError):
-            exact = 0
-        if exact > 0:
-            return max(StickerWidget.MIN_W, min(StickerWidget.MAX_W, exact))
-        try:
-            factor = float(scale or 1)
-        except (TypeError, ValueError):
-            factor = 1.0
-        factor = max(0.1, min(6.0, factor))
+
+        name = str(scale or "normal").strip().lower()
+
+        # An exact size belongs to the "custom" choice and is only read for it.
+        #
+        # Not "whenever a number arrives": the page's pixel field is hidden with
+        # display:none when another size is chosen, and a field hidden that way
+        # is still submitted. Reading it whenever it had a value meant its
+        # default of 180 won every time and the size choice did nothing at all.
+        if name == "custom":
+            try:
+                exact = int(float(size or 0))
+            except (TypeError, ValueError):
+                exact = 0
+            if exact > 0:
+                return max(StickerWidget.MIN_W,
+                           min(StickerWidget.MAX_W, exact))
+            # Asked for an exact size without giving one.
+            name = "normal"
+        share = self.SIZE_SHARES.get(name)
+
+        if share is None:
+            # A number. Still the old multiplier on DEFAULT_SIDE, because that
+            # is what any existing link or script means by it - the two ranges
+            # overlap, so guessing would silently change what those do.
+            try:
+                factor = float(name)
+            except (TypeError, ValueError):
+                factor = 1.0
+            factor = max(0.1, min(6.0, factor))
+            return max(StickerWidget.MIN_W,
+                       min(StickerWidget.MAX_W,
+                           int(StickerWidget.DEFAULT_SIDE * factor)))
+
         return max(StickerWidget.MIN_W,
                    min(StickerWidget.MAX_W,
-                       int(StickerWidget.DEFAULT_SIDE * factor)))
+                       int(self._screen_width() * share)))
+
+    def _screen_width(self) -> int:
+        try:
+            host = self.client.OVERLAYS
+            if host is not None and host.width() > 0:
+                return host.width()
+        except Exception:
+            pass
+        return 1280
 
     def _place_sticker(self, name: str, quadrant: str = "center",
                        mode: str = "permanent", timeout=0, x=None, y=None,
-                       scale="1", size=0, delete_after=None):
+                       scale="normal", size=0, delete_after=None):
         """
         Put a sticker on the home screen. Returns (ok, message).
 

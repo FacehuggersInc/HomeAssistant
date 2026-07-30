@@ -142,6 +142,8 @@ class Icons:
     STOP            = "stop"
     SKIP_NEXT       = "skip-next"
     SKIP_PREVIOUS   = "skip-previous"
+    RESTART         = "restart"
+    PLAY_PAUSE      = "play-pause"
     SHUFFLE         = "shuffle"
     REPEAT          = "repeat"
     VOLUME_UP       = "volume-up"

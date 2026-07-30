@@ -211,6 +211,74 @@ CANCEL_PHRASES = {
 }
 
 
+# What Whisper says when nobody is speaking.
+#
+# It was trained on video transcriptions, so on silence or on noise just above
+# the voice-activity threshold the decoder falls back on what usually comes
+# next in that training data - end-screen boilerplate and subtitle credits.
+# Research on the behaviour found about 35% of all hallucinations are two
+# phrases and over half come from the top ten, so a short list covers most of
+# it.
+#
+# Matched against the WHOLE utterance and never within one: "thanks" inside a
+# real sentence is a real word, and only a bare "thanks" arriving from a quiet
+# room is suspect.
+HALLUCINATIONS = {
+    # end-screen boilerplate
+    "thank you", "thank you very much", "thanks", "thanks a lot",
+    "thank you for watching", "thanks for watching",
+    "thank you for watching this video", "thanks for watching this video",
+    "please subscribe", "subscribe to my channel",
+    "please subscribe to my channel", "like and subscribe",
+    "dont forget to subscribe", "don't forget to subscribe",
+    "see you next time", "see you in the next video", "bye", "bye bye",
+    "goodbye", "the end", "thats all", "that's all", "thats it", "that's it",
+    # subtitle credits, which leak in verbatim
+    "subtitles by the amara org community",
+    "subtitles by the amaraorg community",
+    "translated by the amara org community",
+    "transcribed by otter ai", "transcription by castingwordscom",
+    "amara org", "amaraorg", "otter ai",
+    # what music tends to produce
+    "like that", "you", "yeah", "oh", "mm", "mmm", "hmm", "uh", "um",
+    "music", "applause", "laughter", "silence", "blank audio",
+    "instrumental", "outro", "intro music", "background music",
+}
+
+#A phrase saying the same short thing over and over is the other shape a
+#hallucination takes - "thank you thank you thank you".
+_REPEAT_LIMIT = 3
+
+
+def is_hallucination(text: str) -> bool:
+    """
+    Whether an utterance is the transcriber inventing something.
+
+    Nothing here is a command this panel answers to, so dropping a real
+    "thanks" costs nothing - while acting on one costs the panel doing
+    something nobody asked for, in the middle of a song.
+    """
+    stripped = " ".join(str(text or "").lower().split())
+    stripped = stripped.strip(" .!?,")
+    if not stripped:
+        return True
+    if stripped in HALLUCINATIONS:
+        return True
+
+    # The same word or short phrase repeated. Real speech to a panel does not
+    # look like this.
+    words = stripped.split()
+    if len(words) >= _REPEAT_LIMIT and len(set(words)) == 1:
+        return True
+    for size in (2, 3):
+        if len(words) >= size * _REPEAT_LIMIT and len(words) % size == 0:
+            chunks = {" ".join(words[i:i + size])
+                      for i in range(0, len(words), size)}
+            if len(chunks) == 1:
+                return True
+    return False
+
+
 def is_cancel(text: str) -> bool:
     """Whether an utterance is the user backing out."""
     if not text:

@@ -312,7 +312,11 @@ class TilePanel(Panel):
         scroll.setWidget(self.list_widget)
         layout.addWidget(scroll, stretch=1)
 
-        self.anim = QPropertyAnimation(self, b"pos")
+        # The third argument is the PARENT. Without it the animation belongs
+        # to nothing, outlives the widget it animates, and fires `finished`
+        # into an object that has gone - which inside a Qt signal aborts the
+        # process rather than raising.
+        self.anim = QPropertyAnimation(self, b"pos", self)
         self.anim.setDuration(220)
         self.anim.setEasingCurve(QEasingCurve.Type.OutCubic)
 

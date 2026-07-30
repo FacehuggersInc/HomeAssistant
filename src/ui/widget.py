@@ -46,6 +46,10 @@ class Widget(QWidget):
     DESCRIPTION = ""
 
     RESIZABLE = False
+    #Whether a resize keeps the shape it started with. For anything showing a
+    #picture: dragging a corner freely squashes it, and nobody drags a corner
+    #meaning to distort what is inside.
+    KEEP_ASPECT = False
     ROTATABLE = False          # requires the widget to paint itself, see below
     FLOATABLE = False
     REMOVABLE = True
@@ -467,6 +471,9 @@ class WidgetFramework(QWidget):
 
         self.active: Optional[Widget] = None
         self._mode = ""
+        #the shape a resize started at, for an aspect-locked drag
+        self._start_w, self._start_h = 0, 0
+        self._start_ratio = 1.0
         self._grab_offset = QPoint()
         self._start_angle = 0.0
         self._start_vector = 0.0
@@ -1012,6 +1019,26 @@ class WidgetFramework(QWidget):
             origin = self._frame_pos(widget)
             width = max(widget.MIN_W, min(widget.MAX_W, point.x() - origin.x()))
             height = max(widget.MIN_H, min(widget.MAX_H, point.y() - origin.y()))
+
+            if getattr(widget, "KEEP_ASPECT", False):
+                # Driven by whichever axis was dragged further, so the corner
+                # follows the finger on the axis somebody is actually pulling
+                # rather than fighting them on the other one.
+                ratio = self._start_ratio or 1.0
+                if abs(width - self._start_w) >= abs(height - self._start_h):
+                    height = width / ratio
+                else:
+                    width = height * ratio
+                # Clamped after, and on both axes together: clamping one alone
+                # is how a resize ends up out of shape at the limits.
+                scale = min(1.0,
+                            widget.MAX_W / max(1.0, width),
+                            widget.MAX_H / max(1.0, height))
+                width, height = width * scale, height * scale
+                scale = max(1.0,
+                            widget.MIN_W / max(1.0, width),
+                            widget.MIN_H / max(1.0, height))
+                width, height = width * scale, height * scale
             # setFixedSize, not resize: an anchored widget is inside a layout
             # that would otherwise put its size hint straight back. A fixed
             # size is what the layout has to honour, and it is what keeps the
@@ -1339,6 +1366,14 @@ class WidgetFramework(QWidget):
             return
         if handle == "resize":
             self._mode = "resize"
+            # The shape it started at, so an aspect-locked drag has something
+            # to keep. Taken here, where the drag begins, rather than in the
+            # hit-rect builder - that runs on hover too, and re-reading it
+            # mid-drag would compound its own rounding until the sticker crept
+            # square.
+            self._start_w, self._start_h = self.active.content_size()
+            self._start_ratio = (self._start_w / float(self._start_h)
+                                 if self._start_h else 1.0)
         elif handle == "rotate":
             self._mode = "rotate"
             widget = self.active

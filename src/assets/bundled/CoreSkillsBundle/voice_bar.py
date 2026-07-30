@@ -70,11 +70,19 @@ class VoiceBar(QWidget):
         self._font = make_font(SIZES.S2)
         self._metrics = QFontMetrics(self._font)
 
-        self._slide = QPropertyAnimation(self, b"pos")
+        # The third argument is the PARENT. Without it the animation belongs
+        # to nothing, outlives the widget it animates, and fires `finished`
+        # into an object that has gone - which inside a Qt signal aborts the
+        # process rather than raising.
+        self._slide = QPropertyAnimation(self, b"pos", self)
         self._slide.setDuration(260)
         self._slide.setEasingCurve(QEasingCurve.Type.OutCubic)
 
-        self._fade = QPropertyAnimation(self, b"bar_opacity")
+        # The third argument is the PARENT. Without it the animation belongs
+        # to nothing, outlives the widget it animates, and fires `finished`
+        # into an object that has gone - which inside a Qt signal aborts the
+        # process rather than raising.
+        self._fade = QPropertyAnimation(self, b"bar_opacity", self)
         self._fade.setDuration(240)
         self._fade.setEasingCurve(QEasingCurve.Type.InOutQuad)
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from datetime import datetime
+from threading import Thread
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel,
@@ -14,6 +15,7 @@ from src.ui.overlays import Panel
 from src.ui.controls.buttons import IconButton
 from src.ui.icons import Icons, icon as resolve_icon
 from src.system import volume as system_volume
+from src.system import media_keys
 
 
 def _local_ip() -> str:
@@ -277,6 +279,9 @@ class QuickSettings(Panel):
         self._clock_timer = QTimer(self)
         self._clock_timer.setInterval(1000)
         self._clock_timer.timeout.connect(self._tick_clock)
+        self._clock_timer.timeout.connect(self._tick_volume)
+        #so a slow read does not stack up behind itself
+        self._volume_busy = False
 
         self._timeout_id = self.client.TIMEOUTS.add(
             self.AUTO_CLOSE, self.close_panel, "__timeout_quick_settings")
@@ -326,11 +331,94 @@ class QuickSettings(Panel):
     def _now(self) -> str:
         return datetime.now().strftime("%A  %H:%M")
 
+    def _tick_volume(self) -> None:
+        """
+        Follow the system volume while the panel is open.
+
+        Read again rather than trusted: a media key, another application or a
+        mixer can move it, and a slider showing a level the machine is not at
+        is worse than no slider.
+
+        On a worker because reading it shells out, and this runs once a second
+        for as long as the panel is up.
+        """
+        if self._volume is None or not self.isVisible():
+            return
+        if self._volume_busy:
+            return
+        self._volume_busy = True
+
+        def work():
+            level = -1
+            try:
+                level = system_volume.get_volume()
+            except Exception:
+                level = -1
+            finally:
+                self._volume_busy = False
+            if level >= 0:
+                self.client.call_on_ui(lambda: self._show_volume(level))
+
+        Thread(target=work, name="__quick_volume", daemon=True).start()
+
+    def _show_volume(self, level: int) -> None:
+        """Put a level on the slider without writing it back."""
+        if self._volume is None:
+            return
+        try:
+            # Left alone while it is being dragged: overwriting the handle
+            # under somebody's finger fights them.
+            if self._volume.slider.isSliderDown():
+                return
+            if self._volume.slider.value() == level:
+                return
+            self._volume.slider.blockSignals(True)
+            self._volume.slider.setValue(level)
+            self._volume.readout.setText(f"{level}%")
+            self._volume.slider.blockSignals(False)
+        except RuntimeError:
+            self._volume = None
+
     def _tick_clock(self) -> None:
         try:
             self._clock.setText(self._now())
         except RuntimeError:
             self._clock_timer.stop()
+
+    def _build_media_row(self) -> QWidget:
+        """Previous, play/pause, next - centred under the sliders."""
+        row = QWidget()
+        set_style(row, "common", "transparent")
+        layout = QHBoxLayout(row)
+        layout.setContentsMargins(0, 6, 0, 2)
+        layout.setSpacing(10)
+        layout.addStretch()
+
+        for icon, action, size in (
+            (Icons.SKIP_PREVIOUS, "previous", 26),
+            (Icons.PLAY_PAUSE,    "toggle",   34),
+            (Icons.SKIP_NEXT,     "next",     26),
+        ):
+            button = IconButton(icon, lambda a=action: self._send_media(a),
+                                size=size)
+            layout.addWidget(button)
+
+        layout.addStretch()
+        return row
+
+    def _send_media(self, action: str) -> None:
+        """
+        Send a media key, off the UI thread.
+
+        It shells out, and a mixer or a player that is slow to answer would
+        otherwise freeze the panel for as long as it took.
+        """
+        def work():
+            if not media_keys.send(action):
+                self.client.log("debug", f"[QuickSettings] Nothing took the "
+                                         f"'{action}' media key.")
+        Thread(target=work, name="__media_key", daemon=True).start()
+        self._restart_timeout()
 
     ## -- cards
 
@@ -383,6 +471,18 @@ class QuickSettings(Panel):
             self._volume = None
             self.client.log("info", "[QuickSettings] No system volume backend "
                                     "found - the volume slider is hidden.")
+
+        # Media keys for whatever the machine is playing - a browser tab, a
+        # music player, anything that registered for them. Not this panel's own
+        # player, which has its own controls on the now-playing card.
+        if media_keys.available():
+            self._system_card.layout_.addWidget(self._build_media_row())
+            self.client.log("info", f"[QuickSettings] Media keys via "
+                                    f"{media_keys.describe()}.")
+        else:
+            # Hidden rather than dead, for the same reason as the slider.
+            self.client.log("info", "[QuickSettings] No media-key tool found - "
+                                    "install playerctl for media controls.")
 
         self._system_card.layout_.addStretch()
         cards.addWidget(self._system_card, stretch=2)

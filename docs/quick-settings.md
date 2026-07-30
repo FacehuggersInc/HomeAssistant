@@ -184,6 +184,31 @@ The panel closes even if the press raised, so a broken entry cannot leave it
 stuck open. Both bundled navigating entries use it: *Night clock* and
 *Widgets*.
 
+## Volume
+
+The slider **follows the system volume** while the panel is open, re-read once a
+second. A media key, another application or a mixer can move it, and a slider
+showing a level the machine is not at is worse than no slider.
+
+Read on a worker, since reading it shells out, and left alone while it is being
+dragged — overwriting the handle under somebody's finger fights them.
+
+## Media controls
+
+Previous, play/pause and next, under the sliders on the System side. These are
+the **media keys a keyboard sends**, so they reach whatever the desktop
+considers to be playing — a browser tab, a music player, anything that
+registered for them. The panel's own player has its own controls on the
+now-playing card; this is for everything else.
+
+`playerctl` is used when installed, since it speaks MPRIS directly. Failing
+that the keys are synthesised with `xdotool` or `ydotool`, which is harder on
+Wayland than on X11 and may not be possible at all. **The row is hidden when no
+tool can send them** — on a wall panel there is no console to check why a button
+does nothing.
+
+Sending happens off the UI thread, because it shells out.
+
 ## Brightness
 
 The slider drives `client.DIMMER`, which uses **real backlight control** where

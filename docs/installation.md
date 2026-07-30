@@ -84,3 +84,29 @@ python3 hactl.py backlight --survey
 
 [Screen brightness](backlight.md) covers every route, what each one needs, and
 what to do when the survey still says no.
+
+## A USB touchscreen that stops responding
+
+A touchscreen that only fails after the machine has been idle for a long time,
+and comes back when you unplug and replug it, is **USB autosuspend**: the
+kernel powers the device down after inactivity and it does not wake up. Sleep
+and the screensaver are unrelated.
+
+```bash
+./tools/touchscreen-keepalive.sh            # what is connected, and its state
+./tools/touchscreen-keepalive.sh --wake     # turn it off now, until reboot
+./tools/touchscreen-keepalive.sh --install  # write a udev rule to keep it off
+```
+
+Start with `--wake`. It writes only to sysfs, so a reboot undoes it — which is
+what makes it safe to try — and if the screen then survives an idle it would
+normally not, `--install` makes it permanent.
+
+The script finds the screen by asking the kernel which input devices report
+absolute coordinates rather than by matching a product name, so a mouse is not
+mistaken for a touchscreen and an unhelpfully-named screen is still found. It
+covers the **hub** as well as the device: a suspended hub takes everything on
+it down, and the device's own setting cannot help then.
+
+`--install` prints the exact rule and asks before writing anything. `--status`
+needs no sudo at all.

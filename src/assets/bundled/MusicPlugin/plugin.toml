@@ -1,0 +1,9 @@
+[plugin]
+name = "Music"
+key = "musicplugin"
+order = 20
+dependencies = ["corewidgetsbundle"]
+icon = "music"
+
+[settings]
+path = "src/assets/bundled/MusicPlugin/settings.json"

@@ -106,6 +106,18 @@ class TileGrid(QWidget):
         except Exception as e:
             self.client.log("warning", f"[TileGrid] Could not save layout: {e}")
 
+    def _on_snap_finished(self) -> None:
+        """
+        Guarded as well as parented.
+
+        A `finished` already queued when the grid went is still delivered, and
+        there is nothing left to save it to.
+        """
+        try:
+            self.save_positions()
+        except RuntimeError:
+            pass
+
     def save_positions(self) -> None:
         # Span as well as position, so a resized tile comes back resized.
         self._write({
@@ -172,12 +184,17 @@ class TileGrid(QWidget):
         tile.grid_row = row
         tile.resize(rect.width(), rect.height())
         if animate:
-            anim = QPropertyAnimation(tile, b"pos")
+            # Parented to the tile. The first argument to QPropertyAnimation
+            # is the TARGET, not a parent - so without the third it belongs to
+            # nothing, outlives whatever it was animating, and fires finished
+            # into an object that has gone. Inside a Qt signal that aborts the
+            # process rather than raising.
+            anim = QPropertyAnimation(tile, b"pos", tile)
             anim.setDuration(180)
             anim.setEasingCurve(QEasingCurve.Type.OutCubic)
             anim.setStartValue(tile.pos())
             anim.setEndValue(rect.topLeft())
-            anim.finished.connect(self.save_positions)
+            anim.finished.connect(self._on_snap_finished)
             anim.start()
             tile.snap_anim = anim   #keep a reference so it isn't garbage collected mid-flight
         else:

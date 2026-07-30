@@ -66,13 +66,44 @@ class AIFallback(Plugin):
         self._dismissed = False
         self._lock = Lock()
 
+    def _panel_is_open(self) -> bool:
+        """Whether there is a conversation on screen to back out of."""
+        return bool(self.session is not None or
+                    (getattr(self, "_panel", None) is not None
+                     and not getattr(self, "_dismissed", True)))
+
     def load(self, carryover=None):
         self.client.subscribe_to_event("on_assistant_fallback", self.on_fallback)
         self.client.subscribe_to_event("on_interaction", self.on_interaction)
 
+        # "Nevermind" belongs to a question somebody has thought better of
+        # asking, which is exactly this. "Stop" too, since a panel reading an
+        # answer out is something to stop.
+        #
+        # A high priority because a panel is in front of anything else: with
+        # one open over music, "stop" means close this.
+        self.client.CANCEL.register(
+            "aifallback", "answer_panel",
+            keywords=["nevermind", "never mind", "no nevermind",
+                      "no never mind", "cancel", "cancel that", "forget it",
+                      "forget that", "nothing", "nothing nevermind",
+                      "leave it", "disregard", "disregard that",
+                      "scratch that", "dont worry", "don't worry",
+                      "dont worry about it", "don't worry about it",
+                      "as you were", "stop", "stop it", "abort", "quit that"],
+            handler=self.close_panel,
+            is_active=self._panel_is_open,
+            priority=50,
+            description="close the answer panel and its session",
+        )
+
     def unload(self, carryover=None):
         self.client.unsubscribe_from_event("on_assistant_fallback", self.on_fallback)
         self.client.unsubscribe_from_event("on_interaction", self.on_interaction)
+        try:
+            self.client.CANCEL.unregister("aifallback")
+        except Exception:
+            pass
         self.close_panel()
 
     ## SETTINGS

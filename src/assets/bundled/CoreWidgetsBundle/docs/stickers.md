@@ -210,3 +210,61 @@ first:
   app.
 * **A drag is not a tap.** A tile only selects if the finger moved less than
   `DRAG_SLOP` pixels, or flicking through the grid picks whatever was under it.
+
+## How big?
+
+The size choices are **names**, and each is a share of the panel's width:
+
+| | Share |
+|---|---|
+| Small | 8% |
+| Normal | 16% |
+| Large | 30% |
+| Huge | 50% |
+| Enormous | 75% |
+
+A share rather than a pixel count, so the words mean the same thing on any
+panel. As a multiplier on a fixed 180px, "huge" was 360px — on a 2560px screen
+that is a seventh of the width, the same size "large" looks and nothing like the
+word. The ceiling was the other half of it: at 640px every choice above
+"normal" hit the same limit on a large panel.
+
+Names rather than the fractions because the two ranges **overlap**: the old
+values ran 0.5 to 2 and a share runs 0.02 to 0.95, so `0.5` could mean either
+the old "small" or half the screen. A number therefore keeps its old meaning
+exactly, and the page sends a word.
+
+`Exact size…` is read **only when it is the choice**, and is clamped — the page
+is HTML anyone can post to. Not "whenever a number arrives": the pixel field is
+hidden with `display:none` when another size is chosen, and **a field hidden that
+way is still submitted**. Reading it whenever it had a value means its default
+wins every time and the size choice does nothing at all. The field is also
+`disabled` unless it is in use, so the browser does not send it either — but the
+server-side rule is what makes it correct, since a hand-made request can send
+anything.
+
+### Animated stickers size the same way
+
+A GIF is fitted from its own frame, exactly like a still image.
+
+`set_sticker()` has two paths, animated and still, and **both must size the
+source before they return.** A path that returns holding a source it never
+fitted leaves the widget at the placeholder square it was constructed with, so
+every size choice comes out 180px — and since most stickers are GIFs, that is
+the whole control doing nothing. There is a check for this invariant, because
+the early `return` is legal and the missing call is only wrong in context.
+
+The order within the animated path matters: fit from the source, then scale the
+movie to the result, then start it. `_source_size()` asks for frame 0 when
+nothing is decoded yet, since `currentPixmap()` is empty until a movie has a
+frame and this runs before `start()`.
+
+## Resizing
+
+A sticker **keeps its shape**. Dragging a corner scales both axes together,
+driven by whichever one moved further so the corner follows the finger rather
+than fighting it, and the clamp is applied to both axes at once — clamping one
+alone is how a resize ends up out of shape at the limits.
+
+`KEEP_ASPECT` on the widget framework turns this on; it is off by default,
+since a card that lays out text has no shape to keep.
