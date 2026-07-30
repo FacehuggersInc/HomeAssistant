@@ -59,7 +59,7 @@ Everything in the tree above boils down to a handful of ideas, each covered in f
 | Registry | Reached by | Holds |
 |---|---|---|
 | `APIRegistry` | `client.API` | HTTP endpoints a plugin serves |
-| `PageRegistry` | `client.PAGES` | Full-screen pages |
+| `PageRegistry` | `client.PAGES` | Full-screen pages. A sub-page is reached through its parent's entry, not by name. |
 | `PublicRegistry` | `client.public` | Data one plugin offers to the others |
 | `SecretRegistry` | `client.SECRETS` | API keys, kept out of the settings file |
 | `QuickAccessRegistry` | `client.QUICK` | Buttons on the quick settings panel |

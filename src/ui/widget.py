@@ -108,6 +108,52 @@ class Widget(QWidget):
 
     ## CAPABILITIES
 
+    #Where this sits in the stack. Higher is nearer the front.
+    #
+    #Saved with the rest of the layout: without it, stacking is whatever order
+    #the framework happened to place things in, so a sticker deliberately put
+    #in front of another was behind it again after a restart.
+    z_order = 0
+
+    def bring_to_front(self) -> int:
+        """
+        Put this above everything else, and say what its new z is.
+
+        Assigned rather than swapped: the highest z in the page plus one, so
+        repeatedly raising the same widget does not shuffle the others.
+        """
+        siblings = []
+        parent = self.parent()
+        if parent is not None:
+            siblings = [w for w in parent.findChildren(Widget)
+                        if w is not self]
+        highest = max([w.z_order for w in siblings] or [0])
+        self.z_order = highest + 1
+        self.raise_()
+        return self.z_order
+
+    def edge_padding(self):
+        """
+        How far from the page edge this widget may be dragged.
+
+        `None` means the framework's own padding, which is what an anchored
+        widget wants - a column of cards flush against the glass looks like a
+        rendering fault. A widget that returns 0 may go all the way out.
+        """
+        return None
+
+    def content_inset(self):
+        """
+        Transparent margin inside this widget, as (left, top, right, bottom).
+
+        A sticker is a rectangle containing a shape, and the shape is usually
+        smaller than the rectangle. Reporting the difference lets the clamp
+        measure the edge against what can actually be seen, so a sticker with
+        40px of nothing down its left side can be pushed 40px further before it
+        looks like it has stopped.
+        """
+        return (0, 0, 0, 0)
+
     def wants_visible(self) -> bool:
         """
         Whether placing this widget should also show it.
@@ -257,11 +303,16 @@ class Widget(QWidget):
             "angle":    round(float(self.angle), 2),
             "ox":       int(self.offset_x),
             "oy":       int(self.offset_y),
+            "z":        int(self.z_order),
         }
 
     def apply_layout_state(self, state: dict) -> None:
         if not isinstance(state, dict):
             return
+        try:
+            self.z_order = int(state.get("z", self.z_order))
+        except (TypeError, ValueError):
+            pass
         self.placed   = bool(state.get("placed", True))
         self.anchor   = str(state.get("anchor", self.anchor))
         self.floating = bool(state.get("floating", self.floating))
@@ -629,6 +680,10 @@ class WidgetFramework(QWidget):
             else:
                 self._to_panel(widget, save=False)
 
+        # Once, after the batch. place() raises as it goes, so the stack ends
+        # up in construction order until this puts it back in the saved one.
+        self.apply_stacking()
+
     ## PLACEMENT
 
     def place(self, widget: Widget, save: bool = True) -> None:
@@ -681,6 +736,14 @@ class WidgetFramework(QWidget):
         widget.stop_tick()
         self._detach(widget)
         self.registry.pop(key, None)
+        # And out of the file.
+        #
+        # save_layout() MERGES rather than replaces - deliberately, so a
+        # half-built framework cannot write its blank state over everything.
+        # The cost is that a removed widget's entry survives, and the next load
+        # brings it back. Clearing the home page of stickers looked like it
+        # worked until the page was reopened.
+        self.forget_layout(key)
         self.save_layout()
 
     def unplace(self, widget: Widget) -> None:
@@ -761,6 +824,33 @@ class WidgetFramework(QWidget):
         """
         self._save_timer.start()
 
+    def _write_layout_file(self, data: dict) -> bool:
+        """The whole layout file, replaced. True when it was written."""
+        try:
+            path = self._layout_path()
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps(data, indent=4))
+            return True
+        except Exception as e:
+            self.client.log("error", f"[WidgetFramework] Could not save layout: {e}")
+            return False
+
+    def forget_layout(self, key: str) -> None:
+        """
+        Drop one widget's saved state, so it is not restored next time.
+
+        Written straight to the file rather than left to save_layout(), which
+        only ever adds: it has no way to tell a key belonging to a widget that
+        has gone from one belonging to a widget not built yet.
+        """
+        data = self._read_layout_file()
+        page = data.get(self.page_key)
+        if not isinstance(page, dict) or key not in page:
+            return
+        page.pop(key, None)
+        data[self.page_key] = page
+        self._write_layout_file(data)
+
     def save_layout(self) -> None:
         data = self._read_layout_file()
 
@@ -784,16 +874,12 @@ class WidgetFramework(QWidget):
             page[widget.KEY] = state
         data[self.page_key] = page
 
-        try:
-            path = self._layout_path()
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(json.dumps(data, indent=4))
-            self.client.log("debug",
-                            f"[WidgetFramework:{self.page_key}] saved {len(page)} "
-                            f"widgets to {path}")
-        except Exception as e:
-            self.client.log("error", f"[WidgetFramework] Could not save layout to "
-                                     f"{self._layout_path()}: {e}")
+        # The helper reports its own failure, so there is nothing to catch
+        # here any more.
+        if self._write_layout_file(data):
+            self.client.log(
+                "debug", f"[WidgetFramework:{self.page_key}] saved "
+                         f"{len(page)} widgets.")
 
     ## GEOMETRY
 
@@ -918,21 +1004,36 @@ class WidgetFramework(QWidget):
 
     def _clamp(self, widget: Widget, point: QPoint) -> QPoint:
         """
-        Keep a widget inside the page margin, not merely on screen.
+        Keep a widget inside its own edge limit.
 
-        The same padding the anchor zones use, so a floating widget cannot sit
-        flush against an edge while every
-        anchored one keeps its margin.
+        The framework's padding by default, which is what the anchor zones use
+        - a floating card sitting flush against the glass while every anchored
+        one keeps its margin looks like a mistake.
+
+        A widget can say otherwise. `edge_padding()` of 0 lets it reach the
+        window edge, and `content_inset()` tells the clamp how much of the
+        widget is transparent, so the limit applies to what can be seen rather
+        than to the rectangle around it.
         """
         view_w, view_h = self.visible_size()
-        pad = self.padding
 
-        max_x = max(pad, view_w - pad - widget.width())
-        max_y = max(pad, view_h - pad - widget.height())
+        # The widget's own limit, if it has one.
+        own = widget.edge_padding()
+        pad = self.padding if own is None else max(0, int(own))
+
+        # What is actually visible inside the widget. A sticker is a rectangle
+        # containing a shape; the clamp should measure the shape.
+        try:
+            left, top, right, bottom = widget.content_inset()
+        except Exception:
+            left = top = right = bottom = 0
+
+        max_x = max(pad - left, view_w - pad - widget.width() + right)
+        max_y = max(pad - top, view_h - pad - widget.height() + bottom)
         # A widget wider than the page between margins would be pushed off the
         # left by the clamp, so the lower bound gives way first.
-        min_x = min(pad, max_x)
-        min_y = min(pad, max_y)
+        min_x = min(pad - left, max_x)
+        min_y = min(pad - top, max_y)
 
         return QPoint(min(max(min_x, point.x()), max_x),
                       min(max(min_y, point.y()), max_y))
@@ -1042,6 +1143,15 @@ class WidgetFramework(QWidget):
             event.ignore()
             super().mousePressEvent(event)
             return
+
+        # Touched means in front.
+        #
+        # Only for a widget that floats: an anchored one sits in a zone and its
+        # order there is the layout's business, not a matter of which was
+        # pressed last.
+        if widget.floating:
+            widget.bring_to_front()
+            self._chrome.raise_()
 
         self._pressed = widget
         self._moved = False
@@ -1982,6 +2092,31 @@ class WidgetFramework(QWidget):
                            key=f"__widgets_{self.page_key}",
                            destroy_on_close=False)
         self.panel.add_content(host)
+
+    def apply_stacking(self) -> None:
+        """
+        Raise every floating widget in saved z order.
+
+        Placement raises as it goes, so without this the stack is whatever
+        order the widgets happened to be built in - which is stable enough that
+        nobody notices until they deliberately put one sticker in front of
+        another and it comes back behind.
+        """
+        floating = [w for w in self._widgets if getattr(w, "floating", False)]
+        for widget in sorted(floating, key=lambda w: w.z_order):
+            try:
+                widget.raise_()
+            except RuntimeError:
+                continue
+        for topmost in self._topmost:
+            try:
+                topmost.raise_()
+            except RuntimeError:
+                continue
+        try:
+            self._chrome.raise_()
+        except RuntimeError:
+            pass
 
     def _refresh_panel(self) -> None:
         if self.panel is None or self._panel_items is None:

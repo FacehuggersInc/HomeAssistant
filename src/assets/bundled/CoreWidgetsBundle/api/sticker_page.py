@@ -80,6 +80,19 @@ PAGE = """<!doctype html><html><head><meta charset="utf-8">
  button.danger{background:#3a1f1f;color:var(--bad);
       border:1px solid rgba(224,138,138,.45);margin-top:10px}
  button:disabled{opacity:.45}
+
+/* The upload row. The label IS the button; the input behind it is hidden. */
+.filebtn {
+  display:inline-block; min-height:48px; line-height:48px; padding:0 20px;
+  border-radius:9px; border:1px solid var(--line); background:var(--card);
+  color:var(--text); font-size:16px; font-weight:600; cursor:pointer;
+}
+.filebtn:active { opacity:.75; }
+.picked { color:var(--muted); font-size:14px; margin:0 4px; }
+.clearform { display:inline; }
+button.danger {
+  background:transparent; border-color:rgba(224,138,138,.5); color:#e8a6a6;
+}
 </style></head><body>
 <a class="back" href="/?token=__TOKEN__"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg><span>All pages</span></a>
 <h1>Stickers</h1>
@@ -90,13 +103,27 @@ __MESSAGE__
   <h2>Upload a new one</h2>
   <form method="post" enctype="multipart/form-data"
         action="/public/sticker_add?token=__TOKEN__">
-    <input type="file" name="file" accept="image/*,video/mp4,video/webm" required>
+    <!-- The input itself is hidden and the label is the button.
+         A bare file input renders as the browser's own control - a small grey
+         "Choose file" with system text beside it - which is the one element on
+         the page that does not look like the rest of it. A label pointing at a
+         hidden input is styleable and behaves identically. -->
+    <input type="file" name="file" id="pick" multiple
+           accept="image/*,video/mp4,video/webm" required hidden>
+    <label class="filebtn" for="pick">Choose files</label>
+    <span class="picked" id="picked">None chosen</span>
     <button type="submit">Upload</button>
   </form>
 </section>
 
 <section>
   <h2>__COUNT__ in your library</h2>
+  <form method="post" action="/public/sticker_add?token=__TOKEN__"
+        class="clearform"
+        onsubmit="return confirm('Take every sticker off the home page? They stay in your library.');">
+    <input type="hidden" name="clear_placed" value="1">
+    <button type="submit" class="danger">Clear the home page</button>
+  </form>
   <form method="post" action="/public/sticker_add?token=__TOKEN__" id="place">
     <input type="hidden" name="sticker" id="sticker" value="__STICKER__">
     <input type="hidden" name="quadrant" id="quadrant" value="__QUADRANT__">
@@ -187,6 +214,18 @@ __MESSAGE__
      e.preventDefault();
    }
  });
+</script>
+<script>
+var pick = document.getElementById('pick');
+var picked = document.getElementById('picked');
+if (pick && picked) {
+  pick.addEventListener('change', function () {
+    var n = pick.files ? pick.files.length : 0;
+    picked.textContent = n === 0 ? 'None chosen'
+                       : n === 1 ? pick.files[0].name
+                       : n + ' files chosen';
+  });
+}
 </script>
 </body></html>"""
 

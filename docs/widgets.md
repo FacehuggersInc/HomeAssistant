@@ -28,6 +28,7 @@ A widget declares what it supports on the class:
 | `REMOVABLE` | `False` pins it to the page - no delete button appears |
 | `MULTIPLE` | `True` makes it a template: it stays in the panel and each **Add** places another copy |
 | `MIN_W/H`, `MAX_W/H` | resize limits |
+| `EDGE_PADDING` | how close to the window edge it may be dragged |
 | `DEFAULT_ANCHOR` | where it lands when nothing has been saved for it |
 
 ## Placing and moving
@@ -576,3 +577,54 @@ resized behaves exactly as before.
 `content_size()` holds the chosen number, so what is written to disk is the width
 the person picked; only what is on screen differs. Checking the layout file to
 diagnose it would have shown nothing wrong.
+
+## Stacking
+
+`z_order` is saved with the rest of a widget's layout. Without it the stack is
+whatever order the framework placed things in — stable enough that nobody
+notices until they deliberately put one sticker in front of another and it comes
+back behind.
+
+Pressing a **floating** widget calls `bring_to_front()`, which takes the highest
+z on the page plus one; assigned rather than swapped, so raising the same one
+repeatedly does not shuffle the others. An anchored widget is left alone — its
+order within a zone is the layout's business.
+
+`apply_stacking()` runs once after a batch add, since `place()` raises as it
+goes.
+
+## How close to the edge
+
+`_clamp()` keeps a floating widget inside the page padding, which is right for a
+card: one sitting flush against the glass while every anchored one keeps its
+margin looks like a mistake.
+
+Two ways for a widget to say otherwise:
+
+* **`edge_padding()`** — return 0 to reach the window edge. Stickers do; half a
+  cat peering in from the corner is the point of the thing, and stopping it
+  24px short reads as the drag having caught on something.
+* **`content_inset()`** — `(left, top, right, bottom)` of transparent margin
+  inside the widget, so the limit applies to what can be **seen** rather than
+  to the rectangle around it. A sticker with 40px of nothing down one side can
+  be pushed 40px further.
+
+The sticker's inset is measured off the alpha channel at a stride of four —
+sixteen times less work than every pixel, and it cannot be wrong by more than
+three, which nobody can see at the edge of a screen. An image that is entirely
+transparent reports nothing rather than all-margin, since all-margin would let
+it be dragged completely off.
+
+## Saving, and forgetting
+
+`save_layout()` **merges** rather than replaces. A page can be rebuilt — a
+plugin reload, a second construction — and a fresh framework with a partial
+registry would otherwise write its blank state over everything already there.
+
+The cost is that it can only ever add. A key belonging to a widget that has been
+removed looks exactly like a key belonging to a widget not built yet, so a
+removed widget's entry survives and the next load restores it.
+
+`remove()` therefore calls `forget_layout(key)`, which drops that one entry from
+the file directly. Without it, clearing the home page of stickers worked until
+the page was reopened.

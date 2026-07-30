@@ -35,6 +35,14 @@ class StickerWidget(Widget):
     #A picture. Dragging a corner freely squashes it, and nobody drags a
     #corner meaning to distort what is inside.
     KEEP_ASPECT = True
+
+    #All the way to the glass.
+    #
+    #The framework keeps floating widgets inside the page margin, which is
+    #right for a card and wrong for a sticker: half a cat peering in from the
+    #corner is the point of the thing, and stopping it 24px short reads as the
+    #drag having caught on something.
+    EDGE_PADDING = 0
     ROTATABLE = True
     FLOATABLE = True
     REMOVABLE = True
@@ -148,6 +156,83 @@ class StickerWidget(Widget):
         self._scaled_for = None
 
     ## -- sizing
+
+    def edge_padding(self):
+        return self.EDGE_PADDING
+
+    def content_inset(self):
+        """
+        How much of this widget is transparent, on each side.
+
+        A sticker is a rectangle containing a shape. Measuring the shape means
+        the drag limit applies to what can be seen, so an image with a wide
+        empty margin can be pushed that much further before it stops.
+
+        Cached against the current frame's size: reading an alpha channel is
+        cheap once and not worth doing on every mouse move.
+        """
+        pixmap = (self._movie.currentPixmap() if self._movie is not None
+                  else self._pixmap)
+        if pixmap is None or pixmap.isNull():
+            return (0, 0, 0, 0)
+
+        key = (pixmap.cacheKey(), self.width(), self.height())
+        if getattr(self, "_inset_key", None) == key:
+            return self._inset
+
+        inset = (0, 0, 0, 0)
+        try:
+            image = pixmap.toImage()
+            if image.hasAlphaChannel():
+                # The opaque bounding box, in the pixmap's own pixels, scaled
+                # to how big the widget is drawing it.
+                box = self._opaque_box(image)
+                if box is not None:
+                    left, top, right, bottom = box
+                    sx = self.width() / max(1, image.width())
+                    sy = self.height() / max(1, image.height())
+                    inset = (int(left * sx), int(top * sy),
+                             int(right * sx), int(bottom * sy))
+        except Exception:
+            inset = (0, 0, 0, 0)
+
+        self._inset_key = key
+        self._inset = inset
+        return inset
+
+    @staticmethod
+    def _opaque_box(image):
+        """
+        (left, top, right, bottom) transparent margins, or None.
+
+        Sampled rather than exhaustive. A 512x512 image is a quarter of a
+        million pixels and this only needs to know where the shape roughly
+        starts; a stride of four is sixteen times less work and cannot be off
+        by more than three pixels, which nobody can see at the edge of a
+        screen.
+        """
+        step = 4
+        threshold = 8            # count anything all but invisible as empty
+        width, height = image.width(), image.height()
+        if width < step or height < step:
+            return None
+
+        first_x, last_x = width, -1
+        first_y, last_y = height, -1
+        for y in range(0, height, step):
+            for x in range(0, width, step):
+                if image.pixelColor(x, y).alpha() > threshold:
+                    if x < first_x: first_x = x
+                    if x > last_x:  last_x = x
+                    if y < first_y: first_y = y
+                    if y > last_y:  last_y = y
+
+        if last_x < 0:
+            # Entirely transparent. Reporting the whole thing as margin would
+            # let it be dragged completely off, so it is treated as solid.
+            return None
+        return (first_x, first_y,
+                max(0, width - 1 - last_x), max(0, height - 1 - last_y))
 
     def _source_size(self) -> Optional[QSize]:
         if self._movie is not None:

@@ -342,20 +342,63 @@ class CoreWidgetsBundle(Plugin):
         # An upload. Validated by the store, which is where the rules about
         # size, type and overwriting already live.
         if files is not None:
-            upload = None
+            # Every file under the field, not just the first.
+            #
+            # A file input with `multiple` posts them all under the same name,
+            # and getlist is how they come back. Reading only `get("file")`
+            # took the first and silently dropped the rest - which looks like
+            # the upload half-working.
+            uploads = []
             try:
-                upload = files.get("file")
+                uploads = list(files.getlist("file"))
+            except AttributeError:
+                one = files.get("file")
+                uploads = [one] if one is not None else []
             except Exception:
-                upload = None
-            if upload is None or not getattr(upload, "filename", ""):
+                uploads = []
+            uploads = [u for u in uploads if getattr(u, "filename", "")]
+
+            if not uploads:
                 message, bad = "No file arrived.", True
             else:
-                data = upload.read()
-                made, reason = self.stickers.add_bytes(upload.filename, data)
-                if made is None:
-                    message, bad = reason, True
-                else:
-                    message = f"Added {made.label}. Pick it below to place it."
+                added, failed = [], []
+                for upload in uploads:
+                    try:
+                        data = upload.read()
+                    except Exception as e:
+                        failed.append(f"{upload.filename}: {e}")
+                        continue
+                    made, reason = self.stickers.add_bytes(upload.filename, data)
+                    if made is None:
+                        failed.append(f"{upload.filename}: {reason}")
+                    else:
+                        added.append(made.label)
+
+                # Both halves reported. One bad file in a batch of ten should
+                # not read as the whole upload having failed, and should not
+                # pass silently either.
+                parts = []
+                if added:
+                    parts.append(f"Added {len(added)}: " + ", ".join(added[:6])
+                                 + ("..." if len(added) > 6 else ""))
+                if failed:
+                    parts.append(f"{len(failed)} refused - " + "; ".join(failed[:3])
+                                 + ("..." if len(failed) > 3 else ""))
+                message = " ".join(parts) or "Nothing was added."
+                bad = bool(failed and not added)
+
+        # Take them off the screen, from the page's Clear button.
+        #
+        # Off the SCREEN, not out of the library. Deleting the files is what
+        # Remove does, one at a time and deliberately; this is for a home page
+        # that has accumulated a dozen cats.
+        if str(_ignored.get("clear_placed") or "").strip().lower() in (
+                "1", "true", "yes", "on"):
+            gone = self._clear_placed_stickers()
+            message = (f"Cleared {gone} sticker{'s' if gone != 1 else ''} "
+                       f"from the home page. The library is untouched."
+                       if gone else "There were none on the home page.")
+            bad = False
 
         # A deletion, from the page's Remove button.
         elif remove:
@@ -388,6 +431,40 @@ class CoreWidgetsBundle(Plugin):
             "delete_after": delete_after,
         })
         return page, 200, {"Content-Type": "text/html; charset=utf-8"}
+
+    def _clear_placed_stickers(self) -> int:
+        """
+        Remove every sticker from the home page, and say how many.
+
+        The library is not touched. A sticker on screen is a **copy** of a
+        library entry, keyed `sticker-1`, `sticker-2` and so on, so removing
+        the copies leaves the files exactly where they were.
+
+        Transient stickers are included: one placed with a timeout that has not
+        expired is still on the page, and "clear" that leaves something on the
+        page is not what the button says.
+        """
+        # The helper, not a lookup of my own. PageRegistry has no get_page;
+        # a sub-page is reached through its parent's entry, which _sub_home()
+        # already knows how to do and every other caller here uses.
+        sub_home = self._sub_home()
+        if sub_home is None or not sub_home.has_feature("widget_framework"):
+            return 0
+        framework = sub_home.features().widget_framework
+
+        keys = [key for key, widget in list(framework.registry.items())
+                if isinstance(widget, StickerWidget)]
+        gone = 0
+        for key in keys:
+            try:
+                framework.remove(key)
+                gone += 1
+            except Exception as e:
+                self.client.log("warning",
+                                f"[Stickers] Could not clear '{key}': {e}")
+        if gone:
+            framework.save_layout()
+        return gone
 
     def api_sticker_place(self, sticker: str = "", quadrant: str = "center",
                           mode: str = "permanent", timeout=0, x=None, y=None,

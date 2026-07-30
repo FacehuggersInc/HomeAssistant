@@ -1,6 +1,46 @@
 {
  "log": [
   {
+   "at": 1785446149.7258554,
+   "note": "a removed widget is forgotten from the layout file",
+   "pages": [
+    {
+     "slug": "widgets",
+     "state": "updated"
+    }
+   ]
+  },
+  {
+   "at": 1785434385.0427637,
+   "note": "clear uses the existing sub-page helper",
+   "pages": [
+    {
+     "slug": "architecture",
+     "state": "updated"
+    }
+   ]
+  },
+  {
+   "at": 1785434122.7489052,
+   "note": "Clear takes stickers off the page, not out of the library",
+   "pages": [
+    {
+     "slug": "bundled-plugins",
+     "state": "updated"
+    }
+   ]
+  },
+  {
+   "at": 1785433754.55619,
+   "note": "sticker z-order, edge reach, batch upload and clear all",
+   "pages": [
+    {
+     "slug": "widgets",
+     "state": "updated"
+    }
+   ]
+  },
+  {
    "at": 1785432817.2710526,
    "note": "settings returns to its section; the log scrolls by drag",
    "pages": [
@@ -435,9 +475,9 @@
    "state": "updated"
   },
   "architecture": {
-   "at": 1785382817.1853046,
-   "hash": "6ee288d9ee345250",
-   "opened": 1785383808.9947772,
+   "at": 1785434385.0414848,
+   "hash": "25effd8698091651",
+   "opened": 0,
    "state": "updated"
   },
   "assistant": {
@@ -459,8 +499,8 @@
    "state": "updated"
   },
   "bundled-plugins": {
-   "at": 1785416476.7975526,
-   "hash": "cd75ab57db4223d2",
+   "at": 1785434122.746738,
+   "hash": "38de61ff76c62f37",
    "opened": 0,
    "state": "updated"
   },
@@ -621,8 +661,8 @@
    "state": "new"
   },
   "widgets": {
-   "at": 1785384140.0126977,
-   "hash": "30e771ef6bc1fd05",
+   "at": 1785446149.7258325,
+   "hash": "afe0ab035376712a",
    "opened": 0,
    "state": "updated"
   },

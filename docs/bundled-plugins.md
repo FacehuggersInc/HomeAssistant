@@ -228,6 +228,10 @@ the rules do not change.
 * **Calendar sub-page** - a month grid at `(0, 1)`, so it is one swipe down
   from the widgets. Tapping a day opens the day view; tapping an event opens
   it in full, with a map when it has somewhere to be.
+* **Clear the home page** takes every sticker off the screen and leaves the
+  library alone. Deleting a file is what Remove does, one at a time — a button
+  that empties the page and a button that empties the library should not be the
+  same button.
 * **Pickers** - date, time and location, each a dialog rather than a typed
   field. A time chosen on a stepper cannot be `25:70`.
 * **Next event** and **Coming up** widgets - one large upcoming event, or a
