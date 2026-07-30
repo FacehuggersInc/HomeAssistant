@@ -8,6 +8,7 @@ from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel,
     QFrame, QSlider, QScrollArea, QSizePolicy, QPushButton,
 )
+from PyQt6.QtGui import QFontMetrics
 from PyQt6.QtCore import Qt, QEvent, QPoint, QRect, QTimer, QSize
 
 from src.styling import make_font, SIZES, set_style
@@ -235,10 +236,16 @@ class _LabelledSlider(QWidget):
             top.addStretch()
 
         self.readout = QLabel(f"{value}%")
-        self.readout.setFont(make_font(SIZES.S1))
+        readout_font = make_font(SIZES.S1)
+        self.readout.setFont(readout_font)
         # A fixed column, or the slider jumps sideways as the number goes from
-        # "9%" to "100%".
-        self.readout.setFixedWidth(46)
+        # "9%" to "100%" - but WIDE ENOUGH for the widest of them.
+        #
+        # 46px was hardcoded and "100%" needs 60 at this size, so with the text
+        # right-aligned the leading 1 was clipped off and a slider at full
+        # showed "00%". Measured, so it survives a font or size change.
+        self.readout.setFixedWidth(
+            QFontMetrics(readout_font).horizontalAdvance("100%") + 6)
         self.readout.setAlignment(Qt.AlignmentFlag.AlignRight
                                   | Qt.AlignmentFlag.AlignVCenter)
         set_style(self.readout, "common", "text-muted")
@@ -355,6 +362,8 @@ class QuickSettings(Panel):
         self._volume_busy = False
         self._wifi_busy = False
         self._wifi_button = None
+        #Whether the panel is up. See _tick_wifi().
+        self._open = False
         #the last reason logged, so it is not repeated every second
         self._wifi_reason = ""
         self._bt_busy = False
@@ -419,7 +428,9 @@ class QuickSettings(Panel):
         On a worker because reading it shells out, and this runs once a second
         for as long as the panel is up.
         """
-        if self._volume is None or not self.isVisible():
+        # Same reason as _tick_wifi: the panel knows whether it is open, and
+        # Qt's answer depends on where the show animation has got to.
+        if self._volume is None or not self._open:
             return
         if self._volume_busy:
             return
@@ -575,7 +586,12 @@ class QuickSettings(Panel):
         gone away takes the timeout to say so.
         """
         button = getattr(self, "_wifi_button", None)
-        if button is None or not self.isVisible():
+        # `_open`, not isVisible().
+        #
+        # A panel is shown through an overlay and an animation; isVisible() is
+        # a question about Qt's state at this instant, and open_panel() /
+        # close_panel() already bracket exactly the period this should run in.
+        if button is None or not self._open:
             return
         if not wifi.available() or self._wifi_busy:
             return
@@ -638,7 +654,7 @@ class QuickSettings(Panel):
 
     def _tick_bluetooth(self) -> None:
         button = getattr(self, "_bt_button", None)
-        if button is None or not self.isVisible():
+        if button is None or not self._open:
             return
         if self._bt_busy:
             return
@@ -1140,14 +1156,26 @@ class QuickSettings(Panel):
         self.rebuild_quick_access()
         self._refresh_header()
         self._sync_sliders()
+
+        # Marked open BEFORE the first tick, and the ticks run AFTER the panel
+        # is up.
+        #
+        # The ticks guard on isVisible(), and super().open_panel() is what
+        # makes the panel visible - so calling them first meant every one of
+        # them returned immediately and the first second of an open showed
+        # whatever the last one left behind. The Wi-Fi button in particular is
+        # built saying "Not connected" and was never corrected until the timer
+        # came round.
+        self._open = True
+        super().open_panel()
         self._tick_wifi()
         self._tick_bluetooth()
         self._tick_clock()
-        super().open_panel()
         self._clock_timer.start()
         self._restart_timeout()
 
     def close_panel(self, destroy: bool = None) -> None:
+        self._open = False
         self._clock_timer.stop()
         try:
             self.client.TIMEOUTS.cancel(self._timeout_id)

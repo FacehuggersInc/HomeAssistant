@@ -669,6 +669,18 @@ class LocationPickerDialog(_WideDialog):
                  on_chosen: Callable = None):
         super().__init__(client, "Where is it?", "")
         self.on_chosen = on_chosen
+
+        # The configured default, when the caller had nothing.
+        #
+        # An event with no location opened this on an empty field and a blank
+        # map, so the answer to "where is it?" started from nowhere - even on a
+        # panel where almost everything happens at the same address. Done here
+        # rather than at each call site: the settings page already passes the
+        # default, the editor passes the field, and a third caller would have
+        # to remember.
+        if not str(value or "").strip():
+            value = self._configured_default(client)
+
         self.chosen = value
         self.results: list = []
 
@@ -758,6 +770,21 @@ class LocationPickerDialog(_WideDialog):
             self.search(self._searchable(value))
 
     ## -- input
+
+    @staticmethod
+    def _configured_default(client) -> str:
+        """
+        `general.default_location`, or "" when there is none.
+
+        Through client.public, the way MapView reads dark_map: this module is
+        imported by the plugin rather than the other way round, so it has no
+        handle on the plugin object itself.
+        """
+        try:
+            return str(client.public.calendar["option"](
+                "general.default_location", "") or "").strip()
+        except Exception:
+            return ""
 
     def _open_keyboard(self) -> None:
         from src.ui.keyboard import KeyboardDialog

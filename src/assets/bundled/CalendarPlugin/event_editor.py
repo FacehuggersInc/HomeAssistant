@@ -5,7 +5,8 @@ from typing import TYPE_CHECKING, Callable
 
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel, QLineEdit,
-    QTextEdit, QPushButton, QSizePolicy,
+    QTextEdit, QPushButton, QSizePolicy, QScrollArea, QScroller,
+    QFrame,
 )
 from PyQt6.QtCore import Qt
 
@@ -560,7 +561,27 @@ class EventEditorDialog(_WideDialog):
         holder = QWidget()
         set_style(holder, "common", "transparent")
         holder.setLayout(body)
-        self.content.addWidget(holder)
+
+        # Scrolled, because the dialog has a ceiling and this does not.
+        #
+        # A dialog is capped at a share of the screen; the form is a dozen
+        # fields, a two-row icon grid and a colour grid, and on a shorter
+        # display that is more than the cap. Without somewhere to scroll, the
+        # excess is simply cut off - and what sits near the bottom is the icon
+        # row, which is exactly what was disappearing.
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll.setWidget(holder)
+        set_style(scroll, "common", "transparent")
+        set_style(scroll.viewport(), "common", "transparent")
+        # The same drag-to-scroll as everywhere else on this panel.
+        QScroller.grabGesture(
+            scroll.viewport(),
+            QScroller.ScrollerGestureType.LeftMouseButtonGesture)
+        self.content.addWidget(scroll, stretch=1)
 
         # Above the buttons and in red. It was a muted line at the bottom of a
         # tall dialog, which is indistinguishable from nothing happening.

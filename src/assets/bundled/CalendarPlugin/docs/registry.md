@@ -437,3 +437,14 @@ caller changing with it, and the store cannot.
 
 Events live in `calendar/events.json` in the user data directory, which
 survives updates. Place lookups are cached beside it.
+
+## The default location
+
+`general.default_location` is where the picker starts when the caller has
+nothing — a new event, or the settings button before one has been chosen. Both
+the search field and the map open on it.
+
+Applied in `LocationPickerDialog` rather than at each call site: the settings
+page already passes the default and the editor passes the field it is editing,
+so a third caller would otherwise have to remember. An explicit value still
+wins, so editing an event with a location opens on that location.
