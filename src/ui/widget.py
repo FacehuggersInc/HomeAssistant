@@ -304,6 +304,9 @@ class Widget(QWidget):
             "ox":       int(self.offset_x),
             "oy":       int(self.offset_y),
             "z":        int(self.z_order),
+            # Whether the size was ASKED for, or is just what the content
+            # happened to measure when this was written.
+            "sized":    bool(self.has_chosen_size()),
         }
 
     def apply_layout_state(self, state: dict) -> None:
@@ -322,7 +325,19 @@ class Widget(QWidget):
         self.offset_x = int(state.get("ox", 0))
         self.offset_y = int(state.get("oy", 0))
 
-        if self.can_resize():
+        # A size is restored only when it was chosen.
+        #
+        # set_content_size() marks a widget as having a chosen size, and
+        # layout_state() writes whatever content_size() reports - so restoring
+        # unconditionally turned a measurement into a decision. If the content
+        # measured small at save time, that small size came back as fixed, was
+        # then measured and saved again, and the widget shrank a little on
+        # every launch.
+        #
+        # An entry written before this defaults to sized: a size already in the
+        # file is honoured rather than thrown away, which stops the ratchet
+        # without resetting anybody's layout.
+        if self.can_resize() and bool(state.get("sized", True)):
             width  = int(state.get("w", self.width()))
             height = int(state.get("h", self.height()))
             self.set_content_size(max(self.MIN_W, min(self.MAX_W, width)),
@@ -736,14 +751,24 @@ class WidgetFramework(QWidget):
         widget.stop_tick()
         self._detach(widget)
         self.registry.pop(key, None)
-        # And out of the file.
+
+        # Out of the file too, but only for something that will not be
+        # rebuilt.
         #
-        # save_layout() MERGES rather than replaces - deliberately, so a
-        # half-built framework cannot write its blank state over everything.
-        # The cost is that a removed widget's entry survives, and the next load
-        # brings it back. Clearing the home page of stickers looked like it
-        # worked until the page was reopened.
-        self.forget_layout(key)
+        # save_layout() MERGES rather than replaces, so a removed entry
+        # otherwise survives and the next load restores it - which is what kept
+        # bringing cleared stickers back.
+        #
+        # A COPY or a transient is gone for good, so its entry is noise. A
+        # widget a plugin registers is re-created on every load, and deleting
+        # its entry does not mean "gone" - it means "no saved state", which
+        # falls back to the class default of placed. That is how removing
+        # Coming Up put it straight back on the home page. Its entry has to
+        # stay, saying placed: False.
+        if widget.template_key or getattr(widget, "transient", False):
+            self.forget_layout(key)
+        else:
+            self.save_layout()
         self.save_layout()
 
     def unplace(self, widget: Widget) -> None:

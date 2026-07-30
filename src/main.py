@@ -1379,6 +1379,22 @@ class Client:
 
         self.log("info", f"[Assistant] Loading '{model}'. The first load on a "
                          f"cold cache is slow.")
+        # Said on screen, not only in the log.
+        #
+        # Loading a speech model reads hundreds of megabytes and pins a core
+        # while it does; the panel goes sluggish for a few seconds and, with
+        # nothing on screen, that reads as the panel having broken rather than
+        # as it being busy. A notification rather than a dialog: it is
+        # information, and a modal box nobody asked for in the middle of
+        # startup is worse than the pause it describes.
+        try:
+            self.simple_notify(
+                "brain", "Assistant",
+                f"Loading the '{model}' speech model. The panel may be slow "
+                f"for a few seconds - the first load is the slow one.",
+                history=False)
+        except Exception:
+            pass
         self._launch_assistant(device, model)
 
     def _tts_backends(self) -> list:

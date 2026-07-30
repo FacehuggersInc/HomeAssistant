@@ -620,7 +620,28 @@ class QuickSettings(Panel):
             elif connection is not None:
                 self._wifi_reason = ""
 
-            self.client.call_on_ui(lambda: self._show_wifi(connection))
+            # Reported, so a wrong button can be told from a button that was
+            # never repainted.
+            #
+            # Everything in this path checks out by inspection - the reader,
+            # the guard, the button, the icon - and it still shows the wrong
+            # thing on one machine. This says which of those it is: whether
+            # the tick ran, what it read, and whether the paint raised.
+            self.client.log(
+                "info", f"[QuickSettings] Wi-Fi tick: "
+                        f"{connection.ssid if connection else 'nothing'}")
+
+            def paint():
+                try:
+                    self._show_wifi(connection)
+                except Exception as e:
+                    # call_on_ui is fire and forget: without this the failure
+                    # surfaces as a UIBridge error naming a lambda, which does
+                    # not say what it was painting.
+                    self.client.log("warning",
+                                    f"[QuickSettings] Wi-Fi paint failed: {e}")
+
+            self.client.call_on_ui(paint)
 
         Thread(target=work, name="__quick_wifi", daemon=True).start()
 
