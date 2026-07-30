@@ -338,6 +338,28 @@ class QuickSettings(Panel):
         self._layout.setSpacing(10)
         self.add_content(self._body)
 
+        # Every piece of state BEFORE the widgets that fill it in.
+        #
+        # _build_cards() creates the Wi-Fi and Bluetooth buttons and assigns
+        # them to _wifi_button and _bt_button. These lines used to come after
+        # it and set both back to None - so the buttons were on screen and the
+        # ticks that update them saw nothing to paint, for the whole life of
+        # the process.
+        #so a slow read does not stack up behind itself
+        self._volume_busy = False
+        self._wifi_busy = False
+        self._wifi_button = None
+        #Whether the panel is up. See _tick_wifi().
+        self._open = False
+        #the last reason logged, so it is not repeated every second
+        self._wifi_reason = ""
+        #and the last guard that stopped the tick, for the same reason
+        self._wifi_stopped = None
+        #when the current read started, so a stuck one can be told from a slow
+        self._wifi_started = 0.0
+        self._bt_busy = False
+        self._bt_button = None
+
         self._build_header()
         self._build_cards()
 
@@ -359,21 +381,6 @@ class QuickSettings(Panel):
         self._clock_timer.timeout.connect(self._tick_volume)
         self._clock_timer.timeout.connect(self._tick_wifi)
         self._clock_timer.timeout.connect(self._tick_bluetooth)
-        #so a slow read does not stack up behind itself
-        self._volume_busy = False
-        self._wifi_busy = False
-        self._wifi_button = None
-        #Whether the panel is up. See _tick_wifi().
-        self._open = False
-        #the last reason logged, so it is not repeated every second
-        self._wifi_reason = ""
-        #and the last guard that stopped the tick, for the same reason
-        self._wifi_stopped = None
-        #when the current read started, so a stuck one can be told from a slow
-        self._wifi_started = 0.0
-        self._bt_busy = False
-        self._bt_button = None
-
         self._timeout_id = self.client.TIMEOUTS.add(
             self.AUTO_CLOSE, self.close_panel, "__timeout_quick_settings")
 

@@ -267,3 +267,13 @@ and unremarkable as a fade. Setting it directly cancels an animation in flight.
 
 It never goes fully black. At 0% the wash is alpha 200, not 255, so the screen
 stays readable enough to find the control that undims it.
+
+## Order in the constructor
+
+Every piece of state is initialised **before** the methods that fill it in.
+
+`_build_cards()` creates the Wi-Fi and Bluetooth buttons and assigns them to
+`_wifi_button` and `_bt_button`. Setting those to `None` after it runs leaves
+the buttons on screen with nothing referring to them — so the ticks that update
+them see nothing to paint, for the life of the process. The panel looked right
+and never changed.

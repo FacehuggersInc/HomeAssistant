@@ -1,6 +1,16 @@
 {
  "log": [
   {
+   "at": 1785453031.2782626,
+   "note": "the wifi button reference survives construction",
+   "pages": [
+    {
+     "slug": "quick-settings",
+     "state": "updated"
+    }
+   ]
+  },
+  {
    "at": 1785451163.8298666,
    "note": "broken table rows reworded; a formatting checker added",
    "pages": [
@@ -623,9 +633,9 @@
    "state": "updated"
   },
   "quick-settings": {
-   "at": 1785416996.5192125,
-   "hash": "6c3b47f5aa3f487f",
-   "opened": 1785451144.596753,
+   "at": 1785453031.2780442,
+   "hash": "39a5b5f905937548",
+   "opened": 0,
    "state": "updated"
   },
   "registries": {
