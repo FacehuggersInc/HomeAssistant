@@ -302,20 +302,55 @@ Example:
 class MyPlugin(Plugin):
 
     def __init__(self):
-        pass
+        # Three things arrive from the loader before load() runs. They are
+        # declared here rather than assigned - the loader sets them, and
+        # writing over one is how a plugin loses its own settings.
+        #
+        #   self.client    the Client. Registries, pages, events, dialogs,
+        #                  logging - everything the plugin reaches out to.
+        #
+        #   self.settings  this plugin's settings.json, editable by anyone
+        #                  from the Settings page. Public.
+        #
+        #   self.config    this plugin's plugin.toml. Its key, name, version,
+        #                  dependencies, declared secrets. Private and not
+        #                  edited from the panel.
+        #
+        # Nothing on the client is ready yet - no pages, no widgets, no other
+        # plugins. Set up your own state and stop there.
+        self.entries = []
 
     def load(self, carryover=None):
+        # Registration goes here: pages, API endpoints, skills, quick access,
+        # events. `carryover` is whatever a previous instance handed over on
+        # reload, and None on a first load.
         pass
 
     def built(self):
+        # The application exists now. Anything that needs a page, a widget or
+        # another plugin belongs here rather than in load().
         pass
 
     def reload(self, carryover=None):
         pass
 
     def unload(self, carryover=None):
+        # Give back anything that should survive, and unsubscribe from
+        # anything still holding a reference to this instance.
         pass
 ```
+
+Three helpers come from the base class, and are the reason to inherit it rather
+than duplicate them:
+
+| | |
+|---|---|
+| `self.plugin_key()` | This plugin's key from `plugin.toml`. |
+| `self.secret(name)` | A secret **this** plugin declared. Another plugin's returns the default. |
+| `self.set_secret(name, value)` | Writes one. Refused for anything not declared here. |
+
+Use `self.secret()` rather than `client.SECRETS` or `os.getenv`, so a key edited
+in Settings takes effect without a restart.
 
 ---
 
@@ -352,7 +387,6 @@ Nothing inside `__init__()` should depend on the Client already existing.
 
 Think of this stage as preparation only.
 
----
 
 ## `load()`
 
@@ -371,7 +405,6 @@ Anything that interacts with the application structure should happen here.
 
 During a hot reload, `load()` receives the same `PluginCarryover` object your previous instance's `unload()` was given — use it to restore anything you stashed there. On the very first load when the application starts, `carryover` is `None`, since nothing has ever been unloaded yet.
 
----
 
 ## `built()`
 
@@ -390,7 +423,6 @@ Examples:
 
 Anything that depends on UI already existing should happen here.
 
----
 
 ## `reload()`
 
@@ -416,7 +448,6 @@ reload()
 
 `reload()` receives the same `PluginCarryover` object `load()` did for this reload cycle, in case you'd rather restore state here instead of in `load()`.
 
----
 
 ## `unload()`
 
@@ -478,9 +509,6 @@ self.client.goto("#root", data={
 
 `carryover` is only ever non-`None` during a hot reload triggered through `PluginManager.reload_plugin()`. It is `None` when the whole application is shutting down, since there is no future `load()` to hand anything to in that case.
 
----
-
----
 
 ## Shipping documentation with a plugin
 

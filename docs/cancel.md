@@ -13,7 +13,6 @@ is applicable, and what to do. The `nevermind` skill asks `client.CANCEL`
 rather than holding a list of special cases that grows every time something new
 appears.
 
----
 
 ## Registering
 
@@ -38,7 +37,6 @@ self.client.CANCEL.register(
 Registering with no keywords or no handler is refused with a warning, since
 neither can ever fire.
 
----
 
 ## How it resolves
 
@@ -64,7 +62,6 @@ Stopping the music does **not** stop listening: somebody who says "stop" over
 music may be about to ask for something else. Closing an answer panel does,
 because the conversation it belonged to is over.
 
----
 
 ## The skill
 
@@ -85,7 +82,6 @@ There is no built-in cancel path ahead of intent matching. The one remaining
 `is_cancel` check is **inside a session**, where there is no intent matching at
 all and so no skill to route to.
 
----
 
 ## Adding your own
 

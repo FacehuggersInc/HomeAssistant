@@ -1,5 +1,8 @@
 # Bluetooth
 
+> **Linux only.** This section talks to BlueZ over D-Bus. On Windows and
+> macOS it does not appear, and nothing else in the panel is affected.
+
 A section in Settings under **SYSTEM**, beside Wi-Fi, and a state button in the
 quick panel.
 

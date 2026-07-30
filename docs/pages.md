@@ -6,7 +6,6 @@ interface is laid out, and exposes the parts plugins are allowed to touch as
 
 Plugins do not build pages' interiors. They ask a page to do something.
 
----
 
 ## Registering a page
 
@@ -38,7 +37,6 @@ owning plugin unloads.
 Only one page is instantiated at a time. `client.PAGE` is the live widget;
 everything else in the registry is a class waiting to be built.
 
----
 
 ## A complete page
 
@@ -148,7 +146,6 @@ Four things in there are the whole pattern:
 * **`resizeEvent()`.** The window can change size at runtime.
 * **`call_on_ui`.** The fetch is on a worker thread; the `setText` is not.
 
----
 
 ## Sub-pages
 
@@ -292,7 +289,6 @@ self.client.action("sub.home.register_widget", MyWidget)
 That is why the key is `sub.home.register_widget` and not just
 `register_widget` — the prefix is the sub-page.
 
----
 
 ## What a page owns
 
@@ -307,7 +303,6 @@ A page is free to own anything. What it must not do is assume a particular
 plugin exists - if a plugin is unloaded, the page has to keep working without
 whatever that plugin had added.
 
----
 
 ## Lifecycle
 
@@ -324,7 +319,6 @@ Anything a plugin added to a page is gone when the page is rebuilt, which is
 why widgets are **registered** rather than constructed and handed over. The
 page rebuilds them from the saved layout on the way up.
 
----
 
 ## Global controls
 

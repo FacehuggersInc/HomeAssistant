@@ -6,7 +6,6 @@ They allow plugins to inject functionality into existing systems without modifyi
 
 Mixins work by wrapping functions before or after they execute.
 
----
 
 ## `@mixin_target()`
 
@@ -21,7 +20,6 @@ def refresh_weather(self):
     ...
 ```
 
----
 
 ## `mixin()`
 
@@ -75,9 +73,6 @@ class Plugin:
 ```
 * `*args`: the given args to that targeted mixin function
 
----
-
----
 
 ## Available targets
 

@@ -45,7 +45,6 @@ so a second flag is needed to cover the gap.
 
 Everything below exists so you never have to break that rule.
 
----
 
 ## `client.call_on_ui(fn)`
 
@@ -83,7 +82,6 @@ def apply():
 self.client.call_on_ui(apply)
 ```
 
----
 
 ## `client.THREADS` - named background threads
 
@@ -129,7 +127,6 @@ def unload(self, carryover=None):
 Name threads with your plugin key as a prefix. The registry is global, and two
 plugins picking `"poller"` will silently share one entry.
 
----
 
 ## `client.TIMEOUTS` - deferred and repeating callbacks
 
@@ -186,7 +183,6 @@ Ids are global. Prefix with your plugin key, or use
 Cancel your timeouts in `unload()` - a fired callback pointing into an
 unloaded module is an exception on the UI thread.
 
----
 
 ## `Thread` directly
 
@@ -203,7 +199,6 @@ every live thread, and unnamed ones are impossible to attribute.
 
 Use `THREADS` instead whenever the work loops or needs to stop on unload.
 
----
 
 ## Reading settings from a thread
 

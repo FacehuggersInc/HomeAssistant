@@ -5,7 +5,6 @@ Widgets are styled with Qt stylesheets loaded from CSS files in
 startup and keyed by its filename, so adding `myplugin.css` there makes it
 available as the id `"myplugin"` with no registration step.
 
----
 
 ## `set_style(widget, id, clazz, object_tag=None, override=None)`
 
@@ -49,7 +48,6 @@ when styling a whole class of widget rather than one instance:
 set_style(self.window, "main", "main-window", object_tag="QMainWindow")
 ```
 
----
 
 ## Writing a stylesheet
 
@@ -124,7 +122,6 @@ On a wall panel it is worth going further and giving the whole row a background
 and a `:checked` state, so an option reads as something to tap rather than a
 small circle to aim at.
 
----
 
 ## Fonts and sizes
 
@@ -150,7 +147,6 @@ different screen.
 Fonts ship in `src/assets/fonts/` and are registered at startup. `FONT` is
 Poppins Light, `FONT_BOLD` is Poppins Medium.
 
----
 
 ## Colours
 
@@ -168,7 +164,6 @@ COLORS.DARK.TEXT.MUTED
 `STYLES.H1` through `STYLES.I4` are ready-made size/bold/colour descriptors
 for headings and body text.
 
----
 
 ## Shared classes worth knowing
 
@@ -181,7 +176,6 @@ From `common.css`:
 | `transparent` | A container that should paint nothing. |
 | `page-background` | The standard page fill. |
 
----
 
 ## Backgrounds that do not paint
 

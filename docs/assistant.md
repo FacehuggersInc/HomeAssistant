@@ -153,11 +153,12 @@ misfires wins.
 
 ### Writing good examples
 
-The engine now handles determiners, numbers, politeness, plurals,
-capitalisation and small mishearings. What it cannot invent is vocabulary:
-"close the app" will not match a skill whose examples only ever say
-"application". Cover the *words* people use, not their grammar - one example
-per distinct phrasing, not per determiner.
+Determiners, numbers, politeness, plurals, capitalisation and small
+mishearings are handled for you. Vocabulary is not: *"close the app"* will not
+match a skill whose examples only ever say *"application"*. Cover the **words**
+people use, not their grammar.
+
+[Writing skills](skills.md) has the rest.
 
 ### Wake words in a transcript
 
@@ -192,16 +193,12 @@ using `LEMMA` rather than `LOWER` covers singular and plural in one entry:
 
 ### Arguments
 
-`arguments` patterns often need an anchor word to find the value:
+A matched phrase can carry values out of the transcript - a name, a number, a
+duration. The anchor words that locate a value are stripped before it reaches
+the skill, so *"call it Eggs"* arrives as `name="Eggs"`.
 
-```python
-"name": [[{"LOWER": {"IN": ["call", "called", "named"]}},
-          {"LOWER": "it", "OP": "?"},
-          {"IS_ALPHA": True, "IS_STOP": False}]]
-```
-
-The anchor is stripped before the value reaches your skill, so
-`"call it Eggs"` arrives as `name="Eggs"` rather than `name="call it Eggs"`.
+Declaring them is a skill-writing job rather than an assistant one, and is
+covered on [Writing skills](skills.md#arguments).
 
 ## Transcript normalisation
 

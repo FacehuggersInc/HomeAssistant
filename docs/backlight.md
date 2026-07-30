@@ -1,5 +1,9 @@
 # Screen brightness
 
+> **Real backlight control is Linux only.** Every route here - sysfs,
+> logind, ddcutil, brightnessctl - is Linux. Elsewhere the dark overlay
+> does the dimming, which works everywhere and touches no hardware.
+
 The panel dims itself — at night, on a schedule, from quick settings. This is
 how that actually reaches the screen.
 
@@ -15,7 +19,6 @@ obvious.
 
 `auto` tries the real thing and falls back to the wash.
 
----
 
 ## The four routes
 
@@ -47,7 +50,6 @@ manager. It refuses unless the session has a seat, is in the foreground and
 belongs to the caller — so it works for a panel logged in at its own screen
 and not for one started from a service with no seat.
 
----
 
 ## Finding out what yours does
 
@@ -77,7 +79,6 @@ and anything else answering yes would be controlling an LED.
 Without `--survey` it reports only what was chosen, which is quicker. The same
 thing is at `GET /backlight`.
 
----
 
 ## Getting it working
 
@@ -168,7 +169,6 @@ The overlay is a reasonable fallback for a room that is not pitch dark. What it
 cannot do is reduce the actual light output, so on a bedroom wall at 3am it
 will still glow.
 
----
 
 ## Settings
 
@@ -188,7 +188,6 @@ Set it to the lowest hardware level that still looks lit — 15 is a reasonable
 starting point — and the panel can then go darker than the monitor alone
 allows. `0` means the hardware covers the whole range.
 
----
 
 ## For anyone changing this
 

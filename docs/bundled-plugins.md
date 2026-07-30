@@ -1,6 +1,6 @@
 # Bundled plugins
 
-Seven plugins ship in `src/assets/bundled/`. They are ordinary plugins with no
+Eight plugins ship in `src/assets/bundled/`. They are ordinary plugins with no
 special privileges - the same lifecycle, the same registries, the same
 `plugin.toml`. Almost everything visible on a fresh install comes from them,
 which is deliberate: if the bundled plugins could do something your plugin
@@ -15,13 +15,14 @@ Read them when the documentation runs out. They are the worked examples.
 | `aifallback` | AI Fallback | Answers phrases no skill matched. |
 | `idletriggers` | Idle Random Triggers | Runs registered callbacks while the panel is idle. |
 | `rssfeeds` | RSS Feeds | Feed fetching, shown through the idle triggers. |
+| `nighttimeclock` | Nighttime Clock | A full-screen clock page for after hours. |
+| `musicplugin` | Music | Playing music by voice, and the now-playing card. |
 | `calendar` | Calendar | Events, holidays, a calendar sub-page, widgets and a tile. |
 
----
 
 ## Core Widgets Bundle
 
-`corewidgetsbundle` - the largest of the six, and the one to read first.
+`corewidgetsbundle` - the largest of the eight, and the one to read first.
 
 Registers the home page and its sub-pages, and every widget and tile that
 comes with the app:
@@ -67,7 +68,6 @@ This is the plugin to copy from. It exercises page registration, widget
 registration, `MULTIPLE` templates, mixins, an API class, the public registry
 and quick access in one place.
 
----
 
 ## Core Skills
 
@@ -87,7 +87,6 @@ taking a single touch from it.
 
 See [Voice assistant](assistant.md) for how skills are declared and matched.
 
----
 
 ## AI Fallback
 
@@ -105,7 +104,6 @@ the plugin loads and says so rather than failing.
 The system prompt is a `body` setting, so the assistant's manner is editable
 from the Settings page without touching code.
 
----
 
 ## Idle Random Triggers
 
@@ -119,7 +117,6 @@ on.
 Uses `on_interaction` and `on_fresh_interaction` to know when idleness starts
 and ends. See [Events](events.md).
 
----
 
 ## RSS Feeds
 
@@ -137,7 +134,6 @@ first time it is read, then cached.
 
 Feeds are shown as idle panels through `idletriggers`.
 
----
 
 ### Managing feeds
 
@@ -172,6 +168,45 @@ time, date and temperature, and comes half-way up when somebody touches it.
   `IdleRandomTriggers` checks. Neither plugin names the other in code.
 
 Full detail in [Nighttime Clock](/docs/plugin/nighttimeclock/nighttime).
+
+## Music
+
+Ask for a song and it plays.
+
+| | |
+|---|---|
+| Voice | *"play Everlong"*, *"put on some jazz"*, *"stop the music"* |
+| On screen | A now-playing card with cover art, progress, and play/pause |
+| Quick settings | A **Music** button opening what has been played recently |
+| Also shows | Whatever else the machine is playing, through MPRIS |
+
+The card is not a music-plugin widget. Everything is published into the player
+registry - see [What is playing](player.md) - so anything showing or
+controlling playback works
+the same whether the sound is coming from this plugin, from a browser tab, or
+from something added later.
+
+Titles arrive whole because `play-music` uses a
+[payload argument](skills.md) — everything after "play" is taken verbatim
+rather than scored word by word, so a long title is not truncated into a
+search for its first two words.
+
+**Finding a track.** The YouTube Data API when a key is set, the results page
+when it is not, and YouTube Music when neither answers. A result too unlike
+what was asked for is rejected rather than played; when a retry succeeds, the
+panel asks *"Did you mean X?"* and remembers the answer, so a name it
+mishears once stops being a name it mishears.
+
+**Playing it.** A hidden `QWebEnginePage` driving the documented IFrame Player
+API — never the page's markup. A video whose owner forbids embedding falls back
+to the watch page, adverts included and skipped.
+
+**Getting out of the way.** Playback ducks to 5% while the assistant is
+listening and restores when it settles. `stop` and `shut up` reach the music
+through the [cancel registry](cancel.md); `nevermind` deliberately does not,
+since that belongs to whatever is on screen.
+
+Written up in full on the plugin's own page.
 
 ## Calendar
 
@@ -213,7 +248,6 @@ Everything above disappears with the plugin. Nothing in the client depends on
 the calendar existing; anything that reads it checks
 `client.public.has("calendar")` first.
 
----
 
 ## Reading them
 
@@ -238,22 +272,3 @@ CoreWidgetsBundle/
 Nothing enforces that structure - `main.py` and `plugin.toml` are the only
 required files - but every bundled plugin follows it, and it scales better
 than one long module. See [Plugins](plugins.md).
-
-## Music
-
-Plays from a hidden `QWebEnginePage` driving the YouTube IFrame Player API, and
-publishes into [`client.PLAYER`](player.md) — so the now-playing widget, and
-anything else that shows or controls playback, never learns which source is
-involved.
-
-* **No window.** A page with no view attached runs scripts exactly as a visible
-  one does. It needs `PlaybackRequiresUserGesture = False`, an origin to load
-  under, and its own off-the-record profile.
-* **The API, not the site.** Every command is a documented IFrame API call;
-  nothing reads YouTube's generated markup.
-* **Search** uses the Data API when a key is present and falls back to the
-  results page when it is not, or when the daily quota runs out.
-* **Ducking** fades on the wake word and restores when the assistant settles.
-
-`play-music` uses a [payload argument](skills.md), so a title of any length
-arrives whole.

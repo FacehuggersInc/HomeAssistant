@@ -1,5 +1,9 @@
 # What is playing
 
+> **Reading what the machine is playing is Linux only** - it goes
+> through MPRIS. The panel's own playback, and everything else on this
+> page, works on any platform.
+
 One contract for every source. A plugin that can play something registers as a
 **backend**; anything that shows or controls playback talks to `client.PLAYER`
 and never to a backend directly.
@@ -9,7 +13,6 @@ each need to know whether the sound is coming from a web player, a local
 library or a network device. Adding a source is a registration and no change
 anywhere else.
 
----
 
 ## Registering a backend
 
@@ -38,7 +41,6 @@ on the first button press.
 `unregister(owner)` drops every backend a plugin registered, and clears the
 state if one of them was active.
 
----
 
 ## Publishing state
 
@@ -78,7 +80,6 @@ watching rebuilds continuously.
 **Only the active backend's state is kept.** A publish from any other is
 dropped; the panel plays one thing at a time.
 
----
 
 ## Subscribing
 
@@ -100,7 +101,6 @@ future update.
 Publishes may come from a network thread. Marshal with `client.call_on_ui`
 before touching a widget.
 
----
 
 ## Ducking
 
@@ -117,7 +117,6 @@ come back up. `unduck()` with nothing ducked does nothing.
 A backend that offers `duck`/`unduck` has those called instead, so one that can
 fade smoothly does the fading rather than being stepped by the registry.
 
----
 
 ## Commands
 
@@ -135,65 +134,30 @@ not take the panel down.
 `toggle()` falls back to `pause()`/`play()` when a backend does not offer it,
 chosen from the published state.
 
----
 
 ## The widget
 
-`NowPlayingWidget` (`src/ui/widgets/now_playing.py`) is the reference consumer:
-a cover, a title, an artist, a progress line, and **play/pause and restart**.
+`NowPlayingWidget` (`src/ui/widgets/now_playing.py`) is the reference consumer,
+and the reason this registry exists in the shape it does.
 
-No skip buttons. What a music source queues is usually *alternatives* for the
-song that was asked for rather than a playlist, so "next" would play something
-nobody chose. Restart is a `seek(0)`, and hides itself where there is nothing to
-go back to.
+**It reads `client.PLAYER` and nothing else.** No source is named anywhere in
+it - a test asserts that - so the same card serves this panel's own player, a
+browser tab read over MPRIS, and anything added later.
 
-Both the title and the artist **scroll** when they do not fit, rather than being
-elided — on a music card the end of a title is often the part saying which
-version it is. Widening the card may stop them scrolling entirely, since they
-re-measure on a resize.
+What that gets you as a backend author:
 
-**Resizable in width, fixed in height.** There is nothing useful to do with more
-height: a taller card is a cover with empty space beside it. 320px to 900px.
+* Publish, and the card appears. Nothing has to be told about you.
+* Register only the commands you can honour. A control the active backend
+  cannot do is hidden rather than shown dead - so a backend with no `seek`
+  loses the restart button and keeps the rest.
+* Publish `STOPPED` when you finish. The card hides itself rather than sitting
+  on the wallpaper showing a track that stopped existing; **staying silent is
+  not the same as saying stopped**, and the registry cannot tell the difference
+  for you.
+* Position and duration drive the progress line and the clock. A source with no
+  known length shows only the position, since `1:23 / 0:00` is worse than
+  saying nothing.
 
-The **progress line runs the full width of the bottom edge** — a row of the
-outer layout rather than part of the text column, so it reaches both edges. It
-is clipped to the card's own corner radius, or a full-width line would square
-off the bottom corners and the card would look like it had a foot.
+Its layout and painting are a widget concern rather than a player one, and are
+covered on [Widgets](widgets.md).
 
-Under the artist it shows **`1:23 / 3:41`** — the progress line says roughly
-how far through, and the clock says how far exactly, which is what somebody
-deciding whether to wait for the end needs. A source with no known length shows
-only the position, since `1:23 / 0:00` is worse than saying nothing.
-
-It reads `client.PLAYER` and nothing else — there is no source named anywhere
-in it. It hides itself when nothing is playing rather than leaving a blank card
-on the wallpaper, and hides any control the active backend cannot do.
-
-**The cover, blurred, is the card's background** when there is art, and a
-gradient when there is not. Blurred by scaling down to a thumbnail and back up
-rather than with a `QGraphicsBlurEffect`, which needs a scene and a render
-pass for the same result. A wash goes over it, since a bright cover would
-otherwise leave white text on white.
-
-**It draws its own opaque gradient** when there is no art.
-
-**The title scrolls** when it does not fit, rather than being elided — on a
-music card the end of a title is often the part saying which version this is.
-It only moves when it has to, and stops when the card is hidden. The wallpaper behind it is a photograph,
-and a translucent card is legible over some images and unreadable over others
-with no way to know which from here. Painted rather than set as a stylesheet
-background, since a stylesheet gradient does not follow a resize.
-
-**Rebuilding is idempotent.** A source polled every couple of seconds
-republishes the same track; rebuilding then re-lays out the row for no visible
-change, which reads as the card flashing. The widget compares everything it
-actually draws — and nothing that ticks — and returns early when none of it
-moved. When it does rebuild it logs *what* changed, so a source republishing
-something subtly different is findable rather than only visible.
-
-Cover art is compared by **path, without the query string** — a query is where
-a temporary token or a regenerated size lives. Not by filename: every YouTube
-thumbnail is called `maxresdefault.jpg`, so keying on that makes every video's
-art look identical and the cover never changes. And the cover is never blanked
-mid-swap: the old one stays until the new one has arrived, so a track change
-is a swap rather than a blank frame followed by a picture.

@@ -1,5 +1,9 @@
 # Wi-Fi
 
+> **Linux only.** This section reads NetworkManager over `nmcli`. On
+> Windows and macOS it does not appear, and nothing else in the panel
+> is affected.
+
 A section in Settings under **SYSTEM**, beside Users and Plugins. It sits there
 rather than with the file-generated sections because it behaves like them: the
 list changes while you are looking at it, and joining a network happens

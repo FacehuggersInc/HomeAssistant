@@ -7,7 +7,6 @@ Almost nothing here is hardcoded. Pages, widgets, tiles, skills, settings and
 API endpoints all arrive from plugins, and the client is a coordinator rather
 than an owner.
 
----
 
 ## Start here
 
@@ -22,14 +21,13 @@ what you are building. [Application lifecycle](lifecycle.md) explains when
 each of your hooks runs, and [Threading](threading.md) is worth reading before
 you write any background work - it is the rule most easily broken by accident.
 
-[Bundled plugins](bundled-plugins.md) describes the six that ship. They are
+[Bundled plugins](bundled-plugins.md) describes the eight that ship. They are
 ordinary plugins with no special privileges, so they are the worked examples
 for everything above.
 
 If you want to drive the panel from another machine, everything is in
 [Backend API](api.md).
 
----
 
 ## The six ideas
 
@@ -59,7 +57,6 @@ quick access buttons, and a free-form public registry for anything else.
 **Events** are the client's own lifecycle, published on a bus that any plugin
 can subscribe to.
 
----
 
 ## Contents
 
@@ -70,7 +67,7 @@ can subscribe to.
 | [Updating](updating.md) | Update checks, staging, rollback, exit codes. |
 | [Architecture](architecture.md) | How the client, backend and plugins fit together. |
 | [Plugins](plugins.md) | `plugin.toml`, `main.py`, and the full lifecycle. |
-| [Bundled plugins](bundled-plugins.md) | The seven that ship, and what each provides. |
+| [Bundled plugins](bundled-plugins.md) | The eight that ship, and what each provides. |
 | [Pages](pages.md) | Registering a page, a full example, sub-pages. |
 | [Widgets](widgets.md) | Writing and registering widgets, layout, persistence. |
 | [Tiles](tiles.md) | Writing and registering tiles, the grid and panel. |
@@ -109,7 +106,6 @@ sidebar rather than here:
 | [Nighttime Clock](/docs/plugin/nighttimeclock/nighttime) | Nighttime Clock |
 | [The calendar registry](/docs/plugin/calendarplugin/registry) | Calendar |
 
----
 
 ## Reading these
 

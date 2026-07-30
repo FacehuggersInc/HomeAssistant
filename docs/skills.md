@@ -7,7 +7,6 @@ for you.
 For how matching actually works — pattern generation, the rule phase, scoring —
 see [Voice assistant](assistant.md). This page is about writing them.
 
----
 
 ## The smallest skill
 
@@ -47,7 +46,6 @@ class MyPlugin(Plugin):
 `self.client.wake_word` reads the wake word from Assistant settings. Use it
 rather than hardcoding one, so changing it in Settings changes your skills too.
 
----
 
 ## Examples are the whole interface
 
@@ -70,7 +68,6 @@ the examples of both.
 
 Do not add a wake word to your examples. It is stripped before matching.
 
----
 
 ## Arguments
 
@@ -217,7 +214,6 @@ yourself — `"ten"` and `"10"` can both reach you, and
 [transcript normalisation](assistant.md) converts most spoken numbers but is
 not a guarantee.
 
----
 
 ## Payloads — an open-ended value
 
@@ -315,7 +311,6 @@ def porch_on(self):
 key, and a panel without one is a perfectly valid install — so a skill should
 never *depend* on being heard. Show a notification or update the UI as well.
 
----
 
 ## Asking a follow-up question
 
@@ -344,7 +339,6 @@ house goes into your queue instead of being treated as a fresh command.
 Skills run on a worker thread, so touching any widget from one needs
 `client.call_on_ui()`. See [Threading](threading.md).
 
----
 
 ## Managing skills at runtime
 
@@ -364,7 +358,6 @@ is gone matches a phrase and calls into a module that no longer exists.
 adds and iterates like a list, so it can be passed to `register()` alongside
 plain `Skill` objects.
 
----
 
 ## When nothing matches
 

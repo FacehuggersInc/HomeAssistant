@@ -14,6 +14,8 @@ it is written as though it were not.
 from __future__ import annotations
 
 import html
+
+from src import docs_tracker as tracker
 import json
 import re
 from pathlib import Path
@@ -26,36 +28,67 @@ BUNDLED_DIR = INSTALL_ROOT / "src" / "assets" / "bundled"
 
 # Order in the sidebar. Anything on disk but not listed is appended after,
 # alphabetically, so a new file shows up without being registered here.
-NAV_ORDER = [
-    ("index.md",           "Overview"),
-    ("installation.md",    "Installation"),
-    ("lifecycle.md",       "Application lifecycle"),
-    ("updating.md",        "Updating"),
-    ("architecture.md",    "Architecture"),
-    ("plugins.md",         "Plugins"),
-    ("bundled-plugins.md", "Bundled plugins"),
-    ("pages.md",           "Pages"),
-    ("widgets.md",         "Widgets"),
-    ("tiles.md",           "Tiles"),
-    ("features.md",        "Features"),
-    ("registries.md",      "Registries"),
-    ("users.md",           "Users"),
-    ("webpage.md",         "The web page"),
-    ("quick-settings.md",  "Quick settings"),
-    ("events.md",          "Events"),
-    ("settings.md",        "Settings"),
-    ("threading.md",       "Threading"),
-    ("logging.md",         "Logging"),
-    ("styling.md",         "Styling"),
-    ("notifications.md",   "Notifications, state, assets"),
-    ("dialogs.md",         "Dialogs and overlays"),
-    ("keyboard.md",        "On-screen keyboard"),
-    ("assistant.md",       "Voice assistant"),
-    ("skills.md",          "Writing skills"),
-    ("mixins.md",          "Mixins"),
-    ("api.md",             "Backend API"),
-    ("philosophy.md",      "Philosophy"),
+#The nav, grouped by what somebody is trying to do.
+#
+#A flat list of thirty-odd pages is a list nobody reads to the end. Worse, it
+#had no room for a page that arrived later: anything not named here was
+#appended alphabetically at the bottom, so Wi-Fi and Bluetooth ended up filed
+#under nothing at all.
+#
+#Groups are by purpose rather than by subsystem. "How do I add something" and
+#"how does the screen work" are the questions people arrive with; which module
+#a thing lives in is not.
+NAV_GROUPS = [
+    ("Start here", [
+        ("index.md",           "Overview"),
+        ("installation.md",    "Installation"),
+        ("philosophy.md",      "Philosophy"),
+    ]),
+    ("Running it", [
+        ("lifecycle.md",       "Application lifecycle"),
+        ("updating.md",        "Updating"),
+        ("when-it-will-not-start.md", "When it will not start"),
+        ("logging.md",         "Logging"),
+    ]),
+    ("Building on it", [
+        ("architecture.md",    "Architecture"),
+        ("plugins.md",         "Plugins"),
+        ("bundled-plugins.md", "Bundled plugins"),
+        ("mixins.md",          "Mixins"),
+        ("events.md",          "Events"),
+        ("registries.md",      "Registries"),
+        ("threading.md",       "Threading"),
+    ]),
+    ("On the screen", [
+        ("pages.md",           "Pages"),
+        ("widgets.md",         "Widgets"),
+        ("tiles.md",           "Tiles"),
+        ("dialogs.md",         "Dialogs and overlays"),
+        ("quick-settings.md",  "Quick settings"),
+        ("player.md",          "Media playback"),
+        ("notifications.md",   "Notifications, state, assets"),
+        ("styling.md",         "Styling"),
+        ("keyboard.md",        "On-screen keyboard"),
+    ]),
+    ("Talking to it", [
+        ("assistant.md",       "Voice assistant"),
+        ("skills.md",          "Writing skills"),
+        ("cancel.md",          "Cancelling"),
+        ("api.md",             "Backend API"),
+        ("users.md",           "Users"),
+        ("webpage.md",         "The web page"),
+    ]),
+    ("The machine", [
+        ("wifi.md",            "Wi-Fi"),
+        ("bluetooth.md",       "Bluetooth"),
+        ("backlight.md",       "Screen brightness"),
+        ("settings.md",        "Settings"),
+        ("features.md",        "Features"),
+    ]),
 ]
+
+#Flat, for anything that wants an order rather than a shape.
+NAV_ORDER = [entry for _group, entries in NAV_GROUPS for entry in entries]
 
 
 ## -- FILES -------------------------------------------------------------------
@@ -198,19 +231,37 @@ def resolve_plugin(slug: str) -> Optional[Path]:
 
 
 def nav_entries() -> list:
-    """[(slug, title, filename)] in display order."""
+    """[(slug, title, filename)] in display order, flat."""
+    return [entry for _group, entries in nav_groups() for entry in entries]
+
+
+def nav_groups() -> list:
+    """
+    [(group title, [(slug, title, filename)])] in display order.
+
+    A page on disk that no group names goes into a final "Everything else"
+    rather than being dropped. Silently omitting it would mean a page nobody
+    can reach; putting it somewhere visible means the omission gets noticed and
+    filed properly.
+    """
     if not available():
         return []
 
     on_disk = {p.name for p in DOCS_DIR.glob("*.md")}
-    entries = []
-    for filename, title in NAV_ORDER:
-        if filename in on_disk:
-            entries.append((filename[:-3], title, filename))
-            on_disk.discard(filename)
-    for filename in sorted(on_disk):
-        entries.append((filename[:-3], title_of(DOCS_DIR / filename), filename))
-    return entries
+    groups = []
+    for title, entries in NAV_GROUPS:
+        rows = []
+        for filename, label in entries:
+            if filename in on_disk:
+                rows.append((filename[:-3], label, filename))
+                on_disk.discard(filename)
+        if rows:
+            groups.append((title, rows))
+
+    leftover = [(f[:-3], title_of(DOCS_DIR / f), f) for f in sorted(on_disk)]
+    if leftover:
+        groups.append(("Everything else", leftover))
+    return groups
 
 
 def title_of(path: Path) -> str:
@@ -596,7 +647,58 @@ def code_block(code: str, language: str) -> str:
 
 ## -- PAGE --------------------------------------------------------------------
 
+def changes_page() -> str:
+    """
+    What has changed in these docs, newest first.
+
+    Reachable at all times from the top of the nav rather than only when
+    something is badged, because "what changed" is also asked long after the
+    badges have expired - and a button that comes and goes is one nobody learns
+    is there.
+    """
+    import datetime as _dt
+
+    data = tracker.scan()
+    entries = tracker.log_entries(data)
+    titles = {slug: title for slug, title, _f in nav_entries()}
+
+    if not entries:
+        body = "<p>Nothing recorded yet.</p>"
+        return shell("What changed", body, "", "changes")
+
+    parts = []
+    for entry in entries:
+        when = _dt.datetime.fromtimestamp(entry.get("at", 0))
+        note = html.escape(str(entry.get("note") or ""))
+        parts.append('<div class="change-entry">')
+        parts.append(f'<div class="change-when">{when:%d %b %Y, %H:%M}</div>')
+        if note:
+            parts.append(f'<div class="change-note">{note}</div>')
+        parts.append('<ul class="change-pages">')
+        for item in entry.get("pages", []):
+            slug = str(item.get("slug", ""))
+            state = str(item.get("state", ""))
+            label = html.escape(titles.get(slug, slug))
+            if state == "removed":
+                parts.append(f'<li><span class="doc-badge removed">removed'
+                             f'</span>{label}</li>')
+            else:
+                parts.append(f'<li><span class="doc-badge {state}">{state}'
+                             f'</span><a href="/docs/{slug}">{label}</a></li>')
+        parts.append("</ul></div>")
+
+    return shell("What changed", "".join(parts), "", "changes")
+
+
 def page(slug: str) -> Optional[str]:
+    if slug == "changes":
+        return changes_page()
+
+    # Noted as read, so its badge starts expiring. Opening a page and coming
+    # straight back should not erase the mark that brought you to it, so the
+    # badge survives a further day rather than going at once.
+    tracker.mark_opened(slug)
+
     if slug.startswith("plugin/"):
         # A three-part slug is a plugin's own docs page; two parts is its
         # readme.
@@ -663,11 +765,118 @@ def toc_html(toc: list) -> str:
     return f'<nav class="toc"><div class="toc-title">On this page</div>{rows}</nav>'
 
 
+def neighbours(current: str) -> dict:
+    """
+    What comes before and after this page, two ways.
+
+    `prev`/`next` step through everything including a plugin's sub-pages -
+    which is what reading straight through wants. `prev_top`/`next_top` skip to
+    the next thing that is not a sub-page, for somebody who has finished with a
+    plugin and does not want its four sub-pages one at a time.
+
+    Both are returned rather than one being chosen here: which is wanted is a
+    property of the button pressed, not of the page.
+    """
+    flat, tops = [], []
+    for slug, title, _ in nav_entries():
+        flat.append((slug, title))
+        tops.append((slug, title))
+
+    for plugin_slug, (display, readme, pages) in sorted(
+            plugin_docs().items(), key=lambda item: item[1][0].lower()):
+        if readme is not None:
+            flat.append((f"plugin/{plugin_slug}", display))
+            tops.append((f"plugin/{plugin_slug}", display))
+        for page_slug, title, _path in pages:
+            # In the straight-through order but not the skipping one.
+            flat.append((page_slug, title))
+
+    def around(sequence):
+        for index, (slug, _title) in enumerate(sequence):
+            if slug == current:
+                before = sequence[index - 1] if index > 0 else None
+                after = (sequence[index + 1]
+                         if index + 1 < len(sequence) else None)
+                return before, after
+        return None, None
+
+    prev_one, next_one = around(flat)
+    prev_top, next_top = around(tops)
+    # A sub-page is not in `tops`, so it has no skipping neighbours of its own.
+    # Its parent's do instead, which is what "skip the rest of this plugin"
+    # means from inside one.
+    if prev_top is None and next_top is None and "/" in current:
+        parent = current.rsplit("/", 1)[0]
+        prev_top, next_top = around(tops) if parent == current else (None, None)
+        for index, (slug, _t) in enumerate(tops):
+            if current.startswith(slug + "/") or slug == parent:
+                prev_top = tops[index - 1] if index > 0 else None
+                next_top = (tops[index + 1]
+                            if index + 1 < len(tops) else None)
+                break
+
+    return {"prev": prev_one, "next": next_one,
+            "prev_top": prev_top, "next_top": next_top}
+
+
+def _nav_button(entry, direction: str, skip: bool) -> str:
+    if not entry:
+        return '<span class="page-nav-gap"></span>'
+    slug, title = entry
+    arrow = "\u2190" if direction == "prev" else "\u2192"
+    label = html.escape(title)
+    hint = "Skip to" if skip else ("Previous" if direction == "prev" else "Next")
+    inner = (f'<span class="page-nav-hint">{arrow} {hint}</span>'
+             f'<span class="page-nav-title">{label}</span>')
+    if direction == "next":
+        inner = (f'<span class="page-nav-hint">{hint} {arrow}</span>'
+                 f'<span class="page-nav-title">{label}</span>')
+    classes = "page-nav-link" + (" skip" if skip else "")
+    return f'<a class="{classes}" href="/docs/{slug}">{inner}</a>'
+
+
+def page_nav_html(current: str, position: str) -> str:
+    """
+    The previous/next row. `position` is "top" or "bottom".
+
+    At the top only the way back, at the bottom only the way on. A page that
+    opens with a Next button invites skipping it before it has been read, and
+    one that ends with a Back button is offering to undo what somebody just
+    did.
+    """
+    around = neighbours(current)
+    if position == "top":
+        parts = [_nav_button(around["prev"], "prev", False)]
+        if around["prev_top"] and around["prev_top"] != around["prev"]:
+            parts.append(_nav_button(around["prev_top"], "prev", True))
+    else:
+        parts = []
+        if around["next_top"] and around["next_top"] != around["next"]:
+            parts.append(_nav_button(around["next_top"], "next", True))
+        parts.append(_nav_button(around["next"], "next", False))
+    if not [p for p in parts if "page-nav-link" in p]:
+        return ""
+    return f'<nav class="page-nav {position}">' + "".join(parts) + "</nav>"
+
+
 def sidebar_html(current: str) -> str:
     rows = []
-    for slug, title, _ in nav_entries():
-        active = ' class="active"' if slug == current else ""
-        rows.append(f'<a href="/docs/{slug}"{active}>{html.escape(title)}</a>')
+    changes = tracker.load()
+
+    # What changed, before anything else. It is the page somebody wants after
+    # being handed a new build, and hunting for it in a group defeats that.
+    recent = tracker.recent_count(changes)
+    badge = f'<span class="nav-count">{recent}</span>' if recent else ""
+    active = ' class="active"' if current == "changes" else ""
+    rows.append(f'<a href="/docs/changes"{active}>What changed{badge}</a>')
+
+    for group, entries in nav_groups():
+        rows.append(f'<div class="nav-divider">{html.escape(group)}</div>')
+        for slug, title, _ in entries:
+            active = ' class="active"' if slug == current else ""
+            mark = tracker.badge_for(slug, changes)
+            rows.append(f'<a href="/docs/{slug}"{active}>'
+                        f'{html.escape(title)}{mark}</a>')
 
     # Plugins get their own section at the end, one heading each.
     #
@@ -703,9 +912,40 @@ def sidebar_html(current: str) -> str:
 _SEARCH_CACHE: dict = {"stamp": None, "data": None}
 
 
+#Underscore is deliberately NOT in here. It is markdown emphasis, but it is
+#also half the identifiers in this codebase - KEEP_ASPECT, has_chosen_size -
+#and those are the exact strings somebody searches for. Stripping it made them
+#unfindable, which is worse than the occasional stray underscore in a result.
+_MD_NOISE = re.compile(r"[`*>#|\[\]]+")
+_SPACES = re.compile(r"\s+")
+
+
+def _read(path) -> str:
+    try:
+        return path.read_text(encoding="utf-8")
+    except OSError:
+        return ""
+
+
+def _searchable(text: str, limit: int = 1400) -> str:
+    """Markdown stripped to words, capped so the payload stays sane."""
+    cleaned = _SPACES.sub(" ", _MD_NOISE.sub(" ", text)).strip()
+    return cleaned[:limit]
+
+
 def search_index() -> list:
     """
-    Every heading in every page, as [page_slug, page_title, heading, anchor].
+    Every section of every page, as
+    [page_slug, page_title, heading, anchor, body_text].
+
+    The body is included so a search finds the **words in a page**, not only
+    the words somebody happened to put in a heading. Thirty pages in, the thing
+    being looked for is usually a snippet or a term buried in a paragraph, and
+    remembering which heading it lived under is exactly what nobody can do.
+
+    Markdown syntax is stripped and whitespace collapsed before indexing:
+    matching on backticks and pipe characters finds nothing useful and makes
+    the payload larger for it.
 
     Cached against the newest mtime in docs/, so editing a file during
     development still refreshes it without a restart, and a normal run builds
@@ -724,33 +964,58 @@ def search_index() -> list:
             text = (DOCS_DIR / filename).read_text(encoding="utf-8")
         except OSError:
             continue
+        heading, anchor, body = page_title, "", []
+
+        def flush():
+            rows.append([slug, page_title, heading, anchor,
+                         _searchable(" ".join(body))])
+
         in_code = False
         for line in text.splitlines():
-            if line.lstrip().startswith("```"):
+            fence = line.lstrip().startswith("```")
+            if fence:
                 in_code = not in_code
+                # Code is indexed too. A snippet is one of the commonest things
+                # to be hunting for, and the fence markers are all that need
+                # dropping.
                 continue
-            if in_code:
+            match = None if in_code else re.match(r"^(#{2,4})\s+(.*)$",
+                                                  line.strip())
+            if match:
+                flush()
+                heading = match.group(2).strip().replace("`", "")
+                anchor = slugify(match.group(2).strip())
+                body = []
                 continue
-            match = re.match(r"^(#{2,4})\s+(.*)$", line.strip())
-            if not match:
-                continue
-            heading = match.group(2).strip().replace("`", "")
-            rows.append([slug, page_title, heading, slugify(match.group(2).strip())])
+            if line.strip():
+                body.append(line.strip())
+        flush()
 
+    # Plugin docs go in the same shape, body and all. They were headings only,
+    # which meant the one place a plugin explains itself was the one place a
+    # search could not reach.
     for plugin_slug, (display, readme, pages) in plugin_docs().items():
         if readme is not None:
-            rows.append([f"plugin/{plugin_slug}", "Plugins", display, ""])
+            rows.append([f"plugin/{plugin_slug}", "Plugins", display, "",
+                         _searchable(_read(readme))])
         for page_slug, title, path in pages:
-            rows.append([page_slug, display, title, ""])
-            try:
-                for line in path.read_text(encoding="utf-8").splitlines():
-                    match = re.match(r"^(#{2,4})\s+(.*)$", line.strip())
-                    if match:
-                        heading = match.group(2).strip().replace("`", "")
-                        rows.append([page_slug, display, heading,
-                                     slugify(match.group(2).strip())])
-            except OSError:
-                continue
+            text = _read(path)
+            rows.append([page_slug, display, title, "", _searchable(text)])
+            heading, anchor, body = title, "", []
+            for line in text.splitlines():
+                match = re.match(r"^(#{2,4})\s+(.*)$", line.strip())
+                if match:
+                    if body:
+                        rows.append([page_slug, display, heading, anchor,
+                                     _searchable(" ".join(body))])
+                    heading = match.group(2).strip().replace("`", "")
+                    anchor = slugify(match.group(2).strip())
+                    body = []
+                elif line.strip():
+                    body.append(line.strip())
+            if body:
+                rows.append([page_slug, display, heading, anchor,
+                             _searchable(" ".join(body))])
 
     _SEARCH_CACHE.update(stamp=stamp, data=rows)
     return rows
@@ -774,7 +1039,9 @@ def shell(title: str, body: str, toc: str, current: str) -> str:
   <div class="results" hidden></div>
 </aside>
 <main>
+  {page_nav_html(current, "top")}
   <article>{body}</article>
+  {page_nav_html(current, "bottom")}
 </main>
 {toc}
 <script type="application/json" id="search-index">{json.dumps(search_index())}</script>
@@ -821,6 +1088,54 @@ a:hover { text-decoration:underline; }
   border-left:2px solid transparent;
 }
 .nav a:hover { background:#26262b; color:var(--text); text-decoration:none; }
+
+/* -- What changed --------------------------------------------------------- */
+.nav-count {
+  float:right; background:var(--accent); color:#10281c; border-radius:9px;
+  padding:0 7px; font-size:11px; font-weight:700; line-height:18px;
+  min-width:18px; text-align:center;
+}
+.doc-badge {
+  display:inline-block; margin-left:8px; padding:1px 7px; border-radius:8px;
+  font-size:10px; font-weight:700; text-transform:uppercase;
+  letter-spacing:.04em; vertical-align:middle;
+}
+.doc-badge.new     { background:rgba(47,240,142,.18); color:#7ef0b4; }
+.doc-badge.updated { background:rgba(120,170,255,.18); color:#9dc0ff; }
+.doc-badge.removed { background:rgba(224,138,138,.18); color:#e8a6a6; }
+
+.change-entry { border-left:2px solid var(--line); padding:2px 0 2px 16px;
+  margin:0 0 22px; }
+.change-when { color:var(--muted); font-size:13px; }
+.change-note { margin:4px 0 8px; font-size:15px; }
+.change-pages { list-style:none; padding:0; margin:0; }
+.change-pages li { padding:3px 0; font-size:15px; }
+.change-pages .doc-badge { margin:0 8px 0 0; }
+
+/* -- Previous / next ------------------------------------------------------ */
+.page-nav { display:flex; gap:10px; flex-wrap:wrap; margin:0 0 22px; }
+.page-nav.bottom { margin:34px 0 0; }
+.page-nav-link {
+  flex:1 1 220px; min-width:0; display:block; padding:10px 14px;
+  border:1px solid var(--line); border-radius:10px; background:var(--card);
+  text-decoration:none;
+}
+.page-nav-link:hover { border-color:var(--accent); text-decoration:none; }
+/* The skipping one steps back, so the ordinary next page stays the obvious
+ * thing to press and the shortcut is there when it is wanted. */
+.page-nav-link.skip { flex:0 1 auto; background:transparent; opacity:.72; }
+.page-nav-hint { display:block; color:var(--muted); font-size:12px; }
+.page-nav-title { display:block; color:var(--text); font-size:15px;
+  font-weight:600; overflow:hidden; text-overflow:ellipsis;
+  white-space:nowrap; }
+.page-nav-gap { flex:1 1 220px; }
+
+.results a small {
+  display:block; color:var(--muted); font-size:12px; line-height:1.5;
+  margin-top:3px; overflow:hidden;
+}
+.results a mark { background:rgba(47,240,142,.22); color:var(--text);
+  border-radius:3px; padding:0 2px; }
 .nav a.active { background:#26262b; color:var(--text); border-left-color:var(--accent); }
 .nav a.sub {
   font-size:13.5px; padding-left:22px; color:#7f7f88;
@@ -1028,9 +1343,17 @@ if (filter) {
     });
     nav.hidden = pageHits === 0;
 
-    var rows = index.filter(function (row) {
-      return row[2].toLowerCase().indexOf(needle) !== -1;
-    }).slice(0, 40);
+    // A heading match outranks a body match. Somebody typing "threading"
+    // wants the section called that, not the twelve paragraphs mentioning it.
+    var headingRows = [], bodyRows = [];
+    index.forEach(function (row) {
+      if (row[2].toLowerCase().indexOf(needle) !== -1) {
+        headingRows.push(row);
+      } else if ((row[4] || '').toLowerCase().indexOf(needle) !== -1) {
+        bodyRows.push(row);
+      }
+    });
+    var rows = headingRows.concat(bodyRows).slice(0, 50);
 
     if (!rows.length) {
       results.hidden = pageHits > 0;
@@ -1038,11 +1361,34 @@ if (filter) {
       return;
     }
 
-    var html = '<div class="results-title">Sections</div>';
+    function escapeHtml(text) {
+      return text.replace(/[&<>"]/g, function (c) {
+        return {'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c];
+      });
+    }
+
+    // The words around the match, so a result can be judged without opening
+    // it. A list of section names is not enough once the search reaches into
+    // the body - the heading may say nothing about why it matched.
+    function snippet(text, term) {
+      var at = text.toLowerCase().indexOf(term);
+      if (at === -1) { return ''; }
+      var from = Math.max(0, at - 48);
+      var piece = text.slice(from, at + term.length + 90);
+      var out = escapeHtml(piece);
+      var marked = escapeHtml(text.substr(at, term.length));
+      out = out.replace(marked, '<mark>' + marked + '</mark>');
+      return (from > 0 ? '&hellip;' : '') + out + '&hellip;';
+    }
+
+    var html = '<div class="results-title">' + rows.length +
+               ' match' + (rows.length === 1 ? '' : 'es') + '</div>';
     rows.forEach(function (row) {
       var href = '/docs/' + row[0] + (row[3] ? '#' + row[3] : '');
-      html += '<a href="' + href + '"><span>' + row[2] +
-              '</span><em>' + row[1] + '</em></a>';
+      var body = snippet(row[4] || '', needle);
+      html += '<a href="' + href + '"><span>' + escapeHtml(row[2]) +
+              '</span><em>' + escapeHtml(row[1]) + '</em>' +
+              (body ? '<small>' + body + '</small>' : '') + '</a>';
     });
     results.innerHTML = html;
     results.hidden = false;

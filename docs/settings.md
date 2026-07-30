@@ -9,7 +9,6 @@ Two layers, and they are not the same thing:
 
 Both use the same declaration format and the same widget builders.
 
----
 
 ## Reading and writing
 
@@ -41,7 +40,6 @@ your own `settings.json` and keeps you out of the client's tree.
 Writes are not thread-safe. Do them on the UI thread, or hold
 `client.SETTINGS_LOCK`. See [Threading](threading.md).
 
----
 
 ## Declaring a setting
 
@@ -130,8 +128,6 @@ declaration only names the variable:
 See [Registries](registries.md) for how the scoping works - a plugin can only
 read secrets it declared.
 
----
-
 
 ## What the client itself declares
 
@@ -216,17 +212,16 @@ next 44, a third left it to the layout — and a row of them ended up uneven for
 reason anybody chose. None of them carried an icon either, so a page of buttons
 read as a wall of similar words.
 
-A row in a **list** gets `row_menu()` — one glyph that opens a menu — while a
-page devoted to a single thing keeps its buttons.
+A row in a **list** gets `row_menu()` — one glyph opening an
+[action sheet](dialogs.md) — while a page devoted to a single thing keeps its
+buttons.
 
-A row of labelled buttons works when there is one row. In a list it does not:
-every row repeats the same words, those words are the widest thing in the row, so
-they are the first thing cut off on a narrow panel — and they are the least
-useful part, since nobody is reading them again by the third row. The labels move
-into the menu, where there is room to say what the action does to *this* item.
+Labels are the widest part of a button, so in a list they are what gets cut off
+first on a narrow panel. In the sheet there is room for them, and room to say
+what the action does to *this* item.
 
 The Plugins overview is a list and uses the menu; a specific plugin's own page
-keeps the four buttons, where they are read once and worth the space.
+keeps its buttons.
 
 A page with a fixed set of actions uses `action_column()` — a tray that is always the same
 number of slots wide, whatever it holds, padded on the left.
@@ -351,7 +346,6 @@ survive, and a new setting arrives at its default.
 `settings.json` replaces the file outright, including any `value` you had
 changed.
 
----
 
 ## Reacting to changes
 
@@ -370,7 +364,6 @@ Some client settings restart a subsystem on save rather than being re-read -
 changing the assistant's model, microphone or wake word restarts the assistant,
 and changing the update check interval restarts the checker.
 
----
 
 ## Adding cards to the Settings page
 

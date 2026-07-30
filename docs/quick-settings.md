@@ -11,7 +11,6 @@ It is registered once against the client rather than built per page, so a
 control appears everywhere or nowhere - there is no page that quietly lacks
 "quit the app" because nobody added it there.
 
----
 
 ## Opening it
 
@@ -27,7 +26,6 @@ keep interactive widgets clear of it.
 
 `client.toggle_quick_settings()` opens it without the gesture.
 
----
 
 ## Layout
 
@@ -54,7 +52,6 @@ fullscreen, settings, quit. The two wallpaper buttons are hidden off `sub.home`
 - they act on the cycling background, and the publication they call only exists
 while that page is built.
 
----
 
 ## Registering a quick access button
 
@@ -110,7 +107,6 @@ self.client.QUICK.unsubscribe(callback)
 A listener that raises is dropped rather than left to raise on every future
 registration.
 
----
 
 ## System controls
 
@@ -132,7 +128,6 @@ setting - a panel that boots dark looks broken.
 none of them answers, because on a wall panel there is no console to check why
 a control does nothing. The chosen backend is logged at startup.
 
----
 
 ## The update button
 
@@ -199,17 +194,18 @@ The threshold is measured against the height the panel actually has rather than 
 device name: the card grows with whatever is registered in it, so a 1080-tall
 screen with four controls has less room than a 1440 one with two.
 
+> **Some of these are Linux only.** The Wi-Fi and Bluetooth buttons,
+> the volume slider and the media keys all read Linux services. Where
+> one is missing the control says what it needs rather than
+> disappearing. Brightness and the quick-access grid work everywhere.
+
 ## The two radios
 
-Wi-Fi and Bluetooth sit **above the sliders**, as state buttons. They are what
-somebody opens this panel to check — whether the thing is on the network, what it
-is playing through — while a slider is something you arrive already wanting.
-Reading order should match that.
+Wi-Fi and Bluetooth sit above the sliders, as state buttons.
 
-Each shows its own state in its **icon**, not only its label: signal bars for
+Each shows its state in its **icon** as well as its label: signal bars for
 Wi-Fi, a struck-through symbol when Bluetooth is off, the connected device and
-its charge when it is on. The icon is what is legible from across a room, which
-is the distance a wall panel is usually looked at from.
+its charge when it is on.
 
 Pressing one opens its section in Settings. Pressing one that cannot work
 explains what is missing instead.
@@ -217,17 +213,13 @@ explains what is missing instead.
 ## Controls that cannot work yet
 
 A control whose tooling is absent is **shown greyed and says what it needs when
-pressed**, rather than being hidden.
+pressed**, rather than being hidden. There is no console on a wall panel, so a
+control that is simply absent gives nobody a way to find out why.
 
-Hiding was the earlier answer and it was worse. Somebody who has used this panel
-on another machine looks for the control, finds nothing at all, and has no way to
-learn that a package is missing — there is no console on a wall panel, and the
-log is on a machine they are not sitting at.
-
-`src/system/requirements.py` holds what each capability needs: the tool, why it
-is needed rather than merely wanted, and a starting point for installing it. The
-install line is a best guess at a package name rather than a promise, since the
-panel may not be on the distribution it was written for.
+`src/system/requirements.py` holds what each capability needs: the tool, what it
+is for, and a starting point for installing it. The install line is a guess at a
+package name rather than a promise - the panel may not be on the distribution it
+was written for.
 
 ## Volume
 

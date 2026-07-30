@@ -22,11 +22,13 @@ A widget declares what it supports on the class:
 |-----------|---------|
 | `KEY`, `NAME`, `ICON`, `DESCRIPTION` | identity, and how it appears in the panel |
 | `RESIZABLE` | offers a resize handle |
+| `KEEP_ASPECT` | a resize scales both axes together, so a picture is not squashed |
 | `ROTATABLE` | offers a rotate handle |
 | `FLOATABLE` | stays where dropped instead of snapping to an anchor |
 | `REMOVABLE` | `False` pins it to the page - no delete button appears |
 | `MULTIPLE` | `True` makes it a template: it stays in the panel and each **Add** places another copy |
 | `MIN_W/H`, `MAX_W/H` | resize limits |
+| `DEFAULT_ANCHOR` | where it lands when nothing has been saved for it |
 
 ## Placing and moving
 
@@ -212,7 +214,7 @@ The same applies to hit testing, the handle rects and anchor snapping.
 
 ### The selection chrome
 
-Handles are 44px with another 12px of slop around them, sized for a finger
+Handles are 44px with another 12px of padding around them, sized for a finger
 rather than a cursor. Which ones appear depends on what the widget declares:
 
 | Handle | Where | Shown when |
@@ -225,8 +227,7 @@ rather than a cursor. Which ones appear depends on what the widget declares:
 | **delete** — red bin, returns it to the panel | left mid-edge | `REMOVABLE` |
 
 The delete handle flips to the right mid-edge when the left would fall outside
-the view. It is a bin rather than an X on purpose — an X reads as "close", and
-the commit tick beside it already means done.
+the view.
 
 Child widgets paint over their parent, so the dashed border and handles
 cannot be drawn in the framework's own `paintEvent` - they would sit
@@ -375,7 +376,6 @@ Anything a widget does on a timer of its **own** — a `QTimer` it constructed
 rather than `start_tick()` — is outside that and keeps running. Prefer
 `start_tick()`.
 
----
 
 ## Registering a widget
 
@@ -435,7 +435,6 @@ def unload(self, carryover=None):
 The page outlives your plugin. A widget left on it after unload keeps painting
 and keeps ticking, from a module that is gone.
 
----
 
 ## Transient widgets
 

@@ -96,7 +96,6 @@ returns the default rather than raising if anything on the path is missing.
 Direct `client.SETTINGS.x.y` access is still fine on the UI thread.
 
 
----
 
 ## `SecretRegistry` — `self.client.SECRETS`
 
@@ -134,7 +133,6 @@ you need to show that a key is present.
 Declaring a key with a `secret` setting type gives you a masked field in
 Settings for free — see [Settings](settings.md).
 
----
 
 ## `QuickAccessRegistry` — `self.client.QUICK`
 
@@ -150,3 +148,29 @@ self.client.QUICK.register(
 ```
 
 Full detail on that page.
+
+## `UserRegistry` — `self.client.USERS`
+
+Approved devices and their tokens. A device asks at `/access/request`, a dialog
+appears on the panel, and an allowed device gets a token of its own — so
+revoking one does not affect the others.
+
+Covered in full on [Users](users.md).
+
+## `PlayerRegistry` — `self.client.PLAYER`
+
+What is playing, whatever is playing it. Backends register and publish; one is
+active at a time, and commands go to that one. The now-playing card reads this
+rather than any particular plugin, so a card written once works for a web
+player, a system player, or anything added later.
+
+Covered in full on [Media playback](player.md).
+
+## `CancelRegistry` — `self.client.CANCEL`
+
+What "stop" means at this moment. Anything cancellable registers its own
+keywords, whether it is currently active, and a priority — so "stop" reaches
+the music while "nevermind" closes the answer panel, without either having to
+know the other exists.
+
+Covered in full on [Cancelling](cancel.md).

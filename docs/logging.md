@@ -6,7 +6,6 @@ One call, from anywhere, on any thread.
 self.client.log("info", "[MyPlugin] Loaded 4 feeds.")
 ```
 
----
 
 ## Levels
 
@@ -23,7 +22,6 @@ degradation is contained, an error means a user will notice something missing.
 "Could not reach the weather API, using the last reading" is a warning.
 "Could not start the STT process" is an error.
 
----
 
 ## Format
 
@@ -51,7 +49,6 @@ Use it in an `except` block where the exception type alone will not be enough.
 `pointer` appends `FRM <object>`, for when several instances of the same class
 are logging and you need to tell them apart.
 
----
 
 ## Files
 
@@ -78,7 +75,6 @@ GET /asset/logs/latest.log?token=...
 
 That is how you read a wall panel's log without a keyboard attached to it.
 
----
 
 ## What to log
 
@@ -105,7 +101,6 @@ if self._overflows in (1, 10, 100) or self._overflows % 500 == 0:
     self.client.log("warning", f"[Audio] Overflow x{self._overflows}")
 ```
 
----
 
 ## Threading
 
@@ -114,7 +109,6 @@ a page or widget could be mid-rebuild on. Subsystems that run off the UI thread
 log freely, including the STT process, which prints to its own stdout and is
 captured separately.
 
----
 
 ## Reading it back
 

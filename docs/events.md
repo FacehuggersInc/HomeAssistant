@@ -53,7 +53,6 @@ disables it for the rest of the session. Wrap anything that can fail.
 Always unsubscribe in `unload()`. A handler pointing into an unloaded module
 is an exception the first time the event fires.
 
----
 
 ## Examples
 

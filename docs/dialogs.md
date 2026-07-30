@@ -120,26 +120,20 @@ translucent. Rendered standalone it looks completely fine, so this is easy to
 ship by accident and the symptom is floating text over the page. Anything you
 parent into the overlay layer wants one or the other.
 
----
 
 ## Action sheets
 
 `ActionSheet` is the row-actions dialog behind `row_menu()`: a title and a
 column of full-width rows, **one tap each**.
 
-It exists because `QMenu` is desktop furniture. Its items are the height of a
-line of text, it opens wherever the pointer happens to be, and it expects a
-press-drag-release that a finger does not perform — on a panel prodded from
-standing height that is a row of targets a few millimetres tall.
+Use this rather than a `QMenu`: a menu's items are one line of text tall and it
+expects a press-drag-release, neither of which a finger performs.
 
-Rows are 56px, comfortably past the 44 usually quoted as a minimum, and full
-width: a row that spans only its own text is a smaller target than the button it
-replaced, which would defeat the point. A destructive row keeps its own colour,
-so the tap that loses something does not look like the one beside it.
+Rows are 56px and full width. A destructive row is coloured as one. There is no
+Select step - a tap acts.
 
-There is no Select step. Each row is a button in every sense but its shape, and
-a button does not ask twice. The sheet closes **before** it calls, so an action that opens its own
-dialog — Forget asks for confirmation — is not fighting this one on the way out.
+The sheet closes **before** it calls the action, so an action that opens its own
+dialog (Forget asks for confirmation) is not fighting this one on the way out.
 
 ## Refusing to close
 
@@ -161,7 +155,6 @@ Returning `False` should be accompanied by something on screen saying why. The
 minimap disables its Done button and shows a line of text while its origin slot
 is empty, so a refused tap is explained rather than simply ignored.
 
----
 
 ## Frosting
 
@@ -182,7 +175,6 @@ cover it or dismiss the page underneath while it is still being read. The
 client treats an open dialog as continuous interaction, so the idle clock
 restarts when the dialog closes.
 
----
 
 ## Panels
 
@@ -223,10 +215,8 @@ costs nothing while the panel is closed.
 ### Shared controls
 
 `src/ui/controls/stepper.py` is a big number with up and down, sized for a
-finger rather than a spinbox. It started in the calendar's time picker and
-moved to the client when the timer picker needed the same thing - two copies
-would have drifted, and a value chosen on a stepper cannot be out of range,
-which is the whole reason to prefer it to a keyboard on a screen with no keys.
+finger rather than a spinbox. A value chosen on it cannot be out of range,
+so nothing downstream has to validate one.
 
 `DurationPickerDialog` is built on it, for anything that needs a length of
 time. `ItemGridDialog` (`src/ui/grid_dialog.py`) is the searchable,
@@ -294,9 +284,8 @@ sibling widget covering the whole overlay, stacked under the panel, which is
 inside that mask by definition because the mask is built from its children's
 geometry.
 
-The scrim is faintly darkened rather than clear. A panel that swallows a press
-with no sign of why looks broken, and a slight tint says it is in front of
-everything without dimming the page into unreadability. The press is
+The scrim is faintly darkened, so it is visible that presses are going
+somewhere. The press is
 **accepted**, not passed on — it meant "get rid of this", and letting it
 through would also hit whatever is underneath.
 

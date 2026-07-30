@@ -2,7 +2,6 @@
 
 Three small client-level systems that plugins reach for constantly.
 
----
 
 ## Notifications
 
@@ -41,7 +40,6 @@ interaction trains people to ignore the toasts.
 For anything needing a response, use `client.alert()` or `client.confirm()`
 instead. See [Dialogs and overlays](dialogs.md).
 
----
 
 ## Answer panels
 
@@ -84,7 +82,6 @@ than losing the reply.
 
 `tint` colours the gradient, `timeout=0` keeps it open until it is tapped.
 
----
 
 ## State
 
@@ -108,7 +105,6 @@ Use this for "has X happened yet" coordination. For anything a plugin needs to
 call, expose a Feature or use the [public registry](registries.md) - those
 carry behaviour, where state only carries a value.
 
----
 
 ## Assets
 

@@ -29,7 +29,6 @@ approval can tell "not yet" from "no".
 Approved devices are listed under **Settings → Users**, where each can be
 revoked on its own.
 
----
 
 ## Client control
 
@@ -51,7 +50,6 @@ revoked on its own.
 `/update` returns as soon as staging starts - the download and restart happen
 in the background. Poll `/plugins` to tell when the panel is back.
 
----
 
 ## Navigation
 
@@ -106,7 +104,6 @@ where anything long or awkward to escape belongs.
 Unregistered keys return **404** with the list of pages that do exist, rather
 than failing silently the way `goto()` does on its own.
 
----
 
 ## Clipboard
 
@@ -131,7 +128,6 @@ The clipboard belongs to the UI thread and these arrive on a Flask worker, so
 the read is marshalled and waits for an answer. If the UI thread is wedged the
 endpoint returns **500** with the reason rather than hanging the request.
 
----
 
 ## Settings
 
@@ -150,7 +146,6 @@ Paths are dotted, matching the settings tree:
 Presence of `v` decides read from write, not its value - `?v=` with nothing
 after it clears a setting rather than reading it.
 
----
 
 ## Plugins
 
@@ -171,7 +166,6 @@ into a module that is gone, so it is opt-in rather than silent.
 `install` and `uninstall` run pip, so they return **202** immediately and
 report the result as a notification on the panel.
 
----
 
 ## Plugin-registered endpoints
 
@@ -231,7 +225,6 @@ def handler(self, files=None, **params):
 every endpoint would hand each one an unexpected keyword and raise `TypeError`,
 which is the same trap `id` and `token` already sprang.
 
----
 
 ## The index
 
@@ -279,7 +272,6 @@ as destructive and asks before running it.
 Plugin actions are listed above the client's own, which are always there and
 always the same.
 
----
 
 ## API classes, not only endpoints
 
@@ -365,7 +357,6 @@ The Calendar plugin does this with `calendar_form` — a mobile-sized page for
 adding an event, served at
 `/public/calendar_form?token=...`. See the Calendar plugin's own docs.
 
----
 
 ## Files
 
@@ -377,7 +368,6 @@ adding an event, served at
 | `GET /asset/<key>` | List assets under a key. |
 | `GET /asset/<key>/<filename>` | Download one. |
 
----
 
 ## Documentation
 
@@ -387,7 +377,6 @@ adding an event, served at
 | `GET /docs/<page>` | One page. |
 | `GET /docs/<page>.md` | The raw markdown. |
 
----
 
 ## hactl.py
 

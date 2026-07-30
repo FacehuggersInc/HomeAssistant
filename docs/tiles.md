@@ -22,7 +22,6 @@ Widgets are for a home screen that looks arranged. Tiles are for a dashboard
 that looks tidy. Both are registered rather than constructed-and-placed, and
 both remember where you put them.
 
----
 
 ## The framework
 
@@ -41,7 +40,6 @@ out of the panel and onto the grid places it; the delete handle returns it.
 `sub.tiles` builds all three and exposes them as features. You never construct
 them.
 
----
 
 ## Writing a tile
 
@@ -135,7 +133,6 @@ generated keys, so each one saves and restores its position independently, and
 Tiles resize in whole cells — the grid decides how many pixels a cell is.
 Design for the ratio, not a pixel count.
 
----
 
 ## Selecting, resizing and removing
 
@@ -169,7 +166,6 @@ Delete is not a delete. The instance goes back to the tile panel with its
 state and saved size intact, so putting it back restores it — which is why it
 is one tap with nothing in the way.
 
----
 
 ## Size variants
 
@@ -215,7 +211,6 @@ the builder itself beyond structure.
 
 `variant_key()` returns the active threshold, if you need to branch in `tick()`.
 
----
 
 ## Sizes in the tile panel
 
@@ -284,7 +279,6 @@ def teardown(self) -> None:
 
 Both paths can reach the same tile, so make it safe to run twice.
 
----
 
 ## Registering a tile
 
@@ -335,7 +329,6 @@ whether it appears.
 
 Extra `*args` and `**kwargs` are passed to your tile's constructor.
 
----
 
 ## Other tile features
 
@@ -359,7 +352,6 @@ Reach for `tile_grid` only when you need something the named features do not
 cover — an object reference is harder to keep stable across refactors than a
 method.
 
----
 
 ## Cleaning up
 
@@ -376,7 +368,6 @@ The page outlives your plugin. A tile left on the grid after its plugin is gone
 is a card that paints from a module that no longer exists — and it will keep
 `tick()`ing.
 
----
 
 ## Positions
 

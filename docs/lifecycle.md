@@ -2,7 +2,6 @@
 
 From launch to exit, and what runs where.
 
----
 
 ## Launcher first
 
@@ -17,7 +16,6 @@ process that has to stop in order for them to happen.
 Running `app.py` directly works, and it re-executes itself for updates and
 restarts instead. What you lose is crash recovery and the update grace period.
 
----
 
 ## Startup
 
@@ -48,7 +46,6 @@ restarts instead. What you lose is crash recovery and the update grace period.
 
 See [Plugins](plugins.md) for the plugin side of this in detail.
 
----
 
 ## The default page
 
@@ -80,7 +77,6 @@ cannot leave you with a blank screen and no way in.
 The bundled `CoreWidgetsBundle` sets the default to its own home page, which
 is why a normal install lands there instead.
 
----
 
 ## Running
 
@@ -94,7 +90,6 @@ The client runs a tick loop alongside the Qt event loop. On each tick it:
 Keep `tick()` cheap. It runs on the UI thread, so anything slow in it is
 dropped frames.
 
----
 
 ## Page switching
 
@@ -131,7 +126,6 @@ across a navigation without a global.
 `client.is_switching_page()` is worth checking in anything that runs on a
 timer and touches `client.PAGE`.
 
----
 
 ## Shutting down
 
@@ -156,7 +150,6 @@ Anything else — a crash, a kill — is handled by the launcher's crash policy.
 See [Updating](updating.md) for restart limits, the crash window and the
 update grace period.
 
----
 
 ## What runs where
 

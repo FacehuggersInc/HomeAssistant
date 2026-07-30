@@ -21,7 +21,6 @@ python app.py update          # stage an update, then exit
 python app.py apply-update    # apply a staged update in place (no launcher)
 ```
 
----
 
 ## Knowing an update exists
 
