@@ -1,6 +1,16 @@
 {
  "log": [
   {
+   "at": 1785432817.2710526,
+   "note": "settings returns to its section; the log scrolls by drag",
+   "pages": [
+    {
+     "slug": "settings",
+     "state": "updated"
+    }
+   ]
+  },
+  {
    "at": 1785422216.542765,
    "note": "send_log arity fixed; the Logs section fills the page",
    "pages": [
@@ -557,8 +567,8 @@
    "state": "updated"
   },
   "settings": {
-   "at": 1785422216.5423405,
-   "hash": "9cf0c551db5aa579",
+   "at": 1785432817.2706792,
+   "hash": "a41cde0a202d3343",
    "opened": 0,
    "state": "updated"
   },

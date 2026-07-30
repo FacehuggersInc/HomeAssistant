@@ -2142,9 +2142,20 @@ class SettingsPage(PageFramework):
         """
         data = getattr(self, "data", None) or {}
         name = str(data.get("section") or "").strip().lower()
-        if not name:
-            return None
         sub = data.get("subsection")
+
+        if not name:
+            # Nothing asked for: go back to where this page was.
+            #
+            # Revoking a user, uninstalling a plugin and saving a calendar all
+            # rebuild the page with goto("#settings", override=True) and no
+            # data, because what they changed is on the page. Landing on the
+            # first section afterwards means the thing you were doing is now
+            # three taps away - and you were mid-way through doing it.
+            remembered = getattr(self.client, self.LAST_SECTION_ATTR, None)
+            if remembered and remembered in self._nav_buttons:
+                return remembered
+            return None
         path = (name, str(sub).strip().lower() if sub else None)
         if path in self._nav_buttons:
             return path
@@ -2176,8 +2187,18 @@ class SettingsPage(PageFramework):
         self._active_path = path
         self._show_category(path)
 
+    #Where the settings page was, kept on the CLIENT.
+    #
+    #goto() destroys the page, so anything stored on self goes with it - and it
+    #is the rebuild that needs to know.
+    LAST_SECTION_ATTR = "_settings_last_section"
+
     def _show_category(self, path: tuple) -> None:
         cat_key, sub_key = path
+        try:
+            setattr(self.client, self.LAST_SECTION_ATTR, path)
+        except Exception:
+            pass
         entry = self.categories.get(cat_key)
         if not entry:
             return

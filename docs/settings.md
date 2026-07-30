@@ -243,6 +243,21 @@ that differs, not the size.
 
 Turning something off is `secondary`, not `destructive`: it is reversible.
 
+## A rebuild comes back to the section it was on
+
+Revoking a user, unloading a plugin and saving a calendar all rebuild the whole
+page with `goto("#settings", override=True)` and no data, because what they
+changed is on the page.
+
+The section is remembered on the **client** — `goto()` destroys the page, so
+anything kept on `self` goes with it, and it is the rebuild that needs to know.
+When no `section` is asked for, the page resumes there; a caller naming one still
+goes where it says, which is how the quick panel's Wi-Fi and Bluetooth buttons
+work.
+
+Checked against the nav buttons that were actually built, so a section whose
+plugin has since failed to load lands somewhere real rather than on a blank page.
+
 ## A section that fills the page
 
 The content layout ends in a stretch, so every block takes its natural height

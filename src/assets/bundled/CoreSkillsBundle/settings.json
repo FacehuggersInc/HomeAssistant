@@ -3,7 +3,7 @@
         "wake_word": {
             "type": "string",
             "default": "",
-            "value": "",
+            "value": " ",
             "description": "Wake word for these skills. Leave empty to use the app-wide wake word from Assistant settings."
         },
         "confirm_quit": {

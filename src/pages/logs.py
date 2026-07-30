@@ -19,7 +19,8 @@ from typing import TYPE_CHECKING
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QColor, QFont, QTextCharFormat, QTextCursor
 from PyQt6.QtWidgets import (
-    QFrame, QHBoxLayout, QLabel, QPlainTextEdit, QVBoxLayout, QWidget,
+    QFrame, QHBoxLayout, QLabel, QPlainTextEdit, QScroller, QVBoxLayout,
+    QWidget,
 )
 
 from src.styling import COLORS, SIZES, make_font, set_style
@@ -97,6 +98,13 @@ class LogView(QPlainTextEdit):
         super().__init__()
         self.client = client
         self.setReadOnly(True)
+        # Not selectable, so a drag scrolls.
+        #
+        # Read-only still allows selection, and on a touch screen a drag across
+        # the text highlights it rather than moving the view - which on the one
+        # page made entirely of text is the only gesture that matters. There is
+        # no keyboard here to copy with anyway.
+        self.setTextInteractionFlags(Qt.TextInteractionFlag.NoTextInteraction)
         self.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
         self.setMaximumBlockCount(TAIL_LINES + 50)
         self.setFrameShape(QFrame.Shape.NoFrame)
@@ -106,6 +114,15 @@ class LogView(QPlainTextEdit):
         font.setPixelSize(SIZES.S1)
         self.setFont(font)
         set_style(self, "settings", "log-view")
+
+        # The same drag-to-scroll the rest of the panel uses.
+        QScroller.grabGesture(self.viewport(),
+                              QScroller.ScrollerGestureType.LeftMouseButtonGesture)
+        # Left as-needed. Lines do not wrap, so turning the horizontal bar off
+        # would put the end of a long line out of reach - QScroller drags both
+        # axes and picks whichever the finger is actually moving along.
+        self.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAsNeeded)
 
         self._shown = 0
         self._follow = True
