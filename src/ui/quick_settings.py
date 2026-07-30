@@ -335,6 +335,18 @@ class QuickSettings(Panel):
 
         self._clock_timer = QTimer(self)
         self._clock_timer.setInterval(1000)
+        # Resized when settings are saved.
+        #
+        # The panel is built once and kept (destroy_on_close is False), so a
+        # height read in the constructor is the height it keeps until the app
+        # restarts - which is not what somebody changing the setting expects to
+        # have to do.
+        try:
+            self.client.subscribe_to_event("on_settings_saved",
+                                           self._settings_saved)
+        except Exception:
+            pass
+
         self._clock_timer.timeout.connect(self._tick_clock)
         self._clock_timer.timeout.connect(self._tick_volume)
         self._clock_timer.timeout.connect(self._tick_wifi)
@@ -453,6 +465,20 @@ class QuickSettings(Panel):
     #screen sizes: two sliders, two state buttons, a media row and the card's
     #own padding.
     COMPACT_BELOW = 900
+
+    def _settings_saved(self, event=None) -> None:
+        """Re-read the height, and re-lay-out if it changed."""
+        try:
+            wanted = self._panel_height(self.client)
+            if wanted == self.height():
+                return
+            self.setFixedHeight(wanted)
+            self._sync_geometry()
+            self.client.log("info", f"[QuickSettings] Height now {wanted}px.")
+        except RuntimeError:
+            pass
+        except Exception as e:
+            self.client.log("debug", f"[QuickSettings] Could not resize: {e}")
 
     def _needs_compact(self) -> bool:
         try:

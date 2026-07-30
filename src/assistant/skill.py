@@ -38,6 +38,23 @@ OPTIONAL_LEMMAS = {
 	"for", "to", "new", "some", "of", "up", "now", "then", "and",
 }
 
+def _is_content(token) -> bool:
+	"""
+	Whether a token counts towards the score.
+
+	`is_alpha` alone drops every digit, which mattered more than it looks.
+	"What is 5 times 3" reduced to the single lemma "time" - the numbers
+	vanished - so precision came out 1/1 and it scored perfectly against any
+	timer example containing the word. Counting the numbers gives three content
+	words, two of which match nothing, and the phrase falls through to the AI
+	where it belongs.
+
+	A number is also a content word in its own right: "for 5 minutes" is not
+	the same request as "for 50 minutes".
+	"""
+	return bool(token.is_alpha or token.like_num)
+
+
 def fuzzy_equal(a: str, b: str) -> float:
 	"""
 	How alike two lemmas are, 0..1.
@@ -169,13 +186,13 @@ class Skill:
 		# Command parts, so an example is compared the same way an utterance
 		# is - see _command_part.
 		self.command_docs = [self._command_part(doc) for doc in self.docs]
-		self.lemmas = [{t.lemma_.lower() for t in doc if t.is_alpha}
+		self.lemmas = [{t.lemma_.lower() for t in doc if _is_content(t)}
 					   for doc in self.command_docs]
 
 		# Stopwords stripped: "the"/"a"/"for" appear in nearly every phrase and
 		# would let unrelated skills score against each other.
 		self.content_lemmas = [
-			{t.lemma_.lower() for t in doc if t.is_alpha and not t.is_stop}
+			{t.lemma_.lower() for t in doc if _is_content(t) and not t.is_stop}
 			for doc in self.command_docs
 		]
 
@@ -359,7 +376,7 @@ class Skill:
 		span = self.payload_span(doc)
 		limit = span[1] if span else len(doc)
 		return {token.lemma_.lower() for token in doc[:limit]
-				if token.is_alpha and (not content_only or not token.is_stop)}
+				if _is_content(token) and (not content_only or not token.is_stop)}
 
 	def get_patterns(self):
 		return self.normalized_patterns
@@ -597,14 +614,15 @@ class SkillIntentEngine:
 		best_skill : Skill = None
 		best_score = -1
 
-		input_lemmas = {t.lemma_.lower() for t in match_doc if t.is_alpha}
-		input_content = {t.lemma_.lower() for t in match_doc if t.is_alpha and not t.is_stop}
+		input_lemmas = {t.lemma_.lower() for t in match_doc if _is_content(t)}
+		input_content = {t.lemma_.lower() for t in match_doc
+						 if _is_content(t) and not t.is_stop}
 		if not input_content:
 			# A mishearing can land on a stopword - "weather" becomes
 			# "whether", which spaCy treats as one - leaving nothing to score
 			# against at all. Fall back to every alphabetic lemma so the fuzzy
 			# comparison still has something to work with.
-			input_content = {t.lemma_.lower() for t in match_doc if t.is_alpha}
+			input_content = {t.lemma_.lower() for t in match_doc if _is_content(t)}
 		candidates = [self.id2skill[m[0]] for m in results]
 
 		for skill in candidates:

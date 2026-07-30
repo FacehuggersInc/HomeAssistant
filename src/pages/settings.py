@@ -1756,6 +1756,10 @@ class SettingsPage(PageFramework):
 
         return bar
 
+    #Long enough for QScroller to finish replaying a tap. Short enough that the
+    #reorder still reads as a response to the press.
+    SORT_REBUILD_DELAY = 160
+
     def _click_sort_axis(self, axis: str) -> None:
         if self._active_sort_mode != axis:
             self._active_sort_mode = axis
@@ -1766,16 +1770,20 @@ class SettingsPage(PageFramework):
             self._active_sort_mode = None
             self._sort_direction[axis] = "asc"
 
-        # Rebuilt on the next turn of the event loop, not from inside this
-        # handler.
+        # Rebuilt after the tap has finished being delivered, not during it.
         #
-        # _show_category() destroys and re-adds every block on the page. Doing
-        # that while the press that triggered it is still being delivered means
-        # the release lands on whichever widget the rebuild has just put under
-        # the finger - and on a touch screen that arrives as a fresh press,
-        # which is how tapping a sort button opened the keyboard for whatever
-        # setting ended up there.
-        QTimer.singleShot(0, lambda: self._show_category(self._active_path))
+        # The content area has QScroller grabbing LeftMouseButtonGesture, which
+        # does not pass a press straight through: it holds it, decides whether
+        # the finger is scrolling, and **replays** press and release to the
+        # child if it was a tap. _show_category() destroys and re-adds every
+        # block, so a rebuild that lands inside that replay delivers the
+        # replayed press to whatever now occupies the position - which is how
+        # tapping a sort button opened the keyboard for a setting.
+        #
+        # singleShot(0) was not enough: it fires on the next event loop turn,
+        # which is still inside the replay. This waits past it.
+        QTimer.singleShot(self.SORT_REBUILD_DELAY,
+                          lambda: self._show_category(self._active_path))
 
     def _sorted_content(self, content: list) -> list:
         if not self._active_sort_mode:

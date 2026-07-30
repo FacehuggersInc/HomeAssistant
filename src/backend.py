@@ -332,12 +332,44 @@ def FlaskApp(client):
 					"pages": sorted(client.get_pages())}, 404
 
 		data = _page_data()
-		override = _coerce(request.args.get("override", "false")) is True
+
+		# Override by default.
+		#
+		# goto() returns early when the requested page is already on screen, so
+		# without this an endpoint asking for the page the panel happens to be
+		# on did nothing at all - and "nothing at all" includes ignoring the
+		# data sent with it. Asking a panel to go somewhere it already is, with
+		# a different url or a different lock, is a normal request and the
+		# obvious reading is that it should be honoured.
+		#
+		# Pass override=false to keep the old behaviour, where re-asking for
+		# the current page is a no-op.
+		# `not in (False, 0)` rather than `is not False`: _coerce turns "0"
+		# into the integer zero, and `0 is not False` is True - so override=0
+		# would have switched it on, which is the opposite of what was typed.
+		override = _coerce(request.args.get("override", "true")) not in (False, 0)
 
 		# goto() builds and destroys widgets, so it belongs on the UI thread -
 		# this is a Flask worker.
 		client.call_on_ui(lambda: client.goto(key, data=data, override=override))
 		return {"request": "Success", "page": key, "data": data}, 200
+
+	@app.route("/goto/page", methods=["GET"])
+	def goto_ui():
+		"""
+		The page switcher, for a device with a browser.
+
+		`/goto/page` also matches `/goto/<path:page>`, but Werkzeug sorts rules
+		by specificity rather than by declaration order, so the static one wins
+		wherever it is written. Verified rather than assumed - a page key of
+		"page" would otherwise be unreachable and this route would be shadowed.
+		"""
+		err = auth()
+		if err: return err
+		from src.webui import chrome_css
+		token = request.args.get("token", "")
+		return render_template("goto.html", chrome=chrome_css(),
+							   token=token), 200
 
 	@app.route("/pages", methods=["GET"])
 	def list_pages():
@@ -652,6 +684,10 @@ def FlaskApp(client):
 			 "auth": False},
 			{"url": "/upload", "label": "Files",
 			 "description": "Send files to anything the panel has opened up.",
+			 "auth": True},
+			{"url": "/goto/page", "label": "Go to",
+			 "description": "Change what the panel is showing, or send it to a "
+							"web page.",
 			 "auth": True},
 			{"url": "/clipboard/page", "label": "Clipboard",
 			 "description": "Read what is on the panel's clipboard, or put "

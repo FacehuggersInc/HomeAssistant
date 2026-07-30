@@ -310,15 +310,20 @@ class WebPage(PageFramework):
         set_style(self, "common", "page-background")
 
         data = data or {}
-        self.home_url = data.get("home") or self.HOME
-        self.lock_address = bool(data.get("lock_address", False))
-        self.lock_base = (data.get("lock_base") or "").strip()
-
-        # An explicit url wins; otherwise pick up where this context left off.
+        # Resumed when the caller asked for nothing.
         #
-        # The caller asking for a page means go there. A caller that asks for
-        # nothing - the night clock returning, a swipe back - means resume, and
-        # resuming at the home page throws away whatever was being read.
+        # A caller naming a page means go there. The night clock returning, or a
+        # swipe back, passes no data at all - and rebuilding from HOME throws
+        # away whatever was being read. The saved entry carries the lock it was
+        # opened under, so resuming does not quietly drop it.
+        saved = {} if data.get("url") else (self._store().get("webpage") or {})
+
+        self.home_url = data.get("home") or saved.get("home") or self.HOME
+        self.lock_address = bool(data.get("lock_address",
+                                          saved.get("lock_address", False)))
+        self.lock_base = (data.get("lock_base")
+                          or saved.get("lock_base") or "").strip()
+
         start = data.get("url") or self._remembered_url() or self.home_url
 
         outer = QVBoxLayout(self)
@@ -639,19 +644,29 @@ class WebPage(PageFramework):
 
     def _state_key(self) -> str:
         """
-        One entry per browsing context.
+        One entry, and the context is stored inside it.
 
-        Keyed on `lock_base` and the home URL rather than one entry for the
-        page: the docs viewer and a locked dashboard are different places, and
-        restoring one into the other would be worse than not restoring at all.
+        Keying on `lock_base` and `home_url` did not work: both come from the
+        `data` the page was opened with, and the return path - the night clock
+        calling `goto(key)` with nothing - has no data to rebuild them from. The
+        key computed on the way back was therefore not the key written on the
+        way in, and nothing was ever found.
+
+        So the context travels *with* the entry rather than identifying it, and
+        a resume restores the lock along with the address.
         """
-        return f"{self.lock_base}|{self.home_url}"
+        return "webpage"
 
     def _remember(self, url: str) -> None:
         if not url or url.startswith("about:"):
             return
         entry = self._store().setdefault(self._state_key(), {})
         entry["url"] = url
+        # The context, so a resume comes back to the same place under the same
+        # restrictions rather than to a bare browser at the same address.
+        entry["lock_base"] = self.lock_base
+        entry["lock_address"] = self.lock_address
+        entry["home"] = self.home_url
 
     def _remember_scroll(self) -> None:
         """

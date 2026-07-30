@@ -189,7 +189,12 @@ def current() -> Optional[Connection]:
         if ok:
             for line in out.splitlines():
                 parts = _split_terse(line.strip())
-                if len(parts) >= 3 and "wireless" in parts[0].lower():
+                # Both spellings. Older nmcli reports the full connection
+                # type, "802-11-wireless"; newer reports "wifi" - which does
+                # not contain the word "wireless", so matching on that alone
+                # found nothing on any current NetworkManager.
+                kind = parts[0].lower()
+                if len(parts) >= 3 and ("wireless" in kind or kind == "wifi"):
                     ssid, device = parts[1], parts[2]
                     break
 
