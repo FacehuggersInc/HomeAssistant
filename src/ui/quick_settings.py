@@ -1,4 +1,5 @@
 from __future__ import annotations
+import time
 from typing import TYPE_CHECKING
 
 from datetime import datetime
@@ -366,6 +367,10 @@ class QuickSettings(Panel):
         self._open = False
         #the last reason logged, so it is not repeated every second
         self._wifi_reason = ""
+        #and the last guard that stopped the tick, for the same reason
+        self._wifi_stopped = None
+        #when the current read started, so a stuck one can be told from a slow
+        self._wifi_started = 0.0
         self._bt_busy = False
         self._bt_button = None
 
@@ -578,6 +583,11 @@ class QuickSettings(Panel):
         # Straight to the section rather than to the top of Settings.
         self.client.goto("#settings", data={"section": "wifi"}, override=True)
 
+    #Past this, a read is assumed stuck rather than slow. Generous: nmcli on a
+    #busy machine can take a second or two, and restarting a read that was
+    #about to answer is wasted work rather than a fault.
+    WIFI_STUCK_AFTER = 20.0
+
     def _tick_wifi(self) -> None:
         """
         Keep the network label current while the panel is open.
@@ -585,17 +595,49 @@ class QuickSettings(Panel):
         On a worker: reading the connection shells out, and a radio that has
         gone away takes the timeout to say so.
         """
-        button = getattr(self, "_wifi_button", None)
-        # `_open`, not isVisible().
+        # Which guard stopped it, said once.
         #
-        # A panel is shown through an overlay and an animation; isVisible() is
-        # a question about Qt's state at this instant, and open_panel() /
-        # close_panel() already bracket exactly the period this should run in.
-        if button is None or not self._open:
+        # The tick reported nothing at all on one machine, which means it never
+        # reached the worker - and with four reasons to return early and no way
+        # to tell them apart, that was the end of the trail. Once per distinct
+        # reason, so a panel opened twenty times does not write twenty lines.
+        button = getattr(self, "_wifi_button", None)
+        stopped = ""
+        if button is None:
+            stopped = "no button was built"
+        # `_open`, not isVisible(): a panel is shown through an overlay and an
+        # animation, and open_panel()/close_panel() bracket exactly the period
+        # this should run in.
+        elif not self._open:
+            stopped = "the panel is not open"
+        elif not wifi.available():
+            stopped = "there is no nmcli, iwgetid or iw on this machine"
+        elif self._wifi_busy:
+            # Stuck reads are recoverable.
+            #
+            # `_wifi_busy` is cleared in a finally, so it should always come
+            # back - unless the reader never returns. nmcli talking to a
+            # NetworkManager that is not answering will sit there, and one
+            # such call used to mean the button never updated again for the
+            # life of the process.
+            since = time.time() - getattr(self, "_wifi_started", 0.0)
+            if since > self.WIFI_STUCK_AFTER:
+                self.client.log(
+                    "warning", f"[QuickSettings] The Wi-Fi read has been "
+                               f"running {since:.0f}s; starting another.")
+                self._wifi_busy = False
+            else:
+                stopped = "a previous read has not finished"
+
+        if stopped:
+            if stopped != getattr(self, "_wifi_stopped", None):
+                self._wifi_stopped = stopped
+                self.client.log("info",
+                                f"[QuickSettings] Wi-Fi tick skipped: {stopped}")
             return
-        if not wifi.available() or self._wifi_busy:
-            return
+        self._wifi_stopped = None
         self._wifi_busy = True
+        self._wifi_started = time.time()
 
         def work():
             connection = None
