@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QProgressBar,
 )
-from PyQt6.QtCore import Qt, QUrl
+from PyQt6.QtCore import Qt, QUrl, QTimer
 
 from src.ui.page import PageFramework
 from src.ui.controls.buttons import IconButton
@@ -311,13 +311,15 @@ class WebPage(PageFramework):
 
         data = data or {}
         self.home_url = data.get("home") or self.HOME
-        start = data.get("url") or self.home_url
-
-        # Two separate locks, because they answer different questions.
-        # `lock_address` is about who may type an address; `lock_base` is
-        # about where any navigation may go, typed or clicked.
         self.lock_address = bool(data.get("lock_address", False))
         self.lock_base = (data.get("lock_base") or "").strip()
+
+        # An explicit url wins; otherwise pick up where this context left off.
+        #
+        # The caller asking for a page means go there. A caller that asks for
+        # nothing - the night clock returning, a swipe back - means resume, and
+        # resuming at the home page throws away whatever was being read.
+        start = data.get("url") or self._remembered_url() or self.home_url
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(self.PADDING, self.PADDING,
@@ -356,7 +358,18 @@ class WebPage(PageFramework):
             self.view.setZoomFactor(self.zoom)
             self._show_zoom()
             self.view.urlChanged.connect(self._url_changed)
-            self.view.loadFinished.connect(lambda ok: self._refresh_buttons())
+            self.view.loadFinished.connect(self._on_load_finished)
+
+            # Polled, because there is no scroll signal to connect to.
+            #
+            # QWebEngineView does not emit one, and the alternative - injecting
+            # a listener that posts back on every scroll event - is a message
+            # per frame while a finger is dragging. Two seconds is close enough
+            # for "where I was" and costs one tiny JavaScript call.
+            self._scroll_timer = QTimer(self)
+            self._scroll_timer.setInterval(2000)
+            self._scroll_timer.timeout.connect(self._remember_scroll)
+            self._scroll_timer.start()
             outer.addWidget(self.view, stretch=1)
             self.navigate(start)
         else:
@@ -603,7 +616,95 @@ class WebPage(PageFramework):
             self.address.setText(url.toString())
         except RuntimeError:
             pass
+        self._remember(url.toString())
         self._refresh_buttons()
+
+    ## -- where it was
+
+    #Kept on the CLIENT, not on the page.
+    #
+    #goto() destroys the outgoing page, so anything stored on `self` goes with
+    #it. Coming back from the night clock rebuilt this page from `data["url"]`,
+    #which is whatever the original caller passed - so the address was the one
+    #it opened on and the scroll position was the top, whatever had been read
+    #in between.
+    STATE_ATTR = "_webpage_state"
+
+    def _store(self) -> dict:
+        state = getattr(self.client, self.STATE_ATTR, None)
+        if not isinstance(state, dict):
+            state = {}
+            setattr(self.client, self.STATE_ATTR, state)
+        return state
+
+    def _state_key(self) -> str:
+        """
+        One entry per browsing context.
+
+        Keyed on `lock_base` and the home URL rather than one entry for the
+        page: the docs viewer and a locked dashboard are different places, and
+        restoring one into the other would be worse than not restoring at all.
+        """
+        return f"{self.lock_base}|{self.home_url}"
+
+    def _remember(self, url: str) -> None:
+        if not url or url.startswith("about:"):
+            return
+        entry = self._store().setdefault(self._state_key(), {})
+        entry["url"] = url
+
+    def _remember_scroll(self) -> None:
+        """
+        Ask the page where it is scrolled to, and keep the answer.
+
+        Asked continuously rather than on the way out: teardown gives no chance
+        to wait for a JavaScript result, and a value that arrives after the view
+        is gone is a value nobody can store.
+        """
+        if self.view is None:
+            return
+
+        def keep(value):
+            try:
+                position = int(float(value or 0))
+            except (TypeError, ValueError):
+                return
+            entry = self._store().setdefault(self._state_key(), {})
+            entry["scroll"] = max(0, position)
+
+        try:
+            self.view.page().runJavaScript("window.scrollY", keep)
+        except Exception:
+            pass
+
+    def _restore_scroll(self) -> None:
+        entry = self._store().get(self._state_key()) or {}
+        position = int(entry.get("scroll") or 0)
+        if position <= 0 or self.view is None:
+            return
+        try:
+            # Instant, not smooth: an animated jump on a restored page looks
+            # like the page moving under you rather than like where you were.
+            self.view.page().runJavaScript(
+                f"window.scrollTo({{top: {position}, behavior: 'instant'}});")
+        except Exception:
+            pass
+
+    def _on_load_finished(self, ok: bool) -> None:
+        self._refresh_buttons()
+        if ok:
+            self._restore_scroll()
+
+    def _remembered_url(self) -> str:
+        entry = self._store().get(self._state_key()) or {}
+        url = str(entry.get("url") or "")
+        if not url:
+            return ""
+        # Refused if it has drifted outside the lock this context was opened
+        # with - a remembered address is not a way around it.
+        if self.lock_base and not url.startswith(self.lock_base):
+            return ""
+        return url
 
     def _refresh_buttons(self) -> None:
         if self.view is None:

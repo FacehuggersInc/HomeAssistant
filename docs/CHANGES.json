@@ -1,6 +1,60 @@
 {
  "log": [
   {
+   "at": 1785416996.5197256,
+   "note": "ElevenLabs removed; clipboard page; webpage resumes; log levels; quick settings height; wifi and music widget fixes",
+   "pages": [
+    {
+     "slug": "logging",
+     "state": "updated"
+    },
+    {
+     "slug": "pages",
+     "state": "updated"
+    },
+    {
+     "slug": "quick-settings",
+     "state": "updated"
+    }
+   ]
+  },
+  {
+   "at": 1785416476.7986186,
+   "note": "test",
+   "pages": [
+    {
+     "slug": "assistant",
+     "state": "updated"
+    },
+    {
+     "slug": "bundled-plugins",
+     "state": "updated"
+    },
+    {
+     "slug": "notifications",
+     "state": "updated"
+    },
+    {
+     "slug": "settings",
+     "state": "updated"
+    },
+    {
+     "slug": "skills",
+     "state": "updated"
+    }
+   ]
+  },
+  {
+   "at": 1785415010.4107044,
+   "note": "TTS settings are pickers; a separate field for voice cloning",
+   "pages": [
+    {
+     "slug": "settings",
+     "state": "updated"
+    }
+   ]
+  },
+  {
    "at": 1785384140.0127158,
    "note": "Docs: plugin count and ordering fixed, redundant section rules removed, slop renamed to padding, subjective design rationale trimmed",
    "pages": [
@@ -317,9 +371,9 @@
    "state": "updated"
   },
   "assistant": {
-   "at": 1785382817.1854382,
-   "hash": "8e4931fd5248910a",
-   "opened": 1785383835.5581026,
+   "at": 1785416476.797444,
+   "hash": "7d59782bbf45d1c0",
+   "opened": 0,
    "state": "updated"
   },
   "backlight": {
@@ -335,8 +389,8 @@
    "state": "updated"
   },
   "bundled-plugins": {
-   "at": 1785384140.0123394,
-   "hash": "8db8b26352a318f0",
+   "at": 1785416476.7975526,
+   "hash": "cd75ab57db4223d2",
    "opened": 0,
    "state": "updated"
   },
@@ -367,7 +421,7 @@
   "index": {
    "at": 1785384140.0124044,
    "hash": "7bf4d82943662dbb",
-   "opened": 1785384282.920039,
+   "opened": 1785417186.0936384,
    "state": "updated"
   },
   "installation": {
@@ -385,13 +439,13 @@
   "lifecycle": {
    "at": 1785384140.0124342,
    "hash": "0691fddee09324a6",
-   "opened": 1785384290.9954557,
+   "opened": 0,
    "state": "updated"
   },
   "logging": {
-   "at": 1785384140.0124445,
-   "hash": "674fdc6080226afa",
-   "opened": 1785384304.4961402,
+   "at": 1785416996.5189455,
+   "hash": "a2c8bc5ec200433f",
+   "opened": 0,
    "state": "updated"
   },
   "mixins": {
@@ -401,14 +455,14 @@
    "state": "updated"
   },
   "notifications": {
-   "at": 1785384140.012464,
-   "hash": "585a88f0e5959bdc",
+   "at": 1785416476.7979167,
+   "hash": "8213db4edc97d820",
    "opened": 0,
    "state": "updated"
   },
   "pages": {
-   "at": 1785384140.0124793,
-   "hash": "074c0c9d6cf00f85",
+   "at": 1785416996.5190458,
+   "hash": "c1efd802facf8d3c",
    "opened": 0,
    "state": "updated"
   },
@@ -427,12 +481,12 @@
   "plugins": {
    "at": 1785384140.0125198,
    "hash": "96a351346cbb3072",
-   "opened": 1785384312.5364065,
+   "opened": 0,
    "state": "updated"
   },
   "quick-settings": {
-   "at": 1785384140.0125358,
-   "hash": "4911199b7898e12e",
+   "at": 1785416996.5192125,
+   "hash": "6c3b47f5aa3f487f",
    "opened": 0,
    "state": "updated"
   },
@@ -443,14 +497,14 @@
    "state": "updated"
   },
   "settings": {
-   "at": 1785384140.0125694,
-   "hash": "4d48e4315d391d73",
-   "opened": 1785384288.662655,
+   "at": 1785416476.798213,
+   "hash": "94d3bb7138498da0",
+   "opened": 0,
    "state": "updated"
   },
   "skills": {
-   "at": 1785384140.0125856,
-   "hash": "d1e3e223eeafcb58",
+   "at": 1785416476.798296,
+   "hash": "fc1660f574214467",
    "opened": 0,
    "state": "updated"
   },
@@ -475,7 +529,7 @@
   "updating": {
    "at": 1785384140.012635,
    "hash": "05a61304ea0c57aa",
-   "opened": 1785384296.395411,
+   "opened": 0,
    "state": "updated"
   },
   "users": {

@@ -270,4 +270,11 @@ def set_style(style_able: object, id: str, clazz: str,
             tag = f"{class_name}#{style_able.objectName()}"
         style_able.setStyleSheet(get_style(id, clazz, tag, override))
     except Exception as e:
-        print(f"Failed to set style on '{style_able.__class__.__name__}' with {id}:{clazz} ? {e}")
+        # A print, deliberately.
+        #
+        # This module is imported by everything and reaches nothing - there is
+        # no client here to log through, and importing one would be a cycle.
+        # A style that fails to apply looks like a layout bug from outside, so
+        # saying so on stdout beats saying nothing.
+        print(f"[Styling] Could not style {style_able.__class__.__name__} "
+              f"with {id}:{clazz} - {e}")

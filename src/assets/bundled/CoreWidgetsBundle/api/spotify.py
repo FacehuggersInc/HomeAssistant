@@ -215,7 +215,7 @@ class SpotifyAPI():
 				try:
 					os.kill(int(pid), signal.SIGTERM)
 				except Exception as e:
-					print(f"Failed to kill: {e}")
+					self.client.log("warning", f"[Spotify] Could not stop the process: {e}")
 
 				break
 

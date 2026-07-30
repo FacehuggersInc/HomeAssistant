@@ -40,7 +40,6 @@ from src.registries.user_registry import UserRegistry
 from src.backend import FlaskApp, FlaskService
 from src.assistant.skill import Skill, SkillIntentEngine
 from src.assistant.stt import STTProcessing
-from src.assistant.tts import TTSProcessing
 from src.ui.overlays import OverlayManager, NotificationManager, DialogManager, Panel
 from src.styling import COLORS, load_styles, set_style
 from src.constants import (
@@ -68,7 +67,7 @@ class UIBridge(QObject):
         try:
             fn()
         except Exception as e:
-            print(f"[UIBridge] error executing {fn}: {e}")
+            self.log("warning", f"[UIBridge] Error executing {fn}: {e}")
             traceback.print_exc()
 
     def dispatch(self, fn: Callable) -> None:
@@ -341,7 +340,6 @@ class Client:
         self.page_host = QWidget(self.window)
         self.page_host.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
 
-        self.log("debug", "Application Pre-Initialized")
 
     ##UI BRIDGE
 
@@ -484,6 +482,24 @@ class Client:
 
     ##LOGGING
 
+    def _debug_logging(self) -> bool:
+        """
+        Whether debug lines are wanted.
+
+        Cached after the settings exist, and true before they do - a failure
+        during startup is the one time the detail is most wanted, and the
+        setting cannot be read yet to say otherwise.
+        """
+        cached = getattr(self, "_debug_on", None)
+        if cached is not None:
+            return cached
+        try:
+            value = bool(self.SETTINGS.debug.enabled.value)
+        except Exception:
+            return True
+        self._debug_on = value
+        return value
+
     def _open_log_file(self) -> None:
         if self.LOG:
             self.LOG.close()
@@ -509,6 +525,16 @@ class Client:
 
     def log(self, level: EVENT_LEVELS, message: str,
             pointer=None, include_traceback: bool = False) -> None:
+        # Debug lines are dropped unless debug is on.
+        #
+        # There was no level filtering at all, so every diagnostic in the tree
+        # printed and was written on every launch - which is why the log reads
+        # as noise and why the useful lines in it are hard to find. The calls
+        # are worth keeping: several of them are what located a bug in the
+        # first place. Being able to turn them off is what was missing.
+        if level == "debug" and not self._debug_logging():
+            return
+
         now    = datetime.now()
         timeof = f"{now.year}/{now.month}/{now.day} {now.hour:02}:{now.minute:02}:{now.second:02}"
 
@@ -732,6 +758,7 @@ class Client:
         self.internal_build_setup()
 
         self.build_quick_settings()
+        self.report_missing_tooling()
         self.build_update_checker()
         self.build_user_approvals()
 
@@ -926,6 +953,66 @@ class Client:
 
     UPDATE_CHECK_STARTUP_DELAY_MS = 20_000   # let the app settle before a network call
 
+    def report_missing_tooling(self) -> None:
+        """
+        Say once, at startup, what the panel cannot do on this machine.
+
+        Each control already explains itself when pressed, but that only helps
+        somebody who thinks to press it. A control that has never worked here is
+        one nobody presses, so its requirement is never read - and the log is on
+        a machine they may not be sitting at.
+
+        Notified rather than dialogued: a stack of modal dialogs on a fresh
+        install is worse than the gap they describe, and a notification goes to
+        the history where it can be read later.
+        """
+        import platform
+        if platform.system() != "Linux":
+            # Every one of these is a Linux service. Saying they are missing on
+            # Windows would be reporting the platform as a fault.
+            return
+
+        def work():
+            # On a worker, because finding out costs real time.
+            #
+            # bluetooth.missing() is a round trip to the system bus and, if
+            # BlueZ is not running, a service activation attempt. The others
+            # shell out. Doing any of it here would add that to a startup that
+            # already has a browser engine and a speech model to get through.
+            from src.system import media_keys, requirements, safemode
+            from src.system import volume as system_volume
+            from src.system import wifi
+
+            missing = []
+            try:
+                if not media_keys.available():
+                    missing.append("media_keys")
+                if not system_volume.available():
+                    missing.append("volume")
+                if not wifi.available():
+                    missing.append("wifi")
+                if not safemode.no_bluetooth():
+                    from src.system import bluetooth
+                    reason = bluetooth.missing()
+                    if reason:
+                        missing.append(reason)
+            except Exception as e:
+                self.log("debug", f"[Requirements] Could not check: {e}")
+                return
+
+            def announce():
+                for key in missing:
+                    entry = requirements.get(key)
+                    if entry is None:
+                        continue
+                    self.log("info", f"[Requirements] {entry.title()}")
+                    self.simple_notify("assistant", entry.title(),
+                                       entry.message())
+
+            self.call_on_ui(announce)
+
+        Thread(target=work, name="__requirements_report", daemon=True).start()
+
     def build_update_checker(self) -> None:
         """
         Poll GitHub for a newer commit and tell the user once when there is one.
@@ -1072,7 +1159,12 @@ class Client:
         except Exception:
             return False
 
-    CORE_SECRETS = ("ELEVENLABS_KEY",)
+    #Secrets the client itself owns, as opposed to a plugin's.
+    #
+    #Empty: speech is local now and needs no key. Kept as a declaration rather
+    #than removed, since anything the client adds later belongs here and
+    #secret() reads it.
+    CORE_SECRETS = ()
 
     def secret(self, key: str, default: str = "") -> str:
         """
@@ -1095,9 +1187,9 @@ class Client:
         """
         Speak, if speech is available. Returns whether anything was said.
 
-        Skills call this instead of client.TTS.play() so a missing
-        ELEVENLABS_KEY degrades to silence rather than an AttributeError on
-        None.
+        Skills call this instead of client.TTS.play() so a panel with speech
+        turned off, or a voice backend that failed to load, degrades to silence
+        rather than raising an AttributeError on None.
         """
         if not text or self.TTS is None or not getattr(self.TTS, "available", False):
             return False
@@ -1118,9 +1210,13 @@ class Client:
             self.wake_word,
             int(self.setting("assistant.session_silence.value", 800)),
             bool(self.setting("assistant.tts_enabled.value", True)),
-            # Whether a key exists, never the key. Entering one in Settings
-            # should bring speech up without a manual restart.
-            self.SECRETS.is_set("ELEVENLABS_KEY"),
+            # The voice settings, so changing one restarts the assistant and
+            # the new voice is actually loaded rather than waiting for a manual
+            # restart.
+            str(self.setting("assistant.tts_backend.value", "auto")),
+            str(self.setting("assistant.tts_voice.value", "")),
+            str(self.setting("assistant.tts_voice_file.value", "")),
+            str(self.setting("assistant.tts_language.value", "")),
         )
 
     def stop_assistant(self) -> None:
@@ -1262,21 +1358,52 @@ class Client:
                          f"cold cache is slow.")
         self._launch_assistant(device, model)
 
+    def _tts_backends(self) -> list:
+        """
+        Which backends to try, in order.
+
+        One for now. The list is kept rather than collapsed because the
+        selection, the per-backend failure reporting and the interface a
+        backend has to satisfy are all still what a second one would need -
+        and `_start_tts()` reads a list either way.
+        """
+        from src.assistant.tts_pocket import PocketTTSProcessing
+
+        choice = str(self.setting("assistant.tts_backend.value", "auto")
+                     or "auto").strip().lower()
+        if choice == "off":
+            return []
+        return [("Pocket TTS", PocketTTSProcessing)]
+
     def _start_tts(self) -> None:
         if not self.setting("assistant.tts_enabled.value", True):
             self.TTS = None
             self.log("info", "[Assistant] Spoken replies are disabled in settings.")
             return
-        try:
-            self.TTS = TTSProcessing(self)
-        except Exception as e:
-            self.TTS = None
-            self.log("warning", f"[Assistant] TTS failed to initialise: {e}")
-            return
-        if not self.TTS.available:
-            self.log("warning", f"[Assistant] TTS unavailable: {self.TTS.error}")
+
+        self.TTS = None
+        tried = []
+        for label, backend in self._tts_backends():
+            try:
+                candidate = backend(self)
+            except Exception as e:
+                tried.append(f"{label}: {e}")
+                continue
+            if candidate.available:
+                self.TTS = candidate
+                self.log("info", f"[Assistant] Speaking through {label}.")
+                return
+            tried.append(f"{label}: {candidate.error}")
+
+        # Every reason, not just the last. "TTS unavailable" on its own does not
+        # say whether a package is missing or a key is.
+        for reason in tried:
+            self.log("info", f"[Assistant]   {reason}")
+        if tried:
+            self.log("warning", "[Assistant] No voice backend available.")
             self.simple_notify("assistant", "Assistant",
-                               "Voice replies are off (no ElevenLabs key).")
+                               "Voice replies are off - see the log for which "
+                               "backend is missing what.")
 
     def _launch_assistant(self, device, model: str) -> None:
         from src.assistant import audio

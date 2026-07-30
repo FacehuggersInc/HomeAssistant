@@ -307,7 +307,7 @@ def porch_on(self):
     self.client.say("Porch light on.")
 ```
 
-`say()` returns whether anything was actually spoken. TTS needs an ElevenLabs
+`say()` returns whether anything was actually spoken. TTS needs an the voice backend
 key, and a panel without one is a perfectly valid install — so a skill should
 never *depend* on being heard. Show a notification or update the UI as well.
 

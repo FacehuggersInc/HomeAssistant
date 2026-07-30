@@ -1,5 +1,30 @@
 # Logging
 
+## Levels
+
+`debug` lines are dropped unless `debug.enabled` is on. Everything else always
+goes out.
+
+Without that filter every diagnostic in the tree printed on every launch, which
+is what makes a startup log unreadable — the useful lines are in there, buried.
+The calls are worth keeping: the widget sizes on disk, which route the backlight
+rejected, which transcript was dropped as the panel's own voice. Each of those
+located a real bug. Being able to turn them off is what was missing.
+
+The setting is read **once** and cached, since `log()` is called thousands of
+times. Before the settings exist it answers **true**: a failure during startup is
+when the detail is most wanted, and there is nothing to ask yet.
+
+## Not `print()`
+
+A print goes to stdout only. It is not timestamped, carries no level, is not in
+the log file, and on a panel started from a desktop launcher goes nowhere at all.
+
+One exception: `styling.py` reports a failed stylesheet with a print. Everything
+imports that module and it reaches nothing — a client import would be a cycle —
+and saying so on stdout beats saying nothing.
+
+
 One call, from anywhere, on any thread.
 
 ```python

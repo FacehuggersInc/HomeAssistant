@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Clipboard &mdash; {{ panel }}</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+{{ chrome|safe }}
+ h1{font-size:22px;margin:0 0 4px}
+ .sub{color:var(--muted);font-size:14px;margin:0 0 20px}
+ .card{background:var(--card);border:1px solid var(--line);border-radius:12px;
+       padding:16px;margin:0 0 16px}
+ .label{color:var(--muted);font-size:13px;margin:0 0 8px}
+ textarea{width:100%;box-sizing:border-box;min-height:150px;resize:vertical;
+          background:#141417;color:var(--text);border:1px solid var(--line);
+          border-radius:8px;padding:12px;font-size:16px;font-family:inherit;
+          line-height:1.5}
+ .row{display:flex;gap:10px;flex-wrap:wrap;margin:12px 0 0}
+ button{flex:1 1 130px;min-height:48px;font-size:16px;font-weight:600;
+        border-radius:9px;border:1px solid var(--line);background:var(--card);
+        color:var(--text);cursor:pointer}
+ button.primary{background:var(--accent);border-color:var(--accent);color:#0f2418}
+ button:active{opacity:.75}
+ .empty{color:var(--muted);font-style:italic}
+ #note{display:none;margin:0 0 16px;padding:10px 14px;border-radius:9px;
+       background:rgba(47,240,142,.12);border:1px solid rgba(47,240,142,.4);
+       font-size:14px;word-break:break-word}
+ #note.bad{background:rgba(224,138,138,.12);border-color:rgba(224,138,138,.45)}
+</style>
+</head>
+<body>
+<p><a class="back" href="/?token={{ token }}">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+       stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+  Back</a></p>
+
+<h1>Clipboard</h1>
+<p class="sub">Shared with {{ panel }}. Copying here puts it on this device;
+  sending puts it on the panel.</p>
+
+<div id="note"></div>
+
+<div class="card">
+  <p class="label">On the panel now</p>
+  <textarea id="text" spellcheck="false"
+            placeholder="Nothing on the clipboard."></textarea>
+  <div class="row">
+    <button class="primary" id="copy">Copy to this device</button>
+    <button id="send">Send to panel</button>
+    <button id="refresh">Refresh</button>
+  </div>
+</div>
+
+<script>
+var TOKEN = {{ token|tojson }};
+var box = document.getElementById('text');
+var note = document.getElementById('note');
+
+function say(message, bad) {
+  note.textContent = message;
+  note.className = bad ? 'bad' : '';
+  note.style.display = 'block';
+}
+
+function load() {
+  fetch('/clipboard?token=' + encodeURIComponent(TOKEN))
+    .then(function (r) { return r.json(); })
+    .then(function (d) {
+      if (d.request !== 'Success') { say(d.reason || 'Could not read it.', true); return; }
+      box.value = d.text || '';
+      say(d.length ? d.length + ' characters on the panel.'
+                   : 'The panel clipboard is empty.');
+    })
+    .catch(function (e) { say('Could not reach the panel: ' + e, true); });
+}
+
+document.getElementById('refresh').addEventListener('click', load);
+
+document.getElementById('copy').addEventListener('click', function () {
+  // The async Clipboard API needs a secure context, which a panel served over
+  // plain http on a LAN is not. execCommand is deprecated and works there, so
+  // it is the fallback rather than the other way round.
+  var text = box.value;
+  if (navigator.clipboard && window.isSecureContext) {
+    navigator.clipboard.writeText(text)
+      .then(function () { say('Copied to this device.'); })
+      .catch(function () { legacyCopy(text); });
+  } else {
+    legacyCopy(text);
+  }
+});
+
+function legacyCopy(text) {
+  box.focus();
+  box.select();
+  var ok = false;
+  try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+  say(ok ? 'Copied to this device.'
+         : 'Could not copy automatically - the text is selected, so copy it '
+           + 'by hand.', !ok);
+}
+
+document.getElementById('send').addEventListener('click', function () {
+  fetch('/clipboard?token=' + encodeURIComponent(TOKEN), {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({text: box.value})
+  })
+    .then(function (r) { return r.json(); })
+    .then(function (d) {
+      say(d.request === 'Success'
+            ? 'Sent to the panel.'
+            : (d.reason || 'Could not send it.'),
+          d.request !== 'Success');
+    })
+    .catch(function (e) { say('Could not reach the panel: ' + e, true); });
+});
+
+load();
+</script>
+</body>
+</html>

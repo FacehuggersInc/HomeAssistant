@@ -34,11 +34,9 @@ class Settings(MutableMapping):
 
 	def __load_extension(self, filepath):
 		try:
-			print(f"  ? Loading -> {filepath}")
 			if not os.path.exists(filepath): return None
 			with open(filepath, "r", encoding="utf-8") as f:
 				data = json.load(f)
-				print(f"    ? data -> {data}")
 				return Settings(data)
 		except Exception as e:
 			return None

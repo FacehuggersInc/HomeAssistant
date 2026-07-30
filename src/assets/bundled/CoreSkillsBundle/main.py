@@ -498,13 +498,37 @@ class CoreSkills(Plugin):
         self._respond(answer or "I don't know how to answer that.")
 
     def empty_notifications(self):
-        if self.client.public.has("notification_history"):
-            self.client.public.notification_history.clear()
+        if not self.client.public.has("notification_history"):
+            self._respond("There is no notification history to clear.")
+            return
+
+        history = self.client.public.notification_history
+        try:
+            count = len(history.items)
+        except Exception:
+            count = -1
+        history.clear()
+
+        # Answered, like every other skill here.
+        #
+        # This cleared the list and said nothing - spoken or shown - so from
+        # the outside a working clear and a skill that failed to match looked
+        # identical.
+        if count < 0:
+            self._respond("Notifications cleared.")
+        elif count == 0:
+            self._respond("There was nothing to clear.")
+        else:
+            self._respond(f"Cleared {count} "
+                          f"notification{'s' if count != 1 else ''}.")
 
     def open_notifications(self):
-        if self.client.public.has("notification_history"):
-            self.client.public.notification_history.manager.open_history()
-
+        if not self.client.public.has("notification_history"):
+            self._respond("There is no notification history.")
+            return
+        # Not spoken on success: the panel opening IS the answer, and reading
+        # it out over the list somebody is now looking at helps nobody.
+        self.client.public.notification_history.manager.open_history()
     def weather_update(self):
         api = self.client.API.get("weather")
         if api is None:

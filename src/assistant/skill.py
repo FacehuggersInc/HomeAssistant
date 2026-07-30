@@ -53,6 +53,22 @@ def fuzzy_equal(a: str, b: str) -> float:
 		return 0.0
 	if abs(len(a) - len(b)) > 3:
 		return 0.0
+
+	# One being a prefix of the other is a different word, not a mishearing.
+	#
+	# A mishearing garbles the middle at roughly the same length - "whether"
+	# for "weather", "notifcation" for "notification". Adding or dropping a
+	# whole suffix changes the word: "time" is a prefix of "timer" and scores
+	# 0.889, which is HIGHER than "whether" against "weather" at 0.857, so no
+	# threshold separates them. "What is 5 times 3" therefore matched the timer
+	# skill and never reached the AI.
+	#
+	# Inflections are safe to reject here because lemmatisation has already
+	# dealt with them: "cancels" arrives as "cancel". A prefix relationship
+	# that survives that is two different words.
+	if a.startswith(b) or b.startswith(a):
+		return 0.0
+
 	ratio = SequenceMatcher(None, a, b).ratio()
 	return ratio if ratio >= FUZZY_MIN_RATIO else 0.0
 

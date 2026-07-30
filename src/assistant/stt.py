@@ -121,6 +121,8 @@ class STTProcessing():
 		# keeps its own much shorter threshold.
 		self.session_silence_ms = int(session_silence_ms)
 		self.last_error : str = ""
+		#When the panel last finished speaking. See heard_itself().
+		self.spoke_until : float = 0.0
 		self.process_type = process
 		self.__process_path = None
 		match self.process_type:
@@ -240,10 +242,8 @@ class STTProcessing():
 		match self.route:
 			case "wake":
 				if not self.woke_with :
-					print("Detecting Wake Words")
 					self.detect_wake_words_full(processed)
 				else:
-					print("Sending to Skill Parse")
 					self.start_skill_parse(self.woke_with, processed)
 
 			case "session":
@@ -264,28 +264,62 @@ class STTProcessing():
 		# token no skill pattern could match.
 		return normalize.words_to_numbers(text)
 
-	def pre_processing(self, transcribed:str):
-		if not self.client.TTS.is_speaking():
-			# Dropped before anything else looks at it.
-			#
-			# The transcriber invents end-screen boilerplate and subtitle
-			# credits when it is given silence or music rather than speech,
-			# and a panel with speakers hears its own music through its
-			# microphone. Acting on that means the panel doing something
-			# nobody asked for, mid-song.
-			if normalize.is_hallucination(transcribed):
-				self.client.log("debug",
-					f"[STTProcessing] Ignored '{transcribed}' - nothing was said.")
-				return
+	#How long after the panel stops talking a transcript is still treated as
+	#its own voice.
+	#
+	#Checking is_speaking() alone is not enough: the microphone captures while
+	#the panel talks, but Whisper only transcribes once it hears silence - so
+	#the text arrives AFTER the speech has finished, by which point
+	#is_speaking() is false and the panel answers itself. The AI answer panel
+	#is the worst case, since it holds a session open and reads a long reply
+	#aloud into an open microphone.
+	SELF_HEARING_GRACE = 2.5
 
-			if not self.processing:
-				self.processing = True
-				self.client.ASSIST_STATUS = "THINKING"
-				processed = normalize.normalize(transcribed)
-				if processed != transcribed:
-					self.client.log("debug",
-						f"[STTProcessing] Normalised '{transcribed}' -> '{processed}'")
-				self.routing( processed )
+	def heard_itself(self) -> bool:
+		"""Whether this transcript was captured while the panel was talking."""
+		tts = getattr(self.client, "TTS", None)
+		if tts is None:
+			# No voice backend at all - there is nothing to have overheard.
+			return False
+		try:
+			if tts.is_speaking():
+				return True
+		except Exception:
+			return False
+		return (time.time() - getattr(self, "spoke_until", 0.0)
+				) < self.SELF_HEARING_GRACE
+
+	def note_speech_ended(self) -> None:
+		"""Called when the panel finishes a spoken reply."""
+		self.spoke_until = time.time()
+
+	def pre_processing(self, transcribed:str):
+		if self.heard_itself():
+			self.client.log("debug",
+				f"[STTProcessing] Ignored '{transcribed}' - the panel was "
+				f"talking.")
+			return
+
+		# Dropped before anything else looks at it.
+		#
+		# The transcriber invents end-screen boilerplate and subtitle
+		# credits when it is given silence or music rather than speech,
+		# and a panel with speakers hears its own music through its
+		# microphone. Acting on that means the panel doing something
+		# nobody asked for, mid-song.
+		if normalize.is_hallucination(transcribed):
+			self.client.log("debug",
+				f"[STTProcessing] Ignored '{transcribed}' - nothing was said.")
+			return
+
+		if not self.processing:
+			self.processing = True
+			self.client.ASSIST_STATUS = "THINKING"
+			processed = normalize.normalize(transcribed)
+			if processed != transcribed:
+				self.client.log("debug",
+					f"[STTProcessing] Normalised '{transcribed}' -> '{processed}'")
+			self.routing( processed )
 
 
 	def wake_timeout_seconds(self) -> float:
@@ -416,7 +450,6 @@ class STTProcessing():
 											False
 										)
 								case "transcribe":
-									print(f"Received to Route: {data}")
 									self.pre_processing(data)
 
 								case "voice_activity": #Will Get Used A Lot

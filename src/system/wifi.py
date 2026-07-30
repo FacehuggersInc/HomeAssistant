@@ -67,6 +67,11 @@ class Connection:
         return Network(self.ssid, self.signal).bars
 
 
+def _run_reason(args: list, timeout: float = CALL_TIMEOUT) -> tuple:
+    """(ok, stdout, stderr). Never raises."""
+    return _run(args, timeout)
+
+
 def _run(args: list, timeout: float = CALL_TIMEOUT) -> tuple:
     """(ok, stdout, stderr). Never raises."""
     try:
@@ -172,23 +177,46 @@ def current() -> Optional[Connection]:
     name = backend()
 
     if name == "nmcli":
-        ok, out, _ = _run(["nmcli", "-t", "-f",
-                           "ACTIVE,SSID,SIGNAL,SECURITY,DEVICE",
-                           "device", "wifi", "list"])
+        # The active connection, from `connection show`.
+        #
+        # Asked here rather than from `device wifi list`, whose in-use column is
+        # IN-USE and marked with a star - ACTIVE is a field of `connection
+        # show`, and nmcli errors on a field it does not have, so asking for the
+        # wrong one reports "not connected" on a perfectly connected machine.
+        ssid, device = "", ""
+        ok, out, _ = _run_reason(["nmcli", "-t", "-f", "TYPE,NAME,DEVICE",
+                                  "connection", "show", "--active"])[:3]
         if ok:
             for line in out.splitlines():
                 parts = _split_terse(line.strip())
-                if len(parts) >= 5 and parts[0].lower() == "yes":
+                if len(parts) >= 3 and "wireless" in parts[0].lower():
+                    ssid, device = parts[1], parts[2]
+                    break
+
+        # Signal and security come from the scan list, matched on the star.
+        signal, security = 0, ""
+        ok, out, _ = _run_reason(["nmcli", "-t", "-f",
+                                  "IN-USE,SSID,SIGNAL,SECURITY",
+                                  "device", "wifi", "list"])[:3]
+        if ok:
+            for line in out.splitlines():
+                parts = _split_terse(line.strip())
+                if len(parts) >= 4 and parts[0].strip() in ("*", "yes"):
+                    if not ssid:
+                        ssid = parts[1]
                     try:
                         signal = int(parts[2] or 0)
                     except ValueError:
                         signal = 0
-                    return Connection(
-                        ssid=parts[1], signal=signal,
-                        security=_normalise_security(parts[3]),
-                        interface=parts[4],
-                        ip_address=_ip_for(parts[4]))
-        return None
+                    security = _normalise_security(parts[3])
+                    break
+
+        if not ssid:
+            return None
+        if not device:
+            device = _wireless_interface()
+        return Connection(ssid=ssid, signal=signal, security=security,
+                          interface=device, ip_address=_ip_for(device))
 
     if name == "iw":
         if shutil.which("iwgetid"):

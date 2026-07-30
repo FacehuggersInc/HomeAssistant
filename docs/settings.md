@@ -162,7 +162,7 @@ settings live in its `settings.json` and are documented with the plugin.
 | `assistant.input_device` | string | `(empty)` | Name of the microphone to listen on. Leave empty to use the system default. Available devices are listed in the Assistant section of the log at startup. |
 | `assistant.model` | enum | `tiny.en` | Whisper model used for transcription. Larger is more accurate and slower; the '.en' variants are English-only and faster. Downloaded on first use. |
 | `assistant.session_silence` | int | `800` ms | How long a pause ends your sentence once the assistant is in a conversation. Lower reacts faster; too low and a breath mid-sentence is treated as the end, which splits one question into several and sends each of them separately. 800ms suits normal speech. |
-| `assistant.tts_enabled` | bool | `on` | Whether the assistant speaks its replies. Requires ELEVENLABS_KEY in your .env file; skills stay usable without it, they just do not talk back. |
+| `assistant.tts_enabled` | bool | `on` | Whether the assistant speaks its replies. Requires a voice backend in your .env file; skills stay usable without it, they just do not talk back. |
 | `assistant.voice_bar` | bool | `on` | Show the thin activity bar along the bottom of the screen while the assistant is listening. |
 | `assistant.voice_bar_hold` | int | `6` sec | Minimum time the activity bar keeps a transcript on screen. Longer transcripts are held longer than this automatically. |
 | `assistant.wake_listen_timeout` | int | `12` sec | How long the panel keeps listening after the wake word before giving up. Too short and it stops mid-thought; too long and it sits listening to the room. |
@@ -242,6 +242,36 @@ that differs, not the size.
 | `quiet` | navigation and toggles that change nothing |
 
 Turning something off is `secondary`, not `destructive`: it is reversible.
+
+## A setting that renders as a picker
+
+The page dispatches on **`type`**. `options` is read by `EnumComponent` and by
+nothing else, so a setting declared `"str"` with a list of options renders as a
+plain text box — the list is never consulted, and the box appears empty.
+
+```json
+"tts_voice": {
+  "type": "enum",
+  "default": "alba",
+  "value": "alba",
+  "options": ["alba", "anna", "vera"]
+}
+```
+
+Two things a picker needs beyond that:
+
+* **`value` and `default` must be in `options`.** The combo box selects by
+  matching the value against the list; one that is not there leaves the box on
+  whichever option is first, and saving the page then writes that one.
+* **No blank option.** `format_name("")` is an empty string, so it renders as a
+  row with nothing in it.
+
+Option labels come from `format_name()`, so `bill_boerst` shows as
+"Bill Boerst". The stored value is the raw option.
+
+An enum cannot hold free text. Where both are wanted — a list to pick from *and*
+a path to type — that is two settings, with the text one taking precedence when
+it is set.
 
 ## Heights are measured
 

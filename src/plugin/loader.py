@@ -194,7 +194,7 @@ class PluginManager():
 		# Build the spec
 		spec = ILUtil.spec_from_file_location(qualified_name, py_file)
 		if not spec or not spec.loader:
-			print(f"Failed to create spec for {qualified_name}")
+			self.client.log("warning", f"[PluginManager] Could not create an import spec for {qualified_name}.")
 			return None
 
 		# Create module and assign to sys.modules with correct qualified name

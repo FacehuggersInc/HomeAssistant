@@ -40,7 +40,12 @@
   "assistant.voice_bar": "Show the activity bar along the bottom while listening",
   "assistant.tts_enabled": "Whether the assistant speaks its replies",
   "assistant.voice_bar_hold": "Minimum time a transcript stays on the activity bar",
-  "assistant.elevenlabs_key": "ElevenLabs API key for spoken replies (stored in .env)"
+  "assistant.tts_backend": "Whether replies are spoken, and by what",
+  "assistant.tts_voice": "Which Pocket TTS voice speaks",
+  "assistant.tts_voice_file": "A wav to clone instead of a listed voice",
+  "assistant.tts_language": "Which language weights Pocket TTS loads",
+  "assistant.tts_padding_ms": "Silence either side of a spoken reply",
+  "assistant.tts_rate": "Playback speed, which also moves the pitch"
  },
  "prefix": {
   "application.window.size": [

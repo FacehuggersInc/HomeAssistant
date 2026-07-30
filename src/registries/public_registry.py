@@ -8,7 +8,7 @@ class PublicRegistry:
 
     def expose(self, plugin: str, name: str, value, overwrite: bool = False):
         if hasattr(self, name) and not overwrite:
-            print(f"PublicRegistry.expose cannot expose {name}, it's already exposed")
+            self.client.log("warning", f"[PublicRegistry] '{name}' is already exposed - refusing to replace it.")
         self.exposed.setdefault(plugin, [])
         if name not in self.exposed[plugin]:
             self.exposed[plugin].append(name)

@@ -15,7 +15,6 @@ Settings live under **Assistant**:
 | `voice_bar` | The activity bar along the bottom of the screen |
 | `wake_listen_timeout` | Seconds to keep listening after the wake word with nothing said |
 | `tts_enabled` | Whether replies are spoken |
-| `elevenlabs_key` | ElevenLabs API key, stored in `.env` (see [Registries](registries.md)) |
 
 ## The activity bar
 
@@ -400,7 +399,7 @@ if not self.client.say("Twenty two degrees."):
     self.client.simple_notify("assistant", "Assistant", "Twenty two degrees.")
 ```
 
-`say()` returns whether anything was actually said. TTS needs an ElevenLabs
+`say()` returns whether anything was actually said. TTS needs an the voice backend
 key, set under **Assistant** in Settings (it is stored in `.env`, not in the
 settings file - see [Registries](registries.md)). Without one the app still runs and skills still
 work, they just do not talk back. Entering a key restarts the assistant, so

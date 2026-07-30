@@ -282,17 +282,37 @@ class QuickSettings(Panel):
     opened by a swipe from the top edge, so it behaves the same everywhere.
     """
 
+    #A share of the window height. A third suits a tall panel; on 1080 it is
+    #360px, which is less than the System side needs once the radios, both
+    #sliders and the media row are in it.
     HEIGHT_RATIO = 1 / 3
     MIN_HEIGHT   = 200    # only bites below a ~600px display; the cards scroll
     MARGIN       = 18
     AUTO_CLOSE   = 25     # seconds
 
+    @classmethod
+    def _panel_height(cls, client) -> int:
+        """
+        How tall to open, from the setting or from the window.
+
+        `home.quick_settings_height` is a share of the window rather than a
+        pixel count, so one value suits every display the panel might be on -
+        and 0 means "use the default share".
+        """
+        try:
+            share = float(client.setting(
+                "home.quick_settings_height.value", 0) or 0)
+        except Exception:
+            share = 0.0
+        if not (0.15 <= share <= 0.9):
+            share = cls.HEIGHT_RATIO
+        return max(cls.MIN_HEIGHT, int(client.window.height() * share))
+
     def __init__(self, client: "Client"):
         super().__init__(
             client,
             edge             = "top",
-            height           = max(self.MIN_HEIGHT,
-                                   int(client.window.height() * self.HEIGHT_RATIO)),
+            height           = self._panel_height(client),
             margin           = self.MARGIN,
             radius           = "16px",
             key              = "__quick_settings",

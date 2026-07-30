@@ -61,6 +61,9 @@ class NowPlayingWidget(Widget):
         self._blurred: QPixmap = None
         #what was last drawn, so an unchanged republish costs nothing
         self._rendered = None
+        #What visibility was last asked for. None means never asked, so the
+        #first rebuild always applies one.
+        self._wanted_visible = None
 
         # Painted rather than set as a stylesheet background: a stylesheet
         # gradient on a QWidget does not follow a resize, and this one is as
@@ -272,7 +275,15 @@ class NowPlayingWidget(Widget):
 
         # Hidden rather than showing an empty card. A now-playing widget with
         # nothing playing is a blank rectangle on the wallpaper.
-        if self.isVisible() != playing.active:
+        # Compared against what was last ASKED for, not against isVisible().
+        #
+        # isVisible() is false for a widget whose parent has not been shown
+        # yet, so at construction it matched `active` being false and
+        # setVisible(False) was skipped - leaving the card never explicitly
+        # hidden, and the framework showed it with everything else. A card with
+        # nothing playing appeared on the wallpaper at every startup.
+        if self._wanted_visible is not playing.active:
+            self._wanted_visible = playing.active
             self.setVisible(playing.active)
         if not playing.active:
             self.stop_tick()

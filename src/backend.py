@@ -408,6 +408,26 @@ def FlaskApp(client):
 		except Exception as e:
 			return {"request": "Failed", "reason": str(e)}, 500
 
+	@app.route("/clipboard/page", methods=["GET"])
+	def clipboard_page():
+		"""
+		The clipboard, as a page a phone can open.
+
+		The JSON endpoint above needs a client that can make requests; this
+		needs a browser. Copying from the panel to a phone is the common
+		direction - a URL the panel scanned, an address a skill produced - and
+		asking somebody to write a fetch() for that is not an answer.
+		"""
+		err = auth()
+		if err: return err
+		from src.webui import chrome_css
+		# The same way every other page here gets it: whatever the browser
+		# arrived with. The cookie set at approval means this is usually
+		# already in the URL after one visit.
+		token = request.args.get("token", "")
+		return render_template("clipboard.html", chrome=chrome_css(),
+							   token=token), 200
+
 	@app.route("/clipboard/clear", methods=["GET", "POST"])
 	def clipboard_clear():
 		err = auth()
@@ -632,6 +652,10 @@ def FlaskApp(client):
 			 "auth": False},
 			{"url": "/upload", "label": "Files",
 			 "description": "Send files to anything the panel has opened up.",
+			 "auth": True},
+			{"url": "/clipboard/page", "label": "Clipboard",
+			 "description": "Read what is on the panel's clipboard, or put "
+							"something on it.",
 			 "auth": True},
 		]
 		for endpoint in client.API.gui_endpoints():
@@ -1006,7 +1030,6 @@ def FlaskApp(client):
 
 		if endpoint:
 			api_endpoint = client.API.get_endpoint(endpoint)
-			client.log("debug", str(api_endpoint))
 			if api_endpoint and isinstance(api_endpoint, tuple):
 				owner, end = api_endpoint
 				log("info", f"Registry.{owner}")

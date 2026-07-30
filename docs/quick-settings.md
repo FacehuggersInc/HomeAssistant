@@ -179,6 +179,12 @@ The panel closes even if the press raised, so a broken entry cannot leave it
 stuck open. Both bundled navigating entries use it: *Night clock* and
 *Widgets*.
 
+## How tall it opens
+
+`home.quick_settings_height` is a **share of the window**, not a pixel count, so
+one value suits any display. Clamped to 0.15–0.9; a third is tight on 1080, and
+0.45 gives the System side room without scrolling.
+
 ## A short screen
 
 Below 900px of panel height the System side lays out **compact**: the slider's

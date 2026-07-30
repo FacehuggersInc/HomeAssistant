@@ -22,7 +22,6 @@ torch
 noisereduce
 
 # ── TTS ───────────────────────────────────────────────────────────────────────
-elevenlabs
 
 # ── Weather API ───────────────────────────────────────────────────────────────
 openmeteo-requests
@@ -51,6 +50,19 @@ feedparser
 
 # Encrypts local caches that record what was searched for.
 cryptography
+
+# ── Local text to speech ──────────────────────────────────────────────────────
+# Kyutai Pocket TTS. 100M parameters, CPU only - Kyutai report no speedup from
+# a GPU, so the plain torch wheel is correct and there is nothing to configure.
+# Needs no API key and no network once the weights are cached.
+#
+# Required: it is the default voice backend. ElevenLabs stays as a fallback and
+# needs a key, so a panel with neither has no spoken replies.
+#
+# It pulls torch and torchao, which is a large download - several hundred MB on
+# a machine that has neither. The CPU wheel is what is wanted; installing the
+# CUDA one wastes gigabytes for no gain here.
+pocket-tts
 
 # ── Bluetooth ─────────────────────────────────────────────────────────────────
 # Speaks D-Bus to BlueZ. Pure Python, so there is nothing to compile and no

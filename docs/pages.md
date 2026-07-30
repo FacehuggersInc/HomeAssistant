@@ -326,3 +326,22 @@ Do not put app-level controls on a page. Settings access, fullscreen, quit and
 anything else that should exist everywhere belong in
 [quick settings](quick-settings.md), which is registered once against the
 client and reachable from every page.
+
+## The web page resumes where it was
+
+`goto()` destroys the outgoing page, so a `#webpage` returned to is a **new
+instance** — and one built from `data["url"]`, which is whatever the original
+caller passed. Coming back from the night clock therefore reopened the address it
+started on, at the top, whatever had been read in between.
+
+The URL and scroll position are kept on the **client**, keyed on the browsing
+context (`lock_base` plus the home URL) rather than on the page, since anything
+stored on the page goes with it.
+
+* An explicit `data["url"]` still wins. A caller asking for a page means go
+  there; a caller asking for nothing means resume.
+* A remembered address outside the context's `lock_base` is refused. It is not a
+  way around the lock.
+* Scroll is **polled** every two seconds. `QWebEngineView` emits no scroll
+  signal, and injecting a listener that posts back would be a message per frame
+  while a finger is dragging.

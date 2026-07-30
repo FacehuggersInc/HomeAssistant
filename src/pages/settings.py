@@ -12,7 +12,7 @@ from PyQt6.QtWidgets import (
     QScrollArea, QLineEdit, QTextEdit, QComboBox, QFrame, QSizePolicy, QFileDialog,
     QScroller,
 )
-from PyQt6.QtCore import Qt, QSize, QPropertyAnimation, QEasingCurve, pyqtProperty, QUrl
+from PyQt6.QtCore import Qt, QSize, QPropertyAnimation, QEasingCurve, pyqtProperty, QUrl, QTimer
 from PyQt6.QtGui import QPainter, QColor, QBrush, QPen, QPixmap, QIcon, QDesktopServices
 
 from src.mixins import mixin_target
@@ -1765,7 +1765,17 @@ class SettingsPage(PageFramework):
         else:
             self._active_sort_mode = None
             self._sort_direction[axis] = "asc"
-        self._show_category(self._active_path)
+
+        # Rebuilt on the next turn of the event loop, not from inside this
+        # handler.
+        #
+        # _show_category() destroys and re-adds every block on the page. Doing
+        # that while the press that triggered it is still being delivered means
+        # the release lands on whichever widget the rebuild has just put under
+        # the finger - and on a touch screen that arrives as a fresh press,
+        # which is how tapping a sort button opened the keyboard for whatever
+        # setting ended up there.
+        QTimer.singleShot(0, lambda: self._show_category(self._active_path))
 
     def _sorted_content(self, content: list) -> list:
         if not self._active_sort_mode:

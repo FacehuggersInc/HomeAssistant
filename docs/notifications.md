@@ -73,7 +73,7 @@ has read the second one. Clearing notifications is a notification: the action
 ### Speaking
 
 `speak=` says the text as well as showing it. Text-to-speech needs an
-ElevenLabs key and a panel without one is a normal install, so an answer that
+the voice backend key and a panel without one is a normal install, so an answer that
 is only spoken is an answer half the time — every skill should show as well as
 say.
 
