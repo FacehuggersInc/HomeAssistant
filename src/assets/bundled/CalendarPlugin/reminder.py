@@ -9,9 +9,10 @@ from threading import Thread
 from typing import TYPE_CHECKING
 
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QSizePolicy,
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QToolButton,
+    QSizePolicy,
 )
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QSize
 from PyQt6.QtGui import QPainter, QColor, QBrush, QLinearGradient
 
 from src.ui.overlays import Panel
@@ -61,6 +62,15 @@ class ReminderPanel(Panel):
         layout = QVBoxLayout(body)
         layout.setContentsMargins(24, 22, 24, 22)
         layout.setSpacing(10)
+
+        # Centred when there is nothing to fill the height with.
+        #
+        # An event with no location is a title, a time and four buttons; pinned
+        # to the top of a full-height panel that is a paragraph of text with a
+        # screen of nothing under it. A stretch on each side puts the whole
+        # thing where the eye already is.
+        if not event.location:
+            layout.addStretch()
 
         layout.addLayout(self._header())
         layout.addLayout(self._details())
@@ -166,24 +176,50 @@ class ReminderPanel(Panel):
         return column
 
     def _buttons(self) -> QHBoxLayout:
-        row = QHBoxLayout()
-        row.setSpacing(10)
+        """
+        The four actions, as icons with their word underneath.
 
-        def button(text: str, handler, kind: str = "secondary"):
-            widget = QPushButton(text)
-            widget.setFont(make_font(SIZES.S2, bold=True))
-            widget.setFixedHeight(52)
-            widget.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        Four labelled buttons stretched across the panel gave each one a wide
+        strip of colour with a small word floating in it - the text was the
+        only part carrying meaning and the least visible thing in the row. An
+        icon reads from across the room, which is the distance this panel is
+        seen from, and the word underneath is there for the one time somebody
+        has not met the icon before.
+        """
+        from src.ui.icons import Icons
+
+        row = QHBoxLayout()
+        row.setSpacing(12)
+        row.setContentsMargins(0, 6, 0, 0)
+
+        def _glyph(name: str):
+            # icon(), which this module already uses for the header. The
+            # parameter below is called `icon` and would shadow it, so the
+            # lookup happens here where it does not.
+            from src.ui.icons import icon as make
+            return make(name, color="#e8ecf4")
+
+        def button(icon: str, text: str, handler, kind: str = "secondary"):
+            widget = QToolButton()
+            widget.setToolButtonStyle(
+                Qt.ToolButtonStyle.ToolButtonTextUnderIcon)
+            widget.setIcon(_glyph(icon))
+            widget.setIconSize(QSize(30, 30))
+            widget.setText(text)
+            widget.setFont(make_font(SIZES.S1, bold=True))
+            widget.setFixedHeight(78)
+            widget.setSizePolicy(QSizePolicy.Policy.Expanding,
+                                 QSizePolicy.Policy.Fixed)
             widget.setCursor(Qt.CursorShape.PointingHandCursor)
             set_style(widget, "overlays", f"dialog-button-{kind}")
             widget.clicked.connect(lambda: handler())
             return widget
 
-        row.addWidget(button("Open", self._open, "primary"))
+        row.addWidget(button(Icons.OPEN_IN_NEW, "Open", self._open, "primary"))
         if self.event.editable:
-            row.addWidget(button("Edit", self._edit))
-        row.addWidget(button("Snooze", self._snooze))
-        row.addWidget(button("Dismiss", self._dismiss))
+            row.addWidget(button(Icons.PENCIL, "Edit", self._edit))
+        row.addWidget(button(Icons.ALARM_SNOOZE, "Snooze", self._snooze))
+        row.addWidget(button(Icons.CLOSE, "Dismiss", self._dismiss))
         return row
 
     ## -- actions
@@ -321,17 +357,31 @@ class ReminderWatcher:
             for candidate in upcoming:
                 if self._snoozed_until.get(candidate.key, 0) > time.time():
                     continue
-                if candidate.key in self.shown or candidate.all_day:
+                if candidate.all_day:
                     # All-day events have no moment to be reminded about, and
                     # a reminder for one would fire at midnight.
                     continue
                 start = candidate.starts_at
                 if start is None:
                     continue
+
                 minutes = (start - now).total_seconds() / 60
-                if 0 <= minutes <= lead:
-                    self.show(candidate)
-                    return
+
+                # Two reminders, not one.
+                #
+                # A single one at `lead` minutes before told somebody an event
+                # was coming and then nothing happened when it arrived -
+                # `shown` held the key, so the moment the event actually
+                # started passed in silence. The warning and the event are
+                # different things to be told.
+                if -self.START_GRACE <= minutes <= self.START_WINDOW:
+                    if (candidate.key, "start") not in self.shown:
+                        self.show(candidate, kind="start")
+                        return
+                elif 0 < minutes <= lead:
+                    if (candidate.key, "lead") not in self.shown:
+                        self.show(candidate, kind="lead")
+                        return
         except Exception as e:
             # Once per distinct fault. This runs on the client tick, so a
             # persistent failure otherwise writes a line every frame and
@@ -341,8 +391,20 @@ class ReminderWatcher:
                 self._complained = message
                 self.client.log("warning", f"[Calendar] Reminder check failed: {e}")
 
-    def show(self, event) -> None:
-        self.shown.add(event.key)
+    #How wide the "it is starting" window is, in minutes.
+    #
+    #Not a single instant: check() runs on the client tick, and an event whose
+    #start falls between two ticks would be missed entirely. A little either
+    #side means it cannot be, and the panel is the same panel whether it opens
+    #at the minute or a few seconds after it.
+    START_WINDOW = 0.5
+    START_GRACE = 2.0
+
+    def show(self, event, kind: str = "lead") -> None:
+        self.shown.add((event.key, kind))
+        # The lead reminder is not worth showing once the event has started.
+        if kind == "start":
+            self.shown.add((event.key, "lead"))
         self._opening = True
 
         # Built on the UI thread, not merely opened there. check() runs on
@@ -399,7 +461,8 @@ class ReminderWatcher:
         """Forget that it was shown, and hold it off for a while."""
         self.panel = None
         self._opening = False
-        self.shown.discard(event.key)
+        self.shown.discard((event.key, "lead"))
+        self.shown.discard((event.key, "start"))
         minutes = int(self.plugin.option("reminders.snooze_minutes", 5))
         self._snoozed_until[event.key] = time.time() + max(1, minutes) * 60
 

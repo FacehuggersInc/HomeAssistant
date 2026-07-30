@@ -163,6 +163,11 @@ class _Field(QWidget):
 class IconPicker(QWidget):
     """A small grid of glyphs, one selected."""
 
+    #How many fit across the editor. Eight 48px buttons and their spacing is
+    #426px, comfortably inside the 732 the dialog has between its margins, and
+    #two rows of eight reads better than one row of sixteen.
+    COLUMNS = 8
+
     def __init__(self, chosen: str = "mdi.calendar"):
         super().__init__()
         self.chosen = chosen
@@ -177,15 +182,26 @@ class IconPicker(QWidget):
         set_style(label, "common", "text-muted")
         wrap.addWidget(label)
 
-        grid = QHBoxLayout()
+        # A grid that wraps, not one long row.
+        #
+        # Sixteen 48px targets with 6px between them is 858px; the editor is
+        # 780 wide and 732 inside its margins, so the last two were cut off the
+        # right-hand edge. Wrapping fits any width and costs one extra row of
+        # height, which the dialog has.
+        grid = QGridLayout()
         grid.setSpacing(6)
-        for name in ICON_CHOICES:
-            from src.ui.controls.buttons import IconButton
+        grid.setContentsMargins(0, 0, 0, 0)
+        from src.ui.controls.buttons import IconButton
+        for index, name in enumerate(ICON_CHOICES):
             # 26, not 15. These are picked with a finger on a wall panel, and
             # sixteen 30px targets in a row is a lottery.
             button = IconButton(name, lambda n=name: self.choose(n), size=26)
             self.glyphs[name] = button
-            grid.addWidget(button)
+            grid.addWidget(button, index // self.COLUMNS,
+                           index % self.COLUMNS)
+        # The trailing column takes the slack, so a part-filled last row lines
+        # up under the one above rather than spreading out.
+        grid.setColumnStretch(self.COLUMNS, 1)
         wrap.addLayout(grid)
         self.choose(chosen)
 

@@ -1533,8 +1533,16 @@ class WidgetFramework(QWidget):
         self._chrome.hide()
         self.save_layout()
         try:
+            # Not kept.
+            #
+            # This is a receipt for something the person just did, and the
+            # result is on screen in front of them - the widget is gone and
+            # the panel it went to is one tap away. A history full of "moved
+            # to the widgets panel" buries the notifications that were worth
+            # keeping.
             self.client.simple_notify("widgets", "Widgets",
-                                      f"'{name}' moved to the widgets panel.")
+                                      f"'{name}' moved to the widgets panel.",
+                                      history=False)
         except Exception:
             pass
 

@@ -166,6 +166,8 @@ class Icons:
     PUZZLE              = "puzzle"
     TUNE                = "tune"
     ACCOUNT_MULTIPLE    = "account-multiple"
+    OPEN_IN_NEW     = "open-in-new"
+    ALARM_SNOOZE    = "alarm-snooze"
     SIGNAL          = "signal"
     WIDGETS         = "widgets"
     WIFI_OFF            = "wifi-off"

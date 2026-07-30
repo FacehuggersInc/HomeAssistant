@@ -201,13 +201,33 @@ class PluginManager():
 		module = ILUtil.module_from_spec(spec)
 		sys.modules[qualified_name] = module
 
-		# Also register the plugin package if not already present
-		if plugin_folder_name not in sys.modules:
-			package_spec = ILUtil.spec_from_file_location(plugin_folder_name, plugin_dir / "__init__.py")
+		# Register the plugin package, and make sure it can find submodules.
+		#
+		# A relative import inside a plugin - `from .api.feeds_page import ...`
+		# - resolves against the package's __path__, not against sys.path, and
+		# sys.path is popped below. So a package registered without a __path__
+		# works for anything imported while the module is executing and fails
+		# for anything imported later, from inside a request handler. That is
+		# the shape of "No module named 'RSSFeeds.api.feeds_page'" from an
+		# endpoint on a plugin that loaded perfectly.
+		#
+		# Re-registered when an existing entry has no __path__, since a broken
+		# one is worse than none: the import machinery stops there.
+		existing = sys.modules.get(plugin_folder_name)
+		if existing is None or not getattr(existing, "__path__", None):
+			init_file = plugin_dir / "__init__.py"
+			package_spec = ILUtil.spec_from_file_location(
+				plugin_folder_name, init_file,
+				submodule_search_locations=[str(plugin_dir)])
 			if package_spec and package_spec.loader:
 				package_module = ILUtil.module_from_spec(package_spec)
 				sys.modules[plugin_folder_name] = package_module
-				package_spec.loader.exec_module(package_module)
+				try:
+					package_spec.loader.exec_module(package_module)
+				except FileNotFoundError:
+					# No __init__.py at all. The module object still carries
+					# the search path, which is the part that matters.
+					pass
 
 		spec.loader.exec_module(module)
 
