@@ -1,6 +1,24 @@
 {
  "log": [
   {
+   "at": 1785451163.8298666,
+   "note": "broken table rows reworded; a formatting checker added",
+   "pages": [
+    {
+     "slug": "api",
+     "state": "updated"
+    },
+    {
+     "slug": "index",
+     "state": "updated"
+    },
+    {
+     "slug": "users",
+     "state": "updated"
+    }
+   ]
+  },
+  {
    "at": 1785447638.5133705,
    "note": "updates skip identical files, keep modes, and honour install_once",
    "pages": [
@@ -479,27 +497,27 @@
  ],
  "pages": {
   "api": {
-   "at": 1785384140.0122466,
-   "hash": "cf5c689d72c414f3",
+   "at": 1785451163.8292015,
+   "hash": "ad6b56e3dd7a0109",
    "opened": 0,
    "state": "updated"
   },
   "architecture": {
    "at": 1785434385.0414848,
    "hash": "25effd8698091651",
-   "opened": 0,
+   "opened": 1785451144.5161173,
    "state": "updated"
   },
   "assistant": {
    "at": 1785416476.797444,
    "hash": "7d59782bbf45d1c0",
-   "opened": 0,
+   "opened": 1785451144.625008,
    "state": "updated"
   },
   "backlight": {
    "at": 1785384140.0123122,
    "hash": "d59766cdd38282bf",
-   "opened": 0,
+   "opened": 1785451144.6762803,
    "state": "updated"
   },
   "bluetooth": {
@@ -511,25 +529,25 @@
   "bundled-plugins": {
    "at": 1785434122.746738,
    "hash": "38de61ff76c62f37",
-   "opened": 0,
+   "opened": 1785451144.5295966,
    "state": "updated"
   },
   "cancel": {
    "at": 1785384140.0123494,
    "hash": "066445fa1486a3a7",
-   "opened": 0,
+   "opened": 1785451144.640088,
    "state": "updated"
   },
   "dialogs": {
    "at": 1785384140.0123658,
    "hash": "42bb7cf324e1e272",
-   "opened": 0,
+   "opened": 1785451144.589925,
    "state": "updated"
   },
   "events": {
    "at": 1785384140.012382,
    "hash": "03680a29d235e208",
-   "opened": 0,
+   "opened": 1785451144.5458124,
    "state": "updated"
   },
   "features": {
@@ -539,15 +557,15 @@
    "state": "new"
   },
   "index": {
-   "at": 1785384140.0124044,
-   "hash": "7bf4d82943662dbb",
+   "at": 1785451163.8294902,
+   "hash": "8118f5db2765bd66",
    "opened": 0,
    "state": "updated"
   },
   "installation": {
    "at": 1785384140.0124147,
    "hash": "9125f3775f508aa8",
-   "opened": 0,
+   "opened": 1785451144.480812,
    "state": "updated"
   },
   "keyboard": {
@@ -559,31 +577,31 @@
   "lifecycle": {
    "at": 1785384140.0124342,
    "hash": "0691fddee09324a6",
-   "opened": 0,
+   "opened": 1785451144.4912746,
    "state": "updated"
   },
   "logging": {
    "at": 1785421380.672608,
    "hash": "db380609be1c53ec",
-   "opened": 0,
+   "opened": 1785451144.5096934,
    "state": "updated"
   },
   "mixins": {
    "at": 1785384140.0124536,
    "hash": "8ba70f771b7370b9",
-   "opened": 0,
+   "opened": 1785451144.5392058,
    "state": "updated"
   },
   "notifications": {
    "at": 1785416476.7979167,
    "hash": "8213db4edc97d820",
-   "opened": 0,
+   "opened": 1785451144.6090212,
    "state": "updated"
   },
   "pages": {
    "at": 1785416996.5190458,
    "hash": "c1efd802facf8d3c",
-   "opened": 0,
+   "opened": 1785451144.5665772,
    "state": "updated"
   },
   "philosophy": {
@@ -595,73 +613,73 @@
   "player": {
    "at": 1785384140.0124974,
    "hash": "404d3e8891811b68",
-   "opened": 0,
+   "opened": 1785451144.6031103,
    "state": "updated"
   },
   "plugins": {
    "at": 1785384140.0125198,
    "hash": "96a351346cbb3072",
-   "opened": 0,
+   "opened": 1785451144.5215852,
    "state": "updated"
   },
   "quick-settings": {
    "at": 1785416996.5192125,
    "hash": "6c3b47f5aa3f487f",
-   "opened": 0,
+   "opened": 1785451144.596753,
    "state": "updated"
   },
   "registries": {
    "at": 1785384140.0125496,
    "hash": "bde1aee3d5081a8d",
-   "opened": 0,
+   "opened": 1785451144.5535345,
    "state": "updated"
   },
   "settings": {
    "at": 1785432817.2706792,
    "hash": "a41cde0a202d3343",
-   "opened": 0,
+   "opened": 1785451144.682895,
    "state": "updated"
   },
   "skills": {
    "at": 1785416476.798296,
    "hash": "fc1660f574214467",
-   "opened": 0,
+   "opened": 1785451144.6326432,
    "state": "updated"
   },
   "styling": {
    "at": 1785384140.0125961,
    "hash": "4f7fa2148f663b42",
-   "opened": 0,
+   "opened": 1785451144.614666,
    "state": "updated"
   },
   "threading": {
    "at": 1785384140.0126083,
    "hash": "f8aad7022b68aa56",
-   "opened": 0,
+   "opened": 1785451144.5599568,
    "state": "updated"
   },
   "tiles": {
    "at": 1785384140.0126252,
    "hash": "565185c6d805ad3b",
-   "opened": 0,
+   "opened": 1785451144.5826256,
    "state": "updated"
   },
   "updating": {
    "at": 1785447638.5132778,
    "hash": "3fb8821924b47bb8",
-   "opened": 0,
+   "opened": 1785451144.498345,
    "state": "updated"
   },
   "users": {
-   "at": 1785382006.6666954,
-   "hash": "49675a07b10eed46",
-   "opened": 1785383835.588918,
-   "state": "new"
+   "at": 1785451163.8297749,
+   "hash": "402a4bc02de4d40a",
+   "opened": 0,
+   "state": "updated"
   },
   "webpage": {
    "at": 1785420591.7826056,
    "hash": "421b4c9f22f259b8",
-   "opened": 0,
+   "opened": 1785451144.660115,
    "state": "updated"
   },
   "when-it-will-not-start": {
@@ -673,7 +691,7 @@
   "widgets": {
    "at": 1785446149.7258325,
    "hash": "afe0ab035376712a",
-   "opened": 0,
+   "opened": 1785451144.5735333,
    "state": "updated"
   },
   "wifi": {

@@ -15,7 +15,7 @@ device can be revoked without affecting the others, an endpoint can tell who is
 calling, and anything that learns one token has not learned the way in for
 everything else.
 
-### From a browser
+## From a browser
 
 A browser that reaches a page it is not allowed to see is **redirected** to
 `/access/wait` rather than refused. That page asks for access on the visitor's
@@ -26,7 +26,7 @@ Told apart by the `Accept` header: a script wants a 401 it can read, and a
 person looking at a blank page with some JSON on it wants to be told what to do
 about it.
 
-### Being remembered
+## Being remembered
 
 An accepted token is stored in a `ha_device_token` cookie, and read back as a
 third source alongside the query string and the `X-Client-Token` header.
@@ -45,7 +45,7 @@ A token in the URL still wins over the cookie, and the cookie is replaced with
 whichever one worked. Revoking a device on the panel takes effect on its next
 request regardless of what it is holding.
 
-### Two holds, not one
+## Two holds, not one
 
 Approving a device sets **both** `awaiting_name` and `awaiting_decision`.
 
@@ -64,7 +64,7 @@ Answering releases it: **Name them** clears both through `rename()`, **Let them
 decide** clears only the decision and sends the device off to name itself.
 Typing nothing at the panel falls through to the second.
 
-### Coming back with a token that is no longer good
+## Coming back with a token that is no longer good
 
 A browser arriving with a stale, revoked or unknown token is sent to
 `/access/wait` like any other - but **the refused token is not carried with
@@ -82,7 +82,7 @@ redirect and in the wait page's own JavaScript, which builds the same URL
 client-side. Every other query parameter survives, so a device sent away from a
 form comes back to the same form.
 
-### The flow
+## The flow
 
 ```
 POST /access/request?name=My%20phone   ->  {"token": "...", "state": "pending"}
@@ -100,7 +100,7 @@ Approval is polled off the client tick rather than pushed from the request,
 because the request arrives on a Flask worker thread and a dialog cannot be
 built there.
 
-### Naming
+## Naming
 
 A device announces itself as something like "Firefox on Linux" — which says
 what it is and nothing about whose it is. Approving one therefore asks a second
@@ -121,7 +121,7 @@ on Linux".
 Anyone can be renamed later under **Settings → Users**, which also marks who is
 still choosing.
 
-### Choosing an owner
+## Choosing an owner
 
 Anywhere something needs an owner — the event editor, the calendar's phone
 form, the subscriptions page, the add-a-calendar dialog — the choice is a
@@ -133,7 +133,7 @@ some of the same events, and nothing in the UI showed why.
 
 `GET /users?token=...` returns the same list, for anything building its own.
 
-### Using it
+## Using it
 
 `client.USERS` is a `UserRegistry`.
 
@@ -150,7 +150,7 @@ some of the same events, and nothing in the UI showed why.
 | `waiting()` | Undecided requests, oldest first. |
 | `subscribe(fn)` / `unsubscribe(fn)` | Told when the list changes. |
 
-### Identifying the caller
+## Identifying the caller
 
 `auth()` records the matched user on the request, so an endpoint does not have
 to look it up again:
@@ -168,7 +168,7 @@ The Calendar plugin uses this to attribute an imported event to the device that
 sent it. Treat it as *who*, not as permission — every approved device can do
 everything the API exposes.
 
-### Where it lives
+## Where it lives
 
 `users.json` in the user data directory, written `0600` because it holds
 tokens. Not in settings: it is state built up by approving things, not

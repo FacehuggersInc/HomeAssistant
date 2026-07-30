@@ -117,3 +117,12 @@ http://<panel-ip>:5000/docs
 ```
 
 That address is in **Settings → Info**, along with a button to copy it.
+
+---
+
+## A note on writing these pages
+
+There is **no way to put a `|` inside a table cell.** The renderer splits the
+row on every pipe before it looks at inline code, so backticks do not protect
+one — and `\|` is not an escape here either: it splits anyway and leaves a
+stray backslash behind. Reword instead: "`GET` or `POST`", not "`GET|POST`".

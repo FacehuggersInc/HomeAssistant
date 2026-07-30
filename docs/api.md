@@ -43,8 +43,8 @@ revoked on its own.
 | `GET /access/state?token=` | Whether that request has been answered. |
 | `GET /process?...` | Run an assistant intent. |
 | `GET /pages` | Every registered page key, and which is on screen. |
-| `GET|POST /goto/<page>` | Switch pages. Query parameters become the page's data. |
-| `GET|POST /clipboard` | Read the clipboard, or set it with `?text=`. |
+| `GET` or `POST` `/goto/<page>` | Switch pages. Query parameters become the page's data. |
+| `GET` or `POST` `/clipboard` | Read the clipboard, or set it with `?text=`. |
 | `GET /clipboard/clear` | Empty it. |
 
 `/update` returns as soon as staging starts - the download and restart happen
@@ -409,7 +409,7 @@ without saving.
 | `settings PATH [VALUE]` | Read or write. |
 | `pages` | List pages; a `*` marks the one on screen. |
 | `goto PAGE [k=v ...]` | Switch pages, passing data. |
-| `clipboard [get\|set TEXT\|clear]` | Read, set or empty the clipboard. |
+| `clipboard` with `get`, `set TEXT` or `clear` | Read, set or empty the clipboard. |
 | `plugins ...` | Everything under `/plugins`. |
 | `public ENDPOINT [k=v ...]` | Call a registered endpoint. |
 | `raw PATH [k=v ...]` | Anything else. |
