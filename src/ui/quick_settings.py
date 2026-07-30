@@ -355,6 +355,8 @@ class QuickSettings(Panel):
         self._volume_busy = False
         self._wifi_busy = False
         self._wifi_button = None
+        #the last reason logged, so it is not repeated every second
+        self._wifi_reason = ""
         self._bt_busy = False
         self._bt_button = None
 
@@ -576,10 +578,25 @@ class QuickSettings(Panel):
             connection = None
             try:
                 connection = wifi.current()
-            except Exception:
+            except Exception as e:
+                self.client.log("debug", f"[QuickSettings] Wi-Fi read: {e}")
                 connection = None
             finally:
                 self._wifi_busy = False
+
+            # Said once, not every second.
+            #
+            # "Not connected" on a machine that plainly is connected gives
+            # nobody anything to act on. The reason names which route was
+            # asked and what it answered.
+            if connection is None and wifi.LAST_REASON != self._wifi_reason:
+                self._wifi_reason = wifi.LAST_REASON
+                self.client.log("info",
+                                f"[QuickSettings] No wireless connection: "
+                                f"{wifi.LAST_REASON}")
+            elif connection is not None:
+                self._wifi_reason = ""
+
             self.client.call_on_ui(lambda: self._show_wifi(connection))
 
         Thread(target=work, name="__quick_wifi", daemon=True).start()

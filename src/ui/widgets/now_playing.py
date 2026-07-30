@@ -253,6 +253,20 @@ class NowPlayingWidget(Widget):
             return ""
         return url.split("?")[0].rstrip("/")
 
+    def wants_visible(self) -> bool:
+        """
+        Only when something is playing.
+
+        Placement shows a widget by default. This one hides itself in
+        rebuild() when the registry says nothing is playing, and was then shown
+        again by the placement that followed - so a card with no track on it
+        appeared on the wallpaper at every startup.
+        """
+        try:
+            return bool(self.state().active)
+        except Exception:
+            return False
+
     def rebuild(self) -> None:
         playing = self.state()
 

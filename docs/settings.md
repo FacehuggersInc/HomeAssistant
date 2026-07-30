@@ -243,6 +243,16 @@ that differs, not the size.
 
 Turning something off is `secondary`, not `destructive`: it is reversible.
 
+## A section that fills the page
+
+The content layout ends in a stretch, so every block takes its natural height
+and the spare goes to the bottom. That is right for a column of setting cards
+and wrong for a single view.
+
+A widget with `fills_height = True` is inserted with a stretch factor instead.
+The Logs section uses it — a log occupying 200px with empty space under it shows
+about eight lines.
+
 ## A setting that renders as a picker
 
 The page dispatches on **`type`**. `options` is read by `EnumComponent` and by

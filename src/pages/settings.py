@@ -1293,6 +1293,9 @@ class SettingsPage(PageFramework):
         from src.pages.bluetooth import build_bluetooth_page
         self.new_category("bluetooth", build_bluetooth_page(self.client),
                           label="Bluetooth", system=True)
+        from src.pages.logs import build_logs_page
+        self.new_category("logs", build_logs_page(self.client),
+                          label="Logs", system=True)
         # Info is always last
         self.new_category("info",
                           _build_info_page(self.client, self._working_settings),
@@ -2136,7 +2139,15 @@ class SettingsPage(PageFramework):
         if owner and sub_key is not None:
             block = self._build_registrations_block(owner)
             if block is not None:
-                self._content_layout.insertWidget(self._content_layout.count() - 1, block)
+                # A block that wants the page gets the page.
+                #
+                # The layout ends in a stretch, so everything takes its natural
+                # height and the spare goes to the bottom. That is right for a
+                # column of setting cards and wrong for the log, which is a
+                # single view that should fill what is left.
+                self._content_layout.insertWidget(
+                    self._content_layout.count() - 1, block,
+                    stretch=1 if getattr(block, "fills_height", False) else 0)
 
             # A plugin may contribute its own cards here, between the registry
             # summary and its settings, by defining settings_blocks(). Kept
@@ -2159,7 +2170,15 @@ class SettingsPage(PageFramework):
 
         for block in self._sorted_content(target["content"]):
             if isinstance(block, QWidget):
-                self._content_layout.insertWidget(self._content_layout.count() - 1, block)
+                # A block that wants the page gets the page.
+                #
+                # The layout ends in a stretch, so everything takes its natural
+                # height and the spare goes to the bottom. That is right for a
+                # column of setting cards and wrong for the log, which is a
+                # single view that should fill what is left.
+                self._content_layout.insertWidget(
+                    self._content_layout.count() - 1, block,
+                    stretch=1 if getattr(block, "fills_height", False) else 0)
 
         self._content_scroll.verticalScrollBar().setValue(0)
 

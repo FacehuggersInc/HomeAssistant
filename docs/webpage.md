@@ -109,3 +109,54 @@ class MyPage(PageFramework):
 install rather than a missing extra. The page still opens and says so instead
 of failing to build — a page that cannot be navigated to is worse than one that
 explains itself.
+
+## Typing into a page
+
+A field on the page is read-only and taps open the on-screen keyboard, the same
+as everywhere else. Two things about that are worth knowing.
+
+The page talks back through **`console.log('__ha_field:...')`**, caught by the
+page object's `javaScriptConsoleMessage`.
+
+**Not `document.title`.** That title is a shared, observable thing: Google
+Analytics reads it and sends it as the `dt` parameter, so anything written there
+travels to whichever tracker the page runs — for a field signal that means its
+id, its label and **its current value**. It is visible in the panel's own title
+bar as well. The console goes nowhere.
+
+That also means the page object is installed whether or not there is a
+`lock_base` — without it there is no channel, and no keyboard.
+
+**The title comes from what a person would read**, in order: `aria-label`,
+`placeholder`, `title`, a `<label>` tied to or wrapping the field, then
+`aria-labelledby`. The `name` attribute is not among them — Google's search box
+is `name="q"` with no placeholder, and a dialog titled "q" says nothing about
+what is being typed.
+
+When none of those exist, the fallback is the **site plus what the field
+probably does**: `google.com search`, from the hostname and whether the type,
+name or role looks like a search. That beats both "q" and "Text".
+
+**Done submits.** Setting a value fires `input` and `change`, which tells a
+framework the field changed and tells the page nothing. A search box updated
+that way sat there with the query in it, which from the outside looks exactly
+like the dialog having failed.
+
+So Done also dispatches a real Enter — sites that listen for it do so *instead*
+of using a form — and then calls `requestSubmit()` on the form if there is one.
+`requestSubmit()` rather than `submit()`, because the latter skips the page's own
+submit handlers and its validation. A page that refuses the submit is caught, and
+Enter may already have done the job.
+
+## What the panel cannot fix
+
+A page's **Content Security Policy** applies to anything injected into it, so on
+a site with a strict `style-src` the custom scrollbar styling is refused and the
+native scrollbars are what you get. There is no way around that from this side,
+and there should not be.
+
+A site refusing its own resources — analytics on a domain missing from its own
+`connect-src`, for instance — is between it and its analytics. Those console
+lines are dropped rather than logged: one page load can produce a dozen, and a
+log full of them looks like the panel failing when the site is merely strict.
+Everything else a page prints still reaches the log.

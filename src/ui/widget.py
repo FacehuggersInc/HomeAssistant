@@ -108,6 +108,21 @@ class Widget(QWidget):
 
     ## CAPABILITIES
 
+    def wants_visible(self) -> bool:
+        """
+        Whether placing this widget should also show it.
+
+        Placement shows unconditionally by default, which is right for almost
+        everything - a widget that has just been dropped onto the page should
+        appear. It is wrong for a widget whose whole job is to come and go: the
+        now-playing card hides itself when nothing is playing, and was then
+        shown again by the very placement that put it there.
+
+        Overriding this is how a widget says "not yet". It is asked at every
+        placement, so a widget that changes its mind is respected next time.
+        """
+        return True
+
     def can_resize(self) -> bool:
         return bool(self.RESIZABLE)
 
@@ -364,7 +379,8 @@ class _AnchorZone(QWidget):
         else:
             row.insertWidget(max(0, position), widget)
 
-        widget.show()
+        if widget.wants_visible():
+            widget.show()
         row.activate()
         self.adjustSize()
         self.show()
@@ -637,7 +653,8 @@ class WidgetFramework(QWidget):
                 self._detach_for_offset(widget)
                 self._apply_offset(widget)
 
-        widget.show()
+        if widget.wants_visible():
+            widget.show()
         for topmost in self._topmost:
             topmost.raise_()
         self._chrome.raise_()
@@ -1955,7 +1972,13 @@ class WidgetFramework(QWidget):
         scroll.setWidget(inner)
         column.addWidget(scroll, stretch=1)
 
-        self.panel = Panel(self.client, width=360, edge="right",
+        # The shared default, not a number of its own.
+        #
+        # 360 was narrow enough that a widget's name and its description
+        # competed for the same line, and it was the only panel in the
+        # application not the same width as the others.
+        self.panel = Panel(self.client, width=Panel.DEFAULT_WIDTH,
+                           edge="right",
                            key=f"__widgets_{self.page_key}",
                            destroy_on_close=False)
         self.panel.add_content(host)

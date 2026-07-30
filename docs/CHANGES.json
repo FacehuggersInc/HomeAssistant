@@ -1,6 +1,66 @@
 {
  "log": [
   {
+   "at": 1785422216.542765,
+   "note": "send_log arity fixed; the Logs section fills the page",
+   "pages": [
+    {
+     "slug": "settings",
+     "state": "updated"
+    }
+   ]
+  },
+  {
+   "at": 1785421380.6734424,
+   "note": "test",
+   "pages": [
+    {
+     "slug": "logging",
+     "state": "updated"
+    }
+   ]
+  },
+  {
+   "at": 1785421270.347758,
+   "note": "JS and whisper output routed to the log; a real loading indicator",
+   "pages": [
+    {
+     "slug": "logging",
+     "state": "updated"
+    }
+   ]
+  },
+  {
+   "at": 1785420591.7827475,
+   "note": "test",
+   "pages": [
+    {
+     "slug": "webpage",
+     "state": "updated"
+    }
+   ]
+  },
+  {
+   "at": 1785420521.5203645,
+   "note": "field signal off document.title; dialog no longer reopens",
+   "pages": [
+    {
+     "slug": "webpage",
+     "state": "updated"
+    }
+   ]
+  },
+  {
+   "at": 1785420057.8489535,
+   "note": "now-playing placement, widgets panel width, wifi fallback, webpage fields",
+   "pages": [
+    {
+     "slug": "webpage",
+     "state": "updated"
+    }
+   ]
+  },
+  {
    "at": 1785416996.5197256,
    "note": "ElevenLabs removed; clipboard page; webpage resumes; log levels; quick settings height; wifi and music widget fixes",
    "pages": [
@@ -443,8 +503,8 @@
    "state": "updated"
   },
   "logging": {
-   "at": 1785416996.5189455,
-   "hash": "a2c8bc5ec200433f",
+   "at": 1785421380.672608,
+   "hash": "db380609be1c53ec",
    "opened": 0,
    "state": "updated"
   },
@@ -497,8 +557,8 @@
    "state": "updated"
   },
   "settings": {
-   "at": 1785416476.798213,
-   "hash": "94d3bb7138498da0",
+   "at": 1785422216.5423405,
+   "hash": "9cf0c551db5aa579",
    "opened": 0,
    "state": "updated"
   },
@@ -539,10 +599,10 @@
    "state": "new"
   },
   "webpage": {
-   "at": 1785382006.6667209,
-   "hash": "1ab61e054f84fe02",
-   "opened": 1785383835.595707,
-   "state": "new"
+   "at": 1785420591.7826056,
+   "hash": "421b4c9f22f259b8",
+   "opened": 0,
+   "state": "updated"
   },
   "when-it-will-not-start": {
    "at": 1785382006.6667428,

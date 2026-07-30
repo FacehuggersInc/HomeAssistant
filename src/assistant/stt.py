@@ -449,6 +449,17 @@ class STTProcessing():
 											"STT is Listening!",
 											False
 										)
+								case "log":
+									# The child process talking. It has no
+									# logger of its own - it is a different
+									# process - so its messages arrive here
+									# and go out through the panel's.
+									level, _, body = data.partition(":")
+									if body:
+										self.client.log(
+											level.strip() or "debug",
+											f"[Whisper] {body}")
+
 								case "transcribe":
 									self.pre_processing(data)
 

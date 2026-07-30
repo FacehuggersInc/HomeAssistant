@@ -374,3 +374,15 @@
     border: none;
     padding: 6px 8px;
 }
+
+/* The log page. A darker field than the cards around it: it is a wall of
+ * monospace, and letting it sit at the page background makes the whole
+ * section look unfinished. */
+.log-view {
+    background: #0d0d10;
+    border: 1px solid #26262b;
+    border-radius: 10px;
+    padding: 12px;
+    color: #c8cedb;
+    selection-background-color: rgba(47,240,142,.25);
+}

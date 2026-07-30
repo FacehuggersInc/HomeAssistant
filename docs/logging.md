@@ -15,12 +15,34 @@ The setting is read **once** and cached, since `log()` is called thousands of
 times. Before the settings exist it answers **true**: a failure during startup is
 when the detail is most wanted, and there is nothing to ask yet.
 
+## Everything routes here
+
+Three sources need routing here, since none of them can reach `client.log()`
+directly — and anything that does not is absent from the Logs page, which is
+where somebody looks for it:
+
+* **JavaScript on a web page.** Qt's default `javaScriptConsoleMessage` writes
+  to stderr with a `js:` prefix. The page object routes it to `client.log()`
+  instead, keeping the level the engine reported.
+* **The whisper process.** It is a separate process, so a print there goes to
+  whatever stdout it inherited. It sends `host:log:<level>:<message>` over the
+  socket it already uses for every other event, and the parent forwards it.
+* **Stray prints** elsewhere in the tree.
+
 ## Not `print()`
 
 A print goes to stdout only. It is not timestamped, carries no level, is not in
 the log file, and on a panel started from a desktop launcher goes nowhere at all.
 
-One exception: `styling.py` reports a failed stylesheet with a print. Everything
+Three exceptions:
+
+`log()` itself, which is what writes the log.
+
+`send_log()` in the whisper process, when the socket is not up yet — the startup
+window is when a failure matters most, and that function **is** the logger, so
+anything else there recurses until the stack gives out.
+
+`styling.py` reports a failed stylesheet with a print. Everything
 imports that module and it reaches nothing — a client import would be a cycle —
 and saying so on stdout beats saying nothing.
 

@@ -163,8 +163,33 @@ def is_hallucination(text: str) -> bool:
 
 class WakeWhisper:
 
+	def send_log(self, level:str, message:str, *extra):
+		"""
+		Say something through the server that owns this.
+
+		`*extra` for the same reason as the server's: this is called from
+		exception handlers, and a logger that raises hides what it was sent to
+		report.
+
+		Handed in rather than reached for: this class has no socket of its own.
+		Calling a method it does not have is an AttributeError at the exact
+		moment something is already going wrong, which is what a bulk rewrite
+		of the old stdout calls left behind here.
+		"""
+		if extra:
+			message = " ".join([str(message)] + [str(part) for part in extra])
+		sink = getattr(self, "_log_sink", None)
+		if sink is not None:
+			try:
+				sink(level, message)
+				return
+			except Exception:
+				pass
+		print(f"[{level.upper()[:4]}] {message}")
+
 	def __init__(
 		self,
+		log=None,
 		model_name:str="tiny.en",
 		device:str="cpu",
 		compute_type:str="int8",
@@ -258,6 +283,9 @@ class WakeWhisper:
 		self.max_wake_speech_extensions = max_wake_speech_extensions
 
 		# Transcribing Model
+		#Where send_log() sends. Set before anything else, so a failure
+		#during setup still has somewhere to go.
+		self._log_sink = log
 		self.model_name = model_name
 		self.device = device
 		self.compute_type = compute_type
@@ -356,7 +384,7 @@ class WakeWhisper:
 					dtype="int16",
 					device=self.input_device
 				) as stream:
-					print("[Whisper]: Microphone opened.")
+					self.send_log("debug", "[Whisper]: Microphone opened.")
 					if not connection and callable(self.on_audio_error):
 						self.on_audio_error("")   # recovered
 					connection = True
@@ -364,7 +392,7 @@ class WakeWhisper:
 			except Exception as exc:
 				if connection:
 					connection = False
-					print(f"[Whisper]: Microphone Error: {exc}")
+					self.send_log("warning", f"[Whisper]: Microphone Error: {exc}")
 					# Reported to the client so it can tell the user, instead of
 					# retrying silently every 5s into a log nobody reads.
 					if callable(self.on_audio_error):
@@ -384,7 +412,7 @@ class WakeWhisper:
 				# "alexander", and a short wake word matches inside all sorts
 				# of ordinary speech.
 				if re.search(rf"\b{re.escape(word)}\b", lowered):
-					print(f"[Whisper]: Wake word '{word}' detected.")
+					self.send_log("debug", f"[Whisper]: Wake word '{word}' detected.")
 					self.woke = True
 					if callable(self.on_wake):
 						self.on_wake(word)
@@ -469,15 +497,16 @@ class WakeWhisper:
 					# resulting truncated phrases look like model errors.
 					self._overflows += 1
 					if self._overflows in (1, 10, 100) or self._overflows % 500 == 0:
-						print(f"[Whisper]: Audio overflow x{self._overflows} "
-							  f"- input dropped, processing is behind realtime.")
+						self.send_log("warning",
+							f"[Whisper]: Audio overflow x{self._overflows} "
+							f"- input dropped, processing is behind realtime.")
 				audio_window = audio_window[:, 0].tobytes()
 
 				#If Switching Modes, Reset Everything | This allows clean transitions between modes
 				if self.switching:
 					reset_all()
 					self.switching = False
-					print('[Whisper]: Mode switched, resetting internal state.')
+					self.send_log("debug", '[Whisper]: Mode switched, resetting internal state.')
 
 				#Add Context
 				pre_context.append(audio_window)
@@ -522,7 +551,7 @@ class WakeWhisper:
 								self.on_voice_activity(0.0)
 							except Exception:
 								pass
-						print('[Whisper]: Mode switched, resetting internal state. (Fail Safe : Wake)')
+						self.send_log("warning", '[Whisper]: Mode switched, resetting internal state. (Fail Safe : Wake)')
 						continue
 
 					if is_speech_in_window and not speech_cutoff: #SPEECH BLOCK
@@ -534,12 +563,12 @@ class WakeWhisper:
 						and extensions_added >= self.max_wake_speech_extensions:
 							speech_window.append( audio_window )
 							speech_cutoff = True
-							print("[Whisper]: Speech cutoff triggered due to max timeout extensions.")
+							self.send_log("debug", "[Whisper]: Speech cutoff triggered due to max timeout extensions.")
 							continue
 
 						#Force Reset if too long, For Example, Music or TV may trigger VAD continuously. 
 						if not self.woke and len(speech_window) * (self.window_duration_ms / 1000) >= speech_window_accumulation_limit:
-							print("[Whisper]: Speech window accumulation limit reached, resetting.")
+							self.send_log("debug", "[Whisper]: Speech window accumulation limit reached, resetting.")
 							reset_all()
 							continue
 
@@ -577,13 +606,13 @@ class WakeWhisper:
 						if self.woke and len(speech_window) >= self.minimum_speech_windows:
 							if self.speech_timeout_start is None:
 								self.speech_timeout_start = time.time()
-								print("[Whisper]: Minimum speech reached, starting timeout.")
+								self.send_log("debug", "[Whisper]: Minimum speech reached, starting timeout.")
 
 							elif time.time() - self.speech_timeout_start >= self.wake_timeout_seconds \
 							and extensions_added < self.max_wake_speech_extensions:
 								self.speech_timeout_start += self.wake_speech_after_timeout_extension
 								extensions_added += 1
-								print(f"[Whisper]: Wake speech after timeout extension added ({self.wake_speech_after_timeout_extension}s)")
+								self.send_log("debug", f"[Whisper]: Wake speech after timeout extension added ({self.wake_speech_after_timeout_extension}s)")
 							ignore_timeout_call = True #if conditions are met early, ignore timeout call
 
 					else: #SILENCE BLOCK
@@ -620,7 +649,7 @@ class WakeWhisper:
 									#Timeout call if only timeout reached, but also speech did not meet minimum
 									if not timeout_called and not ignore_timeout_call:
 										timeout_called = True
-										print("[Whisper]: Speech timeout reached.")
+										self.send_log("debug", "[Whisper]: Speech timeout reached.")
 										if callable(self.on_timeout):
 											self.on_timeout("wake_timeout")
 
@@ -634,10 +663,10 @@ class WakeWhisper:
 							#If End Context is Full, Meaning All Context is There, Finalize Speech
 							if self.woke and len(end_context) >= self.context_windows_end:
 								finalize = True 
-								print("[Whisper]: End context full, finalizing speech window.")
+								self.send_log("debug", "[Whisper]: End context full, finalizing speech window.")
 
 						if finalize:
-							print("[Whisper]: Finalizing speech window.")
+							self.send_log("debug", "[Whisper]: Finalizing speech window.")
 							last_speech_time = time.time() # artificial reset the timer | used to prevent reset before speech_window can be processed
 
 							#Build Final Byte Window
@@ -677,7 +706,7 @@ class WakeWhisper:
 					if self.switching:
 						reset_all()
 						self.switching = False
-						print('[Whisper]: Mode switched, resetting internal state. (Fail Safe : Passthrough)')
+						self.send_log("warning", '[Whisper]: Mode switched, resetting internal state. (Fail Safe : Passthrough)')
 						continue
 
 					if is_speech_in_window: #SPEECH BLOCK
@@ -685,7 +714,7 @@ class WakeWhisper:
 
 						#Force Reset if too long, For Example, Music or TV may trigger VAD continuously. 
 						if not self.woke and len(speech_window) * (self.window_duration_ms / 1000) >= speech_window_accumulation_limit:
-							print("[Whisper]: Speech window accumulation limit reached, resetting.")
+							self.send_log("debug", "[Whisper]: Speech window accumulation limit reached, resetting.")
 							reset_all()
 							continue
 
@@ -728,8 +757,9 @@ class WakeWhisper:
 								#stray noise becoming a transcription and then an API
 								#call with a session open.
 								if speech_windows_seen < self.session_minimum_speech_windows:
-									print(f"[Whisper]: Discarding {speech_windows_seen} "
-										  f"speech window(s) - below session minimum.")
+									self.send_log("debug",
+										f"[Whisper]: Discarding {speech_windows_seen} "
+										f"speech window(s) - below session minimum.")
 									reset_all()
 									continue
 
@@ -772,14 +802,16 @@ class WakeWhisper:
 						self.on_timeout("extended_timeout")
 
 			except Exception as exc:
-				print("[Whisper]: Error in stream loop:", f"{exc}\n---start---\n{traceback.format_exc().strip()}\n---end---")
+				self.send_log("warning",
+					f"[Whisper]: Error in stream loop: {exc} | "
+					f"{traceback.format_exc().strip()}")
 				reset_all()
 				continue
 
 		## ON END
 		stream.close()
 		reset_all()
-		print("[Whisper]: Microphone closed.")
+		self.send_log("debug", "[Whisper]: Microphone closed.")
 
 	## PROCESSING
 	def multi_phrase_check(self, text: str) -> bool:
@@ -816,7 +848,7 @@ class WakeWhisper:
 			
 			#Convert
 			speech = np.frombuffer(speech, dtype=np.int16).astype(np.float32) / self.__PCM_NORM_FACTOR
-			print("[Whisper]: Processing speech window...")
+			self.send_log("debug", "[Whisper]: Processing speech window...")
 
 			#Transcribe Audio
 			try:
@@ -826,7 +858,7 @@ class WakeWhisper:
 					segments, info = self.model.transcribe(speech, **self.transcribe_settings)
 					segments = list(segments)
 			except Exception as exc:
-				print("[Whisper]: Transcription error:", exc)
+				self.send_log("warning", f"[Whisper]: Transcription error: {exc}")
 				continue
 			
 			#Build
@@ -846,7 +878,7 @@ class WakeWhisper:
 			final_text = " ".join(p.strip() for p in final_text_pieces).strip()
 
 			if is_hallucination(final_text):
-				print(f"[Whisper]: Discarded hallucination: {final_text!r}")
+				self.send_log("debug", f"[Whisper]: Discarded hallucination: {final_text!r}")
 				final_text = ""
 
 			if final_text and self.clean_text(final_text) and len(final_text.split()) <= 20:
@@ -854,7 +886,7 @@ class WakeWhisper:
 				if self.multi_phrase_check(final_text):
 					return
 
-				print(f"[Whisper]: Final Transcription: {final_text}")
+				self.send_log("debug", f"[Whisper]: Final Transcription: {final_text}")
 
 				if callable(self.on_final):
 					self.on_final(final_text, final_timestamps)
@@ -888,11 +920,12 @@ class STTServer:
 		self.import_error = _IMPORT_ERROR
 
 		if self.import_error:
-			print(f"[STTServer]: Audio stack unavailable -> {self.import_error}")
+			self.send_log("warning", f"[STTServer]: Audio stack unavailable -> {self.import_error}")
 			self.whisper = None
 			return
 
 		self.whisper = WakeWhisper(
+			log = self.send_log,
 			model_name = self.model_name,
 			vad_aggressiveness=3,
 			window_duration_ms=30,
@@ -916,6 +949,37 @@ class STTServer:
 	
 
 	## EVENTS
+	def send_log(self, level:str, message:str, *extra):
+		"""
+		Say something, in the parent's log rather than this process's stdout.
+
+		`*extra` is joined on, the way print() would have. Not because callers
+		should pass it, but because a logger that raises is the worst kind:
+		this one is reached from inside exception handlers, and a TypeError
+		there replaces the failure being reported with one about the report.
+
+		This runs as a separate process, so a print here goes to whatever
+		stdout it inherited - not timestamped, no level, not in the log file,
+		and so never on the Logs page. The socket already carries every other
+		event; this is one more command on it.
+
+		Falls back to print when there is no connection yet, which is the
+		startup window where something going wrong is most worth seeing.
+		"""
+		if extra:
+			message = " ".join([str(message)] + [str(part) for part in extra])
+		text = str(message).replace("\n", " ")[:600]
+		if self.connections.get("data"):
+			try:
+				self.connections["data"].sendall(
+					f"host:log:{level}:{text}".encode("utf-8"))
+				return
+			except Exception:
+				self.__close_connection("data")
+		# A print, and it must stay one: this IS the logger, so anything
+		# else here recurses until the stack gives out.
+		print(f"[{level.upper()[:4]}] {text}")
+
 	def send_voice_activity(self, level:float):
 		if self.connections["data"]:
 			try:
@@ -923,7 +987,7 @@ class STTServer:
 					f"host:voice_activity:{level:.3f}".encode("utf-8")
 				)
 			except Exception:
-				print("[STTServer]: Lost transcript connection.")
+				self.send_log("warning", "[STTServer]: Lost transcript connection.")
 				self.__close_connection("data")
 
 	def send_audio_error(self, message:str):
@@ -943,7 +1007,7 @@ class STTServer:
 					f"host:woke:{wake_word}".encode("utf-8")
 				)
 			except Exception:
-				print("[STTServer]: Lost transcript connection.")
+				self.send_log("warning", "[STTServer]: Lost transcript connection.")
 				self.__close_connection("data")
 
 	def trigger_wait(self, type:str):
@@ -953,7 +1017,7 @@ class STTServer:
 					f"host:wait:{type}".encode("utf-8")
 				)
 			except Exception:
-				print("[STTServer]: Lost transcript connection.")
+				self.send_log("warning", "[STTServer]: Lost transcript connection.")
 				self.__close_connection("data")
 
 	def process_transcribed(self, transcribed: str, timestamps: any):
@@ -963,7 +1027,7 @@ class STTServer:
 					f"host:transcribe:{transcribed.lower()}".encode("utf-8")
 				)
 			except Exception:
-				print("[STTServer]: Lost transcript connection.")
+				self.send_log("warning", "[STTServer]: Lost transcript connection.")
 				self.__close_connection("data")
 
 
@@ -990,7 +1054,7 @@ class STTServer:
 			# thread sitting in accept() forever waiting for a command that is
 			# never coming.
 			s.settimeout(0.5)
-			print("[STTServer]: Listening for commands...")
+			self.send_log("debug", "[STTServer]: Listening for commands...")
 			while self.running:
 				try:
 					conn, addr = s.accept()
@@ -999,7 +1063,7 @@ class STTServer:
 				except OSError:
 					break
 				with conn:
-					print("[STTServer]: Command connection from", addr)
+					self.send_log("debug", f"[STTServer]: Command connection from {addr}")
 					try:
 						data = conn.recv(1024)
 						if not data:
@@ -1016,30 +1080,30 @@ class STTServer:
 							continue
 
 						if command == "STOP":
-							print("[STTServer]: Received STOP command.")
+							self.send_log("debug", "[STTServer]: Received STOP command.")
 							self.stop()
 							break
 						
 						elif command == "START_WAKE":
 							self.whisper.switch_mode("wake")
-							print("[STTServer]: Switched Whisper to WAKE mode.")
+							self.send_log("debug", "[STTServer]: Switched Whisper to WAKE mode.")
 
 						elif command == "START_PASSTHROUGH":
 							self.whisper.switch_mode("passthrough")
-							print("[STTServer]: Switched Whisper to PASSTHROUGH mode.")
+							self.send_log("debug", "[STTServer]: Switched Whisper to PASSTHROUGH mode.")
 
 					except Exception as e:
-						print("[STTServer]: Command Error:", e)
+						self.send_log("warning", f"[STTServer]: Command Error: {e}")
 
 	def __send_and_recv_data(self): 
 		with socket(AF_INET, SOCK_STREAM) as s:
 			s.setsockopt(SOL_SOCKET, SO_REUSEADDR, 1)
 			s.bind((self.host, self.ports["data"]))
 			s.listen(1)
-			print("[STTServer]: Waiting for transcript connection...")
+			self.send_log("debug", "[STTServer]: Waiting for transcript connection...")
 			conn, addr = s.accept()
 			if conn:
-				print("[STTServer]: Data connection from", addr)
+				self.send_log("debug", f"[STTServer]: Data connection from {addr}")
 				self.connections["data"] = conn
 				try:
 					conn.sendall(b"host:notify:Ready!")
@@ -1060,13 +1124,13 @@ class STTServer:
 			return
 		while self.running:
 			if not _pid_alive(self.parent_pid):
-				print("[STTServer]: Parent process is gone - shutting down.")
+				self.send_log("debug", "[STTServer]: Parent process is gone - shutting down.")
 				self.shutdown()
 			time.sleep(2)
 
 	def __install_signals(self):
 		def handler(signum, _frame):
-			print(f"[STTServer]: Signal {signum} - shutting down.")
+			self.send_log("debug", f"[STTServer]: Signal {signum} - shutting down.")
 			self.shutdown()
 		for sig in (signal.SIGTERM, signal.SIGINT):
 			try:
@@ -1080,7 +1144,7 @@ class STTServer:
 		try:
 			self.stop()
 		except Exception as e:
-			print("[STTServer]: Error during stop:", e)
+			self.send_log("warning", f"[STTServer]: Error during stop: {e}")
 		try:
 			sys.stdout.flush()
 		except Exception:
@@ -1110,22 +1174,22 @@ class STTServer:
 		try:
 			self.whisper.start()
 		except Exception as e:
-			print(f"[STTServer]: Failed to start Whisper: {e}")
+			self.send_log("warning", f"[STTServer]: Failed to start Whisper: {e}")
 			time.sleep(2)
 			self.send_audio_error(f"Could not load the '{self.model_name}' model: {e}")
 			self.running = False
 			return
 
-		print("[STTServer]: Listening ...")
+		self.send_log("debug", "[STTServer]: Listening ...")
 		while self.running:
 			time.sleep(1)
 
-		print("[STTServer]: Server shutting down complete.")
+		self.send_log("debug", "[STTServer]: Server shutting down complete.")
 
 	def stop(self):
 		if not self.running:
 			return
-		print("[STTServer]: Stopping server...")
+		self.send_log("debug", "[STTServer]: Stopping server...")
 		self.running = False
 
 		# Stop whisper threads
@@ -1137,7 +1201,7 @@ class STTServer:
 			try:
 				self.whisper.stop()
 			except Exception as e:
-				print("[STTServer]: Error stopping Whisper:", e)
+				self.send_log("warning", f"[STTServer]: Error stopping Whisper: {e}")
 
 		# Close sockets
 		self.__close_connection("command")

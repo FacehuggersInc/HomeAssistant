@@ -1,4 +1,6 @@
 from __future__ import annotations
+
+import re
 from typing import TYPE_CHECKING
 
 from PyQt6.QtWidgets import (
@@ -155,6 +157,51 @@ DRAG_SCROLL_JS = """
             'date','time'].indexOf(type) !== -1;
   }
 
+  function fieldLabel(el) {
+    // A name attribute is the LAST resort, not the first.
+    //
+    // Google's search box is name="q" with no placeholder, so the dialog
+    // was titled "q" - which says nothing about what is being typed. Every
+    // other source is a phrase written for a person to read.
+    var aria = el.getAttribute('aria-label');
+    if (aria && aria.trim()) { return aria.trim(); }
+
+    var placeholder = el.getAttribute('placeholder');
+    if (placeholder && placeholder.trim()) { return placeholder.trim(); }
+
+    var title = el.getAttribute('title');
+    if (title && title.trim()) { return title.trim(); }
+
+    // A <label for="..."> pointing at this field, or one wrapped around it.
+    if (el.id) {
+      var tied = document.querySelector('label[for="' + el.id + '"]');
+      if (tied && tied.textContent.trim()) { return tied.textContent.trim(); }
+    }
+    var wrapping = el.closest ? el.closest('label') : null;
+    if (wrapping && wrapping.textContent.trim()) {
+      return wrapping.textContent.trim().slice(0, 60);
+    }
+
+    var labelledBy = el.getAttribute('aria-labelledby');
+    if (labelledBy) {
+      var source = document.getElementById(labelledBy);
+      if (source && source.textContent.trim()) {
+        return source.textContent.trim().slice(0, 60);
+      }
+    }
+
+    // Nothing the page offers is readable. Say where you are and what the
+    // field probably does, which beats "q" and beats "Text".
+    var host = location.hostname.replace(/^www[.]/, '');
+    var type = (el.getAttribute('type') || '').toLowerCase();
+    var name = (el.getAttribute('name') || '').toLowerCase();
+    var searchy = type === 'search' || name === 'q' ||
+                  /search|query/.test(name) ||
+                  (el.getAttribute('role') || '') === 'searchbox';
+    if (host) { return host + (searchy ? ' search' : ''); }
+    return searchy ? 'Search' : 'Text';
+  }
+
   function ask(el) {
     if (!el.hasAttribute('data-ha-field')) {
       el.setAttribute('data-ha-field', String(++counter));
@@ -163,13 +210,29 @@ DRAG_SCROLL_JS = """
     var kind = el.tagName.toLowerCase() === 'textarea' ? 'body' :
                ((el.getAttribute('type') || 'text').toLowerCase() === 'number'
                  ? 'numeric' : 'text');
-    var label = el.getAttribute('placeholder') || el.getAttribute('name') || 'Text';
+    var label = fieldLabel(el);
     var value = el.isContentEditable ? el.textContent : (el.value || '');
-    document.title = 'field:' + JSON.stringify(
-      {id: id, kind: kind, label: label, value: value, at: Date.now()});
+    // Through the console, not the title.
+    //
+    // document.title is a shared, observable thing: Google Analytics reads it
+    // and sends it as the `dt` parameter, so every tap on a field published
+    // the field's id, its label AND ITS CURRENT VALUE to whatever analytics
+    // the page happens to run. It is also visibly wrong - the browser tab and
+    // the panel's own address bar showed the JSON.
+    //
+    // The console is not transmitted anywhere and is already being read by
+    // the page object below.
+    console.log('__ha_field:' + JSON.stringify(
+      {id: id, kind: kind, label: label, value: value, at: Date.now()}));
   }
 
   document.addEventListener('focusin', function (e) {
+    // Ignored while we are the ones changing the field.
+    //
+    // Setting a value and submitting it makes the page put focus back, which
+    // arrives here as a fresh focusin - so the dialog reopened the moment it
+    // was dismissed, and pressing Done again did the same thing.
+    if (window.__haWriting) { return; }
     if (editable(e.target)) {
       // Blurred first, or the engine keeps a caret blinking in a field the
       // person is no longer typing into.
@@ -178,13 +241,47 @@ DRAG_SCROLL_JS = """
     }
   }, true);
 
-  window.__haSetField = function (id, text) {
+  window.__haSetField = function (id, text, submit) {
     var el = document.querySelector('[data-ha-field="' + id + '"]');
-    if (!el) { return; }
+    if (!el) { return false; }
+    // Held across the write and whatever focus it causes. Cleared on a timer
+    // rather than at the end of this function: a page that refocuses does so
+    // after its own handlers run, which is after this returns.
+    window.__haWriting = true;
+    setTimeout(function () { window.__haWriting = false; }, 1200);
     if (el.isContentEditable) { el.textContent = text; }
     else { el.value = text; }
     el.dispatchEvent(new Event('input', {bubbles: true}));
     el.dispatchEvent(new Event('change', {bubbles: true}));
+    if (!submit) { return true; }
+
+    // Setting a value is not the same as submitting it.
+    //
+    // input and change tell a framework the field is different; neither tells
+    // a page the person is done. A search box updated this way sat there with
+    // the query in it and nothing happened, which is what pressing Done looked
+    // like from the outside.
+    //
+    // Enter first, since sites that listen for it do so instead of using a
+    // form, and a real form still gets requestSubmit() below.
+    ['keydown', 'keypress', 'keyup'].forEach(function (kind) {
+      el.dispatchEvent(new KeyboardEvent(kind, {
+        key: 'Enter', code: 'Enter', keyCode: 13, which: 13,
+        bubbles: true, cancelable: true
+      }));
+    });
+
+    var form = el.form || (el.closest ? el.closest('form') : null);
+    if (form) {
+      try {
+        // requestSubmit, not submit: it runs the page's own submit handlers
+        // and its validation, where submit() skips both and can lose data the
+        // page meant to attach.
+        if (form.requestSubmit) { form.requestSubmit(); }
+        else { form.submit(); }
+      } catch (e) { /* the page refused it; Enter may still have worked */ }
+    }
+    return true;
   };
 })();
 """
@@ -235,9 +332,42 @@ def _install_scrollbar_style(view) -> None:
         pass
 
 
+#Console output that says nothing about this panel.
+#
+#A page's CSP is the page's own configuration. Reporting it makes the log look
+#like the panel is broken when the site is merely strict - and one page load
+#can produce a dozen.
+#Qt's console levels, as the panel's own.
+#
+#Resolved lazily rather than at import: QWebEngineCore may not be importable on
+#a machine without the engine, and this module is imported either way.
+def _js_levels() -> dict:
+    try:
+        from PyQt6.QtWebEngineCore import QWebEnginePage as _Page
+        kind = _Page.JavaScriptConsoleMessageLevel
+        return {kind.InfoMessageLevel: "info",
+                kind.WarningMessageLevel: "warning",
+                kind.ErrorMessageLevel: "error"}
+    except Exception:
+        return {}
+
+
+_JS_LEVELS = _js_levels()
+
+_IGNORED_CONSOLE = re.compile(
+    r"Content Security Policy|Refused to (connect|apply|load|execute)"
+    r"|violates the (following|document)", re.I)
+
+
 def _locked_page(view, base: str):
     """
-    Refuse navigation outside `base`, if there is one.
+    The page object: a navigation guard, and the channel a field asks through.
+
+    Installed whether or not there is a `base`. It used to be worth skipping
+    when nothing was locked; it now also carries the field signal, so a page
+    without it cannot open the keyboard at all.
+
+    Navigation is refused outside `base` when one is set.
 
     Checked at the engine rather than by watching urlChanged and going back:
     by the time a URL has changed the page has already been fetched, and a
@@ -248,6 +378,50 @@ def _locked_page(view, base: str):
         from PyQt6.QtWebEngineCore import QWebEnginePage
 
         class _Locked(QWebEnginePage):
+            #Set by the page that owns this, so a console line can be routed
+            #back without the page needing to know what a WebPage is.
+            on_field = None
+            on_log = None
+
+            def javaScriptConsoleMessage(self, level, message, line, source):
+                """
+                The page's own channel back.
+
+                Everything else is left to the default, which is what puts
+                a site's console output in the log - useful, and how the CSP
+                refusals on this page were noticed at all.
+                """
+                text = str(message or "")
+                if text.startswith("__ha_field:") and self.on_field:
+                    try:
+                        self.on_field(text[len("__ha_field:"):])
+                    except Exception:
+                        pass
+                    return
+
+                # A site's own Content Security Policy complaints are not the
+                # panel's business.
+                #
+                # Scryfall refuses its own analytics because google.com is not
+                # in its connect-src; that is between them, and it arrives
+                # several times a page. Dropped rather than logged, so what is
+                # left in the log is a page actually failing.
+                if _IGNORED_CONSOLE.search(text):
+                    return
+
+                # Through the panel's log, not Qt's default.
+                #
+                # The base implementation writes to stderr with a "js:" prefix.
+                # That is not timestamped, carries no level, never reaches the
+                # log file, and so never appears on the Logs page - which is
+                # where somebody looking for it would look.
+                if self.on_log:
+                    where = f" ({source}:{line})" if source else ""
+                    self.on_log(_JS_LEVELS.get(level, "info"),
+                                f"[WebPage] {text[:400]}{where}")
+                    return
+                super().javaScriptConsoleMessage(level, message, line, source)
+
             def acceptNavigationRequest(self, url, kind, is_main_frame):
                 if not base or not is_main_frame:
                     return True
@@ -335,9 +509,11 @@ class WebPage(PageFramework):
 
         # A two-pixel line rather than a spinner: it says "still working"
         # without taking any room from the page.
+        # Tall enough to notice from standing height. Two pixels is a hairline
+        # on a 1440 panel and reads as an artifact rather than as progress.
         self.progress = QProgressBar()
         self.progress.setTextVisible(False)
-        self.progress.setFixedHeight(2)
+        self.progress.setFixedHeight(5)
         self.progress.setRange(0, 100)
         self.progress.hide()
         set_style(self.progress, "common", "load-bar")
@@ -346,6 +522,9 @@ class WebPage(PageFramework):
         self.view = _web_view()
         if self.view is not None:
             self._locked = _locked_page(self.view, self.lock_base)
+            if self._locked is not None:
+                self._locked.on_field = self._field_requested
+                self._locked.on_log = self.client.log
             # After the page is swapped in by _locked_page - scripts belong to
             # the page, and setPage replaces the collection they were in.
             _install_scrollbar_style(self.view)
@@ -357,6 +536,7 @@ class WebPage(PageFramework):
             self.lock_glyph.setVisible(bool(self.lock_base))
             # A kiosk should not offer "open in new window" or "view source".
             self.view.setContextMenuPolicy(Qt.ContextMenuPolicy.NoContextMenu)
+            self.view.loadStarted.connect(self._load_started)
             self.view.loadProgress.connect(self._progress)
             self.view.titleChanged.connect(self._title_changed)
             self.zoom = data.get("zoom") or self.DEFAULT_ZOOM
@@ -540,15 +720,16 @@ class WebPage(PageFramework):
 
     def _title_changed(self, title: str) -> None:
         """
-        The page talks back through its title.
+        The page's real title, for the address bar.
 
-        QWebChannel is the proper route and needs a transport object, a
-        registered bridge and a shim on every page; this is one signal that
-        carries what is needed. The timestamp in the payload is what makes
-        two taps on the same field register as two events - titleChanged only
-        fires when the string actually differs.
+        The field signal used to come through here. document.title is read by
+        analytics and sent as the `dt` parameter, so every tap published the
+        field's label and its current value to whichever tracker the page runs
+        - and the JSON was visible in the panel's own title. It goes through
+        the console now; see the page object in _locked_page().
         """
         if title.startswith("field:"):
+            # An older cached script, from a page loaded before this changed.
             self._field_requested(title[len("field:"):])
 
     def _field_requested(self, payload: str) -> None:
@@ -580,7 +761,10 @@ class WebPage(PageFramework):
             # __haSetField does not exist, and nothing happened.
             from PyQt6.QtWebEngineCore import QWebEngineScript
             self.view.page().runJavaScript(
-                "window.__haSetField(%s, %s);" % (
+                # Submitted as well as filled. Done means done - a value left
+                # sitting in a search box is indistinguishable from the dialog
+                # having failed.
+                "window.__haSetField(%s, %s, true);" % (
                     json.dumps(str(data.get("id", ""))), json.dumps(text)),
                 QWebEngineScript.ScriptWorldId.ApplicationWorld)
 
@@ -607,10 +791,35 @@ class WebPage(PageFramework):
             self.view.page().runJavaScript(
                 "window.scrollTo({top: 0, behavior: 'smooth'});")
 
+    def _load_started(self) -> None:
+        """
+        Show the bar as soon as a load begins, not when progress arrives.
+
+        loadProgress reports nothing until the server answers, and the wait
+        before that - DNS, the connection, TLS - is the part that feels like
+        the panel has stopped. Hiding the bar at zero meant showing nothing
+        during exactly the period somebody needs to be told something is
+        happening.
+        """
+        try:
+            # Indeterminate: a bar at zero looks like a bar that is stuck,
+            # while a busy one says "waiting" without claiming a fraction it
+            # does not know.
+            self.progress.setRange(0, 0)
+            self.progress.show()
+        except RuntimeError:
+            pass
+
     def _progress(self, value: int) -> None:
         try:
+            if value <= 0:
+                # Still waiting to hear back.
+                self.progress.setRange(0, 0)
+                self.progress.show()
+                return
+            self.progress.setRange(0, 100)
             self.progress.setValue(value)
-            self.progress.setVisible(0 < value < 100)
+            self.progress.setVisible(value < 100)
         except RuntimeError:
             pass
 
@@ -706,6 +915,13 @@ class WebPage(PageFramework):
             pass
 
     def _on_load_finished(self, ok: bool) -> None:
+        # Hidden here as well as at 100. A load that fails, or one the engine
+        # abandons, never reports 100 - and the bar would spin for good.
+        try:
+            self.progress.setRange(0, 100)
+            self.progress.hide()
+        except RuntimeError:
+            pass
         self._refresh_buttons()
         if ok:
             self._restore_scroll()

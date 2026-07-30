@@ -172,11 +172,44 @@ def _band(freq_mhz: str) -> str:
 
 ## -- reading
 
-def current() -> Optional[Connection]:
-    """The network the panel is on, or None."""
-    name = backend()
+#Why current() last returned nothing. Read by anything that wants to say more
+#than "not connected" - which, on a machine that plainly IS connected, is not
+#an answer anybody can act on.
+LAST_REASON = ""
 
-    if name == "nmcli":
+
+def current() -> Optional[Connection]:
+    """
+    The network the panel is on, or None.
+
+    Every route is tried before giving up. nmcli is preferred because it knows
+    the most, but a machine where it answers nothing - a permissions problem, a
+    field this version does not have, NetworkManager not managing the device -
+    may still have a perfectly good `iwgetid`. Reporting "not connected" while
+    `iwgetid -r` prints an SSID is worse than being slow.
+    """
+    global LAST_REASON
+    LAST_REASON = ""
+
+    found = _current_nmcli() if backend() == "nmcli" else None
+    if found is not None:
+        return found
+
+    found = _current_iw()
+    if found is not None:
+        LAST_REASON = ""
+        return found
+
+    if not LAST_REASON:
+        LAST_REASON = "no route reported a wireless connection"
+    return None
+
+
+def _current_nmcli() -> Optional[Connection]:
+    global LAST_REASON
+    name = "nmcli"
+
+    if True:
         # The active connection, from `connection show`.
         #
         # Asked here rather than from `device wifi list`, whose in-use column is
@@ -217,13 +250,18 @@ def current() -> Optional[Connection]:
                     break
 
         if not ssid:
+            LAST_REASON = ("nmcli reported no active wireless connection "
+                           "and no in-use network")
             return None
         if not device:
             device = _wireless_interface()
         return Connection(ssid=ssid, signal=signal, security=security,
                           interface=device, ip_address=_ip_for(device))
 
-    if name == "iw":
+
+def _current_iw() -> Optional[Connection]:
+    global LAST_REASON
+    if True:
         if shutil.which("iwgetid"):
             ok, out, _ = _run(["iwgetid", "-r"])
             ssid = out.strip()
@@ -240,9 +278,8 @@ def current() -> Optional[Connection]:
                     return Connection(ssid=match.group(1).strip(),
                                       interface=iface,
                                       ip_address=_ip_for(iface))
+        LAST_REASON = LAST_REASON or "iwgetid and iw reported nothing"
         return None
-
-    return None
 
 
 def scan(rescan: bool = True) -> list:
