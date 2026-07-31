@@ -22,6 +22,7 @@ A fixed set of built-in events the Client fires itself, at predictable moments.
 | `on_fullscreen` | Fullscreen was entered or left. | The Qt event |
 | `on_close` | The window is closing. | The Qt event |
 | `on_key` | A key was pressed. | The Qt event |
+| `on_web_event` | Something happened in the web page. | `{"kind", "url", "title", ...}` |
 | `on_state_change` | `set_state()` changed a value. | The state name |
 | `on_settings_saved` | The Settings page was saved. | `None` |
 | `on_interaction` | Any mouse or touch interaction. | The raw Qt event |
@@ -309,3 +310,37 @@ if "my_custom_event" not in self.client.EVENTS["on_call"]:
 `create_on_call_event` and `trigger_on_call_event_iteration` will raise if you pass one of the built-in event names — those are reserved for the Client and must be triggered through its own internal calls, not from plugin code.
 
 ---
+
+## `on_web_event`
+
+One event for everything the web page does, rather than one event per thing.
+A subscriber wanting two of them would otherwise register twice, and a new kind
+later would be a new event name that nothing is listening for.
+
+```python
+self.client.subscribe_to_event("on_web_event", self._on_web_event)
+
+def _on_web_event(self, payload=None):
+    if not isinstance(payload, dict):
+        return
+    if payload.get("kind") != "bookmarked":
+        return
+    url = payload.get("url", "")
+```
+
+| `kind` | Sent when |
+|---|---|
+| `loaded` | A page finished loading. `ok` says whether it worked. |
+| `error` | A page failed to load. |
+| `changed` | The address changed, including from a link. |
+| `home` | The home button was pressed. |
+| `refreshed` | The page was reloaded. |
+| `bookmarked` | The star was pressed on a page that was not saved. |
+| `unbookmarked` | The star was pressed on one that was. |
+
+Every payload carries `kind`, `url` and `title`. A kind not in
+`Client.WEB_EVENTS` is refused rather than delivered, so a typo is a log line
+rather than a subscriber that silently never fires.
+
+Fired by the client, not a plugin: the web page belongs to the client, and a
+plugin unloading should not take the event with it.

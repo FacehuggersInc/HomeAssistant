@@ -276,3 +276,21 @@ CoreWidgetsBundle/
 Nothing enforces that structure - `main.py` and `plugin.toml` are the only
 required files - but every bundled plugin follows it, and it scales better
 than one long module. See [Plugins](plugins.md).
+
+## Bookmark
+
+A saved web page, as a floating widget or a 1×1 tile. Both show the site's icon
+— fetched by the browser engine when the page was saved, not by a second request
+— with its name underneath.
+
+Added from the widgets or tiles panel, it asks which bookmark first; with none
+saved it opens the browser's home page instead, since there is nothing to choose
+from. Pressing one opens `#webpage` **locked to that site**: a bookmark is a
+destination rather than a way into the internet.
+
+Bookmarks themselves belong to the client (`client.BOOKMARKS`), so they outlive
+this plugin.
+
+Saving one from the browser toolbar puts a copy on the home page for a few
+seconds. Queued rather than placed immediately — bookmarking happens *on the web
+page*, so the home page is not on screen to receive it.

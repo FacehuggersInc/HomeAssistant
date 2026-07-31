@@ -157,6 +157,38 @@ revoking one does not affect the others.
 
 Covered in full on [Users](users.md).
 
+## `BookmarkStore` — `self.client.BOOKMARKS`
+
+Saved web pages, in the user's data directory. Client-owned: the web page
+belongs to the client and its toolbar does too, so a list of addresses that
+disappears when somebody unloads a plugin is not a bookmark list.
+
+```python
+client.BOOKMARKS.add(url, title="...", icon=view.icon())
+client.BOOKMARKS.all()          # newest first
+client.BOOKMARKS.has(url)
+client.BOOKMARKS.remove(url)
+client.BOOKMARKS.icon_path(mark)
+```
+
+Saving the same address twice is a **correction**, not a duplicate — pressing
+the star again on a page whose title has since loaded should update it. Capped
+at 60; past that a grid stops being something to glance at.
+
+Icons are written as PNGs beside the list, named from a hash of the address.
+Hashed rather than sanitised: a filename made by replacing awkward characters
+collides the moment two pages differ only in one of them. Removing a bookmark
+takes its icon with it.
+
+### `client.choose_bookmark(on_chosen)`
+
+Opens the picker and calls `on_chosen(url)`. On the client because a widget, a
+tile and anything added later all want the same one, and three copies would be
+three chances to disagree about what a bookmark looks like.
+
+With none saved it opens the browser's home page instead — a dialog saying
+"nothing here" and closing again leaves somebody exactly where they were.
+
 ## `AudioRegistry` — `self.client.AUDIO`
 
 Sounds by name. A plugin registers a key against a file in **`.audio/`** at the

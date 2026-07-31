@@ -377,3 +377,25 @@ A tile that has never been placed has no saved entry, which is what makes
 
 Positions are stored against the grid's owning plugin, so a tile registered by
 your plugin still has its position remembered when the grid is rebuilt.
+
+## State beyond position
+
+`TileGrid` saves each tile's column, row and span, keyed by `KEY`. A tile that
+needs more than that implements two methods:
+
+```python
+def tile_state(self) -> dict:
+    return {"url": self.url}
+
+def apply_tile_state(self, state: dict) -> None:
+    if state.get("url"):
+        self.url = str(state["url"])
+        self.refresh()
+```
+
+Merged into the same entry rather than a second file — it is the same tile's
+state. **Position wins**: a tile cannot move itself by returning a key called
+`col`.
+
+Without this a bookmark tile came back on the right cell asking to be chosen
+again, because its address had nowhere to live.

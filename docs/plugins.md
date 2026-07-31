@@ -97,6 +97,18 @@ does not push the rest of the page away.
 }
 ```
 
+### Files an update should not replace
+
+```toml
+[update]
+install_once = ["config.json", "data/*.csv"]
+```
+
+Paths are relative to the plugin's own directory. Written on a fresh install and
+never again — for a file the plugin ships a starting version of and the person
+then edits. Shipping a default and overwriting their edits with it on every
+update is the same as not shipping one. See [Updating](updating.md).
+
 ### Secrets
 
 API keys and other credentials go in `.env`, never in a settings file. A
@@ -279,6 +291,34 @@ readme = "README.md"
 * `readme` — a path to a markdown file, resolved the same way. Rendered as actual markdown (headers, bold/italic, lists, links) at the very bottom of your plugin's settings header, underneath everything else there (title, key, dependency info). Omit this and a `README.md` (or `readme.md`/`Readme.md`/`README.MD`) sitting in your plugin's own folder gets picked up automatically if one exists. Missing/empty file either way → nothing renders, no error.
 
 Neither field is required — a plugin with neither still gets its own settings page, just without an icon or the extra markdown section.
+
+## What a plugin can reach
+
+Everything below hangs off `self.client`. This is a map, not a reference — each
+line points at the page that explains it.
+
+| | |
+|---|---|
+| `client.API` | Endpoints and GUI pages — [API](api.md) |
+| `client.AUDIO` | Named sounds — [Registries](registries.md) |
+| `client.BOOKMARKS` | Saved web pages — [Registries](registries.md) |
+| `client.CANCEL` | "Stop" phrases — [Cancel](cancel.md) |
+| `client.PAGES` | Full-screen pages — [Pages](pages.md) |
+| `client.PLAYER` | Media backends — [Player](player.md) |
+| `client.QUICK` | Quick settings buttons — [Quick settings](quick-settings.md) |
+| `client.SKILLS` | Spoken intents — [Skills](skills.md) |
+| `client.USERS` | Approved devices — [Users](users.md) |
+| `client.public` | Names other plugins expose — [Registries](registries.md) |
+
+And a few methods worth knowing:
+
+| | |
+|---|---|
+| `simple_notify(icon, title, body, sound=, urgent=, history=)` | [Notifications](notifications.md) |
+| `do_not_disturb()` / `sounds_muted()` | Ask before making noise — [Notifications](notifications.md) |
+| `choose_bookmark(on_chosen)` | The bookmark picker — [Registries](registries.md) |
+| `subscribe_to_event(name, fn)` | Including `on_web_event` — [Events](events.md) |
+| `call_on_ui(fn)` | Anything touching Qt from a worker — [Threading](threading.md) |
 
 ## main.py
 

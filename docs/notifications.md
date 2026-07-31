@@ -181,3 +181,20 @@ The Silence button reads as **on** while do not disturb is holding it — it is
 silent, and a button saying otherwise beside a quiet panel is the button being
 wrong. Pressing it then explains why nothing changed instead of appearing to do
 nothing.
+
+### Asking, and setting
+
+```python
+client.do_not_disturb()          # notifications and sounds are held back
+client.sounds_muted()            # no sound or speech; true if DND is on
+client.set_do_not_disturb(True)
+client.set_sounds_muted(True)
+```
+
+Both read the setting rather than a flag on the client, so the quick settings
+buttons and the settings page cannot disagree. Turning either on stops whatever
+is currently playing — silence that begins after the current sound finishes is
+not silence.
+
+`sounds_muted()` is the one to check before making a noise; it already accounts
+for do-not-disturb, so a caller does not have to ask twice.

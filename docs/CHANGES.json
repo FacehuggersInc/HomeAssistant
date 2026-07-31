@@ -1,6 +1,36 @@
 {
  "log": [
   {
+   "at": 1785467065.7516158,
+   "note": "the web event, the bookmark store and the quiet modes documented",
+   "pages": [
+    {
+     "slug": "bundled-plugins",
+     "state": "updated"
+    },
+    {
+     "slug": "events",
+     "state": "updated"
+    },
+    {
+     "slug": "notifications",
+     "state": "updated"
+    },
+    {
+     "slug": "plugins",
+     "state": "updated"
+    },
+    {
+     "slug": "registries",
+     "state": "updated"
+    },
+    {
+     "slug": "tiles",
+     "state": "updated"
+    }
+   ]
+  },
+  {
    "at": 1785466681.5293396,
    "note": "a login field is recognised by autocomplete as well as type",
    "pages": [
@@ -659,7 +689,7 @@
   "api": {
    "at": 1785460412.6598134,
    "hash": "ad6b56e3dd7a0109",
-   "opened": 0,
+   "opened": 1785467065.7132213,
    "state": "updated"
   },
   "architecture": {
@@ -683,13 +713,13 @@
   "bluetooth": {
    "at": 1785453627.5894582,
    "hash": "fdf47cd86dc6e63c",
-   "opened": 0,
+   "opened": 1785467065.7319129,
    "state": "updated"
   },
   "bundled-plugins": {
-   "at": 1785434122.746738,
-   "hash": "38de61ff76c62f37",
-   "opened": 1785451144.5295966,
+   "at": 1785467065.7512798,
+   "hash": "8541034c62cdb532",
+   "opened": 0,
    "state": "updated"
   },
   "cancel": {
@@ -705,9 +735,9 @@
    "state": "updated"
   },
   "events": {
-   "at": 1785384140.012382,
-   "hash": "03680a29d235e208",
-   "opened": 1785451144.5458124,
+   "at": 1785467065.7513204,
+   "hash": "8dba17ce6fbb6f2f",
+   "opened": 0,
    "state": "updated"
   },
   "features": {
@@ -719,7 +749,7 @@
   "index": {
    "at": 1785451163.8294902,
    "hash": "8118f5db2765bd66",
-   "opened": 0,
+   "opened": 1785467065.5547252,
    "state": "updated"
   },
   "installation": {
@@ -753,8 +783,8 @@
    "state": "updated"
   },
   "notifications": {
-   "at": 1785460412.6603417,
-   "hash": "3b0cc987520324e2",
+   "at": 1785467065.7513962,
+   "hash": "62457a02f16dc477",
    "opened": 0,
    "state": "updated"
   },
@@ -777,27 +807,27 @@
    "state": "updated"
   },
   "plugins": {
-   "at": 1785464962.7288437,
-   "hash": "30772a2dad95b46f",
+   "at": 1785467065.7514424,
+   "hash": "ec6a2264b3aeb305",
    "opened": 0,
    "state": "updated"
   },
   "quick-settings": {
    "at": 1785454134.5599382,
    "hash": "03acbdb71128255d",
-   "opened": 0,
+   "opened": 1785467065.6777544,
    "state": "updated"
   },
   "registries": {
-   "at": 1785460412.6605818,
-   "hash": "363433c6cf679b72",
+   "at": 1785467065.7514722,
+   "hash": "586591e8e4d2d5d3",
    "opened": 0,
    "state": "updated"
   },
   "settings": {
    "at": 1785460096.9821072,
    "hash": "310c889f93458e36",
-   "opened": 0,
+   "opened": 1785467065.7406812,
    "state": "updated"
   },
   "skills": {
@@ -819,9 +849,9 @@
    "state": "updated"
   },
   "tiles": {
-   "at": 1785384140.0126252,
-   "hash": "565185c6d805ad3b",
-   "opened": 1785451144.5826256,
+   "at": 1785467065.7515416,
+   "hash": "fc8be3a2f5b3d3d1",
+   "opened": 0,
    "state": "updated"
   },
   "updating": {
@@ -833,13 +863,13 @@
   "users": {
    "at": 1785451163.8297749,
    "hash": "402a4bc02de4d40a",
-   "opened": 0,
+   "opened": 1785467065.718904,
    "state": "updated"
   },
   "webpage": {
    "at": 1785466681.5292811,
    "hash": "5197cbc2941fe878",
-   "opened": 0,
+   "opened": 1785467065.7234793,
    "state": "updated"
   },
   "when-it-will-not-start": {
