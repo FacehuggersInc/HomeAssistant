@@ -1,6 +1,16 @@
 {
  "log": [
   {
+   "at": 1785466681.5293396,
+   "note": "a login field is recognised by autocomplete as well as type",
+   "pages": [
+    {
+     "slug": "webpage",
+     "state": "updated"
+    }
+   ]
+  },
+  {
    "at": 1785466296.452689,
    "note": "addresses open directly, the engine renders dark, logins are not auto-sent",
    "pages": [
@@ -827,8 +837,8 @@
    "state": "updated"
   },
   "webpage": {
-   "at": 1785466296.4525988,
-   "hash": "606d331cfee967d7",
+   "at": 1785466681.5292811,
+   "hash": "5197cbc2941fe878",
    "opened": 0,
    "state": "updated"
   },

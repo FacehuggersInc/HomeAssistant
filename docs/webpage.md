@@ -213,7 +213,10 @@ its last label, so both are treated as searches.
 
 ## Login fields
 
-A field of type `password` or `email` is **filled but not submitted**. Sending
+A field of type `password` or `email` is **filled but not submitted** — and so
+is one whose `autocomplete`, `name` or `id` says the same thing. A login form's
+email box is very often `type="text"`; `autocomplete="username"` is the
+attribute that exists to say what it really is. Sending
 the form the moment a password is typed submits it with whatever the other field
 happens to hold — usually nothing, since the email is filled second half the
 time — and a failed sign-in attempt is not something to trigger on somebody's

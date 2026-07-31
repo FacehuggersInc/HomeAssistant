@@ -153,6 +153,17 @@ DRAG_SCROLL_JS = """
     if (el.isContentEditable) { return true; }
     if (tag !== 'input') { return false; }
     var type = (el.getAttribute('type') || 'text').toLowerCase();
+    // What the field says about itself, beyond its type.
+    //
+    // A login form's email box is very often type="text" - Plex's is - so the
+    // type alone identifies the password and nothing else. autocomplete is
+    // the attribute that exists precisely to say "this is a username", and
+    // name/id carry the same intent on forms that predate it.
+    var hint = [
+      el.getAttribute('autocomplete') || '',
+      el.getAttribute('name') || '',
+      el.getAttribute('id') || ''
+    ].join(' ').toLowerCase();
     return ['text','search','url','email','tel','password','number',
             'date','time'].indexOf(type) !== -1;
   }
@@ -212,6 +223,17 @@ DRAG_SCROLL_JS = """
                  ? 'numeric' : 'text');
     var label = fieldLabel(el);
     var type = (el.getAttribute('type') || 'text').toLowerCase();
+    // What the field says about itself, beyond its type.
+    //
+    // A login form's email box is very often type="text" - Plex's is - so the
+    // type alone identifies the password and nothing else. autocomplete is
+    // the attribute that exists precisely to say "this is a username", and
+    // name/id carry the same intent on forms that predate it.
+    var hint = [
+      el.getAttribute('autocomplete') || '',
+      el.getAttribute('name') || '',
+      el.getAttribute('id') || ''
+    ].join(' ').toLowerCase();
     var value = el.isContentEditable ? el.textContent : (el.value || '');
     // Through the console, not the title.
     //
@@ -224,8 +246,8 @@ DRAG_SCROLL_JS = """
     // The console is not transmitted anywhere and is already being read by
     // the page object below.
     console.log('__ha_field:' + JSON.stringify(
-      {id: id, kind: kind, type: type, label: label, value: value,
-       at: Date.now()}));
+      {id: id, kind: kind, type: type, hint: hint, label: label,
+       value: value, at: Date.now()}));
   }
 
   document.addEventListener('focusin', function (e) {
@@ -765,8 +787,30 @@ class WebPage(PageFramework):
             # An older cached script, from a page loaded before this changed.
             self._field_requested(title[len("field:"):])
 
-    #Field types filled but never submitted. See _field_requested.
+    #Fields filled but never submitted. See _field_requested.
     NO_SUBMIT_TYPES = ("password", "email")
+    #And the words that mean the same thing when the type does not say so.
+    #
+    #Matched against autocomplete, name and id together. "user" rather than
+    #"username" because forms use both, and "login" because plenty of them
+    #call the field that. Deliberately NOT "search" or "query": those want
+    #submitting, which is the whole point of them.
+    NO_SUBMIT_HINTS = ("password", "passwd", "email", "username", "user",
+                       "login", "signin", "sign-in")
+
+    def _is_login_field(self, data: dict) -> bool:
+        """
+        Whether this is something to fill and leave alone.
+
+        The type first, since a password field always says so. Then what the
+        field calls itself: a login form's email box is very often
+        type="text" - Plex's is - and `autocomplete="username"` is the
+        attribute that exists to say what it really is.
+        """
+        if str(data.get("type", "")).lower() in self.NO_SUBMIT_TYPES:
+            return True
+        hint = str(data.get("hint", "")).lower()
+        return any(word in hint for word in self.NO_SUBMIT_HINTS)
 
     def _field_requested(self, payload: str) -> None:
         """A text field in the page was tapped - offer the keyboard for it."""
@@ -805,8 +849,7 @@ class WebPage(PageFramework):
             # hold - usually nothing, because the email is filled second half
             # the time - and a failed sign-in attempt is not something to
             # trigger on somebody's behalf. Fill it and get out of the way.
-            submit = (str(data.get("type", "")).lower()
-                      not in self.NO_SUBMIT_TYPES)
+            submit = not self._is_login_field(data)
             self.view.page().runJavaScript(
                 "window.__haSetField(%s, %s, %s);" % (
                     json.dumps(str(data.get("id", ""))), json.dumps(text),
