@@ -102,6 +102,12 @@ class NighttimeClockPlugin(Plugin):
         # the night page now" and the other is "leave me alone tonight". A
         # single button cannot mean both, and conflating them meant the only
         # way to stop the panel dimming at 10pm was the settings page.
+        # Asked for out loud, which is when somebody is already in bed.
+        try:
+            self.client.SKILLS.register(self.KEY, self._skills())
+        except Exception as e:
+            self.client.log("warning", f"[Nighttime] No skills: {e}")
+
         self.client.QUICK.register(
             self.KEY, "night_enabled", "Night mode", "mdi.sleep",
             on_press=self.toggle_enabled,
@@ -259,6 +265,24 @@ class NighttimeClockPlugin(Plugin):
 
     def _enabled(self) -> bool:
         return bool(self._setting("enabled", True))
+
+    def _set_enabled(self, on: bool) -> bool:
+        """
+        Write this plugin's own setting.
+
+        Through `self.settings`, NOT client.apply_settings(). The client's
+        version takes a dotted path and calls SETTINGS.update(), which puts a
+        `nighttimeclock` key in the CLIENT's settings - and the settings page
+        builds a nav section per top-level key, so an empty "Nighttimeclock"
+        appeared beside Application and Home while the real settings stayed in
+        the plugin's own file.
+        """
+        try:
+            self.settings.enabled.value = bool(on)
+            return True
+        except Exception as e:
+            self.client.log("warning", f"[Nighttime] Could not set: {e}")
+            return False
 
     def _reload_schedule(self) -> None:
         self.schedule = Schedule(
@@ -497,6 +521,78 @@ class NighttimeClockPlugin(Plugin):
         # rather than time since the first touch.
         self._arm_settle()
 
+    def _skills(self) -> list:
+        """
+        Good night, and good morning.
+
+        Here rather than in the core bundle because the schedule is this
+        plugin's: a skill that turns on something the panel might not have is
+        a skill that answers "I cannot do that" for anybody who removed it.
+        """
+        from src.assistant.skill import Skill
+        wake = self.client.wake_word()
+        return [
+            Skill(
+                wake_word=wake, skill_key="night-good-night",
+                plugin_key=self.KEY,
+                examples=[
+                    "good night", "goodnight", "night night",
+                    "im going to bed", "i am going to bed", "bedtime",
+                    "turn on night mode", "night mode",
+                    "im going to sleep", "time for bed",
+                ],
+                func=self.skill_good_night,
+            ),
+            Skill(
+                wake_word=wake, skill_key="night-good-morning",
+                plugin_key=self.KEY,
+                examples=[
+                    "good morning", "im awake", "i am awake", "wake up",
+                    "turn off night mode", "im up", "morning",
+                ],
+                func=self.skill_good_morning,
+            ),
+        ]
+
+    def skill_good_night(self) -> None:
+        """
+        Straight to night, whatever the clock says.
+
+        On the UI thread: a skill runs on the assistant's worker, and
+        enter_night() switches the page and fades the backlight - both Qt work
+        that Qt refuses from anywhere else.
+        """
+        def run():
+            if not self._enabled():
+                self._set_enabled(True)
+            self.enter_night()
+
+        self.client.call_on_ui(run)
+
+    def skill_good_morning(self) -> None:
+        """
+        Out of night, without turning the schedule off.
+
+        Waking is not the same as saying "do not do this tonight" - the
+        schedule should still put the panel back to sleep at the usual time.
+        """
+        self.client.call_on_ui(self._wake_now)
+
+    def _wake_now(self) -> None:
+        self._awake = True
+        self._set_brightness(
+            self._setting("woken_brightness", 55)
+            if self.schedule.is_night(now_minutes()) else 100,
+            self.WAKE_MS)
+        if self._on_night_page():
+            self._goto(self._home_target())
+        try:
+            if not getattr(self, "_dnd_was_on", False):
+                self.client.set_do_not_disturb(False)
+            self._dnd_was_on = False
+        except Exception:
+            pass
+
     def toggle_enabled(self) -> None:
         """
         Turn the whole schedule on or off.
@@ -508,11 +604,7 @@ class NighttimeClockPlugin(Plugin):
         not a kindness there.
         """
         wanted = not self._enabled()
-        try:
-            self.client.apply_settings(
-                {f"{self.KEY}.enabled.value": wanted})
-        except Exception as e:
-            self.client.log("warning", f"[Nighttime] Could not set: {e}")
+        if not self._set_enabled(wanted):
             return
 
         if wanted:

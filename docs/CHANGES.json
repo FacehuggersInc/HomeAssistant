@@ -1,6 +1,50 @@
 {
  "log": [
   {
+   "at": 1785472131.306381,
+   "note": "a docs audit, and Core Skills declares its dependency",
+   "pages": [
+    {
+     "slug": "mixins",
+     "state": "updated"
+    },
+    {
+     "slug": "skills",
+     "state": "updated"
+    }
+   ]
+  },
+  {
+   "at": 1785471675.5663185,
+   "note": "plugin settings stay in the plugin file; the nav scrolls",
+   "pages": [
+    {
+     "slug": "plugins",
+     "state": "updated"
+    }
+   ]
+  },
+  {
+   "at": 1785471060.255132,
+   "note": "a compound phrase matches its spaced form",
+   "pages": [
+    {
+     "slug": "skills",
+     "state": "updated"
+    }
+   ]
+  },
+  {
+   "at": 1785470647.9963782,
+   "note": "skills for quiet modes, pages, bookmarks and good night",
+   "pages": [
+    {
+     "slug": "skills",
+     "state": "updated"
+    }
+   ]
+  },
+  {
    "at": 1785469632.7744045,
    "note": "plugin submodules import upward absolutely, not relatively",
    "pages": [
@@ -855,9 +899,9 @@
    "state": "updated"
   },
   "mixins": {
-   "at": 1785384140.0124536,
-   "hash": "8ba70f771b7370b9",
-   "opened": 1785451144.5392058,
+   "at": 1785472131.3056169,
+   "hash": "9b0cb1565114d79f",
+   "opened": 0,
    "state": "updated"
   },
   "notifications": {
@@ -885,8 +929,8 @@
    "state": "updated"
   },
   "plugins": {
-   "at": 1785469632.774195,
-   "hash": "883e5f2ae9554508",
+   "at": 1785471675.5656245,
+   "hash": "0424ea3c8c4debcb",
    "opened": 0,
    "state": "updated"
   },
@@ -909,9 +953,9 @@
    "state": "updated"
   },
   "skills": {
-   "at": 1785416476.798296,
-   "hash": "fc1660f574214467",
-   "opened": 1785451144.6326432,
+   "at": 1785472131.3060446,
+   "hash": "eae2dde28a7a8260",
+   "opened": 0,
    "state": "updated"
   },
   "styling": {

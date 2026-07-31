@@ -623,6 +623,17 @@ class DialogManager:
     # ── Public API ────────────────────────────────────────────────────────────
 
     def open(self, dialog: QWidget) -> None:
+        # Only the first one.
+        #
+        # A dialog opening from inside another - a picker over a form - is one
+        # interaction continuing, not a second thing arriving. Two chimes in a
+        # row for one tap is worse than none.
+        if not self.dialog_stack:
+            try:
+                self.client.AUDIO.play("dialog")
+            except Exception:
+                pass
+
         if self.dialog_stack:
             self.dialog_stack[-1].hide()
 

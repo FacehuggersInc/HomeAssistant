@@ -568,6 +568,23 @@ class SkillIntentEngine:
 				if not example:
 					continue
 
+				# The same words, said without the gap.
+				#
+				# Scoring is lemma against lemma, so one token can never match
+				# two: "goodnight" is compared with "good" (0, prefix rule) and
+				# with "night" (0, too different in length) and the phrase
+				# scores nothing. Whisper writes compounds either way depending
+				# on the sentence, and "good night" and "goodnight" are the
+				# same thing said.
+				#
+				# Checked before the loop rather than as a token rule, because
+				# it is a property of the whole phrase: the letters in order,
+				# ignoring where the spaces fell.
+				if content and "".join(example) == "".join(content):
+					if 1.0 > best_score:
+						best_score, best_skill = 1.0, skill
+					continue
+
 				matched = 0.0
 				total = 0.0
 				used = set()

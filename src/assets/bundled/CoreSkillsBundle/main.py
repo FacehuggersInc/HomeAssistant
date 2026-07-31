@@ -288,6 +288,80 @@ class CoreSkills(Plugin):
             # intent matcher choosing between them on wording, which is not a
             # decision anybody wants it making.
             Skill(
+                wake_word=wake, skill_key="quiet-on", plugin_key=key,
+                examples=[
+                    "do not disturb", "turn on do not disturb",
+                    "enable do not disturb", "dont disturb me",
+                    "leave me alone", "hold my notifications",
+                ],
+                func=self.quiet_on,
+            ),
+            Skill(
+                wake_word=wake, skill_key="quiet-off", plugin_key=key,
+                examples=[
+                    "turn off do not disturb", "disable do not disturb",
+                    "stop do not disturb", "you can disturb me",
+                    "let my notifications through",
+                ],
+                func=self.quiet_off,
+            ),
+            Skill(
+                wake_word=wake, skill_key="mute-on", plugin_key=key,
+                examples=[
+                    "be quiet", "mute yourself", "stop making noise",
+                    "silence", "turn off your sounds", "mute the panel",
+                    "no sounds",
+                ],
+                func=self.mute_on,
+            ),
+            Skill(
+                wake_word=wake, skill_key="mute-off", plugin_key=key,
+                examples=[
+                    "unmute", "you can make noise", "turn your sounds back on",
+                    "unmute yourself", "sounds on",
+                ],
+                func=self.mute_off,
+            ),
+            Skill(
+                wake_word=wake, skill_key="go-to-page", plugin_key=key,
+                examples=[
+                    "show the calendar", "open the calendar", "go to settings",
+                    "show me the home page", "open settings", "go home",
+                    "take me home", "show the clock", "open the web page",
+                ],
+                arguments={
+                    "page_name": [
+                        [{"LOWER": {"IN": ["the", "me", "to"]}, "OP": "*"},
+                         {"IS_ALPHA": True, "OP": "{1,3}"}],
+                    ]
+                },
+                func=self.go_to_page,
+            ),
+            Skill(
+                wake_word=wake, skill_key="open-bookmark", plugin_key=key,
+                examples=[
+                    "open scryfall", "open my scryfall bookmark",
+                    "go to scryfall", "open the bookmark for scryfall",
+                    "bring up scryfall", "open bookmark scryfall",
+                ],
+                arguments={
+                    # Everything after the verb, however long.
+                    #
+                    # A bookmark is named by whoever saved it and the title
+                    # comes from the page, so it can be anything - "Scryfall"
+                    # or "Advanced Search - Scryfall". Anchoring on the verb
+                    # and taking the rest is the only shape that works; the
+                    # matching happens in the handler, against the list.
+                    "wanted": [
+                        [{"LOWER": {"IN": ["open", "goto", "launch"]}},
+                         {"IS_ALPHA": True, "OP": "+"}],
+                        [{"LOWER": "go"}, {"LOWER": "to"},
+                         {"IS_ALPHA": True, "OP": "+"}],
+                    ]
+                },
+                func=self.open_bookmark,
+            ),
+            Skill(
                 wake_word=wake, skill_key="nevermind", plugin_key=key,
                 examples=[
                     "nevermind", "never mind", "cancel", "cancel that",
@@ -681,12 +755,151 @@ class CoreSkills(Plugin):
 
     ## HELPERS
 
+    ## -- quiet
+
+    #Skill handlers run on the assistant's worker.
+    #
+    #Anything below that reaches Qt - a page rebuild, a settings apply that
+    #redraws, a panel - has to be handed over. Doing it inline produced
+    #"Timers cannot be stopped from another thread" and a page torn down
+    #underneath its own widgets.
+    def quiet_on(self):
+        self.client.call_on_ui(lambda: self.client.set_do_not_disturb(True))
+        # Said before it takes effect, or the confirmation is the first thing
+        # the mode silences.
+        self._respond("Do not disturb is on.")
+
+    def quiet_off(self):
+        # Spoken FIRST for the opposite reason: while it is still on, this
+        # would not be heard.
+        self.client.call_on_ui(lambda: self.client.set_do_not_disturb(False))
+        self._respond("Do not disturb is off.")
+
+    def mute_on(self):
+        self._respond("Going quiet.")
+        self.client.call_on_ui(lambda: self.client.set_sounds_muted(True))
+
+    def mute_off(self):
+        self.client.call_on_ui(lambda: self.client.set_sounds_muted(False))
+        self._respond("Sounds are back on.")
+
+    ## -- getting about
+
+    def go_to_page(self, page_name: str = ""):
+        """
+        Open a registered page by name.
+
+        Matched against what the pages call themselves rather than a list kept
+        here, so a plugin adding a page is reachable without this knowing it
+        exists.
+        """
+        wanted = _clean_words(page_name, drop=PAGE_VERBS)
+        if not wanted:
+            self._respond("Which page?")
+            return
+
+        best, score = None, 0.0
+        for entry_key in self.client.PAGES.keys():
+            label = str(entry_key).lstrip("#").replace("_", " ")
+            label = label.replace("cwb ", "").replace(" page", "")
+            hit = _overlap(wanted, label)
+            if hit > score:
+                best, score = entry_key, hit
+
+        # A page nobody meant is worse than admitting the miss: this navigates,
+        # so a wrong guess takes the screen away from whatever was on it.
+        if best is None or score < 0.5:
+            self._respond(f"I do not have a page called {wanted}.")
+            return
+        self.client.call_on_ui(
+            lambda target=best: self.client.goto(target, override=True))
+
+    def open_bookmark(self, wanted: str = ""):
+        """
+        Open a saved page by roughly its name.
+
+        Anchored on the verb and matched loosely, because a bookmark's title
+        comes from the page rather than from whoever saved it - "Advanced
+        Search - Scryfall" is a name somebody would say as "scryfall".
+        """
+        wanted = _clean_words(wanted, drop=("open", "go", "to", "goto",
+                                            "launch", "bookmark", "my", "the",
+                                            "for", "bring", "up"))
+        if not wanted:
+            self._respond("Which bookmark?")
+            return
+
+        marks = []
+        try:
+            marks = self.client.BOOKMARKS.all()
+        except Exception:
+            marks = []
+        if not marks:
+            self._respond("There are no bookmarks saved.")
+            return
+
+        best, score = None, 0.0
+        for mark in marks:
+            hit = max(_overlap(wanted, mark.label), _overlap(wanted, mark.host))
+            if hit > score:
+                best, score = mark, hit
+
+        if best is None or score < 0.4:
+            self._respond(f"I have no bookmark like {wanted}.")
+            return
+
+        from urllib.parse import urlparse
+        base = ""
+        try:
+            parts = urlparse(best.url)
+            if parts.scheme and parts.netloc:
+                base = f"{parts.scheme}://{parts.netloc}"
+        except Exception:
+            base = ""
+        self.client.call_on_ui(lambda: self.client.goto("#webpage", data={
+            "url": best.url, "lock_base": base, "lock_address": True,
+        }, override=True))
+
     def _respond(self, text: str):
         # Speak when possible, otherwise show it - a skill that silently does
         # nothing because TTS is unconfigured is indistinguishable from a
         # broken one.
         if not self.client.say(text, thread=False):
             self.client.simple_notify("assistant", "Assistant", text)
+
+
+#Words that carry no meaning in a request and only dilute a match.
+FILLER = ("the", "a", "an", "my", "me", "please", "to", "up", "for")
+
+#Words that ask for a page without naming one. Dropped before matching, or
+#"show me the home page" is measured as three words against one and scores a
+#third of what it should.
+PAGE_VERBS = ("show", "open", "go", "goto", "take", "bring", "display",
+              "switch", "page", "screen")
+
+
+def _clean_words(text: str, drop: tuple = ()) -> str:
+    """The words worth matching on, in order."""
+    words = str(text or "").lower().split()
+    skip = set(FILLER) | set(drop)
+    return " ".join(w for w in words if w and w not in skip).strip()
+
+
+def _overlap(said: str, candidate: str) -> float:
+    """
+    How much of what was said appears in the candidate, 0 to 1.
+
+    Words rather than characters, and only whether each word is present rather
+    than where. "scryfall" against "Advanced Search - Scryfall" scores 1: the
+    part somebody says is the part they remember, and it is rarely the whole
+    title.
+    """
+    said_words = [w for w in _clean_words(said).split() if w]
+    if not said_words:
+        return 0.0
+    hay = str(candidate or "").lower()
+    hits = sum(1 for w in said_words if w in hay)
+    return hits / len(said_words)
 
 
 def _spoken_duration(text: str) -> float:

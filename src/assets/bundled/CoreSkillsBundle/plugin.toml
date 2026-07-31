@@ -2,6 +2,11 @@
 name = "Core Skills"
 key = "coreskillsbundle"
 order = 5
+# Timers and the weather API come from Core Widgets - see public.timers and
+# API.get("weather") in main.py. Every use is guarded, so the skills degrade
+# rather than fail without it; declaring it means the load order is right and
+# they work on the first launch rather than after a reload.
+dependencies = ["corewidgetsbundle"]
 icon = "microphone"
 
 [settings]

@@ -590,6 +590,25 @@ know it disappears when the plugin does.
 
 User plugins in `plugins/` are scanned exactly the same way as bundled ones.
 
+## Writing your own settings
+
+```python
+self.settings.general.default_location.value = place    # yes
+self.client.apply_settings({"myplugin.enabled.value": True})   # no
+```
+
+`apply_settings()` takes a dotted path and calls `SETTINGS.update()` on the
+**client's** settings. A plugin key written that way becomes a top-level entry
+there, and the settings page builds a nav section per top-level key — so an
+empty section appears beside Application and Home while the real settings stay
+in the plugin's own file.
+
+Reading through the client is fine: `client.setting("myplugin.enabled.value")`
+resolves to the plugin's file. It is only writing that goes wrong.
+
+Any plugin section found in the client's settings at startup is dropped, since
+there is nothing in it worth keeping.
+
 ## Naming a plugin's folder
 
 The folder under `src/assets/bundled/` is the plugin's name in the repository,

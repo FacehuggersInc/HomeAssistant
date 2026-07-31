@@ -871,6 +871,7 @@ class Client:
         self.internal_build_setup()
 
         self.build_quick_settings()
+        self.drop_plugin_sections()
         self.register_core_sounds()
         self.report_missing_tooling()
         self.build_update_checker()
@@ -1085,6 +1086,8 @@ class Client:
         ("refresh",     "refresh",     0.45, "Something reloading"),
         ("timer_alarm", "timer-alarm", 0.90, "A timer finishing"),
         ("event_now",   "event-now",   0.70, "An event starting"),
+        ("dialog",      "dialog",      0.30,
+         "A dialog opening"),
         ("notify",      "notify",      0.40,
          "An event coming up, and notifications that ask for a sound"),
     )
@@ -1210,6 +1213,44 @@ class Client:
             except Exception:
                 pass
         return True
+
+    def drop_plugin_sections(self) -> int:
+        """
+        Remove any top-level settings section that belongs to a plugin.
+
+        A plugin's settings live in its own file. One written into the client's
+        - by apply_settings() with a dotted path, which is easy to reach for
+        and wrong - leaves a key the settings page renders as an empty section
+        beside Application and Home, because the real settings are elsewhere.
+
+        Dropped rather than merged: there is nothing in it to keep.
+        """
+        try:
+            keys = set(self.PLUGIN.plugins.keys())
+        except Exception:
+            return 0
+        if not keys:
+            return 0
+
+        removed = []
+        with self.SETTINGS_LOCK:
+            for key in list(keys):
+                try:
+                    section = self.SETTINGS.get(key, None)
+                except Exception:
+                    continue
+                if section is None:
+                    continue
+                try:
+                    self.SETTINGS.pop(key, None)
+                    removed.append(key)
+                except Exception:
+                    continue
+
+        for key in removed:
+            self.log("info", f"[Settings] Dropped '{key}' from the client's "
+                             f"settings; it belongs to the plugin.")
+        return len(removed)
 
     def register_core_sounds(self) -> None:
         """

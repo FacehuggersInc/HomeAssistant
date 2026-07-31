@@ -368,3 +368,49 @@ LLM; you can subscribe too.
 Being unmatched is a valid outcome and the threshold protects it — scoring
 every skill against every phrase would always produce a nearest match, and
 "the assistant did the wrong thing" is worse than "the assistant did nothing".
+
+## Matching something with an unpredictable name
+
+Most skills match a fixed phrase. A bookmark cannot: its title comes from the
+page rather than from whoever saved it, so it might be `Scryfall` or
+`Advanced Search - Scryfall`.
+
+`open-bookmark` therefore **anchors on the verb** and takes everything after it:
+
+```python
+"wanted": [
+    [{"LOWER": {"IN": ["open", "goto", "launch"]}},
+     {"IS_ALPHA": True, "OP": "+"}],
+]
+```
+
+The matching happens in the handler, against the list — word overlap rather than
+character similarity, and only whether each word is *present* rather than where.
+"scryfall" scores 1.0 against "Advanced Search - Scryfall", because the part
+somebody says is the part they remember and it is rarely the whole title.
+
+Both this and `go-to-page` refuse a weak match rather than guessing. They
+navigate, so a wrong answer takes the screen away from whatever was on it — and
+"I have no bookmark like that" is a better outcome than the wrong site.
+
+## Compounds
+
+Scoring compares one lemma against one lemma, so a single token can never match
+two. `goodnight` scores 0 against `good` (the prefix rule) and 0 against `night`
+(too different in length), and the phrase matches nothing — even with
+`"good night"` listed as an example.
+
+Whisper writes compounds either way depending on the sentence, so before the
+per-token loop the whole phrase is compared with the spaces removed:
+
+```python
+if "".join(example) == "".join(content):
+    return 1.0          # the same thing said
+```
+
+The letters in order, ignoring where the gaps fell. `goodnight` / `good night`,
+`goodmorning` / `good morning`, `wifi` / `wi fi`. Exact, so `goodnight` still
+does not match `good morning`.
+
+Listing a phrase both ways in `examples` is still worth doing — this is the
+safety net, not the plan.

@@ -28,13 +28,13 @@ def refresh_weather(self):
 ```python
 mixin(
     key="refresh_weather",
-    plugin="mypluginkey,
+    plugin="mypluginkey",
     when="before"
 )
 
 mixin(
     key="refresh_weather",
-    plugin="mypluginkey,
+    plugin="mypluginkey",
     when="after"
 )
 ```
@@ -64,11 +64,14 @@ class DummyClass:
     def targeted_func(dummy_class_self, arg1, arg2):
         pass
 
-... inside your plugin
 
+# ...and inside your plugin
 class Plugin:
     @mixin("mixin_key", "mypluginkey", "before")
-    def new_mixin(self, dummy_class_self, (arg1, arg2)):
+    def new_mixin(self, dummy_class_self, *args, **kwargs):
+        # self          - your plugin
+        # dummy_class_self - the object whose method was called
+        # *args         - whatever the original was called with
         pass
 ```
 * `*args`: the given args to that targeted mixin function

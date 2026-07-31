@@ -1115,13 +1115,39 @@ class SettingsPage(PageFramework):
         nav_panel.setFixedWidth(NAV_W)
         set_style(nav_panel, "settings", "settings-nav-panel")
         nl = QVBoxLayout(nav_panel)
-        nl.setContentsMargins(PAD, PAD, PAD, PAD)
-        nl.setSpacing(4)
+        nl.setContentsMargins(0, 0, 0, 0)
+        nl.setSpacing(0)
+
+        # Scrolled, because the list grows with the plugins.
+        #
+        # Eight bundled plugins plus the system sections is more than fits, and
+        # a QVBoxLayout with no room squeezes every child below its fixed
+        # height - so the buttons shrank until two of them were one finger
+        # wide. A rail that scrolls keeps every entry the size it was built.
+        nav_scroll = QScrollArea()
+        nav_scroll.setWidgetResizable(True)
+        nav_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        nav_scroll.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        set_style(nav_scroll, "common", "transparent")
+        set_style(nav_scroll.viewport(), "common", "transparent")
+        QScroller.grabGesture(
+            nav_scroll.viewport(),
+            QScroller.ScrollerGestureType.LeftMouseButtonGesture)
+
+        nav_inner = QWidget()
+        set_style(nav_inner, "common", "transparent")
+        inner = QVBoxLayout(nav_inner)
+        inner.setContentsMargins(PAD, PAD, PAD, PAD)
+        inner.setSpacing(0)
 
         self._nav_list = QVBoxLayout()
-        self._nav_list.setSpacing(4)
-        nl.addLayout(self._nav_list)
-        nl.addStretch()
+        self._nav_list.setSpacing(6)
+        inner.addLayout(self._nav_list)
+        inner.addStretch()
+
+        nav_scroll.setWidget(nav_inner)
+        nl.addWidget(nav_scroll)
         bl.addWidget(nav_panel)
 
         # Content scroll
@@ -2057,7 +2083,9 @@ class SettingsPage(PageFramework):
         btn = QPushButton(label)
         btn.setFont(make_font(SIZES.S1 if indent else SIZES.S2))
         btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        btn.setFixedHeight(40 if indent else 44)
+        # 48 is the floor for a finger. A sub-item is a little shorter than a
+        # top-level one, but not below what can be hit.
+        btn.setFixedHeight(48 if indent else 54)
         btn.setCheckable(True)
         if icon:
             q_icon = resolve_plugin_icon(icon)
