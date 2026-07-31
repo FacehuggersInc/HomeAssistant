@@ -264,6 +264,16 @@ class Client:
         local_asset.mark_uploadable()
         self.register_asset("local",   local_asset,                             "FOLDER")
         self.register_asset("logs",    Asset(cwd / "logs"),                     "FOLDER")
+
+        # Sounds, uploadable.
+        #
+        # The registry looks here for anything registered by key, so putting a
+        # file in is all it takes - and the upload page already knows how to
+        # take a folder asset, so this needs no endpoint of its own.
+        from src.registries.audio_registry import AUDIO_DIR
+        audio_asset = Asset(AUDIO_DIR)
+        audio_asset.mark_uploadable()
+        self.register_asset("sounds", audio_asset, "FOLDER")
         self.register_asset("plugins", Asset(cwd / "plugins"),                  "FOLDER")
         self.register_asset("fonts",   Asset(cwd / "src" / "assets" / "fonts"), "FOLDER")
         self.register_asset("icons",   Asset(cwd / "src" / "assets" / "icons"), "FOLDER")
@@ -1067,7 +1077,7 @@ class Client:
         disagree.
         """
         try:
-            return bool(self.setting("application.do_not_disturb.value", False))
+            return bool(self.setting("accessibility.do_not_disturb.value", False))
         except Exception:
             return False
 
@@ -1082,15 +1092,15 @@ class Client:
         if self.do_not_disturb():
             return True
         try:
-            return bool(self.setting("application.mute_sounds.value", False))
+            return bool(self.setting("accessibility.mute_sounds.value", False))
         except Exception:
             return False
 
     def set_do_not_disturb(self, on: bool) -> bool:
-        return self._set_quiet("application.do_not_disturb.value", bool(on))
+        return self._set_quiet("accessibility.do_not_disturb.value", bool(on))
 
     def set_sounds_muted(self, on: bool) -> bool:
-        return self._set_quiet("application.mute_sounds.value", bool(on))
+        return self._set_quiet("accessibility.mute_sounds.value", bool(on))
 
     def _set_quiet(self, path: str, on: bool) -> bool:
         try:

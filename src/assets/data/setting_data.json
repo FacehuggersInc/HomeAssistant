@@ -11,7 +11,6 @@
   "home.pinned": "The Path to your Pinned Image for the Home Background",
   "home.widget_margin": "The Outer Margin of Widgets on the Home Page",
   "accessibility": "Settings to make use of this app easier",
-  "accessibility.handles_open_on_touch": "Drawer Handles instead of needing a swiping action, require just a touch to open",
   "application.window.size": "Set the size of the window. NOTE: this doesn't effect the actual size, its a reference",
   "application.window.position": "Where the window will position itself on startup",
   "application.window.auto_lock": "Whether the app will automatically on startup, position at X and Y, then fullscreen",

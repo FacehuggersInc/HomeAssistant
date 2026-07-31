@@ -1,6 +1,46 @@
 {
  "log": [
   {
+   "at": 1785460412.6610003,
+   "note": "sounds upload as a folder asset; both quiet settings under accessibility",
+   "pages": [
+    {
+     "slug": "api",
+     "state": "updated"
+    },
+    {
+     "slug": "notifications",
+     "state": "updated"
+    },
+    {
+     "slug": "registries",
+     "state": "updated"
+    }
+   ]
+  },
+  {
+   "at": 1785460096.9825094,
+   "note": "sounds upload from a phone; do not disturb moved; a dead setting removed",
+   "pages": [
+    {
+     "slug": "api",
+     "state": "updated"
+    },
+    {
+     "slug": "notifications",
+     "state": "updated"
+    },
+    {
+     "slug": "registries",
+     "state": "updated"
+    },
+    {
+     "slug": "settings",
+     "state": "updated"
+    }
+   ]
+  },
+  {
    "at": 1785459410.95757,
    "note": "do not disturb and silence; audio no longer aborts the process",
    "pages": [
@@ -567,7 +607,7 @@
  ],
  "pages": {
   "api": {
-   "at": 1785451163.8292015,
+   "at": 1785460412.6598134,
    "hash": "ad6b56e3dd7a0109",
    "opened": 0,
    "state": "updated"
@@ -663,8 +703,8 @@
    "state": "updated"
   },
   "notifications": {
-   "at": 1785459410.9569333,
-   "hash": "59205966e8fb5232",
+   "at": 1785460412.6603417,
+   "hash": "3b0cc987520324e2",
    "opened": 0,
    "state": "updated"
   },
@@ -699,15 +739,15 @@
    "state": "updated"
   },
   "registries": {
-   "at": 1785458605.5139754,
-   "hash": "94f488a3f687e20e",
+   "at": 1785460412.6605818,
+   "hash": "363433c6cf679b72",
    "opened": 0,
    "state": "updated"
   },
   "settings": {
-   "at": 1785432817.2706792,
-   "hash": "a41cde0a202d3343",
-   "opened": 1785451144.682895,
+   "at": 1785460096.9821072,
+   "hash": "310c889f93458e36",
+   "opened": 0,
    "state": "updated"
   },
   "skills": {

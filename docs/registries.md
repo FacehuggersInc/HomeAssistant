@@ -197,6 +197,10 @@ and becomes a tic. Random rather than round-robin — a cycle of three is a
 pattern, and a pattern is what variations exist to avoid. Never the same one
 twice running.
 
+`.audio` is registered as an **uploadable folder asset**, so it appears on
+`/upload` beside stickers and wallpapers. Putting a file in is all it takes —
+the registry looks there by key, and no endpoint of its own is needed.
+
 **A key with no file is silent** and says so once. Sounds are content and arrive
 later than the code that plays them, so a key registers whether or not anything
 is behind it — a panel nobody has put sounds into should be quiet, not broken.

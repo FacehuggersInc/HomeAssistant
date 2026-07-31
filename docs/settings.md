@@ -138,7 +138,6 @@ settings live in its `settings.json` and are documented with the plugin.
 
 | Key | Type | Default | What it does |
 |---|---|---|---|
-| `accessibility.handles_open_on_touch` | bool | `off` | Drawer Handles instead of needing a swiping action, require just a touch to open |
 
 ### `application`
 

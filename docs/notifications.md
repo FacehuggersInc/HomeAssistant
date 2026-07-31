@@ -162,8 +162,8 @@ Two, and they are not the same thing.
 
 | | |
 |---|---|
-| `application.do_not_disturb` | No notifications, no sounds, no speech |
-| `application.mute_sounds` | No sounds and no speech; notifications still appear |
+| `accessibility.do_not_disturb` | No notifications, no sounds, no speech |
+| `accessibility.mute_sounds` | No sounds and no speech; notifications still appear |
 
 Do not disturb implies silence. Silence does not imply do not disturb — a quiet
 panel that still shows what happened is the common case on a desk.
