@@ -636,6 +636,22 @@ class CoreWidgetsBundle(Plugin):
         return True, f"Placed {entry.label} {where}."
 
 
+    def _toggle_mute(self) -> None:
+        """
+        Flip the mute, and say when do not disturb is what is silencing it.
+
+        Turning "Silence" off while do not disturb is on would otherwise do
+        nothing audible and look broken - the panel stays quiet, because the
+        other mode is still holding it.
+        """
+        if self.client.do_not_disturb():
+            self.client.simple_notify(
+                Icons.DO_NOT_DISTURB, "Silence",
+                "Do not disturb is on, so the panel is quiet either way.",
+                history=False, urgent=True)
+            return
+        self.client.set_sounds_muted(not self.client.sounds_muted())
+
     def _sub_home(self):
         entry = self.client.PAGES.get_entry("#cwb_home_page")
         if entry is None or getattr(entry, "instance", None) is None:
@@ -756,6 +772,29 @@ class CoreWidgetsBundle(Plugin):
 
         # The widgets panel was only reachable from this page. As a quick
         # access entry it is reachable from anywhere.
+        # Two quiet modes, side by side.
+        #
+        # The state lives on the client and these only toggle it - a button
+        # holding its own copy is a button that disagrees with the setting page
+        # the moment either is used.
+        self.client.QUICK.register(
+            "corewidgetsbundle", "do_not_disturb", "Do not disturb",
+            Icons.DO_NOT_DISTURB,
+            on_press = lambda: self.client.set_do_not_disturb(
+                not self.client.do_not_disturb()),
+            on_state = lambda: self.client.do_not_disturb(),
+            order    = 20)
+
+        self.client.QUICK.register(
+            "corewidgetsbundle", "mute_sounds", "Silence",
+            Icons.VOLUME_OFF,
+            on_press = self._toggle_mute,
+            # Shown as on while do not disturb is holding it, since it IS
+            # silent - a button reading off next to a panel making no noise is
+            # the button being wrong.
+            on_state = lambda: self.client.sounds_muted(),
+            order    = 21)
+
         self.client.QUICK.register(
             "corewidgetsbundle", "widget_panel", "Widgets", Icons.EXTENSION,
             on_press = lambda: sub_home.features().toggle_widget_panel(),

@@ -1,6 +1,46 @@
 {
  "log": [
   {
+   "at": 1785459410.95757,
+   "note": "do not disturb and silence; audio no longer aborts the process",
+   "pages": [
+    {
+     "slug": "notifications",
+     "state": "updated"
+    }
+   ]
+  },
+  {
+   "at": 1785458605.5144231,
+   "note": "a sound name matches any format it can open",
+   "pages": [
+    {
+     "slug": "registries",
+     "state": "updated"
+    }
+   ]
+  },
+  {
+   "at": 1785458047.6699457,
+   "note": "sounds live in an ignored .audio folder, with variations",
+   "pages": [
+    {
+     "slug": "registries",
+     "state": "updated"
+    }
+   ]
+  },
+  {
+   "at": 1785456488.7005303,
+   "note": "an audio registry, wired to timers, reminders and notifications",
+   "pages": [
+    {
+     "slug": "registries",
+     "state": "updated"
+    }
+   ]
+  },
+  {
    "at": 1785454134.5601535,
    "note": "the bluetooth button ranks by device kind and badges the rest",
    "pages": [
@@ -623,9 +663,9 @@
    "state": "updated"
   },
   "notifications": {
-   "at": 1785416476.7979167,
-   "hash": "8213db4edc97d820",
-   "opened": 1785451144.6090212,
+   "at": 1785459410.9569333,
+   "hash": "59205966e8fb5232",
+   "opened": 0,
    "state": "updated"
   },
   "pages": {
@@ -659,9 +699,9 @@
    "state": "updated"
   },
   "registries": {
-   "at": 1785384140.0125496,
-   "hash": "bde1aee3d5081a8d",
-   "opened": 1785451144.5535345,
+   "at": 1785458605.5139754,
+   "hash": "94f488a3f687e20e",
+   "opened": 0,
    "state": "updated"
   },
   "settings": {

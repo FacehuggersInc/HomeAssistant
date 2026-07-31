@@ -263,6 +263,18 @@
     "suffix": "%",
     "description": "Below this the dark overlay takes over, for monitors whose own minimum is still too bright. 0 lets the hardware cover the whole range."
    }
+  },
+  "do_not_disturb": {
+   "type": "bool",
+   "default": false,
+   "value": false,
+   "description": "Hold back notifications and every sound the panel makes. They are still written to the notification history - the point is not to be interrupted, not to lose what happened."
+  },
+  "mute_sounds": {
+   "type": "bool",
+   "default": false,
+   "value": false,
+   "description": "Silence the panel's own sounds and its spoken replies, while leaving notifications on screen. Do not disturb implies this; this does not imply do not disturb."
   }
  },
  "assistant": {

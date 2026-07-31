@@ -401,6 +401,17 @@ class ReminderWatcher:
     START_GRACE = 2.0
 
     def show(self, event, kind: str = "lead") -> None:
+        # A different sound for a different thing.
+        #
+        # The warning and the event are not the same news: one is "get ready"
+        # and the other is "now", and a panel that makes the same noise for
+        # both has said nothing the second time.
+        try:
+            self.client.AUDIO.play(
+                "event_now" if kind == "start" else "notify")
+        except Exception as e:
+            self.client.log("debug", f"[Calendar] Reminder sound: {e}")
+
         self.shown.add((event.key, kind))
         # The lead reminder is not worth showing once the event has started.
         if kind == "start":

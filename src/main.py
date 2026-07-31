@@ -34,6 +34,7 @@ from src.registries.public_registry import PublicRegistry
 from src.registries.page_registry import PageRegistry
 from src.registries.secret_registry import SecretRegistry
 from src.registries.quick_access_registry import QuickAccessRegistry
+from src.registries.audio_registry import AudioRegistry
 from src.registries.player_registry import PlayerRegistry
 from src.registries.cancel_registry import CancelRegistry
 from src.registries.user_registry import UserRegistry
@@ -190,6 +191,9 @@ class Client:
         self.bridge = UIBridge(log=self.log)
 
         self._last_interaction_time = time.time()
+        #when the tap sound last played, so a two-finger touch is
+        #one sound rather than two a millisecond apart
+        self._last_tap_sound = 0.0
         self._interaction_idle      = False
         # When this process came up, for /ping. There was no way to ask how
         # long the panel had been running without reading the log.
@@ -339,6 +343,7 @@ class Client:
         self.QUICK          = QuickAccessRegistry(self)
         # What is playing, whatever is playing it. Backends register;
         # widgets and skills talk to this rather than to a backend.
+        self.AUDIO          = AudioRegistry(self)
         self.PLAYER         = PlayerRegistry(self)
         # What "stop" means right now. Whatever can be cancelled
         # registers its own words and its own condition.
@@ -415,10 +420,35 @@ class Client:
 
     ##INTERACTION
 
+    #Qt events that count as a tap for the purpose of making a noise.
+    #
+    #Not every interaction: on_interaction fires on MouseMove and TouchUpdate
+    #too, so a drag across the screen would be a machine gun. A press is the
+    #moment somebody meant something.
+    TAP_EVENT_TYPES = (QEvent.Type.MouseButtonPress, QEvent.Type.TouchBegin)
+    #And no faster than this, in seconds. A two-finger touch is two events a
+    #millisecond apart and should be one sound.
+    TAP_MIN_GAP = 0.08
+
+    def _tap_sound(self, event) -> None:
+        """A quiet click, on a press."""
+        try:
+            if event is None or event.type() not in self.TAP_EVENT_TYPES:
+                return
+            now = time.time()
+            if now - getattr(self, "_last_tap_sound", 0.0) < self.TAP_MIN_GAP:
+                return
+            self._last_tap_sound = now
+            self.AUDIO.play("tap")
+        except Exception:
+            # Never worth interrupting an interaction over.
+            pass
+
     def _on_global_interaction(self, event) -> None:
         was_idle = self._interaction_idle
         self._interaction_idle      = False
         self._last_interaction_time = time.time()
+        self._tap_sound(event)
 
         self.iterate_event_callables("on_interaction", event, True)
         if was_idle:
@@ -590,7 +620,34 @@ class Client:
         self.NOTIFICATION_MANAGER.add_to_queue(args)
 
     def simple_notify(self, icon, title: str, body: str,
-                      history: bool = True) -> None:
+                      history: bool = True, sound: str = None,
+                      urgent: bool = False) -> None:
+        # Held back while do not disturb is on, unless it is urgent.
+        #
+        # Still written to the history: the point is not to be interrupted, not
+        # to lose what happened. Something marked urgent is shown anyway -
+        # anything that cannot wait should not be silenced by a mode meant for
+        # the evening.
+        if self.do_not_disturb() and not urgent:
+            if history and self.public.has("notification_history"):
+                try:
+                    self.public.notification_history.add(
+                        icon, title, body, datetime.now())
+                except Exception:
+                    pass
+            return
+
+        # A sound is opt-in and by KEY.
+        #
+        # Not a path and not a default: a panel that chimes at every
+        # notification is a panel somebody turns the speakers off on, and then
+        # the one notification worth hearing is silent too.
+        if sound:
+            try:
+                self.AUDIO.play(sound)
+            except Exception as e:
+                self.log("debug", f"[Audio] Could not play '{sound}': {e}")
+
         if history and self.public.has("notification_history"):
             self.public.notification_history.add(icon, title, body, datetime.now())
         self.NOTIFICATION_MANAGER.add_to_queue({
@@ -781,6 +838,7 @@ class Client:
         self.internal_build_setup()
 
         self.build_quick_settings()
+        self.register_core_sounds()
         self.report_missing_tooling()
         self.build_update_checker()
         self.build_user_approvals()
@@ -975,6 +1033,96 @@ class Client:
     ##UPDATES
 
     UPDATE_CHECK_STARTUP_DELAY_MS = 20_000   # let the app settle before a network call
+
+    #Sounds the client itself may play. Names, not files: none of these exist
+    #yet, and registering a key against a file that has not been drawn is the
+    #point - a plugin declares what it wants and the sound arrives later.
+    #(key, file or files, volume, what it is for)
+    #
+    #Volumes are set here rather than left to whoever recorded the file. A tap
+    #is heard a hundred times an hour and an alarm perhaps twice a day; the
+    #difference between them is not something to leave to whichever sample
+    #happened to be normalised louder.
+    #No extensions. A bare name matches whatever format is actually in
+    #`.audio` - .oga, .wav, .flac - so the person putting sounds there does not
+    #have to convert them to whatever this file happened to guess.
+    CORE_SOUNDS = (
+        ("tap", ["tap-1", "tap-2", "tap-3"], 0.25,
+         "A tap on the screen. One of the variations at random."),
+        ("refresh",     "refresh",     0.45, "Something reloading"),
+        ("timer_alarm", "timer-alarm", 0.90, "A timer finishing"),
+        ("event_now",   "event-now",   0.70, "An event starting"),
+        ("notify",      "notify",      0.40,
+         "An event coming up, and notifications that ask for a sound"),
+    )
+
+    ## QUIET MODES
+
+    def do_not_disturb(self) -> bool:
+        """
+        Whether notifications and sounds are being held back.
+
+        A read rather than a stored flag on this object: the setting is what
+        anything else reads, and two places holding the answer is how they
+        disagree.
+        """
+        try:
+            return bool(self.setting("application.do_not_disturb.value", False))
+        except Exception:
+            return False
+
+    def sounds_muted(self) -> bool:
+        """
+        Whether the panel makes any noise of its own.
+
+        Do not disturb implies this. The reverse is not true: somebody can want
+        a silent panel that still shows its notifications, which is the common
+        case on a desk.
+        """
+        if self.do_not_disturb():
+            return True
+        try:
+            return bool(self.setting("application.mute_sounds.value", False))
+        except Exception:
+            return False
+
+    def set_do_not_disturb(self, on: bool) -> bool:
+        return self._set_quiet("application.do_not_disturb.value", bool(on))
+
+    def set_sounds_muted(self, on: bool) -> bool:
+        return self._set_quiet("application.mute_sounds.value", bool(on))
+
+    def _set_quiet(self, path: str, on: bool) -> bool:
+        try:
+            self.apply_settings({path: on})
+        except Exception as e:
+            self.log("warning", f"[Client] Could not set {path}: {e}")
+            return False
+        # Silence takes effect now, not at the end of whatever is playing.
+        if on:
+            try:
+                self.AUDIO.stop_all()
+            except Exception:
+                pass
+        return True
+
+    def register_core_sounds(self) -> None:
+        """
+        The client's own keys, so anything can play one without registering it.
+
+        Registered whether or not the files exist: a key with nothing behind it
+        is silent and says so once in the log, which is the behaviour a panel
+        somebody has not put sounds into should have.
+        """
+        for key, filename, volume, description in self.CORE_SOUNDS:
+            self.AUDIO.register("client", key, filename, volume=volume,
+                                description=description)
+        absent = self.AUDIO.missing()
+        if absent:
+            self.log("info", f"[Audio] {len(absent)} of "
+                             f"{len(self.AUDIO.keys())} sounds have no file "
+                             f"yet: {', '.join(absent[:6])}"
+                             + ("..." if len(absent) > 6 else ""))
 
     def report_missing_tooling(self) -> None:
         """
@@ -1962,6 +2110,18 @@ class Client:
     @mixin_target("client.cleanup")
     def cleanup(self) -> None:
         self.log("info", "Running Cleanup")
+        # Silence first, and wait for it.
+        #
+        # A playback thread still inside PortAudio when the library is torn
+        # down takes the process down with it - SIGABRT on an assertion about
+        # a mutex being destroyed while it is held. These are daemon threads,
+        # so nothing else waits for them.
+        try:
+            stopped = self.AUDIO.stop_all(wait=0.75)
+            if stopped:
+                self.log("debug", f"[Audio] Stopped {stopped} sound(s).")
+        except Exception as e:
+            self.log("debug", f"[Audio] Could not stop cleanly: {e}")
         if self.STT:
             self.STT.stop()
         for thread_key in self.THREADS.threads:

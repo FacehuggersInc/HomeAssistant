@@ -411,6 +411,8 @@ class QuickSettings(Panel):
         self._wifi_reason = ""
         #and the last guard that stopped the tick, for the same reason
         self._wifi_stopped = None
+        #the last ssid reported, so the log says something only on a change
+        self._wifi_seen = None
         #when the current read started, so a stuck one can be told from a slow
         self._wifi_started = 0.0
         self._bt_busy = False
@@ -740,9 +742,15 @@ class QuickSettings(Panel):
             # the guard, the button, the icon - and it still shows the wrong
             # thing on one machine. This says which of those it is: whether
             # the tick ran, what it read, and whether the paint raised.
-            self.client.log(
-                "info", f"[QuickSettings] Wi-Fi tick: "
-                        f"{connection.ssid if connection else 'nothing'}")
+            # Only when it changes.
+            #
+            # This was diagnostic and wrote a line a second, which is a
+            # thousand lines an hour saying the same thing.
+            seen = connection.ssid if connection else ""
+            if seen != getattr(self, "_wifi_seen", None):
+                self._wifi_seen = seen
+                self.client.log(
+                    "info", f"[QuickSettings] Wi-Fi: {seen or 'not connected'}")
 
             def paint():
                 try:

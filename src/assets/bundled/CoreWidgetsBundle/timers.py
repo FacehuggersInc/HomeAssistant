@@ -23,6 +23,11 @@ PALETTE = [
 ]
 
 
+#How long a finished timer keeps making noise, unless a setting says
+#otherwise. Long enough to be heard from another room, short enough
+#that a timer nobody is near stops on its own.
+ALARM_SECONDS = 20.0
+
 class Timer:
     """One countdown. Plain data - no Qt, so the service is testable."""
 
@@ -175,6 +180,12 @@ class TimerService:
         timer = self.timers.pop(key, None)
         if timer is None:
             return False
+        # Silence first. Cancelling a timer that is currently making noise and
+        # having it carry on is the one thing nobody expects.
+        try:
+            self.client.AUDIO.stop("timer_alarm")
+        except Exception:
+            pass
         self.client.call_on_ui(lambda: self._remove_widget(key))
         return True
 
@@ -296,6 +307,19 @@ class TimerService:
             self.client.reset_interaction_timeout()
         except Exception as e:
             self.client.log("warning", f"[Timers] Could not reset idle: {e}")
+
+        # The alarm, for as long as the setting says.
+        #
+        # Repeated rather than played once: a timer finishing in a kitchen is
+        # heard from another room or not at all, and one chime is easy to miss.
+        # Cancelling the timer stops it - see cancel().
+        try:
+            seconds = float(self.client.setting(
+                "home.timer_alarm_seconds", ALARM_SECONDS) or ALARM_SECONDS)
+            if seconds > 0:
+                self.client.AUDIO.play("timer_alarm", for_seconds=seconds)
+        except Exception as e:
+            self.client.log("debug", f"[Timers] Could not sound the alarm: {e}")
 
         try:
             self.client.answer("mdi.timer-outline", f"{label} finished",

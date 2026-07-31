@@ -315,8 +315,21 @@ class PocketTTSProcessing:
         self.speaking = True
         try:
             data = self._pad(self._as_playable(audio))
-            sd.play(data, samplerate=self._playback_rate())
-            sd.wait()
+            # A stream of its own, for the same reason the audio registry uses
+            # one: sd.play() writes to a single module-level stream, and a tap
+            # sound landing while this is speaking reaches into it from another
+            # thread. PortAudio answers that with SIGABRT.
+            channels = 1 if data.ndim == 1 else data.shape[1]
+            stream = sd.OutputStream(samplerate=self._playback_rate(),
+                                     channels=channels, dtype="float32")
+            try:
+                stream.start()
+                stream.write(data)
+            finally:
+                try:
+                    stream.close()
+                except Exception:
+                    pass
         except Exception as e:
             self.client.log("warning", f"[TTS] Playback failed: {e}")
         finally:
@@ -443,6 +456,15 @@ class PocketTTSProcessing:
              thread: bool = True) -> None:
         if not self.available:
             return
+        # Muted covers speech as well.
+        #
+        # "No sounds" that still talks is not what anybody means by it, and
+        # the assistant is the loudest thing this panel does.
+        try:
+            if self.client.sounds_muted():
+                return
+        except Exception:
+            pass
         if text:
             if thread:
                 Thread(target=self._play_tts,

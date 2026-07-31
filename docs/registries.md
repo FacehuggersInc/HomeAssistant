@@ -157,6 +157,59 @@ revoking one does not affect the others.
 
 Covered in full on [Users](users.md).
 
+## `AudioRegistry` — `self.client.AUDIO`
+
+Sounds by name. A plugin registers a key against a file in **`.audio/`** at the
+repository root and asks for the key; nothing outside the registry knows where a sound lives or
+what format it is in.
+
+```python
+client.AUDIO.register("myplugin", "ping", "ping.wav", volume=0.7)
+client.AUDIO.play("ping")
+client.AUDIO.play("timer_alarm", for_seconds=20)   # repeat until told to stop
+client.AUDIO.stop("timer_alarm")
+```
+
+`.audio` is **not in git**. A sound licensed for personal use can sit there
+without ever being committed or shipped — attribution obligations are triggered
+by distribution, and this never distributes them. Anybody cloning this gets a
+panel that is quiet.
+
+A key can have **several files**, and one is picked at random:
+
+```python
+client.AUDIO.register("client", "tap",
+                      ["tap-1", "tap-2", "tap-3"], volume=0.25)
+```
+
+**Names carry no extension.** A bare name matches whatever format is actually
+there — `tap-1.oga`, `tap-1.wav`, `tap-1.flac` — so whoever puts sounds in
+`.audio` does not have to convert them to whatever the registration guessed.
+Sounds are downloaded rather than authored, and the person downloading them does
+not choose the container. A missing variation is skipped, so two of three taps
+is fine.
+
+An extension that *is* given has to be one this can open; that is a mistake
+rather than a wildcard.
+
+A tap making exactly the same noise a hundred times an hour stops being feedback
+and becomes a tic. Random rather than round-robin — a cycle of three is a
+pattern, and a pattern is what variations exist to avoid. Never the same one
+twice running.
+
+**A key with no file is silent** and says so once. Sounds are content and arrive
+later than the code that plays them, so a key registers whether or not anything
+is behind it — a panel nobody has put sounds into should be quiet, not broken.
+`missing()` lists the keys still waiting.
+
+Playback is on a worker. A timer's alarm repeating for twenty seconds must not
+be twenty seconds of frozen screen, and every caller is on the UI thread. The
+wait between repeats is interruptible, so `stop()` takes effect part way through
+rather than after the current repeat finishes.
+
+Registering a key against a file this cannot open is refused **at registration**,
+not when the timer goes off at six in the morning.
+
 ## `PlayerRegistry` — `self.client.PLAYER`
 
 What is playing, whatever is playing it. Backends register and publish; one is

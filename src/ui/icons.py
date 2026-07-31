@@ -168,6 +168,8 @@ class Icons:
     ACCOUNT_MULTIPLE    = "account-multiple"
     OPEN_IN_NEW     = "open-in-new"
     ALARM_SNOOZE    = "alarm-snooze"
+    VOLUME_OFF      = "volume-off"
+    DO_NOT_DISTURB  = "do-not-disturb"
     SIGNAL          = "signal"
     WIDGETS         = "widgets"
     WIFI_OFF            = "wifi-off"

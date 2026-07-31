@@ -155,3 +155,29 @@ from src.constants import get_data_dir, APP_NAME
 path = get_data_dir(APP_NAME) / "myplugin"
 path.mkdir(parents=True, exist_ok=True)
 ```
+
+## Quiet modes
+
+Two, and they are not the same thing.
+
+| | |
+|---|---|
+| `application.do_not_disturb` | No notifications, no sounds, no speech |
+| `application.mute_sounds` | No sounds and no speech; notifications still appear |
+
+Do not disturb implies silence. Silence does not imply do not disturb — a quiet
+panel that still shows what happened is the common case on a desk.
+
+**Nothing is lost.** A notification held back by do not disturb is still written
+to the history: the point is not to be interrupted, not to forget. A caller can
+pass `urgent=True` to be shown anyway, for anything that genuinely cannot wait.
+
+Both are read from the setting rather than held on the client, so the quick
+settings buttons and the settings page cannot disagree. Turning either on stops
+whatever is currently playing, because silence that starts after the current
+sound finishes is not silence.
+
+The Silence button reads as **on** while do not disturb is holding it — it is
+silent, and a button saying otherwise beside a quiet panel is the button being
+wrong. Pressing it then explains why nothing changed instead of appearing to do
+nothing.

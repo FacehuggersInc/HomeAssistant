@@ -16,6 +16,10 @@ spacy
 # ── STT ───────────────────────────────────────────────────────────────────────
 faster-whisper
 sounddevice
+# Decoding for the audio registry. Required, and NOT pulled in by anything
+# else - pocket-tts lists it, but pip does not necessarily install it as a
+# transitive dependency, and a panel that got this far without it is silent.
+soundfile
 webrtcvad
 numpy
 torch
