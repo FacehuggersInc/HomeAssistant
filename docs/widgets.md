@@ -628,3 +628,26 @@ removed widget's entry survives and the next load restores it.
 `remove()` therefore calls `forget_layout(key)`, which drops that one entry from
 the file directly. Without it, clearing the home page of stickers worked until
 the page was reopened.
+
+## A button on the chrome
+
+A widget with something to configure can put a button on its own selection
+chrome, beside the handles that move and resize it:
+
+```python
+def chrome_button(self):
+    return ("mdi.palette", "Colour", self.pick_colour)
+```
+
+`(icon, tooltip, callable)`, or `None` — which is what the base returns, so most
+widgets have nothing to do. It appears only while the widget is selected, sits
+under the commit tick, and the callable takes no arguments and runs on the UI
+thread.
+
+This is where a setting goes rather than on the face of the widget. A second tap
+target on a sticky note is one you hit while trying to move it, and a widget the
+size of an icon has no room for one at all.
+
+A callable that raises is logged rather than taking the panel down mid-drag.
+
+Tiles use the same shape — see [Tiles](tiles.md).

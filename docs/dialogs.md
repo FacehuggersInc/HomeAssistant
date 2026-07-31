@@ -110,6 +110,19 @@ client.dialog(ConfirmDialog(
     on_confirm=self._remove))
 ```
 
+### `ActionSheet`
+
+`items` are `(label, callback, icon, kind)` — **callback second**. Putting the
+icon there hands a string where a callable belongs, and the sheet fails on it
+rather than where somebody wrote it.
+
+```python
+ActionSheet(client, "Note", [
+    ("Next colour", self.cycle_colour, "mdi.palette"),
+    ("Delete", self.remove, "mdi.delete", "destructive"),
+])
+```
+
 ### `ItemGridDialog`
 
 The one worth knowing about. Anything with more entries than a list can show

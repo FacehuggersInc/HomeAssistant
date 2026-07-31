@@ -424,6 +424,26 @@ def FlaskApp(client):
 		return render_template("webhome.html", bookmarks=marks,
 							   chrome=chrome_css()), 200
 
+	@app.route("/bookmark/forget", methods=["GET", "POST"])
+	def forget_bookmark():
+		"""
+		Remove one, from the browser's own home page.
+
+		Not authed, for the same reason /webhome is not: it is served to the
+		panel's own web view, which has no token. Somebody who can reach that
+		view is standing at the panel.
+		"""
+		url = str(request.values.get("url") or "").strip()
+		if not url:
+			return {"request": "Failed", "reason": "No address."}, 400
+		gone = False
+		try:
+			gone = bool(client.BOOKMARKS.remove(url))
+		except Exception as e:
+			return {"request": "Failed", "reason": str(e)}, 500
+		return {"request": "Forgotten" if gone else "Not found",
+				"url": url}, 200 if gone else 404
+
 	@app.route("/bookmark-icon/<path:name>", methods=["GET"])
 	def bookmark_icon(name):
 		"""
@@ -810,11 +830,6 @@ def FlaskApp(client):
 							"label": endpoint.action, "danger": endpoint.danger})
 
 		actions += [
-			# Quick settings first: it is the one somebody reaches for while
-			# standing away from the panel, which is the whole reason this page
-			# is open on a phone.
-			{"url": "/quick", "label": "Quick settings", "danger": False,
-			 "icon": "tune"},
 			{"url": "/ping", "label": "Ping", "danger": False,
 			 "icon": "check-network"},
 			{"url": "/update/check", "label": "Check for an update",

@@ -1,6 +1,76 @@
 {
  "log": [
   {
+   "at": 1785515921.3575811,
+   "note": "a note or a list can be put up from a phone",
+   "pages": [
+    {
+     "slug": "bundled-plugins",
+     "state": "updated"
+    }
+   ]
+  },
+  {
+   "at": 1785514643.1489098,
+   "note": "the chrome glyph is centred, rotate reads as one, the keyboard has Enter",
+   "pages": [
+    {
+     "slug": "keyboard",
+     "state": "updated"
+    }
+   ]
+  },
+  {
+   "at": 1785514324.5048733,
+   "note": "test",
+   "pages": [
+    {
+     "slug": "bundled-plugins",
+     "state": "updated"
+    }
+   ]
+  },
+  {
+   "at": 1785513473.7933974,
+   "note": "test",
+   "pages": [
+    {
+     "slug": "dialogs",
+     "state": "updated"
+    }
+   ]
+  },
+  {
+   "at": 1785513372.8110588,
+   "note": "the checklist builds and both sheets open",
+   "pages": [
+    {
+     "slug": "dialogs",
+     "state": "updated"
+    }
+   ]
+  },
+  {
+   "at": 1785513033.0506399,
+   "note": "a checklist widget, and look controls on both note types",
+   "pages": [
+    {
+     "slug": "bundled-plugins",
+     "state": "updated"
+    }
+   ]
+  },
+  {
+   "at": 1785512708.5006268,
+   "note": "a widget can add a chrome button; the answer panel is round",
+   "pages": [
+    {
+     "slug": "widgets",
+     "state": "updated"
+    }
+   ]
+  },
+  {
    "at": 1785512064.0500288,
    "note": "say() reports whether a person heard it",
    "pages": [
@@ -927,8 +997,8 @@
    "state": "updated"
   },
   "bundled-plugins": {
-   "at": 1785468467.6215212,
-   "hash": "d4f2427fcce7b162",
+   "at": 1785515921.3571565,
+   "hash": "948e0276692b989b",
    "opened": 0,
    "state": "updated"
   },
@@ -939,8 +1009,8 @@
    "state": "updated"
   },
   "dialogs": {
-   "at": 1785511784.1363747,
-   "hash": "ec1d14c1729de098",
+   "at": 1785513473.7923083,
+   "hash": "97d7a0a39327cb30",
    "opened": 0,
    "state": "updated"
   },
@@ -969,10 +1039,10 @@
    "state": "updated"
   },
   "keyboard": {
-   "at": 1785382006.6659572,
-   "hash": "6d5da9723c212ca3",
-   "opened": 1785383835.5519552,
-   "state": "new"
+   "at": 1785514643.148563,
+   "hash": "dbd43dfd91090263",
+   "opened": 0,
+   "state": "updated"
   },
   "lifecycle": {
    "at": 1785384140.0124342,
@@ -1089,9 +1159,9 @@
    "state": "new"
   },
   "widgets": {
-   "at": 1785446149.7258325,
-   "hash": "afe0ab035376712a",
-   "opened": 1785451144.5735333,
+   "at": 1785512708.5005858,
+   "hash": "17c0a411bd910bcb",
+   "opened": 0,
    "state": "updated"
   },
   "wifi": {

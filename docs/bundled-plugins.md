@@ -294,3 +294,38 @@ this plugin.
 Saving one from the browser toolbar puts a copy on the home page for a few
 seconds. Queued rather than placed immediately — bookmarking happens *on the web
 page*, so the home page is not on screen to receive it.
+
+## Checklist
+
+A title and a list of things to tick off. Tapping a row toggles it; tapping
+anywhere else opens the menu — the rows are the point, and anything that makes a
+tick harder is the widget getting in the way of the list.
+
+Everything happens on the list. A row's box ticks it, the X beside it removes
+it, and the **Add** row at the bottom is the only thing that opens a keyboard —
+tapping a list should not put a wall of text in front of somebody who wanted to
+cross off one thing.
+
+The X is drawn in the paper's own colour darkened. A red one on a yellow note is
+an alarm; this is a quiet way to take a line off a list.
+
+The **chrome button** opens colour and size only: swatches and a stepper rather
+than a menu of "Text 17pt" rows.
+
+Twelve rows are drawn and the rest counted — a list longer than that is one
+somebody scrolls, and a widget is not the place for that.
+
+The sticky note carries the same colour and size controls.
+
+### From a phone
+
+`/public/note_add` and `/public/list_add` put either on the panel without
+walking over to it. Both are in the dashboard drawer.
+
+Colours are shown as colours rather than a dropdown of hex codes, and a list
+form offers any checklist already on the panel — choosing one turns "make a
+list" into "add to it", because five days apart those are the same act.
+
+Placing goes through the framework's own copy path, which names the instance,
+registers it, places it and writes the layout. It runs on the UI thread; these
+requests arrive on a Flask one.

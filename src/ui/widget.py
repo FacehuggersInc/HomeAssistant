@@ -132,6 +132,22 @@ class Widget(QWidget):
         self.raise_()
         return self.z_order
 
+    def chrome_button(self):
+        """
+        One extra button on the selection chrome, or None.
+
+        Returns `(icon_name, tooltip, callable)`. Shown while this widget is
+        selected, beside the handles that move and resize it - so a widget
+        with something to configure has somewhere to put it that is not a
+        second tap target on the face of the widget itself.
+
+            def chrome_button(self):
+                return ("mdi.palette", "Colour", self.pick_colour)
+
+        The callable takes no arguments and runs on the UI thread.
+        """
+        return None
+
     def edge_padding(self):
         """
         How far from the page edge this widget may be dragged.
@@ -1494,6 +1510,17 @@ class WidgetFramework(QWidget):
         commit = origin + QPoint(widget.width(), 0)
         rects["commit"] = QRect(commit.x() - half, commit.y() - half, HANDLE, HANDLE)
 
+        # A widget's own button, under the commit tick.
+        #
+        # Below rather than beside: the top corners belong to rotate and
+        # commit, the bottom to resize, and a widget that offers this is
+        # usually one somebody is about to open a dialog from - which wants to
+        # be near the finger that just selected it.
+        if widget.chrome_button() is not None:
+            spot = origin + QPoint(widget.width(), HANDLE + 8)
+            rects["custom"] = QRect(spot.x() - half, spot.y() - half,
+                                    HANDLE, HANDLE)
+
         if widget.REMOVABLE:
             # Mid-edge, because every corner is already spoken for by a handle
             # that may or may not be present depending on the widget.
@@ -1579,6 +1606,17 @@ class WidgetFramework(QWidget):
         return ""
 
     def _begin_handle(self, handle: str, point: QPoint) -> None:
+        if handle == "custom":
+            entry = self.active.chrome_button() if self.active else None
+            if entry:
+                try:
+                    entry[2]()
+                except Exception as e:
+                    self.client.log("warning",
+                                    f"[Widgets] {self.active.KEY} button "
+                                    f"failed: {e}")
+            return
+
         if handle == "commit":
             self.commit_transform()
             return
@@ -1669,17 +1707,46 @@ class WidgetFramework(QWidget):
                                  centre.x() + arm - 4, centre.y() - arm)
                 painter.drawLine(centre.x() - arm, centre.y() + arm,
                                  centre.x() - arm, centre.y() + arm - 4)
+            elif name == "custom":
+                entry = widget.chrome_button()
+                glyph = entry[0] if entry else ""
+                if glyph:
+                    # Into a rect, not at a point.
+                    #
+                    # QIcon.pixmap() answers in DEVICE pixels, so on a HiDPI
+                    # panel width() is twice the drawn size - and centring by
+                    # half of it put the glyph up and left of its own circle.
+                    # A target rectangle is scaled to fit whatever comes back.
+                    from src.ui.icons import icon as _icon
+                    inset = 7
+                    target = handle_rect.adjusted(inset, inset,
+                                                  -inset, -inset)
+                    painter.drawPixmap(
+                        target, _icon(glyph, color="#ffffff").pixmap(
+                            target.width(), target.height()))
             elif name == "rotate":
-                # An arc with a head on it.
+                # Three quarters of a circle, with the head on the open end.
                 #
-                # A bare 270 degree arc reads as a circle somebody failed to
-                # close. The arrowhead is what says which way this turns, and
-                # it is the difference between a handle and a smudge.
-                painter.drawArc(QRect(centre.x() - arm, centre.y() - arm,
-                                      arm * 2, arm * 2), 30 * 16, 280 * 16)
-                tip = QPoint(centre.x() + arm, centre.y())
-                painter.drawLine(tip, QPoint(tip.x() - 4, tip.y() - 4))
-                painter.drawLine(tip, QPoint(tip.x() - 4, tip.y() + 4))
+                # The previous one swept 280 degrees and put its arrowhead at
+                # a fixed point, which landed mid-arc - a closed ring with a
+                # spike through it. The gap is what makes this read as
+                # turning; the head has to sit where the line stops.
+                span = 260
+                start = 100
+                box = QRect(centre.x() - arm, centre.y() - arm,
+                            arm * 2, arm * 2)
+                painter.drawArc(box, start * 16, span * 16)
+
+                # Where the arc ends, and which way it is going there.
+                end = math.radians(start + span)
+                tip = QPoint(int(centre.x() + arm * math.cos(end)),
+                             int(centre.y() - arm * math.sin(end)))
+                for offset in (150, 210):
+                    angle = math.radians(start + span + offset)
+                    painter.drawLine(
+                        tip,
+                        QPoint(int(tip.x() + 5 * math.cos(angle)),
+                               int(tip.y() - 5 * math.sin(angle))))
             elif name == "offset":
                 # A four-way move arrow.
                 painter.drawLine(centre.x() - arm, centre.y(), centre.x() + arm, centre.y())

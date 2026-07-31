@@ -2069,14 +2069,38 @@ class Client:
                numeric: bool = False, password: bool = False,
                allow_empty: bool = False, detail: str = None) -> None:
         def _build():
-            from src.ui.dialogs import InputDialog
-            self.DIALOG.open(InputDialog(
-                self, title, body, on_submit=on_submit, on_cancel=on_cancel,
-                default=default, placeholder=placeholder,
-                submit_text=submit_text, cancel_text=cancel_text,
-                numeric=numeric, password=password,
-                allow_empty=allow_empty, detail=detail,
-            ))
+            # Straight to the keyboard.
+            #
+            # InputDialog is a field whose only behaviour is opening one, so
+            # asking for a password meant a dialog, a tap, a keyboard, and a
+            # Done on each - four steps to type one word. The field was never
+            # the point; the keyboard is.
+            from PyQt6.QtWidgets import QLineEdit
+            from src.ui.keyboard import KeyboardDialog
+
+            field = QLineEdit(default)
+            if placeholder:
+                field.setPlaceholderText(placeholder)
+            if password:
+                field.setEchoMode(QLineEdit.EchoMode.Password)
+
+            # KeyboardDialog hands the committed text over. Reading the field
+            # instead worked by accident when it happened to be written back,
+            # and not at all when it was not.
+            def done(text: str = "") -> None:
+                value = str(text if text is not None else "")
+                if not value.strip() and not allow_empty:
+                    if on_cancel:
+                        on_cancel()
+                    return
+                if on_submit:
+                    on_submit(value)
+
+            self.DIALOG.open(KeyboardDialog(
+                self, field,
+                mode="numeric" if numeric else "text",
+                label=title, description=detail or body,
+                on_done=done))
         self.call_on_ui(_build)
 
     def choose(self, title: str, body: str = "", options: list = None,

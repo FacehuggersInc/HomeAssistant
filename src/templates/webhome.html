@@ -12,17 +12,20 @@
 <style>
 {{ chrome|safe }}
  :root{color-scheme:dark}
- body{display:flex;flex-direction:column;min-height:100vh;
-      padding:56px 40px 40px;box-sizing:border-box;gap:0}
+ body{display:flex;flex-direction:column;align-items:center;
+      justify-content:center;min-height:100vh;padding:48px 32px;
+      box-sizing:border-box}
+ .inner{width:100%;max-width:860px}
 
  /* The clock is the anchor, not a decoration. Aligned left with everything
     else rather than centred, so the eye has one column to travel down. */
- .head{display:flex;align-items:baseline;gap:16px;margin:0 0 28px}
+ .head{display:flex;align-items:baseline;justify-content:center;gap:16px;
+        margin:0 0 30px}
  .clock{font-size:56px;font-weight:250;letter-spacing:-1.5px;line-height:1;
         margin:0}
  .date{color:var(--muted);font-size:15px;margin:0}
 
- .search{position:relative;margin:0 0 40px;max-width:720px}
+ .search{position:relative;margin:0 auto 40px;max-width:640px}
  .search input{width:100%;box-sizing:border-box;min-height:56px;
    padding:0 20px 0 52px;font-size:17px;border-radius:12px;
    border:1px solid var(--line);background:var(--card);color:var(--text);
@@ -33,11 +36,15 @@
    width:20px;height:20px;color:var(--muted);pointer-events:none}
 
  h2{font-size:12px;font-weight:700;text-transform:uppercase;
-    letter-spacing:.08em;color:var(--muted);margin:0 0 14px}
+    letter-spacing:.08em;color:var(--muted);margin:0 0 14px;
+    text-align:center}
 
+ /* Wider than they were: a bookmark's title is the whole of knowing what it
+    is, and 150px cut most of them off. */
  .grid{display:grid;gap:10px;
-       grid-template-columns:repeat(auto-fill,minmax(150px,1fr))}
- .mark{display:flex;align-items:center;gap:12px;padding:14px;
+       grid-template-columns:repeat(auto-fill,minmax(240px,1fr))}
+ .mark{position:relative;display:flex;align-items:center;gap:12px;
+       padding:14px 40px 14px 14px;
        border:1px solid var(--line);border-radius:12px;background:var(--card);
        text-decoration:none;color:var(--text);min-height:64px}
  .mark:hover{border-color:var(--accent);text-decoration:none}
@@ -58,6 +65,7 @@
 </style>
 </head>
 <body>
+<div class="inner">
 
 <div class="head">
   <p class="clock" id="clock">&nbsp;</p>
@@ -76,14 +84,20 @@
 <h2>{{ bookmarks|length }} saved</h2>
 <div class="grid">
   {% for mark in bookmarks %}
-  <a class="mark" href="{{ mark.url }}" title="{{ mark.url }}">
-    {% if mark.icon %}
-      <img src="/bookmark-icon/{{ mark.icon }}" alt="">
-    {% else %}
-      <span class="letter">{{ mark.initial }}</span>
-    {% endif %}
-    <span class="name">{{ mark.label }}</span>
-  </a>
+  <div class="mark">
+    <a href="{{ mark.url }}" title="{{ mark.url }}"
+       style="display:flex;align-items:center;gap:12px;flex:1;min-width:0;
+              color:inherit;text-decoration:none">
+      {% if mark.icon %}
+        <img src="/bookmark-icon/{{ mark.icon }}" alt="">
+      {% else %}
+        <span class="letter">{{ mark.initial }}</span>
+      {% endif %}
+      <span class="name">{{ mark.label }}</span>
+    </a>
+    <button class="drop" data-url="{{ mark.url }}"
+            title="Forget this bookmark">&times;</button>
+  </div>
   {% endfor %}
 </div>
 {% else %}
@@ -92,7 +106,20 @@
   to keep it here.</p>
 {% endif %}
 
+</div>
 <script>
+// Forgetting one, from the page it is on.
+Array.prototype.forEach.call(document.querySelectorAll('.drop'),
+  function (button) {
+    button.addEventListener('click', function (e) {
+      e.preventDefault();
+      fetch('/bookmark/forget?url=' +
+            encodeURIComponent(button.getAttribute('data-url')))
+        .then(function () { window.location.reload(); })
+        .catch(function () { window.location.reload(); });
+    });
+  });
+
 // Drawn here rather than rendered in: this is served once and then sits on
 // screen, so a clock baked in at request time is wrong a minute later.
 function tick() {

@@ -51,10 +51,11 @@ NUMPAD_ROWS = [
 GLYPHS = {
     "shift": "⇧", "backspace": "⌫", "space": "space",
     "symbols": "?123", "letters": "ABC", "negate": "±", "clear": "clear",
+    "enter": "⏎",
 }
 
 WIDE = {"space": 5.0, "shift": 1.6, "backspace": 1.6,
-        "symbols": 1.6, "letters": 1.6, "clear": 1.6}
+        "symbols": 1.6, "letters": 1.6, "clear": 1.6, "enter": 1.6}
 
 
 class _Key(QPushButton):
@@ -128,7 +129,8 @@ class _Key(QPushButton):
     def _style_for(action: str) -> str:
         if action in ("space",):
             return "key-space"
-        if action in ("shift", "backspace", "symbols", "letters", "clear", "negate"):
+        if action in ("shift", "backspace", "symbols", "letters", "clear",
+                      "negate", "enter"):
             return "key-modifier"
         return "key-button"
 
@@ -293,6 +295,7 @@ class KeyboardDialog(BaseDialog):
 
         self._build_keys()
 
+        self.add_button("Clear", lambda: self._press("clear"), "secondary")
         self.add_button("Paste", self._paste, "secondary")
         self.add_button("Cancel", self.close, "secondary")
         self.add_button("Done", self._done, "primary")
@@ -422,10 +425,15 @@ class KeyboardDialog(BaseDialog):
         self.keys_host.setFixedWidth(self._grid_width())
 
     def _bottom_row_keys(self) -> list:
+        # Enter where Clear used to be.
+        #
+        # A body field with no way to start a line is a field somebody has to
+        # write one paragraph in; Clear is a thing done once and belongs with
+        # the other decisions, at the bottom of the dialog.
         if self.mode == "numeric":
-            return [".", "negate", "clear"]
+            return [".", "negate", "backspace"]
         return ["symbols" if self._layer == "letters" else "letters",
-                ",", "space", ".", "clear"]
+                ",", "space", ".", "enter"]
 
     def _bottom_row(self) -> QHBoxLayout:
         row = QHBoxLayout()
@@ -538,6 +546,12 @@ class KeyboardDialog(BaseDialog):
             self.set_caret(at - 1)
         elif action == "space":
             self._insert(" ")
+        elif action == "enter":
+            # A newline in a body, and nothing in a single line: a field that
+            # holds one line has no use for one, and inserting it there would
+            # be a character somebody cannot see.
+            if self.mode == "body":
+                self._insert("\n")
         elif action == "clear":
             self.preview.setText("")
             self.set_caret(0)
@@ -631,6 +645,17 @@ def make_keyboard(client: "Client", target, setting_type: str,
                   parent: QWidget = None, label: str = "",
                   description: str = "") -> KeyboardDialog:
     numeric_types = {"int", "float", "numeric", "list[int]", "list[float]"}
-    mode = "numeric" if setting_type in numeric_types else "text"
+    # "body" passes straight through.
+    #
+    # This mapped every non-numeric type to "text", so a caller asking for a
+    # multi-line editor got a single-line one - which is why Enter did
+    # nothing on a sticky note: the key checks the mode, and the mode was
+    # never what the caller asked for.
+    if setting_type == "body":
+        mode = "body"
+    elif setting_type in numeric_types:
+        mode = "numeric"
+    else:
+        mode = "text"
     return KeyboardDialog(client, target, mode=mode,
                           label=label, description=description)

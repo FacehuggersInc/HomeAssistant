@@ -41,6 +41,7 @@ class StickyNote(Widget):
         self.set_content_size(220, 200)
         self.text = text or "Tap to edit"
         self.colour = COLOURS[0]
+        self.font_size = self.FONT_SIZES[1]
         # No WA_TranslucentBackground. That attribute is for top-level windows;
         # on a child widget it stops the background being cleared between
         # paints, so repeatedly resizing left the previous frames behind as
@@ -78,6 +79,41 @@ class StickyNote(Widget):
             node = node.parent()
         return node
 
+    #Point sizes, not a scale factor. A note somebody wrote two words on wants
+    #big text; a list of six wants small, and "medium" means nothing without
+    #knowing the widget size.
+    FONT_SIZES = (13, 17, 22, 28)
+
+    def chrome_button(self):
+        return ("mdi.palette-outline", "Look", self.open_style)
+
+    def open_style(self) -> None:
+        """Swatches and a stepper, not a list of rows to read."""
+        from src.ui.dialogs_look import LookDialog
+
+        self.client.dialog(LookDialog(
+            self.client, "Note", COLOURS, self.colour,
+            self.font_size, self.FONT_SIZES,
+            on_colour=self.set_colour, on_size=self.set_font_size))
+
+    def set_colour(self, colour: str) -> None:
+        self.colour = str(colour)
+        self.update()
+        self._save()
+
+    def set_font_size(self, size: int) -> None:
+        self.font_size = int(size)
+        self.update()
+        self._save()
+
+    def _save(self) -> None:
+        try:
+            framework = self.parent()
+            if framework is not None and hasattr(framework, "save_layout"):
+                framework.save_layout()
+        except Exception:
+            pass
+
     def cycle_colour(self) -> None:
         index = (COLOURS.index(self.colour) + 1) % len(COLOURS) if self.colour in COLOURS else 0
         self.colour = COLOURS[index]
@@ -89,6 +125,7 @@ class StickyNote(Widget):
         state = super().layout_state()
         state["text"] = self.text
         state["colour"] = self.colour
+        state["font_size"] = self.font_size
         return state
 
     def apply_layout_state(self, state: dict) -> None:
@@ -96,6 +133,10 @@ class StickyNote(Widget):
         if isinstance(state, dict):
             self.text = str(state.get("text", self.text))
             self.colour = str(state.get("colour", self.colour))
+            try:
+                self.font_size = int(state.get("font_size", self.font_size))
+            except (TypeError, ValueError):
+                pass
 
     ## PAINT
 
@@ -131,7 +172,7 @@ class StickyNote(Widget):
         )
 
         painter.setPen(QPen(QColor("#2a2a2a")))
-        painter.setFont(make_font(SIZES.S2))
+        painter.setFont(make_font(self.font_size))
         text_rect = body.adjusted(12, 10, -12, -10).toRect()
         painter.drawText(
             text_rect,

@@ -12,8 +12,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QSizePolicy
-from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QPainter, QColor, QBrush, QLinearGradient
+from PyQt6.QtCore import Qt, QRectF
+from PyQt6.QtGui import QPainter, QColor, QBrush, QLinearGradient, QPainterPath
 
 from src.ui.overlays import Panel
 from src.ui.icons import icon
@@ -152,11 +152,24 @@ class AnswerPanel(Panel):
     def paintEvent(self, event) -> None:
         super().paintEvent(event)
         painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
         gradient = QLinearGradient(0, 0, 0, self.height())
         gradient.setColorAt(0.0, QColor(self.tint.red(), self.tint.green(),
                                         self.tint.blue(), 104))
         gradient.setColorAt(1.0, QColor(0, 0, 0, 45))
-        painter.fillRect(self.rect(), QBrush(gradient))
+
+        # Into the rounded shape, not the rectangle.
+        #
+        # fillRect() paints the corners the stylesheet had rounded off, so the
+        # panel had square edges with a rounded outline underneath doing
+        # nothing. The radius matches the one in the sheet.
+        # The panel's own radius, not a second copy of the number: Panel takes
+        # it as an argument, so reading it back is the only way the two cannot
+        # drift apart.
+        radius = float(getattr(self, "_border_radius", 8) or 0)
+        path = QPainterPath()
+        path.addRoundedRect(QRectF(self.rect()), radius, radius)
+        painter.fillPath(path, QBrush(gradient))
         painter.end()
 
     def mousePressEvent(self, event) -> None:

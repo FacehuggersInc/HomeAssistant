@@ -51,3 +51,12 @@ Pass `client` and `setting_type` in explicitly. The setting object carries
 neither, so reading them off it raises `AttributeError` - and inside a bare
 `except Exception: pass` that surfaces as a keyboard that simply never
 opens.
+
+## Enter and Clear
+
+The bottom row ends with **Enter**, which inserts a newline in a `body` field and
+nothing in a single-line one — a field holding one line has no use for one, and
+it would be a character nobody can see.
+
+**Clear** sits with Paste, Cancel and Done. It is done once and belongs with the
+other decisions, not among the keys somebody is typing with.

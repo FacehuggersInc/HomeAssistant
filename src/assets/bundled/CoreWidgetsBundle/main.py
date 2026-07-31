@@ -8,6 +8,7 @@ from src.plugin.carryover import PluginCarryover
 from .widgets.cycling_background import CyclingBackground
 from .widgets.datetime import DateTimeWidget
 from .widgets.bookmark import BookmarkWidget
+from .widgets.checklist import ChecklistWidget
 from .widgets.sticker import StickerWidget
 from .widgets.weather import WeatherWidget
 from .widgets.configuration_bar import ConfigurationBar
@@ -107,6 +108,16 @@ class CoreWidgetsBundle(Plugin):
             False
         )
 
+        self.client.API.register(
+            "corewidgetsbundle", "note_add", self.api_note_add,
+            requires_auth=True,
+            gui="Sticky note", icon="message-text",
+            description="Put a note on the panel from anywhere.")
+        self.client.API.register(
+            "corewidgetsbundle", "list_add", self.api_list_add,
+            requires_auth=True,
+            gui="Checklist", icon="check-network",
+            description="Start a list, or add to one that is already up.")
         self.client.API.register(
             "corewidgetsbundle", "timer_start", self.api_timer_start,
             requires_auth=True,
@@ -434,6 +445,124 @@ class CoreWidgetsBundle(Plugin):
             "delete_after": delete_after,
         })
         return page, 200, {"Content-Type": "text/html; charset=utf-8"}
+
+    ## -- notes and lists, from anywhere
+
+    def _place(self, template_key: str, state: dict):
+        """
+        Put a widget on the home page and save it there.
+
+        Through the framework's own copy path rather than building one here:
+        that is what names the instance, registers it, places it and writes
+        the layout, and a second way of doing it would be a second way to get
+        it wrong.
+        """
+        sub_home = self._sub_home()
+        if sub_home is None or not sub_home.has_feature("widget_framework"):
+            return None
+        framework = sub_home.features().widget_framework
+
+        widget = framework._make_copy(template_key, state=state)
+        if widget is not None:
+            framework.save_layout()
+        return widget
+
+    def _lists(self) -> list:
+        """Every checklist on the home page, newest last."""
+        sub_home = self._sub_home()
+        if sub_home is None or not sub_home.has_feature("widget_framework"):
+            return []
+        framework = sub_home.features().widget_framework
+        return [(key, widget)
+                for key, widget in list(framework.registry.items())
+                if getattr(widget, "template_key", "") == "checklist"
+                or key == "checklist" or key.startswith("checklist-")]
+
+    def api_note_add(self, text: str = None, colour: str = "",
+                     **_ignored):
+        """
+        A sticky note, from a phone.
+
+        GET  -> the form
+        POST -> writes the note and puts it on the panel
+        """
+        render_page = self.sibling("api.note_page").render_page
+        token = self._request_token()
+        message, bad = "", False
+
+        typed = text is not None
+        text = str(text or "").strip()
+        colour = str(colour or "").strip()
+
+        if text:
+            state = {"text": text}
+            if colour:
+                state["colour"] = colour
+
+            # The UI thread answers on its own schedule, so this reports what
+            # was asked rather than pretending to know it landed.
+            self.client.call_on_ui(lambda: self._place("sticky-note", state))
+            message = f"\u201c{text[:40]}\u201d is on the panel."
+        elif typed:
+            message, bad = "Type something first.", True
+
+        from .widgets.sticky_note import COLOURS
+        return render_page(token, colours=COLOURS, message=message, bad=bad,
+                           kind="note")
+
+    def api_list_add(self, title: str = None, text: str = "",
+                     colour: str = "", target: str = "", **_ignored):
+        """
+        A checklist: a new one, or lines added to one that exists.
+
+        Editing an existing list is the same form with its key chosen, because
+        "make me a shopping list" and "add bread to the shopping list" are the
+        same act five days apart.
+        """
+        render_page = self.sibling("api.note_page").render_page
+        token = self._request_token()
+        message, bad = "", False
+
+        named = title is not None
+        title = str(title or "").strip()
+        body = str(text or "").strip()
+        colour = str(colour or "").strip()
+        target = str(target or "").strip()
+
+        existing = self._lists()
+
+        if body or (title and not target):
+            items = [{"text": line.strip()[:120], "done": False}
+                     for line in body.splitlines() if line.strip()]
+
+            if target:
+                # Added to the one chosen, not a second list with the same
+                # name - which is what somebody means by "add to the list".
+                widget = dict(existing).get(target)
+                if widget is None:
+                    message, bad = "That list is not on the panel.", True
+                else:
+                    def extend(w=widget, new=items):
+                        w.items.extend(new)
+                        w.update()
+                        w._save()
+                    self.client.call_on_ui(extend)
+                    message = (f"{len(items)} line(s) added to "
+                               f"\u201c{widget.title}\u201d.")
+            else:
+                state = {"title": title or "Checklist", "items": items}
+                if colour:
+                    state["colour"] = colour
+                self.client.call_on_ui(
+                    lambda: self._place("checklist", state))
+                message = (f"\u201c{state['title']}\u201d is on the panel.")
+        elif named:
+            message, bad = "Give it a name, or some lines.", True
+
+        from .widgets.checklist import COLOURS
+        return render_page(
+            token, colours=COLOURS, message=message, bad=bad, kind="list",
+            lists=[(key, getattr(w, "title", key)) for key, w in existing])
 
     def _clear_placed_stickers(self) -> int:
         """
@@ -918,6 +1047,8 @@ class CoreWidgetsBundle(Plugin):
         # with one bookmark on it is not what anybody wants a bookmark widget
         # for.
         register(BookmarkWidget)
+        # A list to tick off - the most-used thing on a kitchen wall.
+        register(ChecklistWidget)
 
         # A star pressed in the browser toolbar puts one on the home
         # page briefly - see _on_web_event.
