@@ -4,7 +4,7 @@ from PyQt6.QtWidgets import (
     QPushButton, QToolButton, QMenu, QSizePolicy, QWidget, QHBoxLayout,
 )
 from PyQt6.QtCore import Qt, QSize
-from PyQt6.QtGui import QIcon
+from PyQt6.QtGui import QIcon, QFontMetrics
 
 from src.styling import STYLES, SIZES, make_font, add_text_shadow, set_style
 from src.ui.icons import icon as resolve_to_icon, resolve as resolve_name
@@ -208,9 +208,12 @@ class ActionButton(QPushButton):
 
     HEIGHT = 40
     ICON = 18
-    #Wide enough that "Join" and "Disconnect" in the same row line up. Below
-    #this a short label makes a stub of a button beside a long one.
+    #A FLOOR, not a width. Below this a short label makes a stub of a button
+    #beside a long one, so "Join" is padded out to match "Disconnect".
     MIN_WIDTH = 118
+    #What the label needs beyond itself: the glyph, the gap after it, and the
+    #padding the stylesheet puts either side.
+    PADDING = 26
     KINDS = ("primary", "secondary", "destructive", "quiet")
 
     def __init__(self, icon, label: str, func=None,
@@ -223,8 +226,22 @@ class ActionButton(QPushButton):
         self._label = str(label or "")
 
         self.setFixedHeight(int(size or self.HEIGHT))
-        self.setMinimumWidth(int(self.MIN_WIDTH if min_width is None
-                                 else min_width))
+        glyph = int(icon_size or self.ICON)
+        # Measured, not assumed.
+        #
+        # 118 was a floor that most labels overflow - "Copy Key" needs 167 and
+        # "Save and Return" 254 - and a QPushButton squeezed below its text
+        # clips rather than shrinking the text. The floor still applies, so a
+        # row of short labels lines up; a long one simply asks for what it
+        # needs.
+        wanted = self.MIN_WIDTH
+        if label:
+            metrics = QFontMetrics(make_font(SIZES.S1, bold=True))
+            wanted = max(wanted,
+                         glyph + self.PADDING
+                         + metrics.horizontalAdvance(f" {label}"))
+        self.setMinimumWidth(int(wanted if min_width is None
+                                 else max(wanted, min_width)))
         # Fixed vertically, or a button in a card with spare height stretches
         # into a slab; Preferred across, so a long label still fits.
         self.setSizePolicy(QSizePolicy.Policy.Preferred,
@@ -234,7 +251,6 @@ class ActionButton(QPushButton):
         self.setFont(make_font(SIZES.S1, bold=True))
         # Scales with the button. A taller button with a bigger label and an
         # 18px glyph beside it reads as a small icon that was forgotten about.
-        glyph = int(icon_size or self.ICON)
         self.setIconSize(QSize(glyph, glyph))
         self.setText(f" {self._label}" if self._label else "")
         self._apply()
@@ -289,8 +305,23 @@ def action_column(*buttons, slots: int = 2, spacing: int = 8) -> QWidget:
     row.setSpacing(spacing)
 
     given = [b for b in buttons if b is not None]
-    width = (ActionButton.MIN_WIDTH * slots) + (spacing * max(0, slots - 1))
-    tray.setFixedWidth(width)
+
+    # The slot width is a FLOOR, not the answer.
+    #
+    # Fixing the tray at MIN_WIDTH * slots and putting wider buttons in it
+    # squeezes them below their own text, and a QPushButton too narrow for its
+    # label clips rather than shrinking the text - which is why "Save and
+    # Return" arrived as "Save and Retu".
+    #
+    # Rows in one list usually carry the same labels, so they still line up.
+    # One that genuinely needs more gets more, because a row that is readable
+    # and slightly out of line beats a tidy column of cut-off words.
+    floor = (ActionButton.MIN_WIDTH * slots) + (spacing * max(0, slots - 1))
+    needed = 0
+    if given:
+        needed = (sum(b.minimumWidth() for b in given)
+                  + spacing * (len(given) - 1))
+    tray.setFixedWidth(max(floor, needed))
     tray.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Preferred)
 
     # Padded on the left, so what is present stays hard against the right edge.

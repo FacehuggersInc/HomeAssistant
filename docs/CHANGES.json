@@ -1,6 +1,26 @@
 {
  "log": [
   {
+   "at": 1785469632.7744045,
+   "note": "plugin submodules import upward absolutely, not relatively",
+   "pages": [
+    {
+     "slug": "plugins",
+     "state": "updated"
+    }
+   ]
+  },
+  {
+   "at": 1785469245.8729725,
+   "note": "action buttons size to their label rather than to a floor",
+   "pages": [
+    {
+     "slug": "styling",
+     "state": "updated"
+    }
+   ]
+  },
+  {
    "at": 1785468467.6221113,
    "note": "the feeds plugin is renamed so no ignore rule swallows it",
    "pages": [
@@ -865,8 +885,8 @@
    "state": "updated"
   },
   "plugins": {
-   "at": 1785468467.6218233,
-   "hash": "4ded177eaaa0e7cb",
+   "at": 1785469632.774195,
+   "hash": "883e5f2ae9554508",
    "opened": 0,
    "state": "updated"
   },
@@ -895,9 +915,9 @@
    "state": "updated"
   },
   "styling": {
-   "at": 1785384140.0125961,
-   "hash": "4f7fa2148f663b42",
-   "opened": 1785451144.614666,
+   "at": 1785469245.8728275,
+   "hash": "971e4e7f29a7d559",
+   "opened": 0,
    "state": "updated"
   },
   "threading": {

@@ -630,6 +630,24 @@ not, the failure arrives as `No module named 'YourPlugin.api.thing'` from inside
 an endpoint — long after the plugin loaded perfectly, and only when somebody
 presses the button.
 
+### One dot, not two
+
+Inside a plugin's own submodules:
+
+```python
+from .helper import thing                              # fine
+from src.assets.bundled.YourPlugin.timers import clock  # fine
+from ..timers import clock                             # NOT fine
+```
+
+`..` needs the module to have a package to be relative to, and it does not when
+the module is loaded by path — which is how `sibling()` loads it. The outer
+import then succeeds and the inner one fails from inside the function, which is
+a worse place to find out than the endpoint.
+
+The absolute form is the same route `src.webui` already takes, which is why that
+one always worked in the same file.
+
 `sibling()` asks the filesystem, which is a question with one answer. The module
 is cached, so two calls hand back the same object, and a name that is not there
 raises an `ImportError` naming the path it looked at.

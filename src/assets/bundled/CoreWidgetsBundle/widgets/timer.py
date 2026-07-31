@@ -6,6 +6,9 @@ from PyQt6.QtCore import Qt, QRectF
 from PyQt6.QtGui import QPainter, QColor, QPen, QBrush, QPainterPath, QFontMetrics
 
 from src.ui.widget import Widget
+from src.assets.bundled.CoreWidgetsBundle.timers import (
+    clock, describe,
+)
 from src.styling import make_font, SIZES
 
 if TYPE_CHECKING:
@@ -150,7 +153,6 @@ class TimerWidget(Widget):
 
     def _paint_text(self, painter: QPainter, w: float, h: float,
                     done: bool) -> None:
-        from ..timers import clock
 
         name = self.timer.name          # no title unless one was given
         face = "Done" if done else clock(self.timer.remaining())
@@ -189,7 +191,6 @@ class TimerWidget(Widget):
 
     def _render_state(self):
         """What is actually visible: the face, and the fill level in pixels."""
-        from ..timers import clock
         done = self.timer.done
         face = "Done" if done else clock(self.timer.remaining())
         _, content_h = self.content_size()
@@ -219,7 +220,6 @@ class TimerWidget(Widget):
 
     def on_activate(self) -> None:
         """A tap that was not a drag: say how long is left."""
-        from ..timers import describe
         if self.timer.done:
             self.client.simple_notify("mdi.timer-outline", self.timer.label(),
                                       "Finished.")

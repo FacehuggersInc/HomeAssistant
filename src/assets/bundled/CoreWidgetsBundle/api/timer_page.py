@@ -10,6 +10,14 @@ that button should have been.
 from __future__ import annotations
 
 from src.webui import escape, back_button, chrome_css
+# Absolute, like src.webui above.
+#
+# `from ..timers import clock` needs this module to have a package, and it does
+# not when it is loaded by path - which is how a plugin loads its own pages.
+# The relative form worked while the import machinery happened to line up and
+# failed from inside render_page() when it did not, which is a worse place to
+# find out.
+from src.assets.bundled.CoreWidgetsBundle.timers import clock
 
 QUADRANTS = [
     ("", "Wherever there is room"),
@@ -119,13 +127,6 @@ __MESSAGE__
 
 def render_page(token: str, running: list, message: str = "", bad: bool = False,
                 form: dict = None) -> str:
-    # Imported here rather than at module scope: the page is also rendered by
-    # tests that load it on its own, where a package-relative import has no
-    # package to be relative to.
-    try:
-        from ..timers import clock
-    except ImportError:
-        from timers import clock
 
     form = form or {}
     presets = "".join(

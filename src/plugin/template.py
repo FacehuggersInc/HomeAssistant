@@ -54,7 +54,32 @@ class Plugin:
 		spec = _util.spec_from_file_location(key, target)
 		module = _util.module_from_spec(spec)
 		_sys.modules[key] = module
-		spec.loader.exec_module(module)
+
+		# The plugin's folder is importable while this runs.
+		#
+		# A page loaded this way often reaches back for something beside it -
+		# `from ..timers import clock` in a module with no package to be
+		# relative to. Loading by path solved the outer import and broke the
+		# inner one, which is a worse failure than the one it replaced: it
+		# arrives from inside the page rather than from the endpoint.
+		#
+		# Put back afterwards, so a plugin folder does not sit on sys.path for
+		# the life of the process shadowing anything with the same name.
+		root = str(here)
+		added = root not in _sys.path
+		if added:
+			_sys.path.insert(0, root)
+		try:
+			spec.loader.exec_module(module)
+		except Exception:
+			_sys.modules.pop(key, None)
+			raise
+		finally:
+			if added:
+				try:
+					_sys.path.remove(root)
+				except ValueError:
+					pass
 		return module
 
 	def verify_siblings(self) -> list:

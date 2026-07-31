@@ -193,3 +193,19 @@ For a child widget that should let what is behind it show through, use
 `WA_NoSystemBackground`. `WA_TranslucentBackground` is a top-level window
 attribute; on a child it stops the background being cleared between paints and
 leaves earlier frames smeared behind the current one.
+
+## Action buttons
+
+`ActionButton` sizes itself to its label. `MIN_WIDTH` is a **floor**, not a
+width: it pads "Join" out so a short label does not make a stub of a button
+beside a long one, and anything needing more asks for more.
+
+That distinction matters because a `QPushButton` squeezed below its text
+**clips** rather than shrinking the text. Treating the floor as the width showed
+"Save and Retu" on the plugin pages.
+
+`action_column()` follows the same rule. Its tray is at least `slots` buttons
+wide so right edges line up down a list, and wider when what it holds needs it.
+Rows in one list usually carry the same labels and still line up; a row that
+genuinely needs more gets more, because a readable row slightly out of line
+beats a tidy column of cut-off words.
