@@ -97,6 +97,21 @@ does not push the rest of the page away.
 }
 ```
 
+### Depending on another plugin
+
+```toml
+[plugin]
+dependencies = ["corewidgetsbundle"]
+```
+
+Declare one for anything you reach through `client.public` or
+`client.API.get()` that another plugin provides. Guarding each use with
+`public.has(...)` is still right — the dependency is what makes the load order
+correct, so your code works on the first launch rather than after a reload.
+
+Core Skills depends on Core Widgets for exactly this reason: timers and the
+weather API.
+
 ### Files an update should not replace
 
 ```toml

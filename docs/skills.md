@@ -414,3 +414,24 @@ does not match `good morning`.
 
 Listing a phrase both ways in `examples` is still worth doing — this is the
 safety net, not the plan.
+
+## A skill runs on a worker
+
+Handlers are called from the assistant's thread, not the UI one. Anything
+reaching Qt has to be handed over:
+
+```python
+def go_to_page(self, page_name: str = ""):
+    ...
+    self.client.call_on_ui(
+        lambda target=best: self.client.goto(target, override=True))
+```
+
+`goto()` rebuilds a page and a plugin's own navigation fades the backlight —
+both Qt work. Calling them inline produces `Timers cannot be stopped from
+another thread`, `Cannot set parent, new parent is in a different thread`, and
+a page torn down underneath its own widgets.
+
+This is checked: a method registered as a skill's `func` may not call
+`client.goto`, `dialog`, `apply_settings` or the quiet-mode setters directly. A
+nested function passed to `call_on_ui` by name counts as marshalled.

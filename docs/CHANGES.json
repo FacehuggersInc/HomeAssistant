@@ -1,6 +1,20 @@
 {
  "log": [
   {
+   "at": 1785472594.398015,
+   "note": "two doc sections that were reported written but were not",
+   "pages": [
+    {
+     "slug": "plugins",
+     "state": "updated"
+    },
+    {
+     "slug": "skills",
+     "state": "updated"
+    }
+   ]
+  },
+  {
    "at": 1785472131.306381,
    "note": "a docs audit, and Core Skills declares its dependency",
    "pages": [
@@ -929,8 +943,8 @@
    "state": "updated"
   },
   "plugins": {
-   "at": 1785471675.5656245,
-   "hash": "0424ea3c8c4debcb",
+   "at": 1785472594.3974702,
+   "hash": "e6331ae06b1a65eb",
    "opened": 0,
    "state": "updated"
   },
@@ -953,8 +967,8 @@
    "state": "updated"
   },
   "skills": {
-   "at": 1785472131.3060446,
-   "hash": "eae2dde28a7a8260",
+   "at": 1785472594.397671,
+   "hash": "414a95a299d10392",
    "opened": 0,
    "state": "updated"
   },
