@@ -125,7 +125,7 @@ declares a dependency and builds on another plugin rather than the client.
 
 Add a feed either by calling `add_rss_feed(plugin_key, url, transformer)`, or
 by dropping a JSON file of `{"url": ..., "transformer": ...}` into an
-`RSSFeeds/` folder in the working directory.
+`feeds/` folder in the working directory.
 
 The `transformer` maps a feed's own shape onto
 `{"title": ..., "items": [{"id", "title", "published", "summary", "author"}]}`.
@@ -141,7 +141,7 @@ Feeds are shown as idle panels through `idletriggers`.
 and removing them from a phone. A name and an address; the name is only used
 for the filename, and the feed's own title is what appears on the panel.
 
-Feeds are stored one per file in the `RSSFeeds` folder as `{"url": "..."}`,
+Feeds are stored one per file in the `feeds` folder as `{"url": "..."}`,
 which is the whole format. A transformer is inferred on first use and does not
 belong in a file somebody typed by hand. The folder is registered as an
 uploadable asset, so the files are reachable the same way stickers are.

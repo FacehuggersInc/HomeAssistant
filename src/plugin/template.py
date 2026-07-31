@@ -40,8 +40,10 @@ class Plugin:
 		parts = str(dotted or "").split(".")
 		target = here.joinpath(*parts).with_suffix(".py")
 		if not target.is_file():
-			raise ImportError(f"{type(self).__name__} has no {dotted} "
-							  f"({target})")
+			raise ImportError(
+				f"{type(self).__name__} has no {dotted}: {target} is not on "
+				f"this install. The file ships with the plugin, so it is "
+				f"missing rather than optional - re-extract or re-pull.")
 
 		# Cached under a name of its own, so two calls hand back one module
 		# and anything it holds at module level survives between them.
@@ -54,6 +56,41 @@ class Plugin:
 		_sys.modules[key] = module
 		spec.loader.exec_module(module)
 		return module
+
+	def verify_siblings(self) -> list:
+		"""
+		Every file this plugin loads with sibling(), checked once at load.
+
+		Read out of its own source rather than from a list somebody maintains,
+		because a list somebody maintains is a list that goes stale.
+
+		The point is timing. A missing file is otherwise a 500 the first time
+		somebody presses the button that needs it - which may be weeks after
+		the install that dropped it, and looks like the button being broken
+		rather than the install being incomplete.
+		"""
+		import re as _re
+		import sys as _sys
+		from pathlib import Path
+
+		try:
+			source_file = Path(_sys.modules[type(self).__module__].__file__)
+		except (KeyError, AttributeError, TypeError):
+			return []
+
+		here = source_file.parent
+		try:
+			source = source_file.read_text(encoding="utf-8")
+		except OSError:
+			return []
+
+		missing = []
+		for dotted in set(_re.findall(r"sibling\(\s*[\"\']([\w.]+)[\"\']",
+									  source)):
+			target = here.joinpath(*dotted.split(".")).with_suffix(".py")
+			if not target.is_file():
+				missing.append(str(target))
+		return sorted(missing)
 
 	def secret(self, key: str, default: str = "") -> str:
 		"""

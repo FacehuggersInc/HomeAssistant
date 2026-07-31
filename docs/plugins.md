@@ -590,6 +590,25 @@ know it disappears when the plugin does.
 
 User plugins in `plugins/` are scanned exactly the same way as bundled ones.
 
+## Naming a plugin's folder
+
+The folder under `src/assets/bundled/` is the plugin's name in the repository,
+and it is matched by whatever ignore rules the repository has.
+
+A folder called `RSSFeeds` collided with a `RSSFeeds/` line in a `.gitignore`
+written for an unrelated project of the same name. Git ignores that pattern for
+**new** files only — already-tracked files keep updating, so the plugin appeared
+to work while every file added to it afterwards was silently never committed.
+The failure surfaced weeks later as a missing module on one install.
+
+Pick something specific enough not to collide, and check with:
+
+```bash
+git check-ignore -v src/assets/bundled/YourPlugin/some-new-file.py
+```
+
+The same goes for any folder a plugin creates in the working directory.
+
 ## Importing your own files late
 
 At module level, an ordinary relative import is fine:
@@ -614,3 +633,16 @@ presses the button.
 `sibling()` asks the filesystem, which is a question with one answer. The module
 is cached, so two calls hand back the same object, and a name that is not there
 raises an `ImportError` naming the path it looked at.
+
+Every name passed to `sibling()` is also **checked at load**. The loader reads
+them out of the plugin's own source and logs an error for each file that is not
+there:
+
+```
+[PluginManager] rssfeeds expects .../api/feeds_page.py, which is not here.
+                Anything needing it will fail.
+```
+
+Without that, an incomplete install is a 500 the first time somebody presses the
+button that needs the file — possibly weeks later, and looking like the button is
+broken rather than the copy being short of a file.

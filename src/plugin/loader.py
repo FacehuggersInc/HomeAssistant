@@ -208,7 +208,7 @@ class PluginManager():
 		# sys.path is popped below. So a package registered without a __path__
 		# works for anything imported while the module is executing and fails
 		# for anything imported later, from inside a request handler. That is
-		# the shape of "No module named 'RSSFeeds.api.feeds_page'" from an
+		# the shape of "No module named 'FeedReader.api.feeds_page'" from an
 		# endpoint on a plugin that loaded perfectly.
 		#
 		# Re-registered when an existing entry has no __path__, since a broken
@@ -349,6 +349,23 @@ class PluginManager():
 					self.registered[key] = plugin_path
 
 					self.client.log("info", f"[PluginManager] Loaded key:{key}, class:{plugin_name}, name:{config["plugin"]["name"]}")
+
+					# Said at load, not when somebody presses the button.
+					#
+					# A file the plugin loads with sibling() and which is not
+					# on this install is otherwise a 500 the first time that
+					# button is used - possibly weeks after the incomplete
+					# install, and looking like the button is broken rather
+					# than the copy being short of a file.
+					try:
+						absent = plugin_instance.verify_siblings()
+					except Exception:
+						absent = []
+					for path in absent:
+						self.client.log(
+							"error",
+							f"[PluginManager] {key} expects {path}, which is "
+							f"not here. Anything needing it will fail.")
 
 					return
 

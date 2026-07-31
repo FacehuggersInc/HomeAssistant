@@ -1,6 +1,30 @@
 {
  "log": [
   {
+   "at": 1785468467.6221113,
+   "note": "the feeds plugin is renamed so no ignore rule swallows it",
+   "pages": [
+    {
+     "slug": "bundled-plugins",
+     "state": "updated"
+    },
+    {
+     "slug": "plugins",
+     "state": "updated"
+    }
+   ]
+  },
+  {
+   "at": 1785468073.1720595,
+   "note": "a plugin file missing from an install is reported at load",
+   "pages": [
+    {
+     "slug": "plugins",
+     "state": "updated"
+    }
+   ]
+  },
+  {
    "at": 1785467755.2246513,
    "note": "plugins load their own files by path; idle timeouts documented",
    "pages": [
@@ -751,8 +775,8 @@
    "state": "updated"
   },
   "bundled-plugins": {
-   "at": 1785467065.7512798,
-   "hash": "8541034c62cdb532",
+   "at": 1785468467.6215212,
+   "hash": "d4f2427fcce7b162",
    "opened": 0,
    "state": "updated"
   },
@@ -841,8 +865,8 @@
    "state": "updated"
   },
   "plugins": {
-   "at": 1785467755.2244,
-   "hash": "9160cfb0ce3c11f2",
+   "at": 1785468467.6218233,
+   "hash": "4ded177eaaa0e7cb",
    "opened": 0,
    "state": "updated"
   },

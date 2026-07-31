@@ -27,7 +27,14 @@ from .api.rss import RSSFeedAPI
 
 class RSSFeedsPlugin(Plugin):
     def __init__(self):
-        self.feeds_path : Asset = Asset(Path(os.getcwd()) / "RSSFeeds")
+        # `feeds`, not `RSSFeeds`.
+        #
+        # The old name matched a `RSSFeeds/` line in a .gitignore written for
+        # an unrelated project of the same name, which silently kept every new
+        # file in this plugin out of the repository. A folder whose name is
+        # likely to collide with somebody's ignore rules is a folder that
+        # disappears without anybody being told.
+        self.feeds_path : Asset = Asset(Path(os.getcwd()) / "feeds")
         self.feeds = {}
         self.__builder_idletriggers_id = None
 
@@ -43,6 +50,20 @@ class RSSFeedsPlugin(Plugin):
 
         # The folder is registered as an asset, so the feed files are
         # reachable and uploadable the same way stickers are.
+        # Anything saved under the old name comes with it.
+        #
+        # Renaming a folder somebody already has feeds in and starting empty
+        # is losing their data to tidy up a name.
+        try:
+            previous = Path(os.getcwd()) / "RSSFeeds"
+            if previous.is_dir() and not self.feeds_path.exists():
+                previous.rename(self.feeds_path)
+                self.client.log("info", "[FeedReader] Moved feeds from "
+                                        "RSSFeeds/ to feeds/.")
+        except OSError as e:
+            self.client.log("warning",
+                            f"[FeedReader] Could not move the old folder: {e}")
+
         try:
             self.feeds_path.mkdir(parents=True, exist_ok=True)
             self.feeds_path.mark_uploadable()
@@ -120,6 +141,20 @@ class RSSFeedsPlugin(Plugin):
         path = self.feeds_path / f"{name}.json"
         if path.exists():
             return False, f"There is already a feed called '{name}'."
+
+        # Anything saved under the old name comes with it.
+        #
+        # Renaming a folder somebody already has feeds in and starting empty
+        # is losing their data to tidy up a name.
+        try:
+            previous = Path(os.getcwd()) / "RSSFeeds"
+            if previous.is_dir() and not self.feeds_path.exists():
+                previous.rename(self.feeds_path)
+                self.client.log("info", "[FeedReader] Moved feeds from "
+                                        "RSSFeeds/ to feeds/.")
+        except OSError as e:
+            self.client.log("warning",
+                            f"[FeedReader] Could not move the old folder: {e}")
 
         try:
             self.feeds_path.mkdir(parents=True, exist_ok=True)
