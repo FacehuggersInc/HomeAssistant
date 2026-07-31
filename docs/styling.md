@@ -209,3 +209,121 @@ wide so right edges line up down a list, and wider when what it holds needs it.
 Rows in one list usually carry the same labels and still line up; a row that
 genuinely needs more gets more, because a readable row slightly out of line
 beats a tidy column of cut-off words.
+
+## The web UI
+
+Everything a phone sees comes from `src/webui.py`. `page()` builds a whole
+document and the caller supplies only its content, so a served page carries no
+copy of the parts every page shares.
+
+```python
+from src.webui import page, position_grid, POSITION_SCRIPT
+
+def render_page(token, message=""):
+    body = """
+<section>
+  <label for="name">Name</label>
+  <input id="name" name="name">
+</section>
+"""
+    return page(
+        title="Something",
+        heading="Something",
+        blurb="What this page is for.",
+        token=token, message=message,
+        css=" .mine{color:var(--accent)}",
+        body=body,
+    )
+```
+
+| Argument | Meaning |
+|---|---|
+| `title` | The browser tab. |
+| `body` | The page's own markup. |
+| `token` | The caller's token, for the back control. |
+| `heading` / `blurb` | The `h1` and the line under it. |
+| `message` / `bad` | The status banner, and whether it reads as a failure. |
+| `css` | Rules this page needs that the chrome does not carry. |
+| `script` | JavaScript, placed at the end of the body. |
+| `back` / `back_label` / `back_href` | The back control, on by default. |
+
+### Style plain elements, not classes
+
+A page that uses `<button>`, `<h1>`, `<h2>`, `<section>`, `<label>` and
+`.card` inherits the current look with nothing to edit. That is how every
+served page stays consistent when the look changes.
+
+`button[type=submit]` is the gradient primary and `button.danger` is the
+destructive one. Neither needs a class of its own. A page's `css` is for what
+is genuinely its own — a grid of sticker tiles, a row of duration presets. A
+rule that restates `body`, `section`, `input` or the back control is a second
+copy of a decision made once.
+
+| Class | Use |
+|---|---|
+| `.banner` | The status strip. Add `.bad` for a failure. |
+| `.card` | A bordered block. |
+| `.hint` | Small muted text under a field. |
+| `.empty` | What a list says when it has nothing in it. |
+| `.row` | Fields side by side. |
+| `.where` | The nine-position picker — see below. |
+
+### The palette
+
+| | |
+|---|---|
+| `--bg` `--card` `--card2` | Backgrounds, darkest first |
+| `--line` | Borders |
+| `--text` `--muted` | Foreground |
+| `--accent` `--accent2` | Green and blue; gradients run between them |
+| `--warm` `--bad` | Amber for a held state, red for destructive |
+| `--glow` | The shadow under a primary button |
+
+`color-scheme: dark` is declared in the palette, so any page carrying the
+chrome has it. Chromium runs with `forceDarkModeEnabled` so that ordinary
+sites come out dark: a page that declares itself dark is skipped, and one that
+does not is inverted into a white rectangle.
+
+### Asking where something goes
+
+`position_grid(selected)` draws the nine positions as the shape of the screen
+and writes the choice to a hidden field. Include `POSITION_SCRIPT` once on any
+page that uses it. The options come from `POSITIONS`, so a page cannot offer a
+tenth or leave one out.
+
+```python
+body = f"""
+<section>
+  <label>Where it goes</label>
+  {position_grid("top-right")}
+</section>
+"""
+return page(title="Place it", body=body, token=token, script=POSITION_SCRIPT)
+```
+
+### Templates
+
+A page rendered from `src/templates/` gets `chrome` and `back_button` from a
+context processor, so a route passes neither.
+
+```html
+<style>
+{{ chrome|safe }}
+ .mine{color:var(--accent)}
+</style>
+...
+<p>{{ back_button(token)|safe }}</p>
+```
+
+### Icons
+
+Inline SVG, from `src/webicons.py`. A phone has no icon font and shipping one
+for twenty glyphs is a megabyte for nothing. `mdi.rss` and `rss` are the same
+request; an unknown name becomes a dot rather than a gap. Add a path to
+`PATHS` when one is missing.
+
+### The documentation viewer
+
+`src/docs.py` carries its own stylesheet and its own palette. It is a reading
+surface on a desktop rather than a control surface on a phone, and it is the
+one page that does not take the chrome.

@@ -119,6 +119,55 @@ def scan(note: str = "") -> dict:
     return data
 
 
+def baseline(note: str = "", pages_noted: list = None,
+             keep_log: bool = True) -> dict:
+    """
+    Record every page as read, so the next change is the one that stands out.
+
+    For the point where somebody has been through the whole of the docs: a
+    badge on thirty pages at once carries no information, and a reader who
+    dismisses thirty learns to dismiss the next one too.
+
+    `keep_log` decides what happens to the history behind the badges. Keeping
+    it is the default, since "what changed, and when" is a question that
+    outlives any badge. Clearing it starts the record here, which is what a
+    tree that has just been read end to end wants - one entry saying so,
+    rather than a log of work whose badges have all just been cleared.
+
+    `pages_noted` is `[(slug, state)]` for the log entry alone. Badges come
+    from the page table, never from the log, so naming pages here says what
+    the baseline covers without marking any of them.
+
+        from src import docs_tracker as t
+        t.baseline("read through", keep_log=False)
+    """
+    data = load()
+    pages = {}
+    for path in sorted(DOCS_DIR.glob("*.md")):
+        digest = _digest(path)
+        if not digest:
+            continue
+        # `state` is neither new nor updated, so badge_state() answers with
+        # nothing. `opened` is set as well, so a page whose state is ever
+        # revived still expires on the ordinary schedule.
+        pages[path.stem] = {"hash": digest, "state": "seen",
+                            "at": _now(), "opened": _now()}
+    data["pages"] = pages
+
+    if not keep_log:
+        data["log"] = []
+
+    if note:
+        data["log"].insert(0, {
+            "at": _now(),
+            "note": note,
+            "pages": [{"slug": s, "state": k} for s, k in (pages_noted or [])],
+        })
+        del data["log"][LOG_LIMIT:]
+    save(data)
+    return data
+
+
 def mark_opened(slug: str) -> None:
     """Note that a page has been read. The badge starts expiring from here."""
     data = load()

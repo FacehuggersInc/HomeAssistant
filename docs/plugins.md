@@ -336,6 +336,18 @@ And a few methods worth knowing:
 | `call_on_ui(fn)` | Anything touching Qt from a worker — [Threading](threading.md) |
 | `self.sibling("api.thing")` | A module from your own folder, by path — see below |
 
+And the pieces a plugin builds its own surfaces out of:
+
+| | |
+|---|---|
+| `src.ui.widget.POSITIONS` | The nine places a widget goes — [Widgets](widgets.md) |
+| `src.ui.widget.normalise_position(v, fallback)` | Any spelling, folded to one of the nine — [Widgets](widgets.md) |
+| `framework.create(...)` / `place(...)` / `remove(...)` | Making and placing a widget — [Widgets](widgets.md) |
+| `framework.reserve_key(template)` | Name one before the UI thread builds it — [Widgets](widgets.md) |
+| `src.ui.page.HasFeatures` | The features dict both page kinds answer — [Pages](pages.md) |
+| `src.webui.page(...)` | A whole served page — [Styling](styling.md) |
+| `src.webui.position_grid(...)` | The nine positions, as a control — [Styling](styling.md) |
+
 ## main.py
 
 `main.py` is the required entrypoint.
@@ -607,22 +619,40 @@ User plugins in `plugins/` are scanned exactly the same way as bundled ones.
 
 ## Writing your own settings
 
+`self.settings` is the whole of it — for reading as well as for writing.
+
 ```python
-self.settings.general.default_location.value = place    # yes
-self.client.apply_settings({"myplugin.enabled.value": True})   # no
+self.settings.general.default_location.value = place        # yes
+value = self.settings.general.default_location.value        # yes
+
+self.client.apply_settings({"myplugin.enabled.value": True})  # no
+value = self.client.setting("myplugin.enabled.value", True)   # no
 ```
 
-`apply_settings()` takes a dotted path and calls `SETTINGS.update()` on the
-**client's** settings. A plugin key written that way becomes a top-level entry
-there, and the settings page builds a nav section per top-level key — so an
-empty section appears beside Application and Home while the real settings stay
-in the plugin's own file.
+The loader builds `self.settings` from the plugin's own settings.json and
+attaches it to the plugin. It is never merged into the client's tree, and the
+client drops any plugin key it finds there at startup — so a plugin key has no
+route into `client.SETTINGS` and no route out of it.
 
-Reading through the client is fine: `client.setting("myplugin.enabled.value")`
-resolves to the plugin's file. It is only writing that goes wrong.
+**A read through the client answers with the default, always.** It raises
+nothing and logs nothing: the path simply does not resolve, so
+`client.setting("myplugin.enabled.value", True)` is `True` whatever the file
+says and whatever the settings page saved. A plugin that writes through
+`self.settings` and reads through `client.setting()` writes to one object and
+reads from another, and its setting never appears to change.
 
-Any plugin section found in the client's settings at startup is dropped, since
-there is nothing in it worth keeping.
+`apply_settings()` fails the other way round and visibly. It takes a dotted
+path and calls `SETTINGS.update()` on the **client's** settings, so a plugin
+key written that way becomes a top-level entry there — and the settings page
+builds a nav section per top-level key, so an empty section appears beside
+Application and Home while the real settings stay in the plugin's own file.
+
+`client.setting()` is for the client's own keys, which a plugin is welcome to
+read:
+
+```python
+fmt = self.client.setting("home.time_format.value", "%I:%M %p")
+```
 
 ## Naming a plugin's folder
 

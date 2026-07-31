@@ -322,9 +322,13 @@ The sticky note carries the same colour and size controls.
 `/public/note_add` and `/public/list_add` put either on the panel without
 walking over to it. Both are in the dashboard drawer.
 
-Colours are shown as colours rather than a dropdown of hex codes, and a list
-form offers any checklist already on the panel — choosing one turns "make a
-list" into "add to it", because five days apart those are the same act.
+Colours are shown as colours rather than a dropdown of hex codes, and where it
+lands is picked on a nine-cell grid shaped like the screen — the same one the
+sticker page uses, and the same words for each cell.
+
+Choosing a checklist that is already up **loads it**: its name and its lines fill
+the form. What comes back replaces the list rather than being appended, so
+removing a line works and nothing doubles; anything still there keeps its tick.
 
 Placing goes through the framework's own copy path, which names the instance,
 registers it, places it and writes the layout. It runs on the UI thread; these

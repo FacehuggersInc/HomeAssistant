@@ -33,9 +33,9 @@
  /* Pages live in a drawer. However many a plugin adds, the dashboard itself
     does not get longer - and a long label is a wide row rather than a
     truncated button. */
- .menu{width:46px;height:46px;flex:none;border-radius:13px;
-   border:1px solid var(--line);background:var(--card);color:var(--text);
-   display:flex;align-items:center;justify-content:center;cursor:pointer}
+ /* Square and glyph-only, so it takes .icon from the chrome for the size and
+    the padding reset. Only the corner and the flex behaviour are its own. */
+ .menu{flex:none;border-radius:13px}
  .menu:hover{border-color:var(--accent);color:var(--accent)}
 
  .scrim{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:40;
@@ -145,7 +145,7 @@
 <div class="wrap">
 
 <div class="top">
-  <button class="menu" id="menu" aria-label="Pages">
+  <button class="menu icon" id="menu" aria-label="Pages">
     <svg viewBox="0 0 24 24" width="21" height="21" fill="none"
          stroke="currentColor" stroke-width="1.9" stroke-linecap="round">
       <path d="M4 7h16M4 12h16M4 17h16"/></svg>

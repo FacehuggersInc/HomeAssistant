@@ -258,8 +258,17 @@ class NighttimeClockPlugin(Plugin):
     ## SETTINGS
 
     def _setting(self, key: str, default):
+        """
+        Read one of this plugin's own settings.
+
+        From `self.settings` — the object the loader builds from this plugin's
+        settings.json, and the one `_set_enabled` writes to. `client.setting()`
+        walks the CLIENT's tree, which a plugin key never reaches, so a lookup
+        there answers with the default whatever is on disk and whatever the
+        settings page saved.
+        """
         try:
-            return self.client.setting(f"{self.KEY}.{key}.value", default)
+            return getattr(self.settings, key).value
         except Exception:
             return default
 

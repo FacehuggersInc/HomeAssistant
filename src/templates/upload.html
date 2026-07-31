@@ -4,23 +4,19 @@
 <title>{{ key }} &mdash; {{ panel }}</title>
 <style>
 {{ chrome|safe }}
- *{box-sizing:border-box}
- body{margin:0;background:var(--bg);color:var(--text);
-      font:16px/1.5 -apple-system,"Segoe UI",Roboto,sans-serif;padding:18px}
  h1{font-size:22px;margin:10px 0 2px}
- p.sub{color:var(--muted);margin:0 0 18px;font-size:12px;
-      font-family:ui-monospace,monospace;word-break:break-all}
- section{background:var(--card);border:1px solid var(--line);
-      border-radius:14px;padding:16px;margin-bottom:16px}
+ p.sub{font-size:12px;font-family:ui-monospace,monospace;word-break:break-all}
  .drop{border:2px dashed var(--line);border-radius:12px;padding:26px 16px;
       text-align:center;color:var(--muted)}
  .drop.over{border-color:var(--accent);color:var(--text)}
  .drop .big{font-size:30px;display:block;margin-bottom:6px}
- label.browse{display:block;margin-top:14px;padding:15px;border-radius:10px;
-      background:var(--accent);color:#10281c;font-size:17px;font-weight:600;
-      text-align:center}
- button{width:100%;margin-top:12px;padding:15px;border:0;border-radius:10px;
-      background:var(--accent);color:#10281c;font-size:17px;font-weight:600}
+ /* The label IS the button; the input behind it is hidden. */
+ label.browse{display:block;margin-top:14px;min-height:50px;line-height:50px;
+      border-radius:11px;border:none;text-align:center;font-size:15px;
+      font-weight:600;cursor:pointer;color:#0d1a12;
+      background:linear-gradient(135deg,var(--accent),var(--accent2));
+      box-shadow:0 6px 22px var(--glow)}
+ button{width:100%;margin-top:12px}
  button:disabled{opacity:.45}
  ul{list-style:none;padding:0;margin:14px 0 0}
  li{display:flex;justify-content:space-between;align-items:center;gap:12px;
@@ -29,10 +25,8 @@
  li .sz{color:var(--muted);font-size:12px;white-space:nowrap}
  li .x{color:var(--bad);padding:0 8px;font-size:20px;line-height:1}
  .ok{color:var(--accent)} .bad{color:var(--bad)}
- .empty{color:var(--muted);font-size:14px;padding:8px 0}
 </style></head><body>
-<div class="backrow"><a class="back" href="/?token={{ token }}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg><span>Dashboard</span></a>
-<a class="back" href="/upload?token={{ token }}" ><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg><span>All folders</span></a></div>
+<div class="backrow">{{ back_button(token)|safe }}{{ back_button(token, "All folders", "/upload")|safe }}</div>
 <h1>Upload to {{ key }}</h1>
 <p class="sub">{{ path }}</p>
 

@@ -80,8 +80,16 @@ class NightPage(PageFramework):
     ## -- settings
 
     def _setting(self, key: str, default):
+        """
+        One of the plugin's settings, read through the plugin itself.
+
+        The page has no settings of its own; it asks the plugin that owns
+        them. `client.setting()` walks the client's tree, which a plugin key
+        never reaches.
+        """
         try:
-            return self.client.setting(f"nighttimeclock.{key}.value", default)
+            plugin = self.client.PLUGIN.plugins.get("nighttimeclock")
+            return getattr(plugin.settings, key).value
         except Exception:
             return default
 

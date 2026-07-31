@@ -18,9 +18,68 @@ class Features(Settings):
         super().__init__(*args, **kwargs)
 
 
+class HasFeatures:
+    """
+    The features dict, for a page or a sub-page.
+
+    A plugin reaches a page through this and nothing else, so both kinds of
+    page answer it identically.
+
+    The attribute is `_features`. One underscore reads as internal without
+    claiming to be a dunder: `__features__` sits in the namespace Python
+    reserves for its own protocol names, beside `__dict__` and `__class__`,
+    and nothing here is part of that protocol.
+
+        page.add_features({"reload": self.reload})
+        if page.has_feature("reload"):
+            page.features().reload()
+    """
+
+    def _ensure_features(self) -> None:
+        if getattr(self, "_features", None) is None:
+            self._features = Features()
+
+    def has_feature(self, feature_key: str) -> bool:
+        self._ensure_features()
+        return bool(self._features.get(feature_key))
+
+    def add_features(self, features: dict) -> None:
+        self._ensure_features()
+        for key, value in features.items():
+            if not self.has_feature(key):
+                self._features[key] = value
+
+    def remove_features(self, features: list[str]) -> None:
+        self._ensure_features()
+        for key in features:
+            if self.has_feature(key):
+                del self._features[key]
+
+    def features(self, feature: str = None, *args, **kwargs):
+        """
+        The whole dict, or the result of calling one entry by name.
+
+        Two shapes on purpose: `features()` is how a caller reads several,
+        and `features("reload")` is how it invokes one without naming the
+        dict twice.
+        """
+        self._ensure_features()
+        if not feature:
+            return self._features
+        for feat in self._features:
+            if feat == feature:
+                return self._features[feat](*args, **kwargs)
+        return None
+
+    def apply_window_size(self) -> None:
+        if self.client and self.client.BUILT:
+            width, height = self.client.SETTINGS.application.window.size.value
+            self.setFixedSize(int(width), int(height))
+
+
 # ── Page Framework ────────────────────────────────────────────────────────────
 
-class PageFramework(QWidget):
+class PageFramework(HasFeatures, QWidget):
 
     page_entered = pyqtSignal()
     page_left    = pyqtSignal()
@@ -36,36 +95,13 @@ class PageFramework(QWidget):
         self.client = client
         self.data   = data or {}
 
-        self.__features__ = Features()
+        self._features = Features()
 
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
 
         # Hide by default; PageHost makes the active page visible
         self.hide()
-
-    # ── Features API (unchanged) ──────────────────────────────────────────────
-
-    def has_feature(self, feature_key: str) -> bool:
-        return bool(self.__features__.get(feature_key))
-
-    def add_features(self, features: dict) -> None:
-        for key, value in features.items():
-            if not self.has_feature(key):
-                self.__features__[key] = value
-
-    def remove_features(self, features: list[str]) -> None:
-        for key in features:
-            if self.has_feature(key):
-                del self.__features__[key]
-
-    def features(self, feature: str = None, *args, **kwargs):
-        if not feature:
-            return self.__features__
-        for feat in self.__features__:
-            if feat == feature:
-                return self.__features__[feat](*args, **kwargs)
-        return None
 
     # ── Lifecycle hooks ───────────────────────────────────────────────────────
 
@@ -75,17 +111,10 @@ class PageFramework(QWidget):
     def stop(self) -> None:
         self.page_left.emit()
 
-    # ── Sizing ────────────────────────────────────────────────────────────────
-
-    def apply_window_size(self) -> None:
-        if self.client and self.client.BUILT:
-            w, h = self.client.SETTINGS.application.window.size.value
-            self.setFixedSize(int(w), int(h))
-
 
 # ── Sub-Page Framework ────────────────────────────────────────────────────────
 
-class SubPageFramework(QWidget):
+class SubPageFramework(HasFeatures, QWidget):
 
     def __init__(
         self,
@@ -106,7 +135,7 @@ class SubPageFramework(QWidget):
         # already looked correct.
         self._active_applied = False
 
-        self.__features__ = Features()
+        self._features = Features()
 
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
@@ -194,36 +223,6 @@ class SubPageFramework(QWidget):
         or destroyed by navigating away.
         """
         pass
-
-    # ── Features API (identical to PageFramework) ─────────────────────────────
-
-    def has_feature(self, feature_key: str) -> bool:
-        return bool(self.__features__.get(feature_key))
-
-    def add_features(self, features: dict) -> None:
-        for key, value in features.items():
-            if not self.has_feature(key):
-                self.__features__[key] = value
-
-    def remove_features(self, features: list[str]) -> None:
-        for key in features:
-            if self.has_feature(key):
-                del self.__features__[key]
-
-    def features(self, feature: str = None, *args, **kwargs):
-        if not feature:
-            return self.__features__
-        for feat in self.__features__:
-            if feat == feature:
-                return self.__features__[feat](*args, **kwargs)
-        return None
-
-    # ── Sizing ────────────────────────────────────────────────────────────────
-
-    def apply_window_size(self) -> None:
-        if self.client and self.client.BUILT:
-            w, h = self.client.SETTINGS.application.window.size.value
-            self.setFixedSize(int(w), int(h))
 
     # ── Animation ─────────────────────────────────────────────────────────────
 

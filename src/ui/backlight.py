@@ -377,9 +377,25 @@ class DdcutilBackend(Backend):
         return False
 
     def set(self, percent: int) -> bool:
+        """
+        Write the brightness, and try once more patiently if it does not land.
+
+        DDC/CI runs over I2C, which drops messages: a write that goes nowhere
+        is ordinary rather than exceptional. The shortened inter-message waits
+        make it likelier - the timings in the spec are what slower panels
+        actually need - so the retry drops back to them.
+
+        The retry costs a few hundred milliseconds, and only on the path that
+        has already failed.
+        """
         percent = max(0, min(100, int(percent)))
-        ok, _ = _run(self._base() + ["setvcp", self.BRIGHTNESS_VCP, str(percent)],
-                     timeout=8.0)
+        args = ["setvcp", self.BRIGHTNESS_VCP, str(percent)]
+
+        ok, _ = _run(self._base() + args, timeout=8.0)
+        if ok:
+            return True
+
+        ok, _ = _run(self._base(patient=True) + args, timeout=12.0)
         return ok
 
     def get(self, patient: bool = False) -> Optional[int]:

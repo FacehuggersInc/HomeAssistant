@@ -1052,6 +1052,10 @@ def shell(title: str, body: str, toc: str, current: str) -> str:
 
 STYLE = """
 :root {
+  /* Chromium runs with forceDarkModeEnabled so ordinary sites come out dark.
+     A page declaring itself dark is skipped; one that does not is inverted
+     into a white rectangle, and this viewer is read on the panel itself. */
+  color-scheme:dark;
   --bg:#151517; --panel:#1c1c1f; --line:#2c2c31; --text:#e6e6e8;
   --muted:#9a9aa2; --accent:#2ff08e; --accent-dim:#1faf68; --code:#111114;
   --inline:#7fe0b0;

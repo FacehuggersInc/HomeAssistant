@@ -448,38 +448,64 @@ class CoreWidgetsBundle(Plugin):
 
     ## -- notes and lists, from anywhere
 
-    def _place(self, template_key: str, state: dict):
+    def _framework(self):
+        """The home page's widget framework, or None when it is not up."""
+        from .homepage import widget_framework
+        return widget_framework(self.client)
+
+    def _place(self, template_key: str, state: dict, at: str = "",
+               key: str = None):
         """
         Put a widget on the home page and save it there.
 
-        Through the framework's own copy path rather than building one here:
-        that is what names the instance, registers it, places it and writes
-        the layout, and a second way of doing it would be a second way to get
-        it wrong.
+        Through the framework's public create/place pair, which is the same
+        path the widgets panel takes. `at` is one of the nine positions and is
+        honoured whether the widget floats or anchors - which is the whole
+        reason the position controls on these pages do anything.
         """
-        sub_home = self._sub_home()
-        if sub_home is None or not sub_home.has_feature("widget_framework"):
+        framework = self._framework()
+        if framework is None:
             return None
-        framework = sub_home.features().widget_framework
 
-        widget = framework._make_copy(template_key, state=state)
-        if widget is not None:
-            framework.save_layout()
+        widget = framework.create(template_key, key=key, state=state)
+        if widget is None:
+            return None
+        framework.place(widget, at=at)
+        framework.save_layout()
         return widget
 
     def _lists(self) -> list:
-        """Every checklist on the home page, newest last."""
-        sub_home = self._sub_home()
-        if sub_home is None or not sub_home.has_feature("widget_framework"):
+        """
+        Every checklist ON the home page, newest last.
+
+        Placed ones only. The delete handle files a widget into the widgets
+        panel rather than destroying it - it keeps its text, so dragging it
+        back out restores it exactly - which leaves the instance in the
+        registry with `placed` false. Offering one of those here means editing
+        a list nobody can see, and a list taken off the wall reads as gone.
+
+        A restart already agrees: an entry saved as unplaced is not rebuilt.
+        """
+        framework = self._framework()
+        if framework is None:
             return []
-        framework = sub_home.features().widget_framework
-        return [(key, widget)
-                for key, widget in list(framework.registry.items())
-                if getattr(widget, "template_key", "") == "checklist"
-                or key == "checklist" or key.startswith("checklist-")]
+
+        lists = []
+        for key, widget in list(framework.registry.items()):
+            if not (getattr(widget, "template_key", "") == "checklist"
+                    or key == "checklist" or key.startswith("checklist-")):
+                continue
+            try:
+                if not widget.placed:
+                    continue
+            except RuntimeError:
+                # The C++ object went without the entry going with it.
+                continue
+            lists.append((key, widget))
+        return lists
 
     def api_note_add(self, text: str = None, colour: str = "",
-                     **_ignored):
+                     quadrant: str = "top-right", **_ignored):
         """
         A sticky note, from a phone.
 
@@ -494,75 +520,146 @@ class CoreWidgetsBundle(Plugin):
         text = str(text or "").strip()
         colour = str(colour or "").strip()
 
+        from src.ui.widget import normalise_position, POSITION_LABELS
+        position = normalise_position(quadrant)
+
         if text:
-            state = {"text": text}
+            # `placed` too, or the widget is registered and never shown.
+            state = {"text": text, "placed": True}
             if colour:
                 state["colour"] = colour
 
-            # The UI thread answers on its own schedule, so this reports what
-            # was asked rather than pretending to know it landed.
-            self.client.call_on_ui(lambda: self._place("sticky-note", state))
-            message = f"\u201c{text[:40]}\u201d is on the panel."
+            # The position is passed to place(), not written into the state.
+            # A sticky note floats, so an `anchor` in its state is recorded and
+            # never read - which is why choosing a corner used to do nothing.
+            self.client.call_on_ui(
+                lambda: self._place("sticky-note", state, at=position))
+            message = (f"\u201c{text[:40]}\u201d is on the panel, "
+                       f"{POSITION_LABELS[position].lower()}.")
         elif typed:
             message, bad = "Type something first.", True
 
         from .widgets.sticky_note import COLOURS
         return render_page(token, colours=COLOURS, message=message, bad=bad,
-                           kind="note")
+                           kind="note", quadrant=position)
 
-    def api_list_add(self, title: str = None, text: str = "",
-                     colour: str = "", target: str = "", **_ignored):
-        """
-        A checklist: a new one, or lines added to one that exists.
+    def _list_options(self) -> list:
+        """Every checklist on the panel as (key, title, text) for the page."""
+        return [(key, getattr(widget, "title", key) or key,
+                 ChecklistWidget.serialise(getattr(widget, "items", [])))
+                for key, widget in self._lists()]
 
-        Editing an existing list is the same form with its key chosen, because
-        "make me a shopping list" and "add bread to the shopping list" are the
-        same act five days apart.
+    def api_list_add(self, title: str = None, text: str = None,
+                     colour: str = "", target: str = "",
+                     quadrant: str = "top-right", **_ignored):
         """
-        render_page = self.sibling("api.note_page").render_page
+        A checklist, edited from a phone.
+
+        GET  -> the editor, opened on nothing
+        POST -> writes one list and reopens the editor on it
+
+        The chooser decides which list; the page decides what is on it. A new
+        list is not built until it is put up, and from then on the same page
+        is editing the widget it just made - so adding one item and then
+        another is one page, not two visits.
+        """
+        render_page = self.sibling("api.list_page").render_page
         token = self._request_token()
-        message, bad = "", False
 
-        named = title is not None
-        title = str(title or "").strip()
-        body = str(text or "").strip()
+        from src.ui.widget import normalise_position, POSITION_LABELS
+        position = normalise_position(quadrant)
+
+        # A submission always posts both fields, so their presence - not their
+        # emptiness - is what separates it from somebody opening the page.
+        submitted = title is not None or text is not None
+        wanted_title = str(title or "").strip()
+        items = ChecklistWidget._parse(text or "")
         colour = str(colour or "").strip()
         target = str(target or "").strip()
+        message, bad = "", False
+        # Whether this request handed a write to the UI thread. The response
+        # renders that list from what arrived rather than from the widget.
+        wrote = False
 
-        existing = self._lists()
+        if submitted and not wanted_title and not items:
+            message, bad = "Give it a name, or something to put on it.", True
 
-        if body or (title and not target):
-            items = [{"text": line.strip()[:120], "done": False}
-                     for line in body.splitlines() if line.strip()]
-
-            if target:
-                # Added to the one chosen, not a second list with the same
-                # name - which is what somebody means by "add to the list".
-                widget = dict(existing).get(target)
-                if widget is None:
-                    message, bad = "That list is not on the panel.", True
-                else:
-                    def extend(w=widget, new=items):
-                        w.items.extend(new)
-                        w.update()
-                        w._save()
-                    self.client.call_on_ui(extend)
-                    message = (f"{len(items)} line(s) added to "
-                               f"\u201c{widget.title}\u201d.")
+        elif submitted and target:
+            widget = dict(self._lists()).get(target)
+            if widget is None:
+                # It was removed on the panel while this page was open. Said
+                # plainly and the chooser falls back, rather than writing the
+                # edit into nothing and reporting success.
+                message, bad = ("That list is not on the panel any more.", True)
+                target = ""
             else:
-                state = {"title": title or "Checklist", "items": items}
+                # REPLACED, not appended. The form arrives holding what the
+                # list already had, so appending would double every line
+                # nobody deleted. What comes back is the list they meant.
+                def rewrite(w=widget, new=items, name=wanted_title,
+                            tint=colour):
+                    w.items = [dict(entry) for entry in new]
+                    if name:
+                        w.title = name
+                    if tint:
+                        w.colour = tint
+                    w.update()
+                    w._save()
+                self.client.call_on_ui(rewrite)
+                wrote = True
+                message = (f"\u201c{wanted_title or widget.title}\u201d saved "
+                           f"with {len(items)} item(s).")
+
+        elif submitted:
+            framework = self._framework()
+            if framework is None:
+                message, bad = "The home page is not on screen.", True
+            else:
+                # Named before it is built. Creating a widget is the UI
+                # thread's job and call_on_ui does not report back, so without
+                # this the page could not say which list it had just made -
+                # and could not go on to edit it.
+                target = framework.reserve_key("checklist")
+                state = {"title": wanted_title or "Checklist", "items": items,
+                         "placed": True}
                 if colour:
                     state["colour"] = colour
                 self.client.call_on_ui(
-                    lambda: self._place("checklist", state))
-                message = (f"\u201c{state['title']}\u201d is on the panel.")
-        elif named:
-            message, bad = "Give it a name, or some lines.", True
+                    lambda k=target, s=state: self._place(
+                        "checklist", s, at=position, key=k))
+                wrote = True
+                message = (f"\u201c{state['title']}\u201d is on the panel, "
+                           f"{POSITION_LABELS[position].lower()}. "
+                           f"You are editing it now.")
+
+        options = self._list_options()
+
+        # The list that was just written is rendered from what arrived, never
+        # from the widget.
+        #
+        # Writing it is the UI thread's job and call_on_ui does not wait, so
+        # reading the widget here reads the state from BEFORE this request.
+        # The page would then show the previous contents, the next save would
+        # post those back, and the two would trade places on every press.
+        if wrote and target:
+            written = (target, wanted_title or "Checklist",
+                       ChecklistWidget.serialise(items))
+            merged, replaced = [], False
+            for row in options:
+                if row[0] == target:
+                    merged.append(written)
+                    replaced = True
+                else:
+                    merged.append(row)
+            if not replaced:
+                # A list this request created. The widget does not exist yet,
+                # so there is nothing in `options` to replace.
+                merged.append(written)
+            options = merged
 
         from .widgets.checklist import COLOURS
-        return render_page(
-            token, colours=COLOURS, message=message, bad=bad, kind="list",
-            lists=[(key, getattr(w, "title", key)) for key, w in existing])
+        return render_page(token, colours=COLOURS, message=message, bad=bad,
+                           lists=options, target=target, quadrant=position)
 
     def _clear_placed_stickers(self) -> int:
         """
@@ -576,16 +673,23 @@ class CoreWidgetsBundle(Plugin):
         expired is still on the page, and "clear" that leaves something on the
         page is not what the button says.
         """
-        # The helper, not a lookup of my own. PageRegistry has no get_page;
-        # a sub-page is reached through its parent's entry, which _sub_home()
-        # already knows how to do and every other caller here uses.
-        sub_home = self._sub_home()
-        if sub_home is None or not sub_home.has_feature("widget_framework"):
+        framework = self._framework()
+        if framework is None:
             return 0
-        framework = sub_home.features().widget_framework
 
-        keys = [key for key, widget in list(framework.registry.items())
-                if isinstance(widget, StickerWidget)]
+        # Placed ones, which is what the button says. A sticker filed into the
+        # widgets panel is not on the home page, and taking it out of the
+        # registry loses a copy somebody deliberately put away.
+        keys = []
+        for key, widget in list(framework.registry.items()):
+            if not isinstance(widget, StickerWidget):
+                continue
+            try:
+                if not widget.placed:
+                    continue
+            except RuntimeError:
+                continue
+            keys.append(key)
         gone = 0
         for key in keys:
             try:
@@ -699,11 +803,14 @@ class CoreWidgetsBundle(Plugin):
             return False, ("Video stickers cannot be shown on the panel yet - "
                            "only images and GIFs.")
 
-        sub_home = self._sub_home()
-        if sub_home is None or not sub_home.has_feature("widget_framework"):
+        framework = self._framework()
+        if framework is None:
             return False, "The home page is not on screen."
 
-        framework = sub_home.features().widget_framework
+        # `quadrant` stays the name on the wire - it is in bookmarks and
+        # scripts - but it is one of the nine positions from here on.
+        from src.ui.widget import normalise_position, POSITION_LABELS
+        position = normalise_position(quadrant, "center")
         temporary = str(mode or "").strip().lower() in ("temporary", "temp", "1", "true")
 
         seconds = 0.0
@@ -728,28 +835,22 @@ class CoreWidgetsBundle(Plugin):
 
         def place():
             try:
+                # One path for both. Temporary and permanent differ in whether
+                # the widget is written to the layout and whether it expires -
+                # not in how it is built or where it goes.
+                widget = framework.create(
+                    "sticker", transient=temporary, sticker=name,
+                    longest_side=longest,
+                    **({"delete_after": wipe} if temporary else {}))
+                if widget is None:
+                    return
+
                 if temporary:
-                    widget = framework.make_transient(
-                        "sticker", sticker=name, longest_side=longest,
-                        delete_after=wipe)
-                    if widget is None:
-                        return
-                    sub_home.features().show_transient(
-                        widget, center=center, quadrant=quadrant,
-                        timeout=seconds,
+                    framework.show_transient(
+                        widget, center=center, at=position, timeout=seconds,
                         on_expired=widget.delete_source if wipe else None)
                 else:
-                    widget = framework._make_copy("sticker", sticker=name,
-                                                  longest_side=longest)
-                    if widget is None:
-                        return
-                    # Placed where it was asked for rather than at the default
-                    # anchor, so the quadrant means something for a permanent
-                    # sticker too.
-                    point = framework._transient_position(
-                        widget, center, quadrant, bundle=False)
-                    widget.float_x, widget.float_y = point
-                    widget.move(*point)
+                    framework.place(widget, at=position, exact=center)
                     framework.schedule_save()
             except Exception as e:
                 self.client.log("warning",
@@ -759,7 +860,7 @@ class CoreWidgetsBundle(Plugin):
         # A Flask worker; building and placing a widget is the UI thread's.
         self.client.call_on_ui(place)
 
-        where = f"in the {quadrant.replace('-', ' ')}" if quadrant else ""
+        where = f"in the {POSITION_LABELS[position].lower()}"
         also = " The file goes with it." if wipe else ""
         if temporary and seconds:
             return True, f"Placed {entry.label} {where} for {int(seconds)}s.{also}"
@@ -869,10 +970,8 @@ class CoreWidgetsBundle(Plugin):
         self.client.set_sounds_muted(not self.client.sounds_muted())
 
     def _sub_home(self):
-        entry = self.client.PAGES.get_entry("#cwb_home_page")
-        if entry is None or getattr(entry, "instance", None) is None:
-            return None
-        return entry.instance.sub_page_dict.get("home")
+        from .homepage import sub_home
+        return sub_home(self.client)
 
     def api_widget_show(self, widget: str = "", quadrant: str = "",
                         x=None, y=None, timeout=0, **extra):

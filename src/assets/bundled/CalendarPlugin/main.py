@@ -7,75 +7,76 @@ from src.plugin.template import Plugin
 from .store import CalendarStore, Event
 
 
-def _escape(text) -> str:
-    import html
-    return html.escape(str(text or ""), quote=True)
+from src.webui import escape as _escape, page
 
 
-SUBS_PAGE = """<!doctype html><html><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Subscribed calendars</title>
-<style>
- :root{--bg:#151517;--card:#1c1c1f;--line:#2c2c31;--text:#e6e6e8;
-       --muted:#9a9aa2;--accent:#2ff08e;--bad:#e08a8a}
- *{box-sizing:border-box}
- body{margin:0;background:var(--bg);color:var(--text);padding:18px;
-      font:16px/1.5 -apple-system,"Segoe UI",Roboto,sans-serif}
- h1{font-size:22px;margin:0 0 4px}
- p.sub{color:var(--muted);margin:0 0 16px;font-size:14px}
- form{background:var(--card);border:1px solid var(--line);
-      border-radius:14px;padding:16px}
- label{display:block;font-size:13px;color:var(--muted);margin:10px 0 4px}
- input{width:100%;padding:13px;border-radius:9px;font-size:16px;
-       background:#111114;color:var(--text);border:1px solid var(--line)}
- input:focus{outline:none;border-color:var(--accent)}
- button{width:100%;margin-top:16px;padding:15px;border:0;border-radius:10px;
-        background:var(--accent);color:#10281c;font-size:17px;font-weight:600}
- ul{list-style:none;padding:0;margin:20px 0 0}
+SUBS_CSS = """
+ ul{list-style:none;padding:0;margin:18px 0 0}
  li{display:flex;justify-content:space-between;align-items:center;gap:12px;
     background:var(--card);border:1px solid var(--line);border-radius:12px;
     padding:12px 14px;margin-bottom:10px}
  li b{display:block;font-size:16px}
  li span{display:block;color:var(--muted);font-size:13px}
  li .bad{color:var(--bad)}
- li button{width:auto;margin:0;padding:10px 14px;font-size:14px;
-           background:transparent;color:var(--bad);
-           border:1px solid rgba(224,138,138,.5)}
- .note{background:rgba(47,240,142,.12);border:1px solid rgba(47,240,142,.4);
-       border-radius:10px;padding:12px;margin-bottom:14px;font-size:14px}
  details{margin-top:18px;color:var(--muted);font-size:13.5px}
  summary{cursor:pointer;color:var(--text)}
- a.back{display:inline-flex;align-items:center;gap:8px;
-      text-decoration:none;background:var(--card);border:1px solid var(--line);
-      color:var(--text);border-radius:10px;padding:11px 16px;font-size:15px;
-      font-weight:600;margin-bottom:14px}
- a.back:active{background:#26262b}
- a.back svg{width:16px;height:16px;fill:none;stroke:currentColor;
-      stroke-width:2.4;stroke-linecap:round;stroke-linejoin:round}
- select{width:100%;padding:13px;border-radius:9px;font-size:16px;
-      background:#111114;color:var(--text);border:1px solid var(--line);
-      appearance:none;-webkit-appearance:none;padding-right:42px;
-      background-image:linear-gradient(45deg,transparent 50%,var(--muted) 50%),
-      linear-gradient(135deg,var(--muted) 50%,transparent 50%);
-      background-position:calc(100% - 20px) 22px,calc(100% - 14px) 22px;
-      background-size:6px 6px,6px 6px;background-repeat:no-repeat}
- select:focus{outline:none;border-color:var(--accent)}
- option{background:#111114;color:var(--text)}
-</style></head><body>
-<a class="back" href="/?token=__TOKEN__"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg><span>Dashboard</span></a>
-<h1>Subscribed calendars</h1>
-<p class="sub">Mirrored onto the panel, one way. Nothing is sent back.</p>
-__MESSAGE_BLOCK__
-<form id="f">
-  <label for="user">Who is it for</label>
-  <select id="user" name="user" required>__USERS__</select>
-  <label for="name">Name it</label>
-  <input id="name" name="name" placeholder="Work, Family, Bins">
-  <label for="add">ICS address</label>
-  <input id="add" name="add" required placeholder="https://... or webcal://...">
-  <button type="submit">Subscribe</button>
-</form>
-<ul>__ROWS__</ul>
+ .go{margin-top:18px}
+ .go button{width:100%}
+"""
+
+SUBS_SCRIPT = """
+var token = '__TOKEN__';
+function post(params) {
+  params.append('token', token);
+  fetch('/public/calendar_subscriptions?' + params.toString(), {method: 'POST'})
+    /* Reloaded rather than patched: the list is rendered by the panel, and
+       rebuilding it here would be a second copy of that logic. */
+    .then(function () {
+      location.href = '/public/calendar_subscriptions?token=' + token;
+    })
+    .catch(function () { alert('Could not reach the panel.'); });
+}
+document.getElementById('f').addEventListener('submit', function (e) {
+  e.preventDefault();
+  var params = new URLSearchParams();
+  new FormData(e.target).forEach(function (v, k) {
+    if (v) { params.append(k, v); }
+  });
+  post(params);
+});
+document.querySelectorAll('button[data-remove]').forEach(function (b) {
+  b.addEventListener('click', function () {
+    if (!confirm('Remove this calendar and its events?')) { return; }
+    post(new URLSearchParams({remove: b.dataset.remove}));
+  });
+});
+try {
+  var saved = localStorage.getItem('ha-user');
+  if (saved) { document.getElementById('user').value = saved; }
+  document.getElementById('user').addEventListener('change', function (e) {
+    localStorage.setItem('ha-user', e.target.value);
+  });
+} catch (e) {}
+"""
+
+
+def render_subs_page(token: str, options: str, rows: str,
+                     message: str = "") -> str:
+    body = f"""
+<section>
+  <form id="f">
+    <label for="user">Who is it for</label>
+    <select id="user" name="user" required>{options}</select>
+    <label for="name">Name it</label>
+    <input id="name" name="name" placeholder="Work, Family, Bins">
+    <label for="add">ICS address</label>
+    <input id="add" name="add" required placeholder="https://... or webcal://...">
+    <div class="go"><button type="submit">Subscribe</button></div>
+  </form>
+</section>
+
+<ul>{rows}</ul>
+
 <details>
   <summary>Where do I get the address?</summary>
   <p><b>Google</b> - Settings for that calendar, then the secret address in
@@ -83,129 +84,104 @@ __MESSAGE_BLOCK__
      <b>Apple</b> - share the calendar publicly and copy the webcal link.<br>
      <b>Outlook</b> - publish the calendar and choose ICS.</p>
   <p>Treat it as a password. Anyone holding it can read that calendar.</p>
-  <p>Google caches this feed for hours, so a change made on your phone will not
-     appear here straight away.</p>
+  <p>Google caches this feed for hours, so a change made on your phone will
+     not appear here straight away.</p>
 </details>
-<script>
- var token = '__TOKEN__';
- function post(params) {
-   params.append('token', token);
-   fetch('/public/calendar_subscriptions?' + params.toString(), {method: 'POST'})
-     // Reloaded rather than patched: the list is rendered by the panel, and
-     // rebuilding it here would be a second copy of that logic.
-     .then(function () { location.href = '/public/calendar_subscriptions?token=' + token; })
-     .catch(function () { alert('Could not reach the panel.'); });
- }
- document.getElementById('f').addEventListener('submit', function (e) {
-   e.preventDefault();
-   var params = new URLSearchParams();
-   new FormData(e.target).forEach(function (v, k) { if (v) { params.append(k, v); } });
-   post(params);
- });
- document.querySelectorAll('button[data-remove]').forEach(function (b) {
-   b.addEventListener('click', function () {
-     if (!confirm('Remove this calendar and its events?')) { return; }
-     post(new URLSearchParams({remove: b.dataset.remove}));
-   });
- });
- try {
-   var saved = localStorage.getItem('ha-user');
-   if (saved) { document.getElementById('user').value = saved; }
-   document.getElementById('user').addEventListener('change', function (e) {
-     localStorage.setItem('ha-user', e.target.value);
-   });
- } catch (e) {}
-</script></body></html>"""
+"""
+    return page(
+        title="Subscribed calendars",
+        heading="Subscribed calendars",
+        blurb="Mirrored onto the panel, one way. Nothing is sent back.",
+        token=token, message=message,
+        css=SUBS_CSS, body=body,
+        script=SUBS_SCRIPT.replace("__TOKEN__", _escape(token)),
+    )
 
 
-# Sized for a phone held one-handed: one column, large fields, no zooming.
-FORM_PAGE = """<!doctype html><html><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Add an event</title>
-<style>
- :root{--bg:#151517;--card:#1c1c1f;--line:#2c2c31;--text:#e6e6e8;
-       --muted:#9a9aa2;--accent:#2ff08e}
- *{box-sizing:border-box}
- body{margin:0;background:var(--bg);color:var(--text);
-      font:16px/1.5 -apple-system,"Segoe UI",Roboto,sans-serif;padding:18px}
- h1{font-size:22px;margin:0 0 4px}
- p.sub{color:var(--muted);margin:0 0 18px;font-size:14px}
- form{background:var(--card);border:1px solid var(--line);
-      border-radius:14px;padding:16px}
- label{display:block;font-size:13px;color:var(--muted);margin:12px 0 4px}
- input,textarea,select{width:100%;padding:13px;border-radius:9px;font-size:16px;
-      background:#111114;color:var(--text);border:1px solid var(--line)}
- input:focus,textarea:focus,select:focus{outline:none;border-color:var(--accent)}
+FORM_CSS = """
  textarea{min-height:90px;resize:vertical}
- .row{display:flex;gap:10px}.row>div{flex:1}
- button{width:100%;margin-top:18px;padding:15px;border:0;border-radius:10px;
-      background:var(--accent);color:#10281c;font-size:17px;font-weight:600}
  ul{list-style:none;padding:0;margin:18px 0 0}
- li{display:flex;justify-content:space-between;gap:12px;padding:10px 0;
-    border-bottom:1px solid var(--line);font-size:14px}
+ li{display:flex;justify-content:space-between;gap:12px;padding:11px 0;
+    border-bottom:1px solid var(--line);font-size:14.5px}
+ li:last-child{border-bottom:0}
  li span{color:var(--muted)}
- .ok{background:rgba(47,240,142,.14);border:1px solid rgba(47,240,142,.5);
-     border-radius:10px;padding:12px;margin-bottom:14px;display:none}
- a.back{display:inline-flex;align-items:center;gap:8px;
-      text-decoration:none;background:var(--card);border:1px solid var(--line);
-      color:var(--text);border-radius:10px;padding:11px 16px;font-size:15px;
-      font-weight:600;margin-bottom:14px}
- a.back:active{background:#26262b}
- a.back svg{width:16px;height:16px;fill:none;stroke:currentColor;
-      stroke-width:2.4;stroke-linecap:round;stroke-linejoin:round}
-</style></head><body>
-<a class="back" href="/?token=__TOKEN__"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg><span>Dashboard</span></a>
-<h1>Add an event</h1>
-<p class="sub">It appears on the panel straight away.</p>
-<div class="ok" id="ok">Added.</div>
-<form id="f">
-  <label for="user">Who is this for</label>
-  <select id="user" name="user" required>__USERS__</select>
-  <label for="title">Title</label>
-  <input id="title" name="title" required placeholder="What is it?">
-  <div class="row">
-    <div><label for="day">Date</label><input id="day" name="day" type="date" required></div>
-    <div><label for="time">Start</label><input id="time" name="time" type="time"></div>
-  </div>
-  <div class="row">
-    <div><label for="end_time">End</label><input id="end_time" name="end_time" type="time"></div>
-    <div><label for="icon">Icon</label><input id="icon" name="icon" value="mdi.calendar"></div>
-  </div>
-  <label for="location">Location</label>
-  <input id="location" name="location" placeholder="Optional">
-  <label for="notes">Notes</label>
-  <textarea id="notes" name="notes" placeholder="Optional"></textarea>
-  <button type="submit">Add to the calendar</button>
-</form>
-<ul>__UPCOMING__</ul>
-<script>
- document.getElementById('day').valueAsDate = new Date();
- // Remembered, so a phone asks once rather than on every event.
- try {
-   var saved = localStorage.getItem('ha-user');
-   if (saved) { document.getElementById('user').value = saved; }
-   document.getElementById('user').addEventListener('change', function (e) {
-     localStorage.setItem('ha-user', e.target.value);
-   });
- } catch (e) {}
- document.getElementById('f').addEventListener('submit', function (event) {
-   event.preventDefault();
-   var params = new URLSearchParams({token: '__TOKEN__'});
-   new FormData(event.target).forEach(function (value, key) {
-     if (value) { params.append(key, value); }
-   });
-   fetch('/public/calendar_add?' + params.toString(), {method: 'POST'})
-     .then(function (r) { return r.json(); })
-     .then(function (body) {
-       if (body.request !== 'Success') { alert(body.reason || 'Could not add that.'); return; }
-       document.getElementById('ok').style.display = 'block';
-       // Reloaded rather than patched in: the list below is rendered by the
-       // panel, and rebuilding it here would be a second copy of that logic.
-       setTimeout(function () { location.reload(); }, 700);
-     })
-     .catch(function () { alert('Could not reach the panel.'); });
- });
-</script></body></html>"""
+ .ok{display:none}
+ .go{margin-top:18px}
+ .go button{width:100%}
+"""
+
+FORM_SCRIPT = """
+document.getElementById('day').valueAsDate = new Date();
+/* Remembered, so a phone asks once rather than on every event. */
+try {
+  var saved = localStorage.getItem('ha-user');
+  if (saved) { document.getElementById('user').value = saved; }
+  document.getElementById('user').addEventListener('change', function (e) {
+    localStorage.setItem('ha-user', e.target.value);
+  });
+} catch (e) {}
+document.getElementById('f').addEventListener('submit', function (event) {
+  event.preventDefault();
+  var params = new URLSearchParams({token: '__TOKEN__'});
+  new FormData(event.target).forEach(function (value, key) {
+    if (value) { params.append(key, value); }
+  });
+  fetch('/public/calendar_add?' + params.toString(), {method: 'POST'})
+    .then(function (r) { return r.json(); })
+    .then(function (body) {
+      if (body.request !== 'Success') {
+        alert(body.reason || 'Could not add that.');
+        return;
+      }
+      document.getElementById('ok').style.display = 'block';
+      /* Reloaded rather than patched in: the list below is rendered by the
+         panel, and rebuilding it here would be a second copy of that logic. */
+      setTimeout(function () { location.reload(); }, 700);
+    })
+    .catch(function () { alert('Could not reach the panel.'); });
+});
+"""
+
+
+def render_form_page(token: str, options: str, upcoming: str) -> str:
+    """Sized for a phone held one-handed: one column, large fields, no zoom."""
+    body = f"""
+<p class="banner ok" id="ok">Added.</p>
+<section>
+  <form id="f">
+    <label for="user">Who is this for</label>
+    <select id="user" name="user" required>{options}</select>
+    <label for="title">Title</label>
+    <input id="title" name="title" required placeholder="What is it?">
+    <div class="row">
+      <div><label for="day">Date</label>
+        <input id="day" name="day" type="date" required></div>
+      <div><label for="time">Start</label>
+        <input id="time" name="time" type="time"></div>
+    </div>
+    <div class="row">
+      <div><label for="end_time">End</label>
+        <input id="end_time" name="end_time" type="time"></div>
+      <div><label for="icon">Icon</label>
+        <input id="icon" name="icon" value="mdi.calendar"></div>
+    </div>
+    <label for="location">Location</label>
+    <input id="location" name="location" placeholder="Optional">
+    <label for="notes">Notes</label>
+    <textarea id="notes" name="notes" placeholder="Optional"></textarea>
+    <div class="go"><button type="submit">Add to the calendar</button></div>
+  </form>
+</section>
+
+<ul>{upcoming}</ul>
+"""
+    return page(
+        title="Add an event",
+        heading="Add an event",
+        blurb="It appears on the panel straight away.",
+        token=token, css=FORM_CSS, body=body,
+        script=FORM_SCRIPT.replace("__TOKEN__", _escape(token)),
+    )
 
 
 class Calendar(Plugin):
@@ -752,11 +728,10 @@ class Calendar(Plugin):
             for e in upcoming
         ) or "<li><span>Nothing coming up.</span></li>"
 
-        return (FORM_PAGE
-                .replace("__TOKEN__", _escape(token))
-                .replace("__USERS__", options or
-                         "<option value=\"\">Nobody named yet</option>")
-                .replace("__UPCOMING__", listed)), 200
+        return render_form_page(
+            token,
+            options or '<option value="">Nobody named yet</option>',
+            listed), 200
 
     def api_sync(self, **_ignored):
         """
@@ -838,13 +813,10 @@ class Calendar(Plugin):
         options = "".join(f'<option value="{_escape(n)}">{_escape(n)}</option>'
                           for n in self.client.USERS.names())
 
-        return (SUBS_PAGE
-                .replace("__TOKEN__", _escape(token))
-                .replace("__USERS__", options or
-                         "<option value=\"\">Nobody named yet</option>")
-                .replace("__ROWS__", rows)
-                .replace("__MESSAGE_BLOCK__",
-                         f'<div class="note">{_escape(message)}</div>' if message else "")), 200
+        return render_subs_page(
+            token,
+            options or '<option value="">Nobody named yet</option>',
+            rows, message=message), 200
 
     def api_dump(self, title: str = "", day: str = "", show: str = ""):
         """

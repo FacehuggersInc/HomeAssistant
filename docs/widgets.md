@@ -169,6 +169,42 @@ own edges. `apply_rotation()` leaves the origin at the content, so a widget
 just draws from `(0, 0)` as usual. The layout saves the **content** size, not
 the rotated box.
 
+### The nine positions
+
+One vocabulary answers "where does this go" for every caller: an anchor zone,
+a sticker dropped from a phone, a timer that places itself. `POSITIONS` in
+`src/ui/widget.py` holds them, read left to right and top to bottom.
+
+| | | |
+|---|---|---|
+| `top-left` | `top-center` | `top-right` |
+| `center-left` | `center` | `center-right` |
+| `bottom-left` | `bottom-center` | `bottom-right` |
+
+A position means the same thing to both kinds of widget and is spelled the
+same way in a URL, in `widget_layout.json` and in a call. An anchored widget
+takes it as its zone; a floating one is given a free spot inside that region.
+
+`normalise_position(value, fallback)` accepts any of them plus the shorter
+spellings a link may carry — `top`, `bottom`, `left`, `right`, `middle` —
+and answers with one of the nine. Anything it cannot place becomes the
+fallback rather than being dropped: a position that cannot be honoured has to
+become one that can, since silently discarding it puts every widget in the
+same corner.
+
+```python
+from src.ui.widget import POSITIONS, POSITION_LABELS, normalise_position
+
+normalise_position("top")       # "top-center"
+normalise_position("middle")    # "center"
+normalise_position("", "center")  # "center"
+POSITION_LABELS["center-left"]  # "Left"
+```
+
+A served page builds its picker from `POSITIONS` rather than a list of its
+own, so a page cannot offer a tenth or leave one out. See
+[Styling](styling.md) for `position_grid()`.
+
 ### Placing and ordering
 
 While a widget is being dragged, a green bar shows the slot it will drop into
@@ -437,26 +473,66 @@ The page outlives your plugin. A widget left on it after unload keeps painting
 and keeps ticking, from a module that is gone.
 
 
-## Transient widgets
+## Making and placing one
 
-A widget placed by something happening rather than by the person arranging
-their screen - a running timer, a note an API call asked for. They are placed
-at an exact point or at random inside a quadrant, never overlap anything
-already there, can dismiss themselves on a timeout, and are **never written to
-`widget_layout.json`**: a widget that exists only while its reason exists must
-not come back on the next launch.
+Three methods cover the whole of it. A widget arrives on the page the same way
+whatever put it there.
+
+| | |
+|---|---|
+| `create(template_key, key=None, state=None, transient=False, **kwargs)` | Build one copy of a registered template. |
+| `place(widget, at="", exact=None, save=True, bundle=False)` | Put it on the page at one of the nine positions. |
+| `remove(key)` | Take it off, run its teardown and drop its saved state. |
+
+`at` is a position; `exact` is an `(x, y)` centre in page pixels and wins over
+it. Either way a floating widget lands somewhere nothing already occupies. A
+widget that covers the clock hides information; one a few pixels from the spot
+the caller names hides nothing.
 
 ```python
-widget = framework.make_transient("sticky-note", text="Back at 6")
-sub_home.features().show_transient(widget, quadrant="top-left", timeout=600)
+framework = sub_home.features().widget_framework
+
+widget = framework.create("sticky-note", state={"text": "Back at 6"})
+framework.place(widget, at="top-left")
 ```
 
-The delete handle on one does not file it in the widgets panel - there is no
-entry there to go back to. It calls `on_dismissed()` on the widget instead, so
-whatever placed it can react; a timer uses that to stop the real countdown.
+### Transient widgets
 
-Provided by `corewidgetsbundle`. Full detail, and the timer service built on
-it, are in that plugin's own documentation.
+A widget placed by something happening rather than by the person arranging
+their screen — a running timer, a note an API call asked for. `transient` is a
+flag on the same class, and it governs two things: the widget is **never
+written to `widget_layout.json`**, and it may expire. A widget that exists only
+while its reason exists must not come back on the next launch.
+
+```python
+widget = framework.create("sticky-note", transient=True, text="Back at 6")
+framework.show_transient(widget, at="top-left", timeout=600)
+```
+
+`show_transient` marks the flag, places the widget through `place()` and
+registers the timeout. `dismiss_transient(key)` takes one away early, and
+`transient_widgets()` lists the ones up.
+
+The delete handle on a transient widget does not file it in the widgets panel —
+there is no entry there to go back to. It calls `on_dismissed()` on the widget
+instead, so whatever placed it can react; a timer uses that to stop the real
+countdown.
+
+### Naming one before it exists
+
+`reserve_key(template_key, transient=False)` claims the key the next copy will
+have. A request thread needs this: building a widget belongs to the UI thread,
+`call_on_ui` does not report back, and a page that has just made a list has to
+know which list it made in order to go on editing it.
+
+```python
+key = framework.reserve_key("checklist")
+client.call_on_ui(lambda: framework.create("checklist", key=key, state=state))
+# `key` names a widget that will exist, and can be answered with now.
+```
+
+Reserved keys are held until a copy claims one, so two requests arriving
+together cannot be promised the same name.
 
 ## Asking something before a widget is added
 

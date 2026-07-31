@@ -348,10 +348,8 @@ class TimerService:
     ## -- widgets
 
     def _sub_home(self):
-        entry = self.client.PAGES.get_entry("#cwb_home_page")
-        if entry is None or getattr(entry, "instance", None) is None:
-            return None
-        return entry.instance.sub_page_dict.get("home")
+        from .homepage import sub_home
+        return sub_home(self.client)
 
     def _place_widget(self, timer: Timer, quadrant: str, center) -> None:
         sub_home = self._sub_home()

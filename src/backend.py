@@ -71,19 +71,24 @@ def FlaskApp(client):
 	)
 
 	@app.context_processor
-	def _panel_identity():
+	def _shared_chrome():
 		"""
-		The panel's name, in every template.
+		The panel's name, the chrome and the back control, in every template.
 
 		A context processor rather than a keyword on each render_template():
 		there are several pages and adding one is how a heading ends up saying
-		"Home Assistant" on a panel somebody named something else. This way a
-		new page gets the name without having to remember to ask for it.
+		"Home Assistant" on a panel somebody named something else, or how a
+		page ends up with a hand-written back link that drifts from the shared
+		one. This way a new page gets all three without having to ask.
 		"""
+		from src.webui import back_button, chrome_css
 		try:
-			return {"panel": client.panel_name()}
+			name = client.panel_name()
 		except Exception:
-			return {"panel": APP_NAME}
+			name = APP_NAME
+		return {"panel": name,
+				"chrome": chrome_css(),
+				"back_button": back_button}
 
 	# AUTH & HELPERS
 	def _wants_html() -> bool:
@@ -415,14 +420,12 @@ def FlaskApp(client):
 		token and no way to be given one - and it exposes nothing a person
 		standing at the panel could not already see by opening the page.
 		"""
-		from src.webui import chrome_css
 		marks = []
 		try:
 			marks = client.BOOKMARKS.all()
 		except Exception as e:
 			client.log("warning", f"[Bookmarks] Could not list: {e}")
-		return render_template("webhome.html", bookmarks=marks,
-							   chrome=chrome_css()), 200
+		return render_template("webhome.html", bookmarks=marks), 200
 
 	@app.route("/bookmark/forget", methods=["GET", "POST"])
 	def forget_bookmark():
@@ -476,9 +479,8 @@ def FlaskApp(client):
 		"""
 		err = auth()
 		if err: return err
-		from src.webui import chrome_css
 		token = request.args.get("token", "")
-		return render_template("goto.html", chrome=chrome_css(),
+		return render_template("goto.html",
 							   token=token), 200
 
 	@app.route("/pages", methods=["GET"])
@@ -562,12 +564,11 @@ def FlaskApp(client):
 		"""
 		err = auth()
 		if err: return err
-		from src.webui import chrome_css
 		# The same way every other page here gets it: whatever the browser
 		# arrived with. The cookie set at approval means this is usually
 		# already in the URL after one visit.
 		token = request.args.get("token", "")
-		return render_template("clipboard.html", chrome=chrome_css(),
+		return render_template("clipboard.html",
 							   token=token), 200
 
 	@app.route("/clipboard/clear", methods=["GET", "POST"])
@@ -620,9 +621,8 @@ def FlaskApp(client):
 		# Passed through so the page's own links and its POST carry the token
 		# that fetched it - the browser has no other way to authenticate.
 		token = request.args.get("token", "")
-		from src.webui import chrome_css
 		return render_template("upload_index.html", assets=uploadable,
-							   token=token, chrome=chrome_css())
+							   token=token)
 
 	@app.route("/upload/<key>", methods=["GET"])
 	def upload_page(key):
@@ -642,9 +642,8 @@ def FlaskApp(client):
 		# each carrying their own copy of the same CSS is how one of them
 		# ended up with no size on its back-button icon, and an SVG with no
 		# size fills whatever contains it.
-		from src.webui import chrome_css
 		return render_template("upload.html", key=key, path=str(path),
-							   token=token, chrome=chrome_css())
+							   token=token)
 
 	@app.route("/upload/<key>", methods=["POST"])
 	def upload_file(key):
@@ -789,7 +788,6 @@ def FlaskApp(client):
 		user = request.environ.get("ha.user")
 
 		from src.webicons import svg
-		from src.webui import chrome_css
 
 		pages = [
 			{"url": "/docs", "label": "Documentation",
@@ -858,7 +856,6 @@ def FlaskApp(client):
 		return render_template("index.html", pages=pages, actions=actions,
 							   users=users, token=token,
 							   panel=client.panel_name(),
-							   chrome=chrome_css(),
 							   device=user.name if user else "this device"), 200
 
 	@app.route("/font/<path:name>", methods=["GET"])
@@ -935,7 +932,6 @@ def FlaskApp(client):
 		sender = str(request.values.get("from") or "").strip()
 
 		if not message:
-			from src.webui import back_button, chrome_css
 			try:
 				names = [u.name for u in client.USERS.all_users()]
 			except Exception:
@@ -950,8 +946,7 @@ def FlaskApp(client):
 			return render_template(
 				"say.html", users=names, token=token, voices=voices,
 				voice=current,
-				panel=client.panel_name(), chrome=chrome_css(),
-				back=back_button(token),
+				panel=client.panel_name(),
 				device=user.name if user else ""), 200
 
 		if not sender:

@@ -39,7 +39,14 @@ FONTS = """
 PALETTE = """ :root{--bg:#0e0e11;--card:#17171c;--card2:#1e1e25;
        --line:#2a2a33;--text:#f0f0f4;--muted:#8f8f9c;
        --accent:#2ff08e;--accent2:#5ac8fa;--warm:#ffb454;--bad:#ff7a7a;
-       --glow:rgba(47,240,142,.16)}
+       --glow:rgba(47,240,142,.16);
+       /* Not optional, and here rather than on each page.
+          Chromium runs with forceDarkModeEnabled so that ordinary sites come
+          out dark. A page that declares itself dark is skipped; one that does
+          not is inverted into a white rectangle. Six of the served pages had
+          left it out, and it is the kind of line that goes missing whenever a
+          page is written by copying another. */
+       color-scheme:dark}
  *{font-family:Poppins,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
  body{-webkit-font-smoothing:antialiased;letter-spacing:-.011em}"""
 
@@ -56,6 +63,79 @@ FIELD_CSS = """ input,textarea,select{width:100%;padding:13px;border-radius:9px;
       padding-right:42px}
  input:focus,textarea:focus,select:focus{outline:none;border-color:var(--accent)}
  option{background:#111114;color:var(--text)}"""
+
+
+# Buttons and cards, for every page rather than for the ones written since.
+#
+# The dashboard grew a gradient primary, lit borders and rounded cards, and the
+# pages written before it kept flat grey ones - so the same panel looked like
+# two products depending on which button somebody pressed. Styling the plain
+# elements here means a page gets it by using them, with no page to edit.
+CONTROL_CSS = """ button,.btn{min-height:50px;padding:0 22px;border-radius:11px;
+      font-family:inherit;font-size:15px;font-weight:600;cursor:pointer;
+      border:1px solid var(--line);background:var(--card);color:var(--text)}
+ button:hover,.btn:hover{border-color:var(--accent);color:var(--accent)}
+ button:active,.btn:active{transform:scale(.99)}
+ button[type=submit],.btn.primary{border:none;color:#0d1a12;
+      background:linear-gradient(135deg,var(--accent),var(--accent2));
+      box-shadow:0 6px 22px var(--glow)}
+ button[type=submit]:hover,.btn.primary:hover{color:#0d1a12;filter:brightness(1.06)}
+ button.danger,.btn.danger{border-color:rgba(255,122,122,.4);color:#ffb3b3;
+      background:var(--card)}
+ button.danger:hover{border-color:var(--bad);color:var(--bad)}
+ .card{border:1px solid var(--line);border-radius:14px;background:var(--card);
+      padding:16px}
+ /* A square button with a glyph and no words. The rule above carries the
+    padding a labelled button needs, and under border-box that padding eats a
+    small fixed width from both sides - so an icon button resets it and states
+    its own size. */
+ button.icon,.btn.icon{min-height:0;padding:0;width:46px;height:46px;
+      display:inline-flex;align-items:center;justify-content:center}
+ h1{font-size:24px;font-weight:600;letter-spacing:-.02em}
+ h2{font-size:12px;font-weight:600;text-transform:uppercase;
+      letter-spacing:.1em;color:var(--muted)}
+ a{color:var(--accent2)}"""
+
+
+# The page itself. Every served page set its own body rule, and each one used
+# the `font:` shorthand - which resets font-family, so the page that had just
+# loaded Poppins rendered its body in the system font.
+#
+# Set here, and set as separate properties rather than the shorthand.
+LAYOUT_CSS = """ *{box-sizing:border-box}
+ body{margin:0 auto;padding:18px;background:var(--bg);color:var(--text);
+      font-size:16px;line-height:1.5;max-width:820px}
+ h1{margin:0 0 4px}
+ h2{margin:22px 0 8px}
+ p.sub{color:var(--muted);margin:0 0 18px;font-size:14px}
+ section{background:var(--card);border:1px solid var(--line);
+      border-radius:14px;padding:16px;margin-bottom:16px}
+ label{display:block;font-size:13px;color:var(--muted);margin:12px 0 4px}
+ .row{display:flex;gap:10px}
+ .row>div{flex:1}
+ .hint{color:var(--muted);font-size:12.5px;margin-top:6px;line-height:1.55}
+ .empty{color:var(--muted);font-size:14px;padding:10px 0}"""
+
+
+# One banner, not four. The same "it worked" strip was `.note`/`.warn` on three
+# pages, `.said`/`.said.bad` on a fourth and `.badge` on a fifth, so a person
+# moving between them saw the same message styled three ways.
+BANNER_CSS = """ .banner{border-radius:11px;padding:13px 16px;margin:0 0 16px;
+      font-size:14px;border:1px solid var(--accent);
+      background:rgba(47,240,142,.12)}
+ .banner.bad{border-color:var(--bad);background:rgba(255,122,122,.12);
+      color:#ffb3b3}"""
+
+
+# The nine positions, drawn as the shape of the screen. Three pages ask this
+# question and each drew its own grid; a dropdown reading "bottom-right" is a
+# word to translate into a place.
+POSITION_CSS = """ .where{display:grid;grid-template-columns:repeat(3,1fr);
+      gap:6px;max-width:320px;aspect-ratio:16/9;margin-top:6px}
+ .where button{min-height:0;padding:0;font-size:11.5px;font-weight:500;
+      border-radius:9px;background:var(--card);color:var(--muted)}
+ .where button.on{border-color:var(--accent);color:var(--accent);
+      background:linear-gradient(150deg,rgba(47,240,142,.14),var(--card) 70%)}"""
 
 
 # A button, not a link with an arrow glyph in it. It is the control people
@@ -83,4 +163,103 @@ def back_button(token: str, label: str = "Dashboard", href: str = "/") -> str:
 
 def chrome_css() -> str:
     """Everything a page needs that is not its own layout."""
-    return "\n".join((FONTS, PALETTE, FIELD_CSS, BACK_CSS))
+    return "\n".join((FONTS, PALETTE, LAYOUT_CSS, FIELD_CSS, BACK_CSS,
+                      CONTROL_CSS, BANNER_CSS, POSITION_CSS))
+
+
+def banner(message: str, bad: bool = False) -> str:
+    """The one status strip. Empty when there is nothing to say."""
+    if not message:
+        return ""
+    return f'<p class="banner{" bad" if bad else ""}">{escape(message)}</p>'
+
+
+def position_grid(selected: str = "", name: str = "quadrant",
+                  field_id: str = "quadrant") -> str:
+    """
+    The nine positions as the shape of the screen, plus the field they set.
+
+    The framework's own list, so a page cannot offer a tenth or miss one out.
+    Include POSITION_SCRIPT once on any page that uses this.
+    """
+    from src.ui.widget import POSITIONS, POSITION_LABELS
+
+    buttons = "".join(
+        '<button type="button" data-q="{key}"{on}>{label}</button>'.format(
+            key=escape(key),
+            on=' class="on"' if key == selected else "",
+            label=escape(POSITION_LABELS[key]))
+        for key in POSITIONS)
+    return (f'<input type="hidden" name="{escape(name)}" '
+            f'id="{escape(field_id)}" value="{escape(selected)}">'
+            f'<div class="where" data-for="{escape(field_id)}">{buttons}</div>')
+
+
+# Wires every grid on the page to its own hidden field, so a page may carry
+# more than one without them fighting over the same element id.
+POSITION_SCRIPT = """
+Array.prototype.forEach.call(document.querySelectorAll('.where'),
+  function (grid) {
+    var field = document.getElementById(grid.dataset.for);
+    Array.prototype.forEach.call(grid.querySelectorAll('button'),
+      function (b) {
+        b.addEventListener('click', function (e) {
+          e.preventDefault();
+          Array.prototype.forEach.call(grid.querySelectorAll('button'),
+            function (o) { o.classList.remove('on'); });
+          b.classList.add('on');
+          if (field) { field.value = b.dataset.q; }
+        });
+      });
+  });
+"""
+
+
+PAGE = """<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>{title}</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
+<style>
+{chrome}
+{css}
+</style>
+</head>
+<body>
+{back}{heading}{blurb}{banner}
+{body}
+{script}
+</body>
+</html>
+"""
+
+
+def page(title: str, body: str, token: str = "", heading: str = "",
+         blurb: str = "", message: str = "", bad: bool = False,
+         css: str = "", script: str = "", back: bool = True,
+         back_label: str = "Dashboard", back_href: str = "/") -> str:
+    """
+    A whole served page.
+
+    Everything above the content is the same on every page and is assembled
+    here: the doctype, the viewport, the chrome, the back control, the
+    heading and the one status banner.
+
+    `color-scheme: dark` is not optional and so is not a parameter. Chromium
+    runs with forceDarkModeEnabled, so a page that does not declare itself
+    dark is inverted into a white rectangle - and it was the easiest line to
+    leave out of a page written by copying another one.
+    """
+    return PAGE.format(
+        title=escape(title),
+        chrome=chrome_css(),
+        css=css,
+        back=back_button(token, back_label, back_href) if back else "",
+        heading=f"<h1>{escape(heading)}</h1>" if heading else "",
+        blurb=f'<p class="sub">{escape(blurb)}</p>' if blurb else "",
+        banner=banner(message, bad),
+        body=body,
+        script=f"<script>{script}</script>" if script else "",
+    )

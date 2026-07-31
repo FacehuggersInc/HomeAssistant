@@ -4,12 +4,9 @@
 <meta charset="utf-8">
 <title>Go to &mdash; {{ panel }}</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
 <style>
 {{ chrome|safe }}
- h1{font-size:22px;margin:0 0 4px}
- .sub{color:var(--muted);font-size:14px;margin:0 0 20px}
- .card{background:var(--card);border:1px solid var(--line);border-radius:12px;
-       padding:16px;margin:0 0 16px}
  .label{color:var(--muted);font-size:13px;margin:0 0 8px}
  .pages{display:flex;flex-direction:column;gap:8px}
  .page{display:flex;align-items:center;gap:12px;width:100%;min-height:56px;
@@ -20,25 +17,11 @@
  .page.here{border-color:var(--accent)}
  .page .tag{margin-left:auto;font-size:11px;font-weight:700;
             text-transform:uppercase;letter-spacing:.04em;color:var(--accent)}
- input{width:100%;box-sizing:border-box;min-height:48px;background:#141417;
-       color:var(--text);border:1px solid var(--line);border-radius:8px;
-       padding:0 12px;font-size:16px;font-family:inherit}
- .row{display:flex;gap:10px;flex-wrap:wrap;margin:12px 0 0}
- button.go{flex:1 1 130px;min-height:48px;font-size:16px;font-weight:600;
-           border-radius:9px;border:1px solid var(--accent);
-           background:var(--accent);color:#0f2418;cursor:pointer}
- .hint{color:var(--muted);font-size:12px;margin:8px 0 0;line-height:1.5}
- #note{display:none;margin:0 0 16px;padding:10px 14px;border-radius:9px;
-       background:rgba(47,240,142,.12);border:1px solid rgba(47,240,142,.4);
-       font-size:14px;word-break:break-word}
- #note.bad{background:rgba(224,138,138,.12);border-color:rgba(224,138,138,.45)}
+ #note{display:none}
 </style>
 </head>
 <body>
-<p><a class="back" href="/?token={{ token }}">
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-       stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
-  Dashboard</a></p>
+<p>{{ back_button(token)|safe }}</p>
 
 <h1>Go to</h1>
 <p class="sub">Change what {{ panel }} is showing.</p>
@@ -54,7 +37,7 @@
   <p class="label">Open a web page</p>
   <input id="url" type="url" inputmode="url" spellcheck="false"
          placeholder="https://example.com">
-  <div class="row"><button class="go" id="openurl">Open on the panel</button></div>
+  <div class="row"><button class="btn primary" id="openurl">Open on the panel</button></div>
   <p class="hint">Sends the address to the panel's browser page. The panel
     stays there until something else changes it.</p>
 </div>
@@ -65,7 +48,7 @@ var note = document.getElementById('note');
 
 function say(message, bad) {
   note.textContent = message;
-  note.className = bad ? 'bad' : '';
+  note.className = bad ? 'banner bad' : 'banner';
   note.style.display = 'block';
 }
 

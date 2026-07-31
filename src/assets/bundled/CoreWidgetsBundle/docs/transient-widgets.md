@@ -21,7 +21,7 @@ The difference is not cosmetic:
 | | Ordinary | Transient |
 |---|---|---|
 | Placed by | the person, from the widgets panel | code, in response to something |
-| Position | wherever they dropped it | an exact point, or a random spot in a quadrant |
+| Position | wherever they dropped it | an exact point, or a free spot in a named region |
 | Saved to `widget_layout.json` | yes | **never** |
 | Survives a restart | yes | no |
 | Delete handle | returns it to the panel | dismisses it, and tells whatever placed it |
@@ -38,19 +38,21 @@ key, so one written by an older build is cleaned up rather than restored.
 Through `sub.home`'s features:
 
 ```python
-sub_home.features().show_transient(widget, quadrant="top-right", timeout=120)
+sub_home.features().show_transient(widget, at="top-right", timeout=120)
 ```
 
 | Argument | Meaning |
 |---|---|
-| `widget` | A `Widget` instance. Use `make_transient()` to build one. |
+| `widget` | A `Widget` instance. Build one with `create(..., transient=True)`. |
 | `center` | `(x, y)` in page pixels. The widget is centred there. |
-| `quadrant` | A named region to land in at random instead. |
+| `at` | One of the nine positions to land in instead. |
 | `timeout` | Seconds until it dismisses itself. `0` means stay. |
 | `bundle` | Group with transient widgets already up. Default `True`. |
 
-Quadrants are `top-left`, `top-right`, `bottom-left`, `bottom-right`, `top`,
-`bottom`, `left`, `right` and `center`.
+The positions are the nine in `POSITIONS` — the corners, the edge centres and
+the middle. `quadrant=` is accepted as the same argument under its older name,
+and the short spellings `top`, `bottom`, `left`, `right` and `middle` fold onto
+the nine. See [Widgets](/docs/widgets).
 
 ### Where it actually lands
 
@@ -62,7 +64,7 @@ any position that would collide with a widget already on the page:
    widget a few pixels is better than dropping it on top of the clock.
 2. **Beside the last transient widget** — below, right, above, then left — so
    several read as a group rather than scattered across the screen.
-3. **A random point inside the quadrant**, retried up to forty times.
+3. **A random point inside the region**, retried up to forty times.
 4. **A scan** for the first free slot anywhere, before it gives up.
 
 `timeout` only removes the widget. **It says nothing and shows nothing.**
@@ -76,13 +78,14 @@ its own — otherwise dismissing the copy would take the real one with it:
 
 ```python
 framework = sub_home.features().widget_framework
-widget = framework.make_transient("sticky-note", text="Back at 6")
-sub_home.features().show_transient(widget, quadrant="top-left", timeout=600)
+widget = framework.create("sticky-note", transient=True, text="Back at 6")
+sub_home.features().show_transient(widget, at="top-left", timeout=600)
 ```
 
-`make_transient` works for `MULTIPLE` templates and for anything else whose
+`create` works for `MULTIPLE` templates and for anything else whose
 constructor takes no required arguments. It returns `None` and logs if the
-widget cannot be built.
+widget cannot be built. `make_transient(key, **kwargs)` names the same act and
+takes the same arguments.
 
 ### Being dismissed
 
@@ -251,7 +254,7 @@ guessed in advance, and seven minutes is not an unreasonable thing to want.
 
 | Endpoint | Does |
 |---|---|
-| `GET|POST /public/timer_form` | **A page** to start one from a phone: presets, hours/minutes/seconds, a name and a position. |
+| `GET` or `POST` `/public/timer_form` | **A page** to start one from a phone: presets, hours/minutes/seconds, a name and a position. |
 | `GET /public/timer_start` | Start a timer, for a script. |
 | `GET /public/timer_list` | Every timer the panel is counting. |
 | `GET /public/timer_cancel` | Cancel one, or all of them. |

@@ -277,6 +277,35 @@ gates the widget framework's re-fit pass **and** every registered widget's own
 tick — including the ones sitting in the widgets panel, which are off screen
 twice over.
 
+### The features API
+
+`PageFramework` and `SubPageFramework` both take it from `HasFeatures` in
+`src/ui/page.py`, so a plugin asks either kind of page the same four
+questions.
+
+| | |
+|---|---|
+| `add_features({name: fn})` | Publish callables. An existing name is kept. |
+| `has_feature(name)` | Whether one is published. |
+| `features()` | The whole dict. |
+| `features(name, *args)` | Call one by name and answer with its result. |
+
+```python
+class MyPage(PageFramework):
+    def __init__(self, key, client, data=None):
+        super().__init__(key, client, data)
+        self.add_features({"refresh": self.refresh})
+
+# and from a plugin
+if page.has_feature("refresh"):
+    page.features("refresh")
+```
+
+The dict lives on `_features`. One underscore reads as internal without
+claiming to be a dunder: `__features__` sits in the namespace Python reserves
+for its own protocol names, beside `__dict__` and `__class__`, and nothing
+here is part of that protocol.
+
 ### Features from a sub-page
 
 A sub-page's own features are re-exposed on the parent under the sub-page's

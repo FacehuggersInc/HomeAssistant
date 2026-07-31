@@ -95,7 +95,7 @@ It is listed on the panel's index as **Stickers**.
 |---|---|
 | upload | Anything the store accepts. Validated before it is written. |
 | sticker | Which one to place. |
-| quadrant | One of nine regions — corners, edges, middle. |
+| quadrant | One of the nine positions — corners, edge centres, middle. |
 | mode | `permanent` or `temporary`. |
 | timeout | Seconds, for a temporary one, from 1 up. `0` means until it is removed. |
 | scale | Small, Normal, Large, Huge, or an exact longest edge in pixels. |
@@ -120,9 +120,9 @@ through the widgets path and is saved. **Temporary** goes through the
 [transient API](/docs/plugin/corewidgetsbundle/transient-widgets), which never persists, so a temporary
 sticker is gone after a restart whether its timeout elapsed or not.
 
-The quadrant applies either way: a permanent sticker is placed where it was
-asked for rather than at the widget's default anchor, and never overlapping
-something already there.
+The position applies either way: a permanent sticker goes where the request
+names rather than to the widget's default anchor, and never overlaps something
+already there.
 
 ### As JSON
 
@@ -131,7 +131,7 @@ something already there.
 | `GET /public/sticker_list` | The library. |
 | `GET /public/sticker_place` | Place one. `sticker=`, `quadrant=`, `mode=`, `timeout=`, or `x=`/`y=`. |
 | `GET /public/sticker_remove` | Delete one from the library. `key=`. |
-| `GET|POST /public/sticker_add` | The page, and what it posts back to. |
+| `GET` or `POST` `/public/sticker_add` | The page, and what it posts back to. |
 
 ```bash
 curl "http://panel:5000/public/sticker_place?token=...\

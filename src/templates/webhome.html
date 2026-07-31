@@ -12,7 +12,9 @@
 <style>
 {{ chrome|safe }}
  :root{color-scheme:dark}
- body{display:flex;flex-direction:column;align-items:center;
+ /* This page sets its own column width through .inner, so the shared cap
+    would hold it below the width the bookmark grid is measured for. */
+ body{max-width:none;display:flex;flex-direction:column;align-items:center;
       justify-content:center;min-height:100vh;padding:48px 32px;
       box-sizing:border-box}
  .inner{width:100%;max-width:860px}
@@ -56,6 +58,16 @@
    font-weight:700;color:var(--accent);flex:none}
  .mark .name{font-size:14px;font-weight:500;line-height:1.3;min-width:0;
    overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+ /* A glyph, not a labelled control. The shared button rule carries the height
+    and padding a button with words in it needs, and the card reserves 40px on
+    its right for this - so it states its own size and sits in that space. */
+ .drop{position:absolute;right:8px;top:50%;transform:translateY(-50%);
+   width:28px;height:28px;min-height:0;padding:0;border:none;background:none;
+   color:var(--muted);font-size:18px;line-height:1;border-radius:8px;
+   opacity:.55}
+ .drop:hover{opacity:1;background:rgba(255,122,122,.16);color:#ffb3b3;
+   border:none}
 
  .empty{color:var(--muted);font-size:14px;line-height:1.7;
         border:1px dashed var(--line);border-radius:12px;padding:22px;

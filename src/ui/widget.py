@@ -18,13 +18,84 @@ if TYPE_CHECKING:
     from src.main import Client
 
 
-ANCHORS = (
-    "top-left", "top-center", "top-right",
+# The nine places a widget can be asked for, as a grid read left to right and
+# top to bottom. One vocabulary for every caller: an anchor zone, a random
+# transient landing, a sticker dropped from a phone.
+#
+# The names are the anchor-style ones because those are what is already written
+# into widget_layout.json. Everything else is an alias, below.
+POSITIONS = (
+    "top-left",    "top-center",    "top-right",
+    "center-left", "center",        "center-right",
     "bottom-left", "bottom-center", "bottom-right",
 )
 
+#What each name is called on the pages that show a grid of them.
+POSITION_LABELS = {
+    "top-left":      "Top left",
+    "top-center":    "Top",
+    "top-right":     "Top right",
+    "center-left":   "Left",
+    "center":        "Middle",
+    "center-right":  "Right",
+    "bottom-left":   "Bottom left",
+    "bottom-center": "Bottom",
+    "bottom-right":  "Bottom right",
+}
+
+# Every other spelling that has been in a URL, a saved layout or a plugin.
+#
+# Kept rather than migrated: these are in bookmarks on other people's phones
+# and in scripts nobody here can edit. A name that used to work still works.
+POSITION_ALIASES = {
+    "top":        "top-center",
+    "bottom":     "bottom-center",
+    "left":       "center-left",
+    "right":      "center-right",
+    "middle":     "center",
+    "centre":     "center",
+    "mid-left":   "center-left",
+    "mid-right":  "center-right",
+    "center-top": "top-center",
+    "center-bottom": "bottom-center",
+}
+
+#The six that name an anchor zone kept their meaning exactly; ANCHORS remains
+#as the old name for anything importing it.
+ANCHORS = POSITIONS
+
 TOPMOST  = "topmost"
 FLOATING = "floating"
+
+
+def normalise_position(value, fallback: str = "top-right") -> str:
+    """
+    One of POSITIONS, whatever spelling arrived.
+
+    Anything unrecognised becomes `fallback` rather than being dropped. A
+    position that cannot be honoured has to become one that can - silently
+    discarding it is how a page full of place controls ended up putting
+    everything in the same corner.
+    """
+    name = str(value or "").strip().lower().replace("_", "-").replace(" ", "-")
+    name = POSITION_ALIASES.get(name, name)
+    return name if name in POSITIONS else fallback
+
+
+def split_position(value):
+    """
+    A position as (vertical, horizontal), each of top/center/bottom and
+    left/center/right.
+
+    Parsed rather than substring-tested. "center" appears in `top-center` and
+    in `center-left`, and in `center` alone it is both halves - so asking
+    whether the name contains it answers a different question each time.
+    """
+    name = normalise_position(value)
+    if name == "center":
+        return "center", "center"
+    vertical, horizontal = name.split("-", 1)
+    return vertical, horizontal
 
 HOLD_MS = 450
 # Sized for a finger. 22px was fine with a cursor and fiddly without one.
@@ -220,11 +291,20 @@ class Widget(QWidget):
             self._content_w, self._content_h = self.width(), self.height()
         return self._content_w, self._content_h
 
-    def set_content_size(self, width: int, height: int) -> None:
+    def set_content_size(self, width: int, height: int,
+                         chosen: bool = True) -> None:
+        """
+        Set the unrotated content size.
+
+        `chosen` records whether this is a decision - a drag, or a restore of
+        one - or a widget growing to hold what is inside it. Only a decision
+        is preserved across a rebuild and written to the layout as one. A
+        widget that grows itself and is marked as having been sized can never
+        shrink again, because its own growth reads back as somebody's choice.
+        """
         self._content_w, self._content_h = int(width), int(height)
-        #A size that was decided, rather than one read off an unlaid-out
-        #widget. See has_chosen_size().
-        self._sized = True
+        if chosen:
+            self._sized = True
 
     def has_chosen_size(self) -> bool:
         """
@@ -341,7 +421,8 @@ class Widget(QWidget):
         self.offset_x = int(state.get("ox", 0))
         self.offset_y = int(state.get("oy", 0))
 
-        # A size is restored only when it was chosen.
+        # A size is restored only when it was chosen, and only when there is
+        # one in the state to restore.
         #
         # set_content_size() marks a widget as having a chosen size, and
         # layout_state() writes whatever content_size() reports - so restoring
@@ -353,7 +434,14 @@ class Widget(QWidget):
         # An entry written before this defaults to sized: a size already in the
         # file is honoured rather than thrown away, which stops the ratchet
         # without resetting anybody's layout.
-        if self.can_resize() and bool(state.get("sized", True)):
+        #
+        # A state with no `w`/`h` at all is a different thing again - the API
+        # builds one to carry text and items, not geometry. Falling back to
+        # width() there read the widget's own current size and wrote it back as
+        # a decision, which froze anything that sizes itself to its contents at
+        # whatever it happened to measure first.
+        has_size = "w" in state and "h" in state
+        if self.can_resize() and has_size and bool(state.get("sized", True)):
             width  = int(state.get("w", self.width()))
             height = int(state.get("h", self.height()))
             self.set_content_size(max(self.MIN_W, min(self.MAX_W, width)),
@@ -415,12 +503,19 @@ class _AnchorZone(QWidget):
         set_style(self, "common", "transparent")
         self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
 
+        vertical, horizontal = split_position(anchor_name)
+        self.vertical   = vertical
+        self.horizontal = horizontal
+
         self._col = QVBoxLayout()
         self._col.setContentsMargins(0, 0, 0, 0)
         self._col.setSpacing(8)
         self._col.setSizeConstraint(self._col.SizeConstraint.SetFixedSize)
-        self._col.setAlignment(Qt.AlignmentFlag.AlignTop if "top" in anchor_name
-                               else Qt.AlignmentFlag.AlignBottom)
+        self._col.setAlignment({
+            "top":    Qt.AlignmentFlag.AlignTop,
+            "center": Qt.AlignmentFlag.AlignVCenter,
+            "bottom": Qt.AlignmentFlag.AlignBottom,
+        }[vertical])
 
         self.setLayout(self._col)
         self._rows: dict[int, QHBoxLayout] = {}
@@ -439,12 +534,11 @@ class _AnchorZone(QWidget):
             row_layout.setContentsMargins(0, 0, 0, 0)
             row_layout.setSpacing(self.widget_spacing)
 
-            if "right" in self.anchor_name:
-                row_layout.setAlignment(Qt.AlignmentFlag.AlignRight)
-            elif "center" in self.anchor_name:
-                row_layout.setAlignment(Qt.AlignmentFlag.AlignHCenter)
-            else:
-                row_layout.setAlignment(Qt.AlignmentFlag.AlignLeft)
+            row_layout.setAlignment({
+                "left":   Qt.AlignmentFlag.AlignLeft,
+                "center": Qt.AlignmentFlag.AlignHCenter,
+                "right":  Qt.AlignmentFlag.AlignRight,
+            }[self.horizontal])
 
             self._col.insertWidget(min(row_index, self._col.count()), row_widget)
             self._rows[row_index] = row_layout
@@ -581,6 +675,13 @@ class WidgetFramework(QWidget):
         self.registry: dict = {}
         self.templates: dict = {}
 
+        # Names promised to a caller that has not built its widget yet. Claimed
+        # from a request thread and consumed on the UI thread, so the lock is
+        # not decoration - see reserve_key.
+        import threading
+        self._reserved: set = set()
+        self._keys_lock = threading.Lock()
+
         self.active: Optional[Widget] = None
         self._mode = ""
         #the shape a resize started at, for an aspect-locked drag
@@ -667,8 +768,46 @@ class WidgetFramework(QWidget):
             self._to_panel(widget, save=False)
         return widget
 
+    def reserve_key(self, template_key: str, transient: bool = False) -> str:
+        """
+        The key the next copy of a template will have, claimed up front.
+
+        For a caller that has to answer before the widget exists. Building one
+        is the UI thread's job and call_on_ui does not report back, so a Flask
+        request that creates a widget cannot otherwise say which widget it
+        created - and a page that has just made a list needs to know, or it
+        cannot go on to edit it.
+
+        Reserved keys are held until the copy claims one, so two requests
+        arriving together cannot be promised the same name.
+        """
+        shape = f"{template_key}~t{{}}" if transient else f"{template_key}-{{}}"
+        with self._keys_lock:
+            index = 1
+            while (shape.format(index) in self.registry
+                   or shape.format(index) in self._reserved):
+                index += 1
+            key = shape.format(index)
+            self._reserved.add(key)
+            return key
+
+    def create(self, template_key: str, key: str = None, state: dict = None,
+               transient: bool = False, **kwargs):
+        """
+        One copy of a registered template. The only way to make a widget.
+
+        `transient` marks it as never persisted; it is the same class and the
+        same registry either way. Nothing else about a widget depends on how
+        it came to be on the page.
+        """
+        widget = self._make_copy(template_key, instance_key=key, state=state,
+                                 place_now=False, **kwargs)
+        if widget is not None and transient:
+            widget.transient = True
+        return widget
+
     def _make_copy(self, template_key: str, instance_key: str = None,
-                   state: dict = None, **extra):
+                   state: dict = None, place_now: bool = True, **extra):
         entry = self.templates.get(template_key)
         if entry is None:
             return None
@@ -678,24 +817,26 @@ class WidgetFramework(QWidget):
         kwargs = {**kwargs, **extra}
 
         if instance_key is None:
-            index = 1
-            while f"{template_key}-{index}" in self.registry:
-                index += 1
-            instance_key = f"{template_key}-{index}"
+            instance_key = self.reserve_key(template_key)
 
         try:
             widget = widget_class(self.client, *args, **kwargs)
         except Exception as e:
             self.client.log("error",
                             f"[WidgetFramework] Could not copy '{template_key}': {e}")
+            # Released on failure too, or a reserved name is never usable
+            # again and every later copy skips past it.
+            self._reserved.discard(instance_key)
             return None
 
         widget.KEY = instance_key
         widget.template_key = template_key
         self.registry[instance_key] = widget
+        self._reserved.discard(instance_key)
         if state:
             widget.apply_layout_state(state)
-        self.place(widget)
+        if place_now:
+            self.place(widget)
         return widget
 
     def add(self, widgets: list) -> None:
@@ -717,7 +858,20 @@ class WidgetFramework(QWidget):
 
     ## PLACEMENT
 
-    def place(self, widget: Widget, save: bool = True) -> None:
+    def place(self, widget: Widget, save: bool = True, at: str = "",
+              exact=None, bundle: bool = False) -> None:
+        """
+        Put a widget on the page, optionally at one of the nine positions.
+
+        `at` means the same thing whichever kind of widget this is, which is
+        the point of it. An anchored widget takes it as its anchor zone; a
+        floating one is given a free spot inside that region. Asking for
+        "bottom-left" used to do the first and silently skip the second, so
+        every floating widget placed by an API call landed in the top corner
+        no matter what was chosen.
+
+        `exact` is an (x, y) centre that overrides `at` for a floating widget.
+        """
         if widget in self._widgets:
             return
 
@@ -726,14 +880,32 @@ class WidgetFramework(QWidget):
         widget.setParent(self)
         self._fit_to_content(widget)
 
+        wanted = normalise_position(at, "") if at else ""
+
         if widget.floating or widget.anchor == FLOATING:
             widget.tags = ["floating"]
+            if wanted or exact is not None or bundle:
+                # Measured against what is already on the page, so this has to
+                # happen after the widget is parented and fitted - its size is
+                # part of the question.
+                #
+                # `bundle` alone is enough: a transient widget with no position
+                # named still wants a free spot near its siblings rather than
+                # whatever float_x happens to hold.
+                point = self.free_point_in(widget, center=exact, at=wanted,
+                                           bundle=bundle)
+                widget.float_x, widget.float_y = point
             widget.move(widget.float_x, widget.float_y)
         elif widget.anchor == TOPMOST:
             widget.tags = ["topmost"]
             self._topmost.append(widget)
         else:
             widget.tags = ["anchored"]
+            if wanted:
+                # The row suffix survives: "top-left:1" asked for as
+                # "top-left" stays in row 1 rather than jumping to row 0.
+                _name, row = self._parse_anchor(widget.anchor)
+                widget.anchor = f"{wanted}:{row}" if row else wanted
             self._place_in_zone(widget)
             if widget.has_offset():
                 self._detach_for_offset(widget)
@@ -1015,7 +1187,12 @@ class WidgetFramework(QWidget):
         wanted_h = max(widget.MIN_H, min(widget.MAX_H,
                                          max(chosen_h, minimum.height())))
 
-        widget.set_content_size(wanted_w, wanted_h)
+        # The flag is carried, not set. This runs on every placement, so
+        # marking the size here made a widget's first fit read as a decision
+        # forever after - and a widget that grows to its content could then
+        # never shrink back.
+        widget.set_content_size(wanted_w, wanted_h,
+                                chosen=widget.has_chosen_size())
         bounds_w, bounds_h = widget.rotated_bounds()
         if (widget.width(), widget.height()) != (bounds_w, bounds_h):
             widget.setFixedSize(bounds_w, bounds_h)
@@ -1040,6 +1217,11 @@ class WidgetFramework(QWidget):
                 node.layout().activate()
             node.adjustSize()
             if isinstance(node, _AnchorZone):
+                # Resized, so it has to be placed again. A zone's width decides
+                # where it starts: a centred one sits at (page - zone) / 2, and
+                # a right-hand one at page - zone - padding. Growing a zone and
+                # leaving it where it was walks its contents off to one side.
+                self._reposition_zone(node.anchor_name, node)
                 break
             node = node.parent()
 
@@ -1114,12 +1296,17 @@ class WidgetFramework(QWidget):
         zone.adjustSize()
         zw, zh = zone.sizeHint().width(), zone.sizeHint().height()
 
-        if   anchor_name == "top-left":      zone.move(pad, pad)
-        elif anchor_name == "top-center":    zone.move((width - zw) // 2, pad)
-        elif anchor_name == "top-right":     zone.move(width - zw - pad, pad)
-        elif anchor_name == "bottom-left":   zone.move(pad, height - zh - pad)
-        elif anchor_name == "bottom-center": zone.move((width - zw) // 2, height - zh - pad)
-        elif anchor_name == "bottom-right":  zone.move(width - zw - pad, height - zh - pad)
+        vertical, horizontal = split_position(anchor_name)
+
+        # Computed from the two halves rather than listed per name: nine cases
+        # written out is six of them saying the same thing twice.
+        x = {"left":   pad,
+             "center": (width - zw) // 2,
+             "right":  width - zw - pad}[horizontal]
+        y = {"top":    pad,
+             "center": (height - zh) // 2,
+             "bottom": height - zh - pad}[vertical]
+        zone.move(x, y)
 
     def _reposition_floating(self) -> None:
         for widget in self._widgets:
@@ -1133,10 +1320,20 @@ class WidgetFramework(QWidget):
             widget.move(point)
 
     def nearest_anchor(self, point: QPoint) -> str:
+        """
+        Which of the nine a dropped widget lands in.
+
+        Thirds both ways now. It was halves vertically, so the middle row was
+        unreachable by dragging - a widget dropped dead centre went to whichever
+        of top or bottom it was a pixel nearer.
+        """
         width, height = self.visible_size()
         horizontal = ("left" if point.x() < width / 3
                       else "right" if point.x() > width * 2 / 3 else "center")
-        vertical = "top" if point.y() < height / 2 else "bottom"
+        vertical = ("top" if point.y() < height / 3
+                    else "bottom" if point.y() > height * 2 / 3 else "center")
+        if vertical == "center" and horizontal == "center":
+            return "center"
         return f"{vertical}-{horizontal}"
 
     ## INTERACTION
@@ -1870,6 +2067,17 @@ class WidgetFramework(QWidget):
                 changed = True
             except RuntimeError:
                 continue
+
+        # Zones are placed from their own size, and a widget can change that
+        # without the framework hearing about it: showing or hiding a child
+        # widget resizes the zone through Qt's layout alone. The now-playing
+        # card does exactly that on every track - an artist line that appears,
+        # a progress bar that does not - and a resizable widget is skipped by
+        # the refit above, so nothing else would put its zone back.
+        #
+        # A move() per zone, at most nine of them, once a second.
+        self._reposition_zones()
+
         if changed:
             self.update_geometry()
 
@@ -1905,19 +2113,26 @@ class WidgetFramework(QWidget):
 
     ## TRANSIENT WIDGETS
 
-    # Fractions of the page. "center" is a band rather than a point so a
-    # random pick inside it still has somewhere to go.
-    QUADRANTS = {
-        "top-left":     (0.00, 0.00, 0.50, 0.50),
-        "top-right":    (0.50, 0.00, 1.00, 0.50),
-        "bottom-left":  (0.00, 0.50, 0.50, 1.00),
-        "bottom-right": (0.50, 0.50, 1.00, 1.00),
-        "top":          (0.00, 0.00, 1.00, 0.40),
-        "bottom":       (0.00, 0.60, 1.00, 1.00),
-        "left":         (0.00, 0.00, 0.40, 1.00),
-        "right":        (0.60, 0.00, 1.00, 1.00),
-        "center":       (0.25, 0.25, 0.75, 0.75),
+    # Fractions of the page, one per POSITION. Every entry is a band rather
+    # than a point so a random pick inside it still has somewhere to go.
+    #
+    # Keyed on the canonical nine. The old spellings - "top", "left",
+    # "middle" - still arrive from links and scripts and are folded in by
+    # normalise_position before this is read.
+    REGIONS = {
+        "top-left":      (0.00, 0.00, 0.45, 0.45),
+        "top-center":    (0.28, 0.00, 0.72, 0.40),
+        "top-right":     (0.55, 0.00, 1.00, 0.45),
+        "center-left":   (0.00, 0.28, 0.40, 0.72),
+        "center":        (0.25, 0.25, 0.75, 0.75),
+        "center-right":  (0.60, 0.28, 1.00, 0.72),
+        "bottom-left":   (0.00, 0.55, 0.45, 1.00),
+        "bottom-center": (0.28, 0.60, 0.72, 1.00),
+        "bottom-right":  (0.55, 0.55, 1.00, 1.00),
     }
+
+    #The old name, for anything still reaching for it.
+    QUADRANTS = REGIONS
 
     #keep-out distance between a transient widget and anything already placed
     TRANSIENT_GAP = 12
@@ -1927,14 +2142,20 @@ class WidgetFramework(QWidget):
 
     def show_transient(self, widget: Widget, center=None, quadrant: str = "",
                        timeout: float = 0, bundle: bool = True,
-                       on_expired: Callable = None) -> Widget:
+                       on_expired: Callable = None, at: str = "") -> Widget:
         """
         Place a widget that exists because something happened.
 
-        `center` is an exact (x, y) in page pixels; `quadrant` picks a random
-        spot inside one of QUADRANTS instead. Either way the result never
-        overlaps anything already on the page - a timer that lands on top of
-        the clock is worse than one a few pixels from where it was asked for.
+        A thin wrapper over place(): the only thing transience changes is that
+        the widget is never written to the layout and may expire. Where it goes
+        is the same question for a timer as for a note somebody put up, and it
+        is answered in one place.
+
+        `at` (or `quadrant`, its old name) is one of the nine positions;
+        `center` is an exact (x, y) in page pixels and wins over it. Either way
+        the result never overlaps anything already on the page - a timer that
+        lands on top of the clock is worse than one a few pixels from where it
+        was asked for.
 
         `timeout` in seconds dismisses it again. Nothing else happens on
         expiry unless `on_expired` is given: whatever asked for the widget is
@@ -1946,13 +2167,16 @@ class WidgetFramework(QWidget):
         if widget.KEY not in self.registry:
             self.registry[widget.KEY] = widget
 
-        point = self._transient_position(widget, center, quadrant, bundle)
-        widget.float_x, widget.float_y = point
+        where = at or quadrant
 
         if widget in self._widgets:
+            point = self.free_point_in(widget, center=center, at=where,
+                                       bundle=bundle)
+            widget.float_x, widget.float_y = point
             widget.move(*point)
         else:
-            self.place(widget, save=False)
+            self.place(widget, save=False, at=where, exact=center,
+                       bundle=bundle)
 
         widget.raise_()
         self._chrome.raise_()
@@ -1993,10 +2217,7 @@ class WidgetFramework(QWidget):
                 return None
             widget_class, args, merged = existing.__class__, (), dict(kwargs)
 
-        index = 1
-        while f"{key}~t{index}" in self.registry:
-            index += 1
-        instance_key = f"{key}~t{index}"
+        instance_key = self.reserve_key(key, transient=True)
 
         try:
             widget = widget_class(self.client, *args, **merged)
@@ -2004,8 +2225,10 @@ class WidgetFramework(QWidget):
             self.client.log("warning",
                             f"[WidgetFramework] Could not build a transient "
                             f"'{key}': {e}")
+            self._reserved.discard(instance_key)
             return None
 
+        self._reserved.discard(instance_key)
         widget.KEY = instance_key
         widget.template_key = key
         widget.transient = True
@@ -2055,8 +2278,15 @@ class WidgetFramework(QWidget):
         candidate = QRect(x, y, w, h)
         return not any(candidate.intersects(r) for r in blocked)
 
-    def _transient_position(self, widget: Widget, center, quadrant: str,
-                            bundle: bool) -> tuple:
+    def free_point_in(self, widget: Widget, center=None, at: str = "",
+                      bundle: bool = False) -> tuple:
+        """
+        Somewhere inside `at` that nothing already occupies.
+
+        Used by every floating placement, not only a transient one: a sticky
+        note asked for the bottom left has the same problem a timer does, which
+        is that the obvious spot is often already taken.
+        """
         import random
 
         page_w, page_h = self.visible_size()
@@ -2100,9 +2330,9 @@ class WidgetFramework(QWidget):
                     if self._fits(x, y, w, h, blocked, page_w, page_h):
                         return (x, y)
 
-        # 3. Random inside the quadrant, retried until something is free.
-        left, top, right, bottom = self.QUADRANTS.get(
-            (quadrant or "").strip().lower(), self.QUADRANTS["bottom-right"])
+        # 3. Random inside the region, retried until something is free.
+        left, top, right, bottom = self.REGIONS[
+            normalise_position(at, "bottom-right")]
         x0, y0 = int(page_w * left), int(page_h * top)
         x1, y1 = int(page_w * right) - w, int(page_h * bottom) - h
 

@@ -12,45 +12,25 @@ untouched.
 
 from __future__ import annotations
 
-from src.webui import back_button, chrome_css, escape
+from src.webui import escape, page
 
-PAGE = """<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<title>{title}</title>
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="color-scheme" content="dark">
-<style>
-{chrome}
- :root{{color-scheme:dark}}
- body{{display:flex;flex-direction:column;justify-content:center;
-       min-height:100vh;padding:40px 24px}}
- .badge{{display:inline-flex;align-items:center;gap:9px;align-self:flex-start;
+CSS = """
+ body{display:flex;flex-direction:column;justify-content:center;
+      min-height:100vh;padding:40px 24px}
+ .badge{display:inline-flex;align-items:center;gap:9px;align-self:flex-start;
    padding:7px 14px;border-radius:999px;font-size:12px;font-weight:600;
-   letter-spacing:.04em;text-transform:uppercase;margin:0 0 18px}}
- .badge.ok{{background:rgba(47,240,142,.15);color:var(--accent)}}
- .badge.bad{{background:rgba(255,122,122,.15);color:var(--bad)}}
- h1{{font-size:26px;font-weight:600;letter-spacing:-.02em;margin:0 0 22px;
-     line-height:1.25}}
- dl{{margin:0;border:1px solid var(--line);border-radius:14px;
-     background:var(--card);overflow:hidden}}
- .pair{{display:flex;gap:16px;padding:14px 17px;
-        border-top:1px solid var(--line)}}
- .pair:first-child{{border-top:none}}
- dt{{flex:none;width:34%;max-width:190px;color:var(--muted);font-size:13px;
-     text-transform:capitalize}}
- dd{{margin:0;font-size:14px;word-break:break-word;line-height:1.5}}
- .more{{margin:22px 0 0}}
-</style>
-</head>
-<body>
-<p>{back}</p>
-<span class="badge {kind}">{status}</span>
-<h1>{headline}</h1>
-<dl>{rows}</dl>
-</body>
-</html>
+   letter-spacing:.04em;text-transform:uppercase;margin:0 0 18px}
+ .badge.ok{background:rgba(47,240,142,.15);color:var(--accent)}
+ .badge.bad{background:rgba(255,122,122,.15);color:var(--bad)}
+ h1{font-size:26px;margin:0 0 22px;line-height:1.25}
+ dl{margin:0;border:1px solid var(--line);border-radius:14px;
+     background:var(--card);overflow:hidden}
+ .pair{display:flex;gap:16px;padding:14px 17px;
+        border-top:1px solid var(--line)}
+ .pair:first-child{border-top:none}
+ dt{flex:none;width:34%;max-width:190px;color:var(--muted);font-size:13px;
+     text-transform:capitalize}
+ dd{margin:0;font-size:14px;word-break:break-word;line-height:1.5}
 """
 
 
@@ -90,12 +70,12 @@ def render(payload: dict, token: str = "", status: int = 200) -> str:
         rows.append(f'<div class="pair"><dt>{escape(label)}</dt>'
                     f'<dd>{escape(str(value))}</dd></div>')
 
-    return PAGE.format(
-        title=escape(headline),
-        chrome=chrome_css(),
-        back=back_button(token),
-        kind="ok" if ok else "bad",
-        status=escape(str(payload.get("request", "OK" if ok else "Failed"))),
-        headline=escape(headline),
-        rows="".join(rows) or '<div class="pair"><dd>Nothing to show.</dd></div>',
-    )
+    kind = "ok" if ok else "bad"
+    status = escape(str(payload.get("request", "OK" if ok else "Failed")))
+    pairs = "".join(rows) or '<div class="pair"><dd>Nothing to show.</dd></div>'
+
+    body = (f'<span class="badge {kind}">{status}</span>'
+            f'<h1>{escape(headline)}</h1>'
+            f'<dl>{pairs}</dl>')
+
+    return page(title=headline, body=body, token=token, css=CSS)
