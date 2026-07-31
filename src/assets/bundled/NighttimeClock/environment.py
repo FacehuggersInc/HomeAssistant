@@ -116,11 +116,14 @@ class Layer:
 ## ── Fireflies ────────────────────────────────────────────────────────────────
 
 class Firefly:
-    __slots__ = ("x", "y", "vx", "vy", "phase", "speed", "size", "hue")
+    __slots__ = ("x", "y", "vx", "vy", "phase", "speed", "size", "hue",
+                 "wx", "wy")
 
     def __init__(self, width: float, height: float):
         self.x = random.uniform(0.05, 0.95) * width
         self.y = random.uniform(0.05, 0.95) * height
+        self.wx = 0.0
+        self.wy = 0.0
         angle = random.uniform(0, math.tau)
         drift = random.uniform(3.0, 11.0)
         self.vx = math.cos(angle) * drift
@@ -132,9 +135,26 @@ class Firefly:
         # green-gold, and the odd cooler one keeps a group from looking flat.
         self.hue = random.choice((48, 52, 56, 64, 120))
 
+    #How hard a gust pushes, and how quickly that push fades. Per second.
+    PUSH  = 34.0
+    DECAY = 1.6
+
     def step(self, dt, width, height, wind=(0.0, 0.0)):
-        self.x += (self.vx + wind[0] * 26.0) * dt
-        self.y += (self.vy + wind[1] * 26.0) * dt
+        # Wind is a PUSH that fades, not a term added forever.
+        #
+        # `self.x += (self.vx + wind[0] * 26) * dt` added the same amount every
+        # frame, so a firefly drifted downwind without limit - and the edge
+        # bounce reverses vx but not the wind, so they piled into the corner
+        # and stayed there. A gust that blows them and then lets them go is
+        # both what wind looks like and what leaves the screen alive.
+        self.wx += wind[0] * self.PUSH * dt
+        self.wy += wind[1] * self.PUSH * dt
+        fade = max(0.0, 1.0 - self.DECAY * dt)
+        self.wx *= fade
+        self.wy *= fade
+
+        self.x += (self.vx + self.wx) * dt
+        self.y += (self.vy + self.wy) * dt
         self.phase += self.speed * dt
 
         margin = 20.0
@@ -179,7 +199,16 @@ class Fireflies(Layer):
 
     def step(self, dt, width, height):
         gust = self.gust()
-        wind = (self.wind[0] * gust, self.wind[1] * gust)
+        # Only the GUST, not the wind under it.
+        #
+        # multiplier sits at 1.0 and rises while a gust is blowing, so the
+        # excess over 1 is the gust itself. Feeding the whole multiplier in
+        # meant a steady breeze pushed every frame for as long as the weather
+        # said "windy", which walks them all into the downwind corner. A
+        # firefly is not a leaf; it flies where it likes and gets shoved
+        # occasionally.
+        excess = max(0.0, gust - 1.0)
+        wind = (self.wind[0] * excess, self.wind[1] * excess)
         for fly in self.flies:
             fly.step(dt, width, height, wind)
 

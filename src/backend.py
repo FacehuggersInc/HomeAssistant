@@ -354,6 +354,44 @@ def FlaskApp(client):
 		client.call_on_ui(lambda: client.goto(key, data=data, override=override))
 		return {"request": "Success", "page": key, "data": data}, 200
 
+	@app.route("/webhome", methods=["GET"])
+	def web_home():
+		"""
+		What the panel's browser opens on.
+
+		Not authed. This is served to the panel's OWN web view, which has no
+		token and no way to be given one - and it exposes nothing a person
+		standing at the panel could not already see by opening the page.
+		"""
+		from src.webui import chrome_css
+		marks = []
+		try:
+			marks = client.BOOKMARKS.all()
+		except Exception as e:
+			client.log("warning", f"[Bookmarks] Could not list: {e}")
+		return render_template("webhome.html", bookmarks=marks,
+							   chrome=chrome_css()), 200
+
+	@app.route("/bookmark-icon/<path:name>", methods=["GET"])
+	def bookmark_icon(name):
+		"""
+		One saved favicon.
+
+		Served by NAME rather than by path, and the name is stripped to its
+		last component - the icon folder is inside the user's data directory,
+		and a route that joins whatever arrives would read anything on the
+		disk.
+		"""
+		from flask import send_from_directory
+		from pathlib import Path as _Path
+		safe = _Path(str(name)).name
+		if not safe.endswith(".png"):
+			return {"request": "Failed", "reason": "Not an icon."}, 404
+		folder = client.BOOKMARKS.icon_dir()
+		if not (folder / safe).is_file():
+			return {"request": "Failed", "reason": "No such icon."}, 404
+		return send_from_directory(str(folder), safe)
+
 	@app.route("/goto/page", methods=["GET"])
 	def goto_ui():
 		"""

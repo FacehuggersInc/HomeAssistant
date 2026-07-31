@@ -1,3 +1,4 @@
+import time
 from src.mixins import mixin
 from src.constants import get_data_dir, APP_NAME
 from src.plugin.template import Plugin
@@ -6,10 +7,12 @@ from src.plugin.carryover import PluginCarryover
 
 from .widgets.cycling_background import CyclingBackground
 from .widgets.datetime import DateTimeWidget
+from .widgets.bookmark import BookmarkWidget
 from .widgets.sticker import StickerWidget
 from .widgets.weather import WeatherWidget
 from .widgets.configuration_bar import ConfigurationBar
 from .widgets.sticky_note import StickyNote
+from .widgets.tiles.bookmark_tile import BookmarkTile
 from .widgets.tiles.clock_tile import ClockTile
 from .widgets.tiles.weather_tile import WeatherTile
 from .pages.home import HomePage
@@ -636,6 +639,90 @@ class CoreWidgetsBundle(Plugin):
         return True, f"Placed {entry.label} {where}."
 
 
+    #How long a bookmark's transient widget stays once it is finally shown.
+    BOOKMARK_SHOW_SECONDS = 8.0
+    #And how long a queued one is worth showing at all. Coming back to the home
+    #page an hour later, a card announcing something long forgotten is clutter
+    #rather than an acknowledgement.
+    BOOKMARK_QUEUE_LIFE = 600.0
+
+    #A bookmark waiting for the home page to come back, as (url, when).
+    #
+    #Class level so it exists before __init__ has run: on_web_event can arrive
+    #during startup if a page restores itself, and getattr with a default
+    #hides the mistake rather than preventing it.
+    _pending_bookmark = None
+
+    def _on_web_event(self, payload=None) -> None:
+        """
+        A page was bookmarked, so show it - when there is somewhere to show it.
+
+        The transient widget is the acknowledgement: pressing a star in a
+        toolbar gives no sign anything happened once the page is closed, and a
+        notification for something this small is more interruption than it is
+        worth.
+
+        Queued rather than placed, because bookmarking happens ON THE WEB PAGE.
+        The home page is not on screen at that moment, so a transient placed
+        there with an eight second life expires unseen - which is exactly what
+        it did.
+        """
+        if not isinstance(payload, dict):
+            return
+        if payload.get("kind") != "bookmarked":
+            return
+        url = str(payload.get("url") or "")
+        if not url:
+            return
+
+        self._pending_bookmark = (url, time.time())
+        # Already home? Then there is nothing to wait for.
+        try:
+            on_home = (self.client.PAGE is not None
+                       and self.client.PAGE.name == "#cwb_home_page")
+        except Exception:
+            on_home = False
+        if on_home:
+            self._show_pending_bookmark()
+
+    def _on_visit(self, event=None) -> None:
+        """Show anything that was waiting for the home page to come back."""
+        try:
+            name = (event or {}).get("page", {}).get("name")
+        except Exception:
+            name = None
+        if name == "#cwb_home_page":
+            self._show_pending_bookmark()
+
+    def _show_pending_bookmark(self) -> None:
+        pending = getattr(self, "_pending_bookmark", None)
+        if not pending:
+            return
+        url, saved_at = pending
+        self._pending_bookmark = None
+
+        if time.time() - saved_at > self.BOOKMARK_QUEUE_LIFE:
+            return
+
+        sub_home = self._sub_home()
+        if sub_home is None or not sub_home.has_feature("widget_framework"):
+            return
+        framework = sub_home.features().widget_framework
+
+        def place():
+            try:
+                widget = framework.make_transient("bookmark", url=url)
+                if widget is None:
+                    return
+                sub_home.features().show_transient(
+                    widget, quadrant="top-right",
+                    timeout=self.BOOKMARK_SHOW_SECONDS)
+            except Exception as e:
+                self.client.log("debug",
+                                f"[Bookmarks] Could not show it: {e}")
+
+        self.client.call_on_ui(place)
+
     def _toggle_mute(self) -> None:
         """
         Flip the mute, and say when do not disturb is what is silencing it.
@@ -749,6 +836,7 @@ class CoreWidgetsBundle(Plugin):
 
         sub_tiles.features().register_tile(ClockTile, in_grid=False)
         sub_tiles.features().register_tile(WeatherTile, in_grid=False)
+        sub_tiles.features().register_tile(BookmarkTile, in_grid=False)
 
 
     @mixin("sub.home.__init__", "corewidgetsbundle", "after")
@@ -777,6 +865,17 @@ class CoreWidgetsBundle(Plugin):
         # The state lives on the client and these only toggle it - a button
         # holding its own copy is a button that disagrees with the setting page
         # the moment either is used.
+        # Straight to the browser's home, which is the bookmark grid.
+        self.client.QUICK.register(
+            "corewidgetsbundle", "web_home", "Web", Icons.EARTH,
+            on_press = lambda: self.client.goto(
+                "#webpage", data={"url": self.client.BOOKMARKS_HOME},
+                override=True),
+            order    = 15,
+            # It navigates, so the panel goes with it rather than sitting over
+            # the page it just opened.
+            closes_panel = True)
+
         self.client.QUICK.register(
             "corewidgetsbundle", "do_not_disturb", "Do not disturb",
             Icons.DO_NOT_DISTURB,
@@ -815,6 +914,16 @@ class CoreWidgetsBundle(Plugin):
         # The same, except Add asks which image first - see
         # StickerWidget.choose_before_add.
         register(StickerWidget)
+        # And the same again for a saved page: a template, because a panel
+        # with one bookmark on it is not what anybody wants a bookmark widget
+        # for.
+        register(BookmarkWidget)
+
+        # A star pressed in the browser toolbar puts one on the home
+        # page briefly - see _on_web_event.
+        self.client.subscribe_to_event("on_web_event", self._on_web_event)
+        # And the moment the home page comes back, in case one is waiting.
+        self.client.subscribe_to_event("on_visit", self._on_visit)
 
         self.client.public.cwb_widgets["sub.home"] = [
             w for w in (

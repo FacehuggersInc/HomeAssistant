@@ -66,28 +66,16 @@ class TileGrid(QWidget):
         path = self._layout_path()
         try:
             if not path.is_file():
-                return self._migrate_from_settings()
+                # Nothing yet. There used to be a migration here that lifted a
+                # layout out of the owning plugin's settings.json; that setting
+                # is gone, so the only thing left to say is that there is no
+                # layout.
+                return {}
             data = json.loads(path.read_text(encoding="utf-8"))
             return data.get(self.owning_plugin_key, {}) or {}
         except Exception as e:
             self.client.log("warning", f"[TileGrid] Could not read layout: {e}")
             return {}
-
-    def _migrate_from_settings(self) -> dict:
-        """One-time lift of an existing layout out of the plugin's settings."""
-        plugin = self.get_owning_plugin()
-        if not plugin:
-            return {}
-        try:
-            raw = getattr(plugin, "settings", None).tiles.positions.value
-            positions = json.loads(raw) if raw and raw != "{}" else {}
-        except Exception:
-            return {}
-        if positions:
-            self.client.log("info", "[TileGrid] Migrated tile layout out of "
-                                    "plugin settings into the data directory.")
-            self._write(positions)
-        return positions
 
     def _write(self, positions: dict) -> None:
         path = self._layout_path()
@@ -119,12 +107,30 @@ class TileGrid(QWidget):
             pass
 
     def save_positions(self) -> None:
-        # Span as well as position, so a resized tile comes back resized.
-        self._write({
-            t.KEY: {"col": t.grid_col, "row": t.grid_row,
-                    "w": t.grid_w, "h": t.grid_h}
-            for t in self.tiles
-        })
+        # Span as well as position, so a resized tile comes back resized -
+        # plus whatever the tile itself says it needs.
+        #
+        # A bookmark tile is a position and an ADDRESS; without somewhere to
+        # put the second it comes back on the right cell asking to be chosen
+        # again. Merged under the same key rather than in a second file: it is
+        # the same tile's state.
+        saved = {}
+        for tile in self.tiles:
+            entry = {"col": tile.grid_col, "row": tile.grid_row,
+                     "w": tile.grid_w, "h": tile.grid_h}
+            extra = getattr(tile, "tile_state", None)
+            if callable(extra):
+                try:
+                    more = extra()
+                    if isinstance(more, dict):
+                        # Position wins. A tile cannot overwrite where it is by
+                        # returning a key with the same name.
+                        entry = {**more, **entry}
+                except Exception as e:
+                    self.client.log("debug",
+                                    f"[Tiles] {tile.KEY} state failed: {e}")
+            saved[tile.KEY] = entry
+        self._write(saved)
 
     ##LAYOUT
 
@@ -213,6 +219,13 @@ class TileGrid(QWidget):
             saved = positions[tile.KEY]
             col   = int(saved.get("col", col))
             row   = int(saved.get("row", row))
+            apply_state = getattr(tile, "apply_tile_state", None)
+            if callable(apply_state):
+                try:
+                    apply_state(saved)
+                except Exception as e:
+                    self.client.log("debug",
+                                    f"[Tiles] {tile.KEY} restore failed: {e}")
 
         col = max(0, min(col, self.cols - tile.grid_w))
         row = max(0, min(row, self.rows - tile.grid_h))

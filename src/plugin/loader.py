@@ -536,10 +536,10 @@ class PluginManager():
 		Declare a plugin's secret KEY NAMES. Accepts either shape:
 
 			[secrets]
-			keys = ["WORDNIK_KEY"]
+			keys = ["EXAMPLE_API_KEY"]
 
 			[plugin]
-			secrets = ["WORDNIK_KEY"]
+			secrets = ["EXAMPLE_API_KEY"]
 
 		Values never appear in a toml - only names.
 		"""

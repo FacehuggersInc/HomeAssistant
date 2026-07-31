@@ -211,6 +211,7 @@ DRAG_SCROLL_JS = """
                ((el.getAttribute('type') || 'text').toLowerCase() === 'number'
                  ? 'numeric' : 'text');
     var label = fieldLabel(el);
+    var type = (el.getAttribute('type') || 'text').toLowerCase();
     var value = el.isContentEditable ? el.textContent : (el.value || '');
     // Through the console, not the title.
     //
@@ -223,7 +224,8 @@ DRAG_SCROLL_JS = """
     // The console is not transmitted anywhere and is already being read by
     // the page object below.
     console.log('__ha_field:' + JSON.stringify(
-      {id: id, kind: kind, label: label, value: value, at: Date.now()}));
+      {id: id, kind: kind, type: type, label: label, value: value,
+       at: Date.now()}));
   }
 
   document.addEventListener('focusin', function (e) {
@@ -425,6 +427,21 @@ def _locked_page(view, base: str):
             def acceptNavigationRequest(self, url, kind, is_main_frame):
                 if not base or not is_main_frame:
                     return True
+
+                # Back and forward always go through.
+                #
+                # They can only reach somewhere this session has already been,
+                # so they cannot escape to anywhere new - and refusing them
+                # left the two most obvious buttons in the toolbar doing
+                # nothing, which reads as the page being broken rather than
+                # locked.
+                try:
+                    from PyQt6.QtWebEngineCore import QWebEnginePage
+                    if kind == QWebEnginePage.NavigationType.NavigationTypeBackForward:
+                        return True
+                except Exception:
+                    pass
+
                 target = url.toString()
                 if target.startswith(base) or target.startswith("about:"):
                     return True
@@ -465,7 +482,13 @@ class WebPage(PageFramework):
     """
 
     KEY  = "#webpage"
-    HOME = "about:blank"
+    #Served by the panel's own backend: bookmarks, a clock and a search box.
+    #
+    #about:blank was the old home, which is a white rectangle - a browser
+    #opening on nothing gives somebody standing at a wall panel no way in
+    #except the address bar, and typing a URL on a touch keyboard is the thing
+    #a home page exists to avoid.
+    HOME = "http://127.0.0.1:5000/webhome"
 
     # Edge to edge. A web page has its own margins and the chrome above it is
     # already inset; a second frame around the whole thing just loses screen.
@@ -586,9 +609,13 @@ class WebPage(PageFramework):
         self.forward_btn = IconButton("mdi.arrow-right", self.forward, size=20)
         self.home_btn    = IconButton("mdi.home", self.go_home, size=20)
         self.reload_btn  = IconButton("mdi.refresh", self.reload, size=20)
+        # Filled when the page on screen is already saved, so the button says
+        # what pressing it will do rather than only what it is for.
+        self.bookmark_btn = IconButton("mdi.star-outline",
+                                       self.toggle_bookmark, size=20)
 
         for button in (self.back_btn, self.forward_btn, self.reload_btn,
-                       self.home_btn):
+                       self.home_btn, self.bookmark_btn):
             row.addWidget(button)
 
         # Zoom, because the single most common problem with a web page on a
@@ -699,6 +726,7 @@ class WebPage(PageFramework):
         return self.view.url().toString()
 
     def go_home(self, event=None) -> None:
+        self.client.web_event("home", url=self.home_url)
         self.navigate(self.home_url)
 
     def back(self, event=None) -> None:
@@ -712,6 +740,11 @@ class WebPage(PageFramework):
     def reload(self, event=None) -> None:
         if self.view is not None:
             self.view.reload()
+            try:
+                self.client.web_event("refreshed",
+                                      url=self.view.url().toString())
+            except RuntimeError:
+                pass
 
     def _leave(self, event=None) -> None:
         self.client.goto(self.client.DEFAULT_PAGE or "#root")
@@ -731,6 +764,9 @@ class WebPage(PageFramework):
         if title.startswith("field:"):
             # An older cached script, from a page loaded before this changed.
             self._field_requested(title[len("field:"):])
+
+    #Field types filled but never submitted. See _field_requested.
+    NO_SUBMIT_TYPES = ("password", "email")
 
     def _field_requested(self, payload: str) -> None:
         """A text field in the page was tapped - offer the keyboard for it."""
@@ -760,12 +796,21 @@ class WebPage(PageFramework):
             # defaults to the main one - so it was calling into a world where
             # __haSetField does not exist, and nothing happened.
             from PyQt6.QtWebEngineCore import QWebEngineScript
+            # Filled, and usually submitted. Done means done - a value left
+            # sitting in a search box is indistinguishable from the dialog
+            # having failed.
+            #
+            # Not for a login, though. Submitting a password the moment it is
+            # typed sends the form with whatever the OTHER field happens to
+            # hold - usually nothing, because the email is filled second half
+            # the time - and a failed sign-in attempt is not something to
+            # trigger on somebody's behalf. Fill it and get out of the way.
+            submit = (str(data.get("type", "")).lower()
+                      not in self.NO_SUBMIT_TYPES)
             self.view.page().runJavaScript(
-                # Submitted as well as filled. Done means done - a value left
-                # sitting in a search box is indistinguishable from the dialog
-                # having failed.
-                "window.__haSetField(%s, %s, true);" % (
-                    json.dumps(str(data.get("id", ""))), json.dumps(text)),
+                "window.__haSetField(%s, %s, %s);" % (
+                    json.dumps(str(data.get("id", ""))), json.dumps(text),
+                    "true" if submit else "false"),
                 QWebEngineScript.ScriptWorldId.ApplicationWorld)
 
         self.client.dialog(KeyboardDialog(
@@ -832,6 +877,8 @@ class WebPage(PageFramework):
             pass
         self._remember(url.toString())
         self._refresh_buttons()
+        self._refresh_bookmark_button()
+        self.client.web_event("changed", url=url.toString())
 
     ## -- where it was
 
@@ -914,6 +961,52 @@ class WebPage(PageFramework):
         except Exception:
             pass
 
+    ## -- bookmarks
+
+    def toggle_bookmark(self) -> None:
+        """
+        Save the page on screen, or drop it if it is already saved.
+
+        The icon comes from the view rather than from the network: the engine
+        has already downloaded the favicon to draw with, and asking again would
+        need the network up at the exact moment somebody pressed the button.
+        """
+        if self.view is None:
+            return
+        try:
+            url = self.view.url().toString()
+            title = self.view.title() or ""
+        except RuntimeError:
+            return
+        if not url or url.startswith("about:"):
+            return
+
+        store = self.client.BOOKMARKS
+        if store.has(url):
+            store.remove(url)
+            self.client.web_event("unbookmarked", url=url, title=title)
+        else:
+            icon = None
+            try:
+                icon = self.view.icon()
+            except Exception:
+                icon = None
+            store.add(url, title=title, icon=icon)
+            self.client.web_event("bookmarked", url=url, title=title)
+        self._refresh_bookmark_button()
+
+    def _refresh_bookmark_button(self) -> None:
+        """Filled when this page is saved, hollow when it is not."""
+        button = getattr(self, "bookmark_btn", None)
+        if button is None or self.view is None:
+            return
+        try:
+            saved = self.client.BOOKMARKS.has(self.view.url().toString())
+            button.update_icon("mdi.star" if saved else "mdi.star-outline",
+                               "#ffd479" if saved else "white")
+        except (RuntimeError, Exception):
+            pass
+
     def _on_load_finished(self, ok: bool) -> None:
         # Hidden here as well as at 100. A load that fails, or one the engine
         # abandons, never reports 100 - and the bar would spin for good.
@@ -923,8 +1016,19 @@ class WebPage(PageFramework):
         except RuntimeError:
             pass
         self._refresh_buttons()
+        self._refresh_bookmark_button()
         if ok:
             self._restore_scroll()
+
+        try:
+            url = self.view.url().toString() if self.view else ""
+            title = self.view.title() if self.view else ""
+        except RuntimeError:
+            url, title = "", ""
+        # A failed load is its own kind. Anything listening for trouble should
+        # not have to notice that a "loaded" arrived with nothing behind it.
+        self.client.web_event("loaded" if ok else "error",
+                              url=url, title=title, ok=bool(ok))
 
     def _remembered_url(self) -> str:
         entry = self._store().get(self._state_key()) or {}

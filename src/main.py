@@ -34,6 +34,7 @@ from src.registries.public_registry import PublicRegistry
 from src.registries.page_registry import PageRegistry
 from src.registries.secret_registry import SecretRegistry
 from src.registries.quick_access_registry import QuickAccessRegistry
+from src.bookmarks import BookmarkStore
 from src.registries.audio_registry import AudioRegistry
 from src.registries.player_registry import PlayerRegistry
 from src.registries.cancel_registry import CancelRegistry
@@ -232,6 +233,11 @@ class Client:
                 "on_state_change":          [],
                 "on_close":                 [],
                 "on_settings_saved":        [],
+                #One event for everything the web page does. A separate event
+                #per kind would mean a subscriber wanting two of them
+                #registering twice and a new kind being a new event name that
+                #nothing is listening for.
+                "on_web_event":             [],
                 "on_woke_assistant":        [],
                 "on_assistant_transcribed": [],
                 "on_assistant_cancelled":   [],
@@ -354,6 +360,7 @@ class Client:
         # What is playing, whatever is playing it. Backends register;
         # widgets and skills talk to this rather than to a backend.
         self.AUDIO          = AudioRegistry(self)
+        self.BOOKMARKS      = BookmarkStore(self)
         self.PLAYER         = PlayerRegistry(self)
         # What "stop" means right now. Whatever can be cancelled
         # registers its own words and its own condition.
@@ -512,6 +519,22 @@ class Client:
     def _check_interaction_timeout(self) -> None:
         if self._interaction_idle:
             return
+
+        # A dialog holds the clock open, whatever is behind it.
+        #
+        # Every dialog: somebody reading a map, choosing a bookmark or picking
+        # a colour is looking at the screen and producing no interaction while
+        # they decide. Timing out under them and switching pages throws away
+        # what they were part way through - and the minimap did exactly that.
+        #
+        # Here rather than in each dialog, because a dialog that forgot would
+        # be the one it happened under.
+        try:
+            if self.DIALOG.dialog_stack:
+                self._last_interaction_time = time.time()
+                return
+        except Exception:
+            pass
 
         # A page can refuse the idle clock outright. A web page is read at a
         # person's own pace and produces no interaction while it is - so
@@ -1065,6 +1088,78 @@ class Client:
         ("notify",      "notify",      0.40,
          "An event coming up, and notifications that ask for a sound"),
     )
+
+    ## THE WEB PAGE
+
+    #What a web event can be. Named here so a subscriber can check against
+    #something rather than against a string it hopes is spelled the same.
+    WEB_EVENTS = ("loaded", "changed", "home", "refreshed", "bookmarked",
+                  "unbookmarked", "error")
+
+    #Where the web page opens when nobody says otherwise.
+    BOOKMARKS_HOME = "http://127.0.0.1:5000/webhome"
+
+    def web_event(self, kind: str, url: str = "", title: str = "",
+                  **extra) -> None:
+        """
+        Say that something happened in the web page.
+
+        One event with a `kind` rather than one event per kind: a subscriber
+        that wants two of them would otherwise register twice, and adding a
+        third kind later would be a new event name that nothing is listening
+        for.
+        """
+        kind = str(kind or "").strip().lower()
+        if kind not in self.WEB_EVENTS:
+            self.log("debug", f"[WebPage] Unknown web event '{kind}'.")
+            return
+        payload = {"kind": kind, "url": str(url or ""),
+                   "title": str(title or ""), **extra}
+        self.iterate_event_callables("on_web_event", payload, True)
+
+    def choose_bookmark(self, on_chosen) -> None:
+        """
+        Pick one of the saved addresses, or go and make one.
+
+        On the client because the list is: a widget, a tile and anything added
+        later all want the same picker, and three copies of it would be three
+        chances to disagree about what a bookmark looks like.
+
+        With none saved there is nothing to choose FROM, so this opens the
+        home page instead - a dialog saying "nothing here" and closing again
+        leaves somebody exactly where they were.
+        """
+        from src.ui.grid_dialog import ItemGridDialog, GridItem
+
+        marks = []
+        try:
+            marks = self.BOOKMARKS.all()
+        except Exception as e:
+            self.log("warning", f"[Bookmarks] Could not list: {e}")
+
+        if not marks:
+            self.goto("#webpage", data={"url": self.BOOKMARKS_HOME},
+                      override=True)
+            self.simple_notify(
+                "bookmark-outline", "Bookmarks",
+                "Nothing saved yet. Open a page and press the star.",
+                history=False)
+            return
+
+        items = []
+        for mark in marks:
+            preview = self.BOOKMARKS.icon_path(mark)
+            items.append(GridItem(
+                key=mark.url, label=mark.label,
+                preview=str(preview) if preview else "",
+                subtitle=mark.host, icon="mdi.bookmark", data=mark))
+
+        self.dialog(ItemGridDialog(
+            self, title="Choose a bookmark", items=items,
+            on_chosen=lambda item: on_chosen(item.key),
+            choose_text="Use this",
+            search_hint="Search bookmarks",
+            empty_text="Nothing saved yet."))
 
     ## QUIET MODES
 

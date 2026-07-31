@@ -104,18 +104,18 @@ plugin declares the key **names** it needs; values are never in a toml.
 
 ```toml
 [secrets]
-keys = ["WORDNIK_KEY", "SPOTIFY_CLIENT_ID"]
+keys = ["EXAMPLE_API_KEY"]
 ```
 
 Then add a `secret` setting for each, naming the env key it maps to:
 
 ```json
 "credentials": {
-    "wordnik_key": {
+    "example_api_key": {
         "type": "secret",
-        "env": "WORDNIK_KEY",
+        "env": "EXAMPLE_API_KEY",
         "value": "",
-        "description": "Wordnik API key. Stored in .env, not here."
+        "description": "An API key. Stored in .env, not here."
     }
 }
 ```
@@ -128,7 +128,7 @@ the settings object at all.
 Read it back from inside the plugin:
 
 ```python
-key = self.secret("WORDNIK_KEY")
+key = self.secret("EXAMPLE_API_KEY")
 ```
 
 Use that rather than `os.getenv`, so a key edited in Settings takes effect

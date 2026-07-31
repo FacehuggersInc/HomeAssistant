@@ -160,3 +160,61 @@ A site refusing its own resources — analytics on a domain missing from its own
 lines are dropped rather than logged: one page load can produce a dozen, and a
 log full of them looks like the panel failing when the site is merely strict.
 Everything else a page prints still reaches the log.
+
+## Bookmarks
+
+Client-owned, in `src/bookmarks.py`. The web page belongs to the client and its
+toolbar does too, so a list of addresses that disappears when somebody unloads a
+plugin is not a bookmark list.
+
+The star in the toolbar saves the page on screen, filled when it is already
+saved. Icons come from **the view** rather than the network — the engine has
+already downloaded the favicon to draw with, and asking again would need the
+network up at the exact moment somebody pressed the button.
+
+`/webhome` replaces `about:blank` as the home address: a grid of bookmarks, a
+clock and a DuckDuckGo box. It is not authed, because it is served to the
+panel's own web view, which has no token and no way to be given one.
+
+## `on_web_event`
+
+One event carrying a `kind`, rather than one event per thing that can happen:
+
+`loaded` · `changed` · `home` · `refreshed` · `bookmarked` · `unbookmarked` ·
+`error`
+
+A subscriber wanting two of them would otherwise register twice, and a new kind
+later would be a new event name that nothing is listening for. An undeclared
+kind is refused rather than delivered.
+
+## Dark pages
+
+Chromium runs with `forceDarkModeEnabled`, set in `app.py` **before anything
+imports WebEngine** — the flags are read once when the engine initialises, and
+anything later is ignored.
+
+Force-dark *inverts* a light page rather than asking it for a dark theme, so
+`forceDarkModeImagePolicy=1` leaves images alone; without it photographs come out
+as negatives.
+
+`/webhome` declares `color-scheme: dark` and is therefore skipped, which is what
+stops the one page already dark from being inverted into a white rectangle. Any
+page you write for the panel should do the same.
+
+## The search box
+
+An address goes to the address; everything else is a search. Raw IPs, `host:port`
+and `localhost` all navigate directly — typing `192.168.1.4` and being handed
+search results about it is the most annoying thing a search box on a home network
+can do, and that is most of what this box is for.
+
+Guarded both ways: `999.1.2.3` is not a valid octet and `3.14` has no letter in
+its last label, so both are treated as searches.
+
+## Login fields
+
+A field of type `password` or `email` is **filled but not submitted**. Sending
+the form the moment a password is typed submits it with whatever the other field
+happens to hold — usually nothing, since the email is filled second half the
+time — and a failed sign-in attempt is not something to trigger on somebody's
+behalf.

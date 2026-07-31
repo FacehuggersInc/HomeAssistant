@@ -96,6 +96,18 @@ class NighttimeClockPlugin(Plugin):
 
         # A way to reach the clock deliberately, rather than only by waiting
         # for nine o'clock. Doubles as the way back off it.
+        # Whether this plugin does anything at all.
+        #
+        # Separate from the button that shows the clock: one is "take me to
+        # the night page now" and the other is "leave me alone tonight". A
+        # single button cannot mean both, and conflating them meant the only
+        # way to stop the panel dimming at 10pm was the settings page.
+        self.client.QUICK.register(
+            self.KEY, "night_enabled", "Night mode", "mdi.sleep",
+            on_press=self.toggle_enabled,
+            on_state=self._enabled,
+            order=44)
+
         self.client.QUICK.register(
             self.KEY, "night_clock", "Night clock", "mdi.weather-night",
             on_press=self.toggle_page,
@@ -410,12 +422,25 @@ class NighttimeClockPlugin(Plugin):
     ## TRANSITIONS
 
     def enter_night(self) -> None:
-        """Dim, and show the clock."""
+        """Dim, show the clock, and stop making noise."""
         self._awake = False
         minute = now_minutes()
         self.client.log("info", "[Nighttime] Entering night.")
         self._goto(NightPage.KEY)
         self._set_brightness(self.schedule.brightness(minute), self.FADE_MS)
+
+        # Quiet as well as dark.
+        #
+        # A panel that dims itself and then chimes at 3am has done half a job.
+        # Remembered, so day only turns it back off if night is what turned it
+        # on - somebody who set it themselves before bed should still have it
+        # in the morning.
+        try:
+            self._dnd_was_on = self.client.do_not_disturb()
+            if not self._dnd_was_on:
+                self.client.set_do_not_disturb(True)
+        except Exception as e:
+            self.client.log("debug", f"[Nighttime] Could not quieten: {e}")
 
     def enter_day(self) -> None:
         """Back to full brightness and whatever page was up before."""
@@ -428,6 +453,14 @@ class NighttimeClockPlugin(Plugin):
         self._set_brightness(100, self.FADE_MS)
         if self._on_night_page():
             self._goto(self._home_target())
+
+        # Only if night is what turned it on.
+        try:
+            if not getattr(self, "_dnd_was_on", False):
+                self.client.set_do_not_disturb(False)
+            self._dnd_was_on = False
+        except Exception:
+            pass
 
     def _settle_to(self, minute: int, immediate: bool = False) -> None:
         """Put the panel where the schedule says it should be, now."""
@@ -463,6 +496,46 @@ class NighttimeClockPlugin(Plugin):
         # Re-armed on every interaction, so the countdown measures quiet
         # rather than time since the first touch.
         self._arm_settle()
+
+    def toggle_enabled(self) -> None:
+        """
+        Turn the whole schedule on or off.
+
+        Turning it OFF while the panel is dimmed and on the clock has to undo
+        both, or the setting says off while the screen still says night.
+        Brought back to the WOKEN brightness rather than to 100: switching this
+        off is usually somebody sitting in a dark room, and full brightness is
+        not a kindness there.
+        """
+        wanted = not self._enabled()
+        try:
+            self.client.apply_settings(
+                {f"{self.KEY}.enabled.value": wanted})
+        except Exception as e:
+            self.client.log("warning", f"[Nighttime] Could not set: {e}")
+            return
+
+        if wanted:
+            # Back on: put the panel wherever the schedule says it should be.
+            self._settle_to(now_minutes(), immediate=False)
+            return
+
+        try:
+            self.client.TIMEOUTS.discard(self._settle_key)
+        except Exception:
+            pass
+        self._awake = True
+        self._set_brightness(self._setting("woken_brightness", 55),
+                             self.WAKE_MS)
+        if self._on_night_page():
+            self._goto(self._home_target())
+        # And whatever night quietened.
+        try:
+            if not getattr(self, "_dnd_was_on", False):
+                self.client.set_do_not_disturb(False)
+            self._dnd_was_on = False
+        except Exception:
+            pass
 
     def toggle_page(self) -> None:
         """The quick access button: onto the clock, or back off it."""
@@ -529,6 +602,10 @@ class NighttimeClockPlugin(Plugin):
                 self.client.log("warning", f"[Nighttime] Brightness: {e}")
         # on_update runs on the update thread; the dimmer is a widget.
         self.client.call_on_ui(apply)
+
+    #Whether do not disturb was already on when night began, so day knows
+    #whether it is this plugin's to turn off.
+    _dnd_was_on = False
 
     def _on_night_page(self) -> bool:
         page = getattr(self.client, "PAGE", None)

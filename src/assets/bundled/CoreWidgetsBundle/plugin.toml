@@ -7,7 +7,3 @@ key = "corewidgetsbundle"
 [settings]
 path = "src/assets/bundled/CoreWidgetsBundle/settings.json"
 
-# Key NAMES only. Values live in .env and are edited through the "secret"
-# settings below.
-[secrets]
-keys = ["WORDNIK_KEY", "SPOTIFY_CLIENT_ID", "SPOTIFY_CLIENT_SECRET"]
