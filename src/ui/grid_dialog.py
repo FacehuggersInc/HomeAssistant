@@ -11,7 +11,7 @@ from PyQt6.QtGui import QPixmap, QMovie, QPainter, QColor, QPen, QFontMetrics
 
 from src.ui.overlays import BaseDialog
 from src.ui.icons import icon as resolve_icon
-from src.styling import make_font, SIZES, set_style
+from src.styling import make_font, SIZES, set_style, get_style_sheet
 
 if TYPE_CHECKING:
     from src.main import Client
@@ -420,7 +420,10 @@ class ItemGridDialog(BaseDialog):
         self._scroll.setWidget(self._grid_host)
         self._scroll.setSizePolicy(QSizePolicy.Policy.Expanding,
                                    QSizePolicy.Policy.Expanding)
-        set_style(self._scroll, "common", "thin-scroll")
+        # get_style() matches a class against a selector base, so a rule
+        # written as `.thin-scroll QScrollBar:vertical` never matched and
+        # this kept Qt's default bar. The sheet is applied whole instead.
+        self._scroll.setStyleSheet(get_style_sheet("scrollbar"))
         # The viewport is a separate widget from the scroll area and fills
         # itself by default - which is the white block behind the tiles. The
         # same two lines every other scrolling surface in this app uses.

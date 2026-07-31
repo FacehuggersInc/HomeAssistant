@@ -69,9 +69,12 @@
  .drop:hover{opacity:1;background:rgba(255,122,122,.16);color:#ffb3b3;
    border:none}
 
+ /* Centred under a centred heading. A max-width with no auto margin holds
+    the box at the left of the column while the h2 above it sits in the
+    middle, which reads as one of the two being wrong. */
  .empty{color:var(--muted);font-size:14px;line-height:1.7;
         border:1px dashed var(--line);border-radius:12px;padding:22px;
-        max-width:520px}
+        max-width:520px;margin:0 auto;text-align:center}
  .empty code{background:var(--card);padding:2px 7px;border-radius:6px;
              color:var(--text)}
 </style>

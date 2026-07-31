@@ -295,7 +295,7 @@ class TilePanel(Panel):
         #scrollable list of TilePanelItem widgets
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
-        scroll.setStyleSheet(get_style_sheet("tile_panel_scroll"))
+        scroll.setStyleSheet(get_style_sheet("scrollbar"))
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         # Explicit: full-size previews make the list far taller than the panel,
         # so this is load-bearing rather than a default worth relying on.

@@ -110,12 +110,21 @@ def add_text_shadow(widget, blur: int = 4, offset_x: int = 1,
     widget.setGraphicsEffect(effect)
 
 
-STYLES_DIR = Path("src") / "assets" / "styles"
+#Beside this module, not below the working directory.
+#
+#Resolved from cwd, the stylesheets are only found when the application is
+#launched from the project root. Started from anywhere else - a service file
+#with a different WorkingDirectory, a shell in another folder - every widget
+#loses its styling with nothing said, and a lookup that creates what it fails
+#to find leaves an empty directory for the next run to succeed against.
+STYLES_DIR = Path(__file__).resolve().parent / "assets" / "styles"
 
 def _styles_dir() -> Path:
-    directory = Path(os.getcwd()) / STYLES_DIR
-    if not directory.exists(): directory.mkdir(parents=True, exist_ok=True)
-    return directory
+    """
+    Where the stylesheets are. Never created here: a read that makes the thing
+    it is looking for turns a wrong path into a silent lack of styling.
+    """
+    return STYLES_DIR
 
 def load_styles() -> None:
     for file in _styles_dir().glob("*.css"):

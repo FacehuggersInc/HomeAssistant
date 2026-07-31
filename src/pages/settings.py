@@ -1131,6 +1131,9 @@ class SettingsPage(PageFramework):
             Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         set_style(nav_scroll, "common", "transparent")
         set_style(nav_scroll.viewport(), "common", "transparent")
+        # The same bar as the content pane beside it. Without this the nav
+        # keeps Qt's own, which is the one pale control on the page.
+        nav_scroll.setStyleSheet(get_style_sheet("scrollbar"))
         QScroller.grabGesture(
             nav_scroll.viewport(),
             QScroller.ScrollerGestureType.LeftMouseButtonGesture)
@@ -1153,7 +1156,7 @@ class SettingsPage(PageFramework):
         # Content scroll
         self._content_scroll = QScrollArea()
         self._content_scroll.setWidgetResizable(True)
-        self._content_scroll.setStyleSheet(get_style_sheet("settings_scroll"))
+        self._content_scroll.setStyleSheet(get_style_sheet("scrollbar"))
         self._content_scroll.setHorizontalScrollBarPolicy(
             Qt.ScrollBarPolicy.ScrollBarAlwaysOff
         )

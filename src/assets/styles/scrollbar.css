@@ -1,0 +1,67 @@
+/* One scrollbar, for every scrolling surface the panel draws itself.
+ *
+ * Applied whole with get_style_sheet() rather than through set_style(): these
+ * are descendant and sub-control selectors, and get_style() matches a class
+ * name against a selector's base, so a rule written as
+ * `.thin-scroll QScrollBar:vertical` never matches anything and the widget
+ * keeps Qt's default bar.
+ *
+ * Web pages are separate - Chromium draws its own, restyled in webpage.py and
+ * docs.py.
+ */
+
+QScrollArea { border: none; background: transparent; }
+
+QScrollBar:vertical {
+    background: transparent;
+    width: 6px;
+    margin: 0;
+}
+
+QScrollBar::handle:vertical {
+    background: rgba(255,255,255,40);
+    border-radius: 3px;
+    /* A long list otherwise leaves a handle a few pixels tall, which is both
+     * hard to see and hard to catch with a finger. */
+    min-height: 40px;
+}
+
+QScrollBar::handle:vertical:hover {
+    background: rgba(255,255,255,70);
+}
+
+QScrollBar::add-line:vertical,
+QScrollBar::sub-line:vertical {
+    height: 0;
+}
+
+QScrollBar::add-page:vertical,
+QScrollBar::sub-page:vertical {
+    background: transparent;
+}
+
+QScrollBar:horizontal {
+    background: transparent;
+    height: 6px;
+    margin: 0;
+}
+
+QScrollBar::handle:horizontal {
+    background: rgba(255,255,255,40);
+    border-radius: 3px;
+    min-width: 40px;
+}
+
+QScrollBar::handle:horizontal:hover {
+    background: rgba(255,255,255,70);
+}
+
+QScrollBar::add-line:horizontal,
+QScrollBar::sub-line:horizontal {
+    width: 0;
+}
+
+QScrollBar::add-page:horizontal,
+QScrollBar::sub-page:horizontal {
+    background: transparent;
+}
