@@ -84,6 +84,72 @@ underneath, which closed it.
 If you build an overlay widget of your own, register it with
 `OVERLAYS.add(layer, widget)` rather than calling `setParent()`.
 
+## What is already there
+
+Before writing one, check whether it exists. Every one below is in
+`src/ui/dialogs.py` unless noted, and all take the client first.
+
+| | |
+|---|---|
+| `AlertDialog(client, title, body)` | Something to read and dismiss |
+| `ConfirmDialog(client, title, body, on_confirm)` | Yes or no |
+| `InputDialog(client, title, body, on_submit)` | One line of text |
+| `ChoiceDialog(client, title, body, options, on_choose)` | A short list to pick from |
+| `ItemGridDialog(client, title, items, on_chosen)` | A **searchable** grid — `src/ui/grid_dialog.py` |
+| `DurationPickerDialog(client, title, body, seconds, on_chosen)` | A length of time, as steppers |
+| `ActionSheet(client, title, items)` | A row's actions, big enough to hit |
+| `ProgressDialog(client, title, body)` | Something is happening |
+| `DependencyDialog(client, pending)` | A plugin needs another one |
+| `KeyboardDialog(client, target, mode)` | On-screen text entry — `src/ui/keyboard.py` |
+
+```python
+from src.ui.dialogs import ConfirmDialog
+
+client.dialog(ConfirmDialog(
+    client, "Remove this?", "It cannot be undone.",
+    on_confirm=self._remove))
+```
+
+### `ItemGridDialog`
+
+The one worth knowing about. Anything with more entries than a list can show
+and a name worth searching — a folder, an icon set, a search API's results — is
+this dialog rather than a new one:
+
+```python
+from src.ui.grid_dialog import ItemGridDialog, GridItem
+
+client.dialog(ItemGridDialog(
+    client, title="Choose a bookmark",
+    items=[GridItem(key=b.url, label=b.label, subtitle=b.host,
+                    preview=str(icon_path)) for b in marks],
+    on_chosen=lambda item: self.use(item.key),
+    search_hint="Search bookmarks"))
+```
+
+Pass `items` for a fixed set, or `on_search` for a source that answers queries
+itself. `sorts` adds sort buttons; `on_delete` adds a delete action per item.
+
+**`kind`** saves picking an icon. A `GridItem` given one draws the right
+fallback and becomes searchable by that word, so `sound` finds every sound in a
+mixed list without the caller putting it in each label:
+
+```python
+GridItem(key=path, label="Chime", kind="sound")
+```
+
+`image` · `sound` · `page` · `link` · `place` · `person` · `event` · `device` ·
+`plugin` · `file`. An `icon` passed outright still wins, and an item with no
+kind is unchanged.
+
+The grid is sized for **finding** something: tiles are 124px, names are one
+elided line with the full text on the tooltip, and the sort buttons sit smaller
+and greyer than the search field.
+
+**`label_lines=2`** wraps the name instead. A picture identifies a sticker, so
+eliding its filename costs nothing — a list of documents or people is the
+opposite, and a name cut mid-word is a name somebody cannot find.
+
 ## Building your own
 
 Subclass `BaseDialog` (`src/ui/overlays.py`) and hand it to

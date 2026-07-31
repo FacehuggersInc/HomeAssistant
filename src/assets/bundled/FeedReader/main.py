@@ -75,7 +75,7 @@ class RSSFeedsPlugin(Plugin):
 
         self.client.API.register(
             "rssfeeds", "rss_feeds", self.api_feeds, requires_auth=True,
-            gui="Feeds",
+            gui="Feeds", icon="rss",
             description="Add or remove the feeds the panel shows when idle.")
 
         self._load_feed_files()

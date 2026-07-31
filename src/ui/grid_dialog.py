@@ -63,9 +63,28 @@ class GridItem:
     `pixmap` instead, or neither and gets the placeholder.
     """
 
+    #What a tile draws with, when nothing else is given.
+    #
+    #A caller passing `kind` gets a sensible preview without having to know
+    #which icon this dialog would have picked - and a set of mixed kinds reads
+    #as a set rather than as whatever each caller happened to choose.
+    KINDS = {
+        "image":    "mdi.image-outline",
+        "sound":    "mdi.music-note",
+        "page":     "mdi.file-document-outline",
+        "link":     "mdi.link-variant",
+        "place":    "mdi.map-marker-outline",
+        "person":   "mdi.account-outline",
+        "event":    "mdi.calendar-blank-outline",
+        "device":   "mdi.cellphone-link",
+        "plugin":   "mdi.puzzle-outline",
+        "file":     "mdi.file-outline",
+    }
+
     def __init__(self, key: str, label: str, preview: str = "",
                  subtitle: str = "", badge: str = "", icon: str = "",
-                 pixmap: QPixmap = None, data=None, animated: bool = False):
+                 pixmap: QPixmap = None, data=None, animated: bool = False,
+                 kind: str = ""):
         self.key = str(key)
         self.label = str(label)
         self.preview = str(preview or "")
@@ -75,9 +94,21 @@ class GridItem:
         self.pixmap = pixmap
         self.data = data
         self.animated = bool(animated)
+        # What this IS, which decides the fallback icon and can be searched on.
+        self.kind = str(kind or "").strip().lower()
+        if not self.icon and self.kind in self.KINDS:
+            self.icon = self.KINDS[self.kind]
 
     def haystack(self) -> str:
-        return f"{self.label} {self.subtitle} {self.badge} {self.key}".lower()
+        # The kind is searchable too, so "sound" finds every sound in a mixed
+        # list without the caller having to put the word in each label.
+        return (f"{self.label} {self.subtitle} {self.badge} "
+                f"{self.kind} {self.key}").lower()
+
+    @classmethod
+    def kinds(cls) -> list:
+        """Every kind this dialog draws an icon for."""
+        return sorted(cls.KINDS)
 
 
 class _Tile(QFrame):
@@ -86,7 +117,8 @@ class _Tile(QFrame):
     #how far a finger may travel and still count as a tap rather than a scroll
     DRAG_SLOP = 12
 
-    def __init__(self, item: GridItem, size: int, on_pick: Callable):
+    def __init__(self, item: GridItem, size: int, on_pick: Callable,
+                 lines: int = 1):
         super().__init__()
         self.item = item
         self.on_pick = on_pick
@@ -96,12 +128,12 @@ class _Tile(QFrame):
 
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.setFixedWidth(size + 20)
+        self.setFixedWidth(size + 14)
         set_style(self, "overlays", "grid-tile")
 
         column = QVBoxLayout(self)
-        column.setContentsMargins(10, 10, 10, 8)
-        column.setSpacing(6)
+        column.setContentsMargins(7, 7, 7, 6)
+        column.setSpacing(5)
 
         self.preview = QLabel()
         self.preview.setFixedSize(size, size)
@@ -110,12 +142,27 @@ class _Tile(QFrame):
         set_style(self.preview, "common", "transparent")
         column.addWidget(self.preview, alignment=Qt.AlignmentFlag.AlignHCenter)
 
-        name = QLabel(item.label)
+        # One line by default, two when the names carry the meaning.
+        #
+        # A picture identifies a sticker, so eliding its filename costs
+        # nothing; a list of documents or people is the opposite, and a name
+        # cut mid-word is a name somebody cannot find. `label_lines` is how a
+        # caller says which of the two it has.
+        name = QLabel()
         name.setFont(make_font(SIZES.S1, bold=True))
         name.setAlignment(Qt.AlignmentFlag.AlignHCenter)
-        name.setWordWrap(True)
-        name.setFixedHeight(38)
+        name.setToolTip(item.label)
         set_style(name, "common", "text-strong")
+
+        if lines > 1:
+            name.setWordWrap(True)
+            name.setFixedHeight(18 * lines)
+            name.setText(item.label)
+        else:
+            name.setFixedHeight(18)
+            metrics = QFontMetrics(name.font())
+            name.setText(metrics.elidedText(
+                item.label, Qt.TextElideMode.ElideRight, size + 6))
         column.addWidget(name)
 
         if item.badge:
@@ -230,7 +277,10 @@ class ItemGridDialog(BaseDialog):
     WIDTH_RATIO  = 0.78
     HEIGHT_RATIO = 0.80
     MIN_WIDTH    = 640
-    TILE         = 176
+    #Smaller than it was, because the point of this dialog is finding
+    #something: at 176 a 2560-wide panel showed twelve tiles, and twelve is a
+    #list somebody scrolls rather than a grid they scan.
+    TILE         = 124
     #ms after the last keystroke before a search runs
     SEARCH_DEBOUNCE = 180
 
@@ -247,7 +297,7 @@ class ItemGridDialog(BaseDialog):
                  choose_text: str = "Use this", empty_text: str = "Nothing here yet.",
                  search_hint: str = "Search", extra_button: tuple = None,
                  sorts: list = None, on_delete: Callable = None,
-                 delete_text: str = "Delete"):
+                 delete_text: str = "Delete", label_lines: int = 1):
         host = getattr(client, "OVERLAYS", None)
         width = self.MIN_WIDTH
         try:
@@ -260,6 +310,9 @@ class ItemGridDialog(BaseDialog):
         self.on_chosen = on_chosen
         self.on_search = on_search
         self.on_delete = on_delete
+        # How many lines a name gets. One for a grid of pictures, two when the
+        # name is what somebody is reading.
+        self._label_lines = max(1, min(3, int(label_lines or 1)))
         self._sorts = list(sorts) if sorts else list(self.DEFAULT_SORTS)
         self._sort_key = self._sorts[0][0] if self._sorts else ""
         self._all_items = list(items or [])
@@ -311,13 +364,18 @@ class ItemGridDialog(BaseDialog):
             for entry in self._sorts:
                 key, label, _fn = entry[0], entry[1], entry[2]
                 glyph = entry[3] if len(entry) > 3 else ""
+                # Smaller and quieter than the search field above them.
+                #
+                # These are how somebody arranges what they are looking at, not
+                # what they came to do - and at 46px in bold they competed with
+                # the items for attention.
                 button = QPushButton(label)
-                button.setFixedHeight(46)
-                button.setFont(make_font(SIZES.S2, bold=True))
+                button.setFixedHeight(36)
+                button.setFont(make_font(SIZES.S1, bold=True))
                 button.setCursor(Qt.CursorShape.PointingHandCursor)
                 if glyph:
-                    button.setIcon(resolve_icon(glyph, color="#ffffff"))
-                    button.setIconSize(QSize(18, 18))
+                    button.setIcon(resolve_icon(glyph, color="#9a9aa6"))
+                    button.setIconSize(QSize(15, 15))
                 # Sized to its own text plus the padding the stylesheet adds,
                 # rather than a guessed minimum - "Biggest" and "A-Z" are very
                 # different widths and a fixed one clipped the longer.
@@ -340,11 +398,21 @@ class ItemGridDialog(BaseDialog):
         set_style(self._grid_host, "common", "transparent")
         self._grid = QGridLayout(self._grid_host)
         self._grid.setContentsMargins(0, 6, 0, 6)
-        self._grid.setSpacing(10)
+        self._grid.setSpacing(8)
         self._grid.setAlignment(Qt.AlignmentFlag.AlignTop |
                                 Qt.AlignmentFlag.AlignLeft)
 
         self._scroll = QScrollArea()
+        # Given its height before anything is in it.
+        #
+        # The dialog was sized to its contents, and the contents arrive after
+        # it is shown - previews load, the grid lays out, and the whole box
+        # stretched open in front of somebody who had already pressed Add. A
+        # scroll area with a floor fills the dialog immediately and the items
+        # appear inside it.
+        self._scroll.setMinimumHeight(320)
+        self._scroll.setSizePolicy(QSizePolicy.Policy.Expanding,
+                                   QSizePolicy.Policy.Expanding)
         self._scroll.setWidgetResizable(True)
         self._scroll.setFrameShape(QFrame.Shape.NoFrame)
         self._scroll.setHorizontalScrollBarPolicy(
@@ -486,7 +554,8 @@ class ItemGridDialog(BaseDialog):
 
         columns = self._columns()
         for index, item in enumerate(items):
-            tile = _Tile(item, self.TILE, self._pick)
+            tile = _Tile(item, self.TILE, self._pick,
+                         lines=self._label_lines)
             self._grid.addWidget(tile, index // columns, index % columns)
             self._tiles.append(tile)
 

@@ -116,7 +116,7 @@ class CoreWidgetsBundle(Plugin):
         # label was a promise nothing kept.
         self.client.API.register(
             "corewidgetsbundle", "timer_form", self.api_timer_form,
-            requires_auth=True, gui="Start a timer",
+            requires_auth=True, gui="Start a timer", icon="timer-sand",
             description="Choose a duration and start a timer.")
         self.client.API.register(
             "corewidgetsbundle", "timer_list", self.api_timer_list,
@@ -129,7 +129,7 @@ class CoreWidgetsBundle(Plugin):
         self.client.API.register(
             "corewidgetsbundle", "sticker_add", self.api_sticker_add,
             requires_auth=True, accepts_files=True,
-            gui="Stickers",
+            gui="Stickers", icon="sticker-emoji",
             description="Upload a sticker, or place one from the library.")
         self.client.API.register(
             "corewidgetsbundle", "sticker_list", self.api_sticker_list,

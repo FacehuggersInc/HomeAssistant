@@ -421,3 +421,64 @@ without saving.
 requires the panel to actually drop before counting it as back - otherwise a
 poll landing between the reply and the restart reports success against the
 process on its way out.
+
+## The dashboard
+
+`/` is the panel's dashboard: the pages a plugin has registered, the actions it
+offers, who can reach it, and a live clock. One column on a phone, as many as
+fit on a desktop.
+
+### Icons
+
+```python
+client.API.register("myplugin", "my_page", self.my_page,
+                    requires_auth=True, gui="My page", icon="rss")
+```
+
+Icons are drawn as **inline SVG**, not a font — a phone opening this has no icon
+font, and shipping one to get twenty glyphs is a megabyte for nothing.
+`src/webicons.py` holds the set; `mdi.rss` and `rss` are the same request, and a
+name that is not there becomes a dot rather than a gap.
+
+Add a path to `PATHS` if you need one that is missing.
+
+### `/dashboard/state`
+
+Everything the dashboard shows, in one request: the panel's name, uptime, what
+page it is on, Wi-Fi, every connected Bluetooth device, the quiet modes,
+brightness, bookmarks and recent notifications.
+
+One round trip rather than six — this is polled from a phone that may be on the
+far side of a house, and six requests is six chances for one to be the slow one.
+Each part is guarded on its own, so a machine with no Bluetooth shows the rest.
+
+### The update card
+
+There is no "Update and restart" action. When `/dashboard/state` reports one
+available, a card appears below the header and **is** the button — nobody should
+have to know which of ten actions was the one to press. It says what is waiting
+rather than that something is.
+
+### `/say`
+
+`GET /say?from=Kitchen&message=Dinner is ready` — the panel reads it out as
+"Kitchen said dinner is ready". With no message it serves a form.
+
+`say()` reports whether anything came out, so quiet mode and a missing voice are
+the same answer, and neither loses the message: it goes on screen at panel size
+instead.
+
+`&voice=anna` uses that voice for this message and puts the setting back
+afterwards — trying one from a phone is not deciding to change the panel's.
+
+### `/quiet/<what>/<state>`
+
+`dnd` or `mute`, `on` or `off`. A state rather than a toggle: the dashboard
+already knows which way it is, so two phones pressing at once agree.
+
+### `/quick`
+
+Opens the panel's quick settings from wherever you are. The panel's own gesture
+is a swipe from the top edge, which is no use from across the room — and
+brightness, volume, Wi-Fi and do-not-disturb are exactly what somebody wants to
+change without walking over.

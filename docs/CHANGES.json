@@ -1,6 +1,80 @@
 {
  "log": [
   {
+   "at": 1785512064.0500288,
+   "note": "say() reports whether a person heard it",
+   "pages": [
+    {
+     "slug": "notifications",
+     "state": "updated"
+    }
+   ]
+  },
+  {
+   "at": 1785511784.1374276,
+   "note": "quieter polling, wrappable labels, and a voice per message",
+   "pages": [
+    {
+     "slug": "api",
+     "state": "updated"
+    },
+    {
+     "slug": "dialogs",
+     "state": "updated"
+    }
+   ]
+  },
+  {
+   "at": 1785510959.7841747,
+   "note": "the search dialog is compact and knows item kinds",
+   "pages": [
+    {
+     "slug": "dialogs",
+     "state": "updated"
+    }
+   ]
+  },
+  {
+   "at": 1785510481.0181618,
+   "note": "a readable result page, a say endpoint, and the dialogs documented",
+   "pages": [
+    {
+     "slug": "dialogs",
+     "state": "updated"
+    }
+   ]
+  },
+  {
+   "at": 1785508722.5550475,
+   "note": "the dashboard leads with the update, devices and bookmarks",
+   "pages": [
+    {
+     "slug": "api",
+     "state": "updated"
+    }
+   ]
+  },
+  {
+   "at": 1785476246.4078863,
+   "note": "the dashboard shows live state and acts on it",
+   "pages": [
+    {
+     "slug": "api",
+     "state": "updated"
+    }
+   ]
+  },
+  {
+   "at": 1785474967.2501915,
+   "note": "the index is a dashboard, with icons and quick settings",
+   "pages": [
+    {
+     "slug": "api",
+     "state": "updated"
+    }
+   ]
+  },
+  {
    "at": 1785472594.398015,
    "note": "two doc sections that were reported written but were not",
    "pages": [
@@ -823,9 +897,9 @@
  ],
  "pages": {
   "api": {
-   "at": 1785460412.6598134,
-   "hash": "ad6b56e3dd7a0109",
-   "opened": 1785467065.7132213,
+   "at": 1785511784.1360466,
+   "hash": "bde1b6864cdd3555",
+   "opened": 0,
    "state": "updated"
   },
   "architecture": {
@@ -865,8 +939,8 @@
    "state": "updated"
   },
   "dialogs": {
-   "at": 1785467505.273431,
-   "hash": "2a38f3270c1cad1a",
+   "at": 1785511784.1363747,
+   "hash": "ec1d14c1729de098",
    "opened": 0,
    "state": "updated"
   },
@@ -919,8 +993,8 @@
    "state": "updated"
   },
   "notifications": {
-   "at": 1785467065.7513962,
-   "hash": "62457a02f16dc477",
+   "at": 1785512064.0492134,
+   "hash": "79acd7649203c1be",
    "opened": 0,
    "state": "updated"
   },

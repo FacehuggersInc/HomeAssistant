@@ -1670,8 +1670,16 @@ class WidgetFramework(QWidget):
                 painter.drawLine(centre.x() - arm, centre.y() + arm,
                                  centre.x() - arm, centre.y() + arm - 4)
             elif name == "rotate":
+                # An arc with a head on it.
+                #
+                # A bare 270 degree arc reads as a circle somebody failed to
+                # close. The arrowhead is what says which way this turns, and
+                # it is the difference between a handle and a smudge.
                 painter.drawArc(QRect(centre.x() - arm, centre.y() - arm,
-                                      arm * 2, arm * 2), 0, 270 * 16)
+                                      arm * 2, arm * 2), 30 * 16, 280 * 16)
+                tip = QPoint(centre.x() + arm, centre.y())
+                painter.drawLine(tip, QPoint(tip.x() - 4, tip.y() - 4))
+                painter.drawLine(tip, QPoint(tip.x() - 4, tip.y() + 4))
             elif name == "offset":
                 # A four-way move arrow.
                 painter.drawLine(centre.x() - arm, centre.y(), centre.x() + arm, centre.y())

@@ -1,105 +1,453 @@
-<!doctype html>
-<html><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
 <title>{{ panel }}</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
 <style>
- :root{--bg:#151517;--card:#1c1c1f;--line:#2c2c31;--text:#e6e6e8;
-       --muted:#9a9aa2;--accent:#2ff08e;--bad:#e08a8a}
- *{box-sizing:border-box}
- body{margin:0;background:var(--bg);color:var(--text);padding:20px;
-      font:16px/1.55 -apple-system,"Segoe UI",Roboto,sans-serif}
- header{max-width:640px;margin:0 auto 20px}
- h1{font-size:24px;margin:0 0 2px}
- header p{color:var(--muted);margin:0;font-size:14px}
- main{max-width:640px;margin:0 auto}
- h2{font-size:12px;text-transform:uppercase;letter-spacing:.09em;
-    color:var(--muted);margin:24px 0 8px}
- a.row{display:block;background:var(--card);border:1px solid var(--line);
-       border-radius:12px;padding:14px 16px;margin-bottom:10px;
-       text-decoration:none;color:var(--text)}
- a.row:active{border-color:var(--accent)}
- a.row b{display:block;font-size:17px}
- a.row span{color:var(--muted);font-size:13.5px}
- .grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
- button{width:100%;padding:15px 10px;border:1px solid var(--line);
-        border-radius:11px;background:var(--card);color:var(--text);
-        font-size:15px;font-weight:600}
- button.danger{border-color:rgba(224,138,138,.5);color:var(--bad)}
- button:active{border-color:var(--accent)}
- #said{margin-top:14px;padding:12px;border-radius:10px;font-size:14px;
-       background:rgba(47,240,142,.12);border:1px solid rgba(47,240,142,.4);
-       display:none;word-break:break-word;white-space:pre-line}
-</style></head>
+{{ chrome|safe }}
+ :root{color-scheme:dark}
+ body{padding:0;max-width:none}
+ .wrap{max-width:1240px;margin:0 auto;padding:0 20px 56px}
+
+ /* WHICH PANEL. The first thing on the page, because a phone that can reach
+    three of these needs to know which one it is holding. */
+ .top{display:flex;align-items:center;gap:16px;flex-wrap:wrap;
+      padding:26px 0 20px}
+ .mark{display:flex;align-items:center;gap:13px;min-width:0}
+ .mark .glyph{width:46px;height:46px;border-radius:14px;flex:none;
+   background:linear-gradient(140deg,var(--accent),var(--accent2));
+   display:flex;align-items:center;justify-content:center;color:#0d1a12;
+   box-shadow:0 6px 22px var(--glow)}
+ .mark h1{font-size:23px;font-weight:600;letter-spacing:-.02em;margin:0;
+          line-height:1.15}
+ .mark .sub{font-size:12.5px;color:var(--muted);margin:2px 0 0}
+ .mark .sub b{color:var(--accent);font-weight:500}
+ .now{margin-left:auto;text-align:right}
+ .now .time{font-size:30px;font-weight:300;letter-spacing:-1px;line-height:1}
+ .now .day{font-size:12.5px;color:var(--muted);margin-top:2px}
+
+ /* PAGES as a nav bar, not cards. They are destinations, and a row of them
+    is read in one glance rather than scanned as a grid. */
+ /* Pages live in a drawer. However many a plugin adds, the dashboard itself
+    does not get longer - and a long label is a wide row rather than a
+    truncated button. */
+ .menu{width:46px;height:46px;flex:none;border-radius:13px;
+   border:1px solid var(--line);background:var(--card);color:var(--text);
+   display:flex;align-items:center;justify-content:center;cursor:pointer}
+ .menu:hover{border-color:var(--accent);color:var(--accent)}
+
+ .scrim{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:40;
+   opacity:0;pointer-events:none;transition:opacity .16s}
+ .scrim.open{opacity:1;pointer-events:auto}
+
+ .drawer{position:fixed;top:0;bottom:0;left:0;width:290px;max-width:86vw;
+   z-index:41;background:var(--card);border-right:1px solid var(--line);
+   padding:20px 16px;overflow-y:auto;transform:translateX(-102%);
+   transition:transform .2s cubic-bezier(.2,.7,.3,1)}
+ .drawer.open{transform:none}
+ .drawer h3{font-size:11.5px;font-weight:600;text-transform:uppercase;
+   letter-spacing:.1em;color:var(--muted);margin:4px 0 14px}
+ .drawer a{display:flex;align-items:center;gap:11px;min-height:50px;
+   padding:9px 13px;border-radius:11px;color:var(--text);
+   text-decoration:none;font-size:14.5px;font-weight:500;line-height:1.3}
+ .drawer a:hover{background:var(--card2);color:var(--accent);
+                 text-decoration:none}
+ .drawer a svg{flex:none;opacity:.8}
+ .drawer a .d{display:block;font-size:11.5px;color:var(--muted);
+              font-weight:400;margin-top:1px}
+
+ h2{font-size:11.5px;font-weight:600;text-transform:uppercase;
+    letter-spacing:.1em;color:var(--muted);margin:26px 0 12px}
+
+ .grid{display:grid;gap:12px}
+ .g4{grid-template-columns:repeat(auto-fill,minmax(215px,1fr))}
+ .g3{grid-template-columns:repeat(auto-fill,minmax(270px,1fr))}
+
+ /* A CARD that does something. Same size as the page cards were. */
+ .card{position:relative;display:flex;flex-direction:column;gap:10px;
+   padding:17px;border-radius:15px;border:1px solid var(--line);
+   background:var(--card);color:var(--text);text-decoration:none;
+   min-height:104px;text-align:left;font-family:inherit;cursor:pointer;
+   transition:border-color .12s,transform .12s}
+ .card:hover{border-color:var(--accent);text-decoration:none}
+ .card:active{transform:scale(.985)}
+ .card .ico{width:38px;height:38px;border-radius:11px;background:var(--card2);
+   display:flex;align-items:center;justify-content:center;color:var(--accent)}
+ .card .label{font-size:15.5px;font-weight:600;letter-spacing:-.01em}
+ .card .desc{font-size:12.5px;color:var(--muted);line-height:1.45}
+ .card .value{font-size:19px;font-weight:600;letter-spacing:-.02em;
+              margin-top:auto}
+ .card .value.dim{color:var(--muted);font-weight:400;font-size:14px}
+
+ .card.on{border-color:var(--accent);background:
+   linear-gradient(160deg,rgba(47,240,142,.10),var(--card) 62%)}
+ .card.on .ico{background:var(--accent);color:#0d1a12}
+ .card.warm.on{border-color:var(--warm);background:
+   linear-gradient(160deg,rgba(255,180,84,.12),var(--card) 62%)}
+ .card.warm.on .ico{background:var(--warm);color:#241701}
+ .card.danger{border-color:rgba(255,122,122,.32)}
+ .card.danger .ico{color:var(--bad)}
+ .card.danger:hover{border-color:var(--bad)}
+
+ .pill{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;
+   border-radius:999px;background:var(--card2);font-size:11.5px;
+   color:var(--muted);margin:0 6px 6px 0}
+ .pill .dot{width:6px;height:6px;border-radius:50%;background:var(--accent)}
+ .pill b{color:var(--text);font-weight:500}
+
+ .rows{display:flex;flex-direction:column;gap:8px}
+ .row{display:flex;align-items:center;gap:12px;padding:13px 15px;
+   border-radius:12px;border:1px solid var(--line);background:var(--card);
+   font-size:13.5px}
+ .row .t{font-weight:600;font-size:14px}
+ .row .b{color:var(--muted);font-size:12.5px;line-height:1.4}
+ .row .w{margin-left:auto;color:var(--muted);font-size:12px;flex:none}
+
+ .bm{display:flex;align-items:center;gap:11px;padding:13px 14px;
+   border-radius:12px;border:1px solid var(--line);background:var(--card);
+   color:var(--text);text-decoration:none;min-height:58px}
+ .bm:hover{border-color:var(--accent2);text-decoration:none}
+ .bm img{width:26px;height:26px;border-radius:7px;flex:none;
+         object-fit:contain}
+ .bm .letter{width:26px;height:26px;border-radius:7px;background:var(--card2);
+   display:flex;align-items:center;justify-content:center;flex:none;
+   font-size:13px;font-weight:700;color:var(--accent2)}
+ .bm .n{font-size:13.5px;font-weight:500;overflow:hidden;
+        text-overflow:ellipsis;white-space:nowrap}
+
+ #result{display:none;position:sticky;bottom:14px;margin:16px 0 0;
+   padding:14px 16px;border-radius:13px;border:1px solid var(--accent);
+   background:var(--card2);font-size:13.5px;line-height:1.6;
+   white-space:pre-line;word-break:break-word;
+   box-shadow:0 10px 34px rgba(0,0,0,.5)}
+ #result.bad{border-color:var(--bad);color:#ffb3b3}
+ .empty{color:var(--muted);font-size:13px}
+
+ /* The update is not one action among ten. It appears only when there is one,
+    and it is the button. */
+ .update{display:none;align-items:center;gap:14px;width:100%;margin:0 0 30px;
+   padding:17px 19px;border-radius:15px;text-align:left;cursor:pointer;
+   font-family:inherit;color:#0d1a12;border:none;
+   background:linear-gradient(135deg,var(--accent),var(--accent2));
+   box-shadow:0 8px 30px var(--glow)}
+ .update:active{transform:scale(.99)}
+ .update .ico{width:40px;height:40px;border-radius:12px;flex:none;
+   background:rgba(0,0,0,.18);display:flex;align-items:center;
+   justify-content:center;color:#0d1a12}
+ .update .t{font-size:16px;font-weight:700;letter-spacing:-.01em}
+ .update .d{font-size:12.5px;opacity:.78;margin-top:1px}
+ .update .go{margin-left:auto;font-size:13px;font-weight:700;flex:none}
+</style>
+</head>
 <body>
-<header>
-  <h1>{{ panel }}</h1>
-  <p>Connected as {{ device }}.</p>
-</header>
-<main>
-  <h2>Pages</h2>
+<div class="wrap">
+
+<div class="top">
+  <button class="menu" id="menu" aria-label="Pages">
+    <svg viewBox="0 0 24 24" width="21" height="21" fill="none"
+         stroke="currentColor" stroke-width="1.9" stroke-linecap="round">
+      <path d="M4 7h16M4 12h16M4 17h16"/></svg>
+  </button>
+  <div class="mark">
+    <span class="glyph">
+      <svg viewBox="0 0 24 24" width="24" height="24" fill="none"
+           stroke="currentColor" stroke-width="2" stroke-linecap="round"
+           stroke-linejoin="round"><path d="M3 11l9-7 9 7v9H3z"/></svg>
+    </span>
+    <div>
+      <h1>{{ panel }}</h1>
+      <p class="sub">on <b>{{ device }}</b> · <span id="where">&mdash;</span>
+        · up <span id="uptime">&mdash;</span></p>
+    </div>
+  </div>
+  <div class="now">
+    <div class="time" id="clock">&nbsp;</div>
+    <div class="day" id="date">&nbsp;</div>
+  </div>
+</div>
+
+<div id="update"></div>
+
+<h2>Recent notifications</h2>
+<div class="rows" id="notifications"><span class="empty">Loading&hellip;</span></div>
+
+<h2>{{ users|length }} approved device{{ '' if users|length == 1 else 's' }}</h2>
+<div>
+  {% for u in users %}
+  <span class="pill"><span class="dot"></span>{{ u.name }}{% if u.current %}
+    <b>this one</b>{% endif %}</span>
+  {% endfor %}
+</div>
+
+<h2>Bookmarks</h2>
+<div class="grid g4" id="bookmarks"><span class="empty">Loading&hellip;</span></div>
+
+<h2>Panel</h2>
+<div class="grid g4" id="state"></div>
+
+<h2>Actions</h2>
+<div class="grid g4">
+  {% for action in actions %}
+  <button class="card{% if action.danger %} danger{% endif %}"
+          data-url="{{ action.url }}?token={{ token }}"
+          data-label="{{ action.label }}"
+          {% if action.danger %}data-confirm="1"{% endif %}>
+    <span class="ico">{{ action.icon|safe }}</span>
+    <span class="label">{{ action.label }}</span>
+  </button>
+  {% endfor %}
+</div>
+
+<div id="result"></div>
+</div>
+
+<div class="scrim" id="scrim"></div>
+<aside class="drawer" id="drawer">
+  <h3>{{ pages|length }} page{{ '' if pages|length == 1 else 's' }}</h3>
   {% for page in pages %}
-  <a class="row" href="{{ page.url }}{% if page.auth %}?token={{ token }}{% endif %}">
-    <b>{{ page.label }}</b>
-    <span>{{ page.description }}</span>
+  <a href="{{ page.url }}{% if page.auth %}?token={{ token }}{% endif %}">
+    {{ page.icon|safe }}
+    <span>{{ page.label }}
+      {% if page.description %}<span class="d">{{ page.description }}</span>{% endif %}
+    </span>
   </a>
   {% endfor %}
+</aside>
 
-  <h2>Actions</h2>
-  <div class="grid">
-    {% for action in actions %}
-    <button class="{% if action.danger %}danger{% endif %}"
-            data-url="{{ action.url }}"
-            data-danger="{{ 1 if action.danger else 0 }}"
-            data-label="{{ action.label }}">{{ action.label }}</button>
-    {% endfor %}
-  </div>
-  <div id="said"></div>
-</main>
 <script>
- var token = {{ token|tojson }};
- var said = document.getElementById('said');
+var TOKEN = {{ token|tojson }};
 
- document.querySelectorAll('button[data-url]').forEach(function (button) {
-   button.addEventListener('click', function () {
-     // Confirmed, because "Shut down" on a phone in a pocket is a panel that
-     // somebody has to go and turn on again.
-     if (button.dataset.danger === '1' &&
-         !confirm(button.dataset.label + '?')) { return; }
+var drawer = document.getElementById('drawer');
+var scrim = document.getElementById('scrim');
+function toggleDrawer(open) {
+  drawer.classList.toggle('open', open);
+  scrim.classList.toggle('open', open);
+}
+document.getElementById('menu').addEventListener('click', function () {
+  toggleDrawer(!drawer.classList.contains('open'));
+});
+scrim.addEventListener('click', function () { toggleDrawer(false); });
+document.addEventListener('keydown', function (e) {
+  if (e.key === 'Escape') { toggleDrawer(false); }
+});
+var result = document.getElementById('result');
 
-     fetch(button.dataset.url + '?token=' + encodeURIComponent(token))
-       .then(function (r) {
-         return r.text().then(function (body) {
-           return { status: r.status, body: body };
-         });
-       })
-       .then(function (out) {
-         said.style.display = 'block';
-         // Read as JSON when it is JSON. Showing the raw body meant a route
-         // that answered with an HTML error page - Flask's 404, say - filled
-         // the panel with markup instead of saying what went wrong.
-         var text;
-         try {
-           var data = JSON.parse(out.body);
-           if (data.request === 'Failed' || data.reason) {
-             text = data.reason || ('Failed (' + out.status + ')');
-           } else {
-             text = Object.keys(data)
-               .filter(function (k) { return k !== 'request'; })
-               .map(function (k) { return k + ': ' + data[k]; })
-               .join('\n') || 'Done.';
-           }
-         } catch (e) {
-           text = out.status >= 400
-             ? 'The panel answered ' + out.status + '.'
-             : out.body.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 200);
-         }
-         said.textContent = text;
-       })
-       .catch(function () {
-         said.style.display = 'block';
-         said.textContent = 'The panel did not answer - it may be restarting.';
-       });
-   });
- });
+function show(text, bad) {
+  result.className = bad ? 'bad' : '';
+  result.style.display = 'block';
+  result.textContent = text;
+}
+
+function readable(body) {
+  try {
+    var data = JSON.parse(body);
+    return Object.keys(data).map(function (k) {
+      return k + ': ' + data[k];
+    }).join('\n');
+  } catch (e) {
+    return body.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+  }
+}
+
+function run(url, label, confirmFirst) {
+  if (confirmFirst && !confirm(label + '\u2014 are you sure?')) { return; }
+  show(label + '\u2026', false);
+  fetch(url).then(function (r) {
+    return r.text().then(function (body) {
+      show(readable(body), !r.ok);
+      refresh();
+    });
+  }).catch(function () {
+    // A restart answers by going away. That is it working.
+    show(label + ': no answer (it may be restarting)', false);
+  });
+}
+
+Array.prototype.forEach.call(document.querySelectorAll('.card[data-url]'),
+  function (button) {
+    button.addEventListener('click', function () {
+      run(button.getAttribute('data-url'),
+          button.getAttribute('data-label'),
+          button.hasAttribute('data-confirm'));
+    });
+  });
+
+function icon(path) {
+  return '<svg viewBox="0 0 24 24" width="21" height="21" fill="none" ' +
+    'stroke="currentColor" stroke-width="1.7" stroke-linecap="round" ' +
+    'stroke-linejoin="round"><path d="' + path + '"/></svg>';
+}
+var ICONS = {
+  wifi: 'M12 19h.01M5 12a10 10 0 0114 0M2 8.5a15 15 0 0120 0M8.5 15.5a5 5 0 017 0',
+  bt:   'M7 7l10 10-5 4V3l5 4L7 17',
+  bell: 'M12 3a5 5 0 015 5v4l2 3H5l2-3V8a5 5 0 015-5zM10 19a2 2 0 004 0',
+  mute: 'M4 9v6h4l5 4V5L8 9H4zM17 9l4 6M21 9l-4 6',
+  sun:  'M12 7a5 5 0 100 10 5 5 0 000-10zM12 2v2M12 20v2M2 12h2M20 12h2',
+  tune: 'M4 7h10M18 7h2M4 17h4M12 17h8M14 4v6M8 14v6',
+  down: 'M12 4v12m0 0l-5-5m5 5l5-5M4 20h16'
+};
+
+// A card that shows a state and changes it. The whole point of this page is
+// not walking over to the panel.
+function card(opts) {
+  var el = document.createElement(opts.url ? 'button' : 'div');
+  el.className = 'card' + (opts.on ? ' on' : '') + (opts.warm ? ' warm' : '');
+  el.innerHTML =
+    '<span class="ico">' + icon(ICONS[opts.icon]) + '</span>' +
+    '<span class="label">' + opts.label + '</span>' +
+    '<span class="value' + (opts.dim ? ' dim' : '') + '">' + opts.value +
+    '</span>';
+  if (opts.url) {
+    el.addEventListener('click', function () {
+      run(opts.url, opts.label, false);
+    });
+  }
+  return el;
+}
+
+function esc(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function paint(s) {
+  document.getElementById('where').textContent = s.page.label || 'the panel';
+
+  // The update, if there is one. Not an action among ten: it appears when it
+  // matters and it IS the button, so nobody has to know that "Update and
+  // restart" was the one to press.
+  var box = document.getElementById('update');
+  if (s.update && s.update.available) {
+    if (!box.firstChild) {
+      var b = document.createElement('button');
+      b.className = 'update';
+      b.style.display = 'flex';
+      b.innerHTML =
+        '<span class="ico">' + icon(ICONS.down) + '</span>' +
+        '<span><span class="t">An update is ready</span>' +
+        '<span class="d" id="udetail"></span></span>' +
+        '<span class="go">Install &amp; restart \u2192</span>';
+      b.addEventListener('click', function () {
+        run('/update?token=' + TOKEN, 'Update and restart', true);
+      });
+      box.appendChild(b);
+    }
+    var detail = document.getElementById('udetail');
+    if (detail) { detail.textContent = s.update.detail || ''; }
+  } else {
+    box.innerHTML = '';
+  }
+
+  var mins = Math.floor((s.uptime || 0) / 60);
+  var text = mins < 60 ? mins + 'm'
+    : (mins < 1440 ? Math.floor(mins / 60) + 'h ' + (mins % 60) + 'm'
+                   : Math.floor(mins / 1440) + 'd ' +
+                     Math.floor((mins % 1440) / 60) + 'h');
+  document.getElementById('uptime').textContent = text;
+
+  var host = document.getElementById('state');
+  host.innerHTML = '';
+
+  host.appendChild(card({
+    icon: 'wifi', label: 'Wi-Fi', on: s.wifi.connected,
+    value: s.wifi.connected ? esc(s.wifi.ssid)
+         : (s.wifi.available ? 'Not connected' : 'Unavailable'),
+    dim: !s.wifi.connected
+  }));
+
+  var bt = s.bluetooth.devices || [];
+  host.appendChild(card({
+    icon: 'bt', label: 'Bluetooth', on: bt.length > 0,
+    value: bt.length
+      ? bt.map(function (d) {
+          return esc(d.name) + (d.battery != null ? ' ' + d.battery + '%' : '');
+        }).join('<br>')
+      : (s.bluetooth.powered ? 'Nothing connected' : 'Off'),
+    dim: !bt.length
+  }));
+
+  host.appendChild(card({
+    icon: 'bell', label: 'Do not disturb', on: s.quiet.dnd, warm: true,
+    value: s.quiet.dnd ? 'On' : 'Off', dim: !s.quiet.dnd,
+    url: '/quiet/dnd/' + (s.quiet.dnd ? 'off' : 'on') + '?token=' + TOKEN
+  }));
+
+  host.appendChild(card({
+    icon: 'mute', label: 'Sounds', on: s.quiet.muted, warm: true,
+    value: s.quiet.muted ? 'Muted' : 'On', dim: !s.quiet.muted,
+    url: '/quiet/mute/' + (s.quiet.muted ? 'off' : 'on') + '?token=' + TOKEN
+  }));
+
+  if (s.brightness >= 0) {
+    host.appendChild(card({
+      icon: 'sun', label: 'Brightness', value: s.brightness + '%'
+    }));
+  }
+
+  host.appendChild(card({
+    icon: 'tune', label: 'Quick settings', value: 'Open on the panel',
+    dim: true, url: '/quick?token=' + TOKEN
+  }));
+
+  var marks = document.getElementById('bookmarks');
+  marks.innerHTML = '';
+  if (!s.bookmarks.length) {
+    marks.innerHTML = '<span class="empty">Nothing saved yet.</span>';
+  }
+  s.bookmarks.forEach(function (b) {
+    var a = document.createElement('a');
+    a.className = 'bm';
+    // The same as the widget: #webpage, locked to that site. A bookmark is a
+    // destination, not a way into the internet.
+    a.href = '/goto/%23webpage?token=' + TOKEN +
+             '&url=' + encodeURIComponent(b.url) +
+             '&lock_base=' + encodeURIComponent(b.base || '') +
+             '&lock_address=1';
+    a.innerHTML = (b.icon
+        ? '<img src="/bookmark-icon/' + esc(b.icon) + '" alt="">'
+        : '<span class="letter">' +
+          esc((b.label || '?').charAt(0).toUpperCase()) + '</span>') +
+      '<span class="n">' + esc(b.label) + '</span>';
+    marks.appendChild(a);
+  });
+
+  var notes = document.getElementById('notifications');
+  notes.innerHTML = '';
+  if (!s.notifications.length) {
+    notes.innerHTML = '<span class="empty">Nothing recent.</span>';
+  }
+  s.notifications.forEach(function (n) {
+    var row = document.createElement('div');
+    row.className = 'row';
+    row.innerHTML = '<span><span class="t">' + esc(n.title) +
+      '</span><br><span class="b">' + esc(n.body) + '</span></span>' +
+      '<span class="w">' + esc(n.when) + '</span>';
+    notes.appendChild(row);
+  });
+}
+
+function refresh() {
+  fetch('/dashboard/state?token=' + TOKEN)
+    .then(function (r) { return r.json(); })
+    .then(paint)
+    .catch(function () { /* a poll that misses is not worth saying */ });
+}
+refresh();
+setInterval(refresh, 5000);
+
+function tick() {
+  var now = new Date();
+  var h = now.getHours(), m = now.getMinutes();
+  document.getElementById('clock').textContent =
+    (h < 10 ? '0' : '') + h + ':' + (m < 10 ? '0' : '') + m;
+  document.getElementById('date').textContent =
+    now.toLocaleDateString(undefined,
+      {weekday: 'short', day: 'numeric', month: 'short'});
+}
+tick();
+setInterval(tick, 10000);
 </script>
-</body></html>
+</body>
+</html>

@@ -6,6 +6,21 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+# Chromium's own dark mode, before anything imports WebEngine.
+#
+# Set here because these are read once when the engine initialises, and it
+# initialises on the first import of QtWebEngine - anything later is ignored.
+#
+# forceDarkModeEnabled inverts a light page rather than asking it for a dark
+# theme, which is why the image policy matters: without it, photographs come
+# out as negatives. Selective leaves images alone and darkens the rest.
+os.environ.setdefault("QTWEBENGINE_CHROMIUM_FLAGS", " ".join([
+    "--blink-settings="
+    "forceDarkModeEnabled=true,"
+    "forceDarkModeImagePolicy=1,"
+    "forceDarkModeInversionAlgorithm=4",
+]))
+
 from src.constants import (
     EXIT_OK,
     EXIT_UPDATE,

@@ -12,7 +12,8 @@ class APIEndpoint():
 
     def __init__(self, owner:str, key:str, authed:bool, cached:bool, callback:Callable,
                  gui:str = "", description:str = "", action:str = "",
-                 danger:bool = False, accepts_files:bool = False):
+                 danger:bool = False, accepts_files:bool = False,
+                 icon:str = ""):
         self.owner : str = owner
         self.key : str = key
         self.authed : bool = authed
@@ -22,6 +23,14 @@ class APIEndpoint():
         # index - most endpoints are not something to click.
         self.gui : str = gui
         self.description : str = description
+        # A material design icon name, without the "mdi." prefix - "timer-sand",
+        # "rss". Drawn on the dashboard beside the label.
+        #
+        # A name rather than a file: the dashboard is HTML served to a phone,
+        # and the panel's own icon font is not there. The name is looked up in
+        # a small inline SVG set, and anything unknown falls back to a dot -
+        # a missing picture should not be a broken tile.
+        self.icon : str = str(icon or "")
         # A button on the index rather than a page. Same endpoint either way -
         # the difference is whether opening it is the point, or whether the
         # point is that it ran.
@@ -222,7 +231,7 @@ class APIRegistry():
                 del self.__store[plugin_key]
                 self.client.log("info", f"[APIRegistry] '{plugin_key}' had it API endpoints unloaded")
 
-    def register(self, plugin_key:str, endpoint:str, callback: Callable, requires_auth:bool, cached:bool = False, gui:str = "", description:str = "", action:str = "", danger:bool = False, accepts_files:bool = False) -> tuple[APIEndpoint, bool]:
+    def register(self, plugin_key:str, endpoint:str, callback: Callable, requires_auth:bool, cached:bool = False, gui:str = "", description:str = "", action:str = "", danger:bool = False, accepts_files:bool = False, icon:str = "") -> tuple[APIEndpoint, bool]:
         if not self.plugin_has_registered(plugin_key):
             self.__store.setdefault(plugin_key, {})
 
@@ -243,7 +252,7 @@ class APIRegistry():
         # straight back out of the index.
         api_endpoint = APIEndpoint(plugin_key, endpoint, requires_auth, cached,
                                    callback, gui=gui, description=description,
-                                   action=action, danger=danger,
+                                   action=action, danger=danger, icon=icon,
                                    accepts_files=accepts_files)
         self.__store[plugin_key][endpoint] = api_endpoint
         self.client.log("info", f"[APIRegistry] Endpoint '{endpoint}' is registered under ownership of '{plugin_key}'")

@@ -1,3 +1,4 @@
+import logging
 import os
 import time
 import shutil
@@ -22,8 +23,36 @@ TOKEN_COOKIE = "ha_device_token"
 #somebody being asked to pair again for no reason.
 TOKEN_COOKIE_AGE = 365 * 24 * 60 * 60
 
+#Requests that a page polls. Werkzeug logs one line per request of its own, on
+#top of anything this file logs - so the dashboard asking for its state every
+#five seconds produced two identical lines a second time over.
+POLLED_PATHS = ("/dashboard/state", "/ping", "/access/state")
+
+
+class _QuietRequests(logging.Filter):
+	"""Drops werkzeug's own line for a polled route."""
+
+	def filter(self, record) -> bool:
+		try:
+			message = record.getMessage()
+		except Exception:
+			return True
+		return not any(path in message for path in POLLED_PATHS)
+
+
 def FlaskService(stop_event, client, flask):
 	from werkzeug.serving import make_server
+
+	# Werkzeug logs through the logging module AND prints to stderr through its
+	# own handler. Silencing one leaves the other, which is why these lines
+	# arrived in pairs.
+	access = logging.getLogger("werkzeug")
+	access.addFilter(_QuietRequests())
+	for handler in list(access.handlers):
+		handler.addFilter(_QuietRequests())
+	# Anything attached later - werkzeug installs its handler lazily - is
+	# covered by the logger-level filter above.
+
 	# threaded: this loop serves one request at a time, so a single slow
 	# endpoint - a pip install, an update download, /terminate's own wait -
 	# blocked every other caller until it finished.
@@ -156,7 +185,30 @@ def FlaskApp(client):
 		return {"request": "Failed",
 				"reason": f"This device is {state}.", "state": state}, 403
 
+	#Routes that a page polls. Logged at debug, so they are there when
+	#debugging and invisible otherwise - the dashboard asks for its state every
+	#five seconds, which is 720 identical lines an hour.
+	POLLED = ("/dashboard/state", "/ping", "/access/state")
+
+	def answered(payload, status: int = 200):
+		"""
+		A JSON answer, as JSON or as a page.
+
+		Wrapped once here rather than at each route: a browser following a link
+		gets something readable, a script gets the data, and neither has to be
+		told which it is.
+		"""
+		from src.webresult import wants_page, render
+		if not wants_page(request):
+			return payload, status
+		token = (request.args.get("token")
+				 or request.headers.get("X-Client-Token") or "")
+		return render(payload, token=token, status=status), status, \
+			{"Content-Type": "text/html; charset=utf-8"}
+
 	def log(level:str = "info", extra:str = ""):
+		if level == "info" and request.path in POLLED:
+			level = "debug"
 		# Both, and by the same rule as the other masking site - a token in a
 		# shared log or a screenshot is a device somebody else can be.
 		args = {k: ("***" if k in ("id", "token") else v)
@@ -716,25 +768,37 @@ def FlaskApp(client):
 				 or request.headers.get("X-Client-Token") or "")
 		user = request.environ.get("ha.user")
 
+		from src.webicons import svg
+		from src.webui import chrome_css
+
 		pages = [
 			{"url": "/docs", "label": "Documentation",
 			 "description": "Everything about this panel and how to extend it.",
-			 "auth": False},
+			 "auth": False, "icon": "book-open-variant"},
 			{"url": "/upload", "label": "Files",
 			 "description": "Send files to anything the panel has opened up.",
-			 "auth": True},
+			 "auth": True, "icon": "upload"},
 			{"url": "/goto/page", "label": "Go to",
 			 "description": "Change what the panel is showing, or send it to a "
 							"web page.",
-			 "auth": True},
+			 "auth": True, "icon": "arrow-right-bold"},
+			{"url": "/say", "label": "Say something",
+			 "description": "Read a message out on the panel, from anywhere.",
+			 "auth": True, "icon": "message-text"},
 			{"url": "/clipboard/page", "label": "Clipboard",
 			 "description": "Read what is on the panel's clipboard, or put "
 							"something on it.",
-			 "auth": True},
+			 "auth": True, "icon": "clipboard-text"},
 		]
 		for endpoint in client.API.gui_endpoints():
 			pages.append({"url": f"/public/{endpoint.key}", "label": endpoint.gui,
-						  "description": endpoint.description, "auth": endpoint.authed})
+						  "description": endpoint.description,
+						  "auth": endpoint.authed,
+						  # A plugin that named no icon gets the fallback dot
+						  # rather than a gap - see webicons.svg().
+						  "icon": endpoint.icon})
+		for page in pages:
+			page["icon"] = svg(page.get("icon", ""))
 
 		# Things worth a button rather than a page. Anything destructive is
 		# marked so the template can make it look like what it is.
@@ -746,16 +810,324 @@ def FlaskApp(client):
 							"label": endpoint.action, "danger": endpoint.danger})
 
 		actions += [
-			{"url": "/ping", "label": "Ping", "danger": False},
-			{"url": "/update/check", "label": "Check for an update", "danger": False},
-			{"url": "/update", "label": "Update and restart", "danger": True},
-			{"url": "/restart", "label": "Restart", "danger": True},
-			{"url": "/terminate", "label": "Shut down", "danger": True},
+			# Quick settings first: it is the one somebody reaches for while
+			# standing away from the panel, which is the whole reason this page
+			# is open on a phone.
+			{"url": "/quick", "label": "Quick settings", "danger": False,
+			 "icon": "tune"},
+			{"url": "/ping", "label": "Ping", "danger": False,
+			 "icon": "check-network"},
+			{"url": "/update/check", "label": "Check for an update",
+			 "danger": False, "icon": "download"},
+			{"url": "/restart", "label": "Restart", "danger": True,
+			 "icon": "restart"},
+			{"url": "/terminate", "label": "Shut down", "danger": True,
+			 "icon": "power"},
 		]
+		for entry in actions:
+			entry["icon"] = svg(entry.get("icon", ""), 18)
+
+		# Who else can reach this panel.
+		#
+		# Named rather than counted: "3 approved devices" tells somebody
+		# nothing, and the useful question standing in a kitchen is whether the
+		# phone in your hand is one of them.
+		users = []
+		try:
+			for entry in client.USERS.all_users():
+				users.append({"name": entry.name,
+							  "current": bool(user and entry.name == user.name)})
+		except Exception as e:
+			client.log("debug", f"[Index] Could not list users: {e}")
 
 		return render_template("index.html", pages=pages, actions=actions,
-							   token=token,
+							   users=users, token=token,
+							   panel=client.panel_name(),
+							   chrome=chrome_css(),
 							   device=user.name if user else "this device"), 200
+
+	@app.route("/font/<path:name>", methods=["GET"])
+	def font_file(name):
+		"""
+		One of the panel's font files.
+
+		Not authed: a typeface is not information, and the pages that need it
+		include the login screen - a browser refused the font would render the
+		approval flow in something else entirely.
+
+		By basename only, and only .ttf, since this reads from a folder inside
+		the install.
+		"""
+		from pathlib import Path as _Path
+		safe = _Path(str(name)).name
+		if not safe.endswith(".ttf"):
+			return {"request": "Failed", "reason": "Not a font."}, 404
+		folder = _Path(__file__).resolve().parent / "assets" / "fonts"
+		if not (folder / safe).is_file():
+			return {"request": "Failed", "reason": "No such font."}, 404
+		return send_from_directory(str(folder), safe,
+								   mimetype="font/ttf",
+								   max_age=60 * 60 * 24 * 30)
+
+	@app.route("/quiet/<what>/<state>", methods=["GET"])
+	def set_quiet(what, state):
+		"""
+		Do not disturb and mute, from anywhere.
+
+		A route rather than a toggle: the dashboard already knows which way it
+		is, so it asks for the state it wants. Two phones pressing at once
+		then agree, where a toggle would leave them arguing.
+		"""
+		log()
+		err = auth()
+		if err: return err
+
+		wanted = str(state).lower() in ("on", "1", "true", "yes")
+		try:
+			if what == "dnd":
+				client.call_on_ui(lambda: client.set_do_not_disturb(wanted))
+			elif what == "mute":
+				client.call_on_ui(lambda: client.set_sounds_muted(wanted))
+			else:
+				return {"request": "Failed",
+						"reason": f"No quiet mode called '{what}'."}, 404
+		except Exception as e:
+			return {"request": "Failed", "reason": str(e)}, 500
+
+		label = "Do not disturb" if what == "dnd" else "Sounds"
+		return answered({"request": "Set",
+						 what: "on" if wanted else "off",
+						 "what": f"{label} is now {'on' if wanted else 'off'}"})
+
+	@app.route("/say", methods=["GET", "POST"])
+	def say_something():
+		"""
+		Read a message out on the panel, or show it if it cannot speak.
+
+		GET /say?token=...&from=Kitchen&message=Dinner is ready
+
+		With no message it serves the form. The panel answers rather than the
+		phone, which is the point - somebody in another room hears it.
+		"""
+		log()
+		err = auth()
+		if err: return err
+
+		token = (request.args.get("token")
+				 or request.headers.get("X-Client-Token") or "")
+		user = request.environ.get("ha.user")
+		message = str(request.values.get("message") or "").strip()
+		sender = str(request.values.get("from") or "").strip()
+
+		if not message:
+			from src.webui import back_button, chrome_css
+			try:
+				names = [u.name for u in client.USERS.all_users()]
+			except Exception:
+				names = []
+			voices, current = [], ""
+			try:
+				entry = client.SETTINGS.assistant.tts_voice
+				voices = list(entry.options)
+				current = str(entry.value)
+			except Exception:
+				pass
+			return render_template(
+				"say.html", users=names, token=token, voices=voices,
+				voice=current,
+				panel=client.panel_name(), chrome=chrome_css(),
+				back=back_button(token),
+				device=user.name if user else ""), 200
+
+		if not sender:
+			sender = user.name if user else "Somebody"
+		spoken = f"{sender} said {message}"
+
+		# Said if it can, shown if it cannot.
+		#
+		# say() returns whether anything came out, so quiet mode and a missing
+		# voice are the same answer - and neither should mean the message is
+		# lost. answer() puts it on screen at panel size.
+		# A voice, for this message only.
+		#
+		# Put back afterwards rather than left: somebody trying a voice from a
+		# phone has not decided to change the panel's, and finding it different
+		# tomorrow would be a setting changed by accident.
+		voice = str(request.values.get("voice") or "").strip()
+		previous = ""
+		if voice:
+			try:
+				previous = str(client.SETTINGS.assistant.tts_voice.value)
+				if voice != previous:
+					client.SETTINGS.assistant.tts_voice.value = voice
+				else:
+					previous = ""
+			except Exception as e:
+				client.log("debug", f"[Say] Could not set the voice: {e}")
+				previous = ""
+
+		heard = False
+		try:
+			heard = bool(client.say(spoken, thread=False))
+		except Exception as e:
+			client.log("warning", f"[Say] Could not speak: {e}")
+
+		if previous:
+			try:
+				client.SETTINGS.assistant.tts_voice.value = previous
+			except Exception:
+				pass
+
+		if not heard:
+			try:
+				# speak="" on purpose: this branch is reached BECAUSE speech
+				# did not happen, and answer() speaks its lines by default.
+				client.call_on_ui(lambda: client.answer(
+					"message-text", sender, [message], tint="#5ac8fa",
+					speak=""))
+			except Exception as e:
+				return answered({"request": "Failed", "reason": str(e)}, 500)
+
+		return answered({"request": "Said",
+						 "from": sender,
+						 "message": message,
+						 "how": "spoken" if heard else "shown on the panel",
+						 "what": f"The panel {'said' if heard else 'showed'} "
+								 f"your message."})
+
+	@app.route("/dashboard/state", methods=["GET"])
+	def dashboard_state():
+		"""
+		Everything the dashboard shows, in one request.
+
+		One round trip rather than six: this is polled every few seconds from a
+		phone that may be on the far side of a house, and six requests is six
+		chances for one of them to be the slow one.
+
+		Every part is guarded on its own. A machine with no Bluetooth should
+		show the rest of the dashboard, not an error.
+		"""
+		log()
+		err = auth()
+		if err: return err
+
+		from urllib.parse import urlparse
+
+		state = {"panel": client.panel_name()}
+
+		try:
+			state["uptime"] = int(time.time() - client.STARTED_AT)
+		except Exception:
+			state["uptime"] = 0
+
+		try:
+			page = client.PAGE
+			state["page"] = {"key": page.name if page else "",
+							 "label": (page.name or "").lstrip("#")
+										.replace("_", " ") if page else ""}
+		except Exception:
+			state["page"] = {"key": "", "label": ""}
+
+		# Wi-Fi
+		try:
+			from src.system import wifi
+			connection = wifi.current()
+			state["wifi"] = {
+				"available": wifi.available(),
+				"connected": connection is not None,
+				"ssid": connection.ssid if connection else "",
+				"signal": connection.signal if connection else 0,
+			}
+		except Exception:
+			state["wifi"] = {"available": False, "connected": False,
+							 "ssid": "", "signal": 0}
+
+		# Bluetooth: everything connected, not just the one the panel shows.
+		try:
+			from src.system import bluetooth
+			snapshot = bluetooth.snapshot()
+			state["bluetooth"] = {
+				"available": not bluetooth.missing(),
+				"powered": bool(snapshot.powered),
+				"devices": [
+					{"name": d.label,
+					 "battery": d.battery if d.has_battery else None}
+					for d in snapshot.devices if d.connected
+				],
+			}
+		except Exception:
+			state["bluetooth"] = {"available": False, "powered": False,
+								  "devices": []}
+
+		try:
+			state["quiet"] = {"dnd": client.do_not_disturb(),
+							  "muted": client.sounds_muted()}
+		except Exception:
+			state["quiet"] = {"dnd": False, "muted": False}
+
+		try:
+			state["update"] = {
+				"available": bool(client.UPDATE_AVAILABLE),
+				"detail": str(getattr(client, "UPDATE_DETAIL", "") or ""),
+			}
+		except Exception:
+			state["update"] = {"available": False, "detail": ""}
+
+		try:
+			state["brightness"] = int(client.DIMMER.brightness())
+		except Exception:
+			state["brightness"] = -1
+
+		try:
+			state["bookmarks"] = [
+				# `base` so the dashboard can open it locked, the same way the
+				# widget and the tile do.
+				{"url": b.url, "label": b.label, "host": b.host,
+				 "icon": b.icon,
+				 "base": f"{urlparse(b.url).scheme}://{urlparse(b.url).netloc}"
+						 if urlparse(b.url).netloc else ""}
+				for b in client.BOOKMARKS.all()[:24]
+			]
+		except Exception:
+			state["bookmarks"] = []
+
+		# Notifications, newest first.
+		state["notifications"] = []
+		try:
+			if client.public.has("notification_history"):
+				# (widget, icon, title, body, timestamp), inserted at 0 - so
+				# the list is already newest first. See
+				# NotificationHistory.add().
+				history = client.public.notification_history.items
+				for _widget, icon, title, body, when in list(history)[:12]:
+					state["notifications"].append({
+						"title": str(title or ""),
+						"body": str(body or ""),
+						"when": when.strftime("%H:%M") if when else "",
+					})
+		except Exception:
+			pass
+
+		return state, 200
+
+	@app.route("/quick", methods=["GET"])
+	def open_quick_settings():
+		"""
+		Open the panel's quick settings, from a phone.
+
+		The panel's own gesture is a swipe from the top edge, which is no use
+		from across the room - and everything in that panel (brightness,
+		volume, Wi-Fi, do not disturb) is exactly what somebody wants to change
+		without walking over.
+		"""
+		log()
+		err = auth()
+		if err: return err
+		try:
+			client.call_on_ui(client.QUICK_SETTINGS.open_panel)
+		except Exception as e:
+			return {"request": "Failed", "reason": str(e)}, 500
+		return answered({"request": "Opened", "what": "quick settings"})
 
 	@app.route("/ping", methods=["GET"])
 	def ping():

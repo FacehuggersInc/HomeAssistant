@@ -94,7 +94,7 @@ button.danger {
   background:transparent; border-color:rgba(224,138,138,.5); color:#e8a6a6;
 }
 </style></head><body>
-<a class="back" href="/?token=__TOKEN__"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg><span>All pages</span></a>
+<a class="back" href="/?token=__TOKEN__"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg><span>Dashboard</span></a>
 <h1>Stickers</h1>
 <p class="sub">Put something on the panel.</p>
 __MESSAGE__

@@ -1,15 +1,12 @@
 """
 Saved web pages, and the icons that identify them.
 
-Client-owned rather than a plugin's. The web page belongs to the client, its
-toolbar belongs to the client, and a bookmark saved from that toolbar should
-survive a plugin being unloaded - a list of addresses that disappears when
-somebody removes a widget bundle is not a bookmark list.
+Client-owned: the web page and its toolbar are the client's, so a bookmark
+saved there survives a plugin being unloaded.
 
-Icons come from the browser engine rather than being fetched separately. It has
-already downloaded the favicon to draw its own tab; asking the network again for
-something sitting in memory is work for nothing, and it would need the network
-to be up at the moment somebody presses the button.
+Icons come from the browser engine, which has already downloaded the favicon
+to draw its own tab - fetching it again would need the network up at the exact
+moment somebody presses the button.
 """
 
 from __future__ import annotations

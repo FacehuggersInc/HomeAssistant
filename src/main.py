@@ -1339,6 +1339,7 @@ class Client:
         user actually asks for it.
         """
         self.UPDATE_AVAILABLE = False
+        self.UPDATE_DETAIL = ""
         self.UPDATE_COMMIT = None
         self._update_notified_sha = None
 
@@ -1388,6 +1389,9 @@ class Client:
             self.log("info", f"[Update] {reason}")
             self.UPDATE_AVAILABLE = available
             self.UPDATE_COMMIT = commit
+            # Kept as text as well, for anything that cannot render a commit -
+            # the dashboard says what is waiting rather than that something is.
+            self.UPDATE_DETAIL = str(reason or "")
 
             if not available:
                 if not quiet and on_result is None:
@@ -1502,13 +1506,24 @@ class Client:
 
     def say(self, text: str, thread: bool = True) -> bool:
         """
-        Speak, if speech is available. Returns whether anything was said.
+        Speak. Returns whether a person actually heard it.
 
-        Skills call this instead of client.TTS.play() so a panel with speech
-        turned off, or a voice backend that failed to load, degrades to silence
-        rather than raising an AttributeError on None.
+        Called instead of the backend directly, so a panel with speech turned
+        off, a voice that failed to load, or sounds muted all degrade to
+        silence rather than raising on None.
+
+        The answer is what a caller decides on: False means show the message
+        instead.
         """
         if not text or self.TTS is None or not getattr(self.TTS, "available", False):
+            return False
+        # Muted counts as not said.
+        #
+        # play() returns early when sounds are off, so calling it and reporting
+        # True said "spoken" for a message nobody heard - and anything relying
+        # on this to decide whether to SHOW the message instead skipped that
+        # too. The question this answers is whether a person heard it.
+        if self.sounds_muted():
             return False
         try:
             self.TTS.play(text, thread=thread)

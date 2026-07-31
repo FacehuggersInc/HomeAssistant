@@ -62,7 +62,7 @@ SUBS_PAGE = """<!doctype html><html><head><meta charset="utf-8">
  select:focus{outline:none;border-color:var(--accent)}
  option{background:#111114;color:var(--text)}
 </style></head><body>
-<a class="back" href="/?token=__TOKEN__"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg><span>All pages</span></a>
+<a class="back" href="/?token=__TOKEN__"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg><span>Dashboard</span></a>
 <h1>Subscribed calendars</h1>
 <p class="sub">Mirrored onto the panel, one way. Nothing is sent back.</p>
 __MESSAGE_BLOCK__
@@ -154,7 +154,7 @@ FORM_PAGE = """<!doctype html><html><head><meta charset="utf-8">
  a.back svg{width:16px;height:16px;fill:none;stroke:currentColor;
       stroke-width:2.4;stroke-linecap:round;stroke-linejoin:round}
 </style></head><body>
-<a class="back" href="/?token=__TOKEN__"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg><span>All pages</span></a>
+<a class="back" href="/?token=__TOKEN__"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg><span>Dashboard</span></a>
 <h1>Add an event</h1>
 <p class="sub">It appears on the panel straight away.</p>
 <div class="ok" id="ok">Added.</div>
@@ -286,16 +286,16 @@ class Calendar(Plugin):
             "calendar", "calendar_upcoming", self.api_upcoming, requires_auth=True)
         self.client.API.register(
             "calendar", "calendar_sync", self.api_sync, requires_auth=True,
-            action="Sync calendars")
+            action="Sync calendars", icon="sync")
         self.client.API.register(
             "calendar", "calendar_subscriptions", self.api_subscriptions,
-            requires_auth=True, gui="Subscribed calendars",
+            requires_auth=True, gui="Subscribed calendars", icon="calendar",
             description="Mirror a Google, Apple or Outlook calendar onto the panel.")
         self.client.API.register(
             "calendar", "calendar_dump", self.api_dump, requires_auth=True)
         self.client.API.register(
             "calendar", "calendar_form", self.api_form, requires_auth=True,
-            gui="Add an event",
+            gui="Add an event", icon="calendar",
             description="A page sized for a phone. Adds to the panel straight away.")
 
     @mixin("settings.__init__", "calendar", "after")

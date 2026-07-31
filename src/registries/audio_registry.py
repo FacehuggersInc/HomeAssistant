@@ -24,11 +24,8 @@ if TYPE_CHECKING:
 
 #Where a registered file is looked for.
 #
-#`.audio` at the repository root, not `src/assets`. A dot folder is out of the
-#way and out of git, which is the point: sounds licensed for personal use can
-#sit here without ever being committed or shipped. A panel with an empty one is
-#silent and says so, which is the correct behaviour for anybody who clones this
-#and has no sounds of their own.
+#`.audio` at the root and out of git, so sounds licensed for personal use are
+#never committed or shipped. An empty one means a quiet panel, not a broken one.
 AUDIO_DIR = Path(__file__).resolve().parent.parent.parent / ".audio"
 
 #What soundfile will open. Listed rather than "try it and see" so a key

@@ -198,3 +198,13 @@ not silence.
 
 `sounds_muted()` is the one to check before making a noise; it already accounts
 for do-not-disturb, so a caller does not have to ask twice.
+
+**`say()` reports whether a person heard it**, not whether the backend was
+called — muted returns `False`, the same as no voice installed. Anything that
+falls back to showing a message reads that answer, so the fallback fires when
+the panel is silent:
+
+```python
+if not client.say(text):
+    client.simple_notify("assistant", "Assistant", text)
+```

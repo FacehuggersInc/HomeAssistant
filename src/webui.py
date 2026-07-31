@@ -18,8 +18,30 @@ def escape(text) -> str:
 
 
 #The palette every page uses. Kept here so a new one starts consistent.
-PALETTE = """ :root{--bg:#151517;--card:#1c1c1f;--line:#2c2c31;--text:#e6e6e8;
-       --muted:#9a9aa2;--accent:#2ff08e;--bad:#e08a8a}"""
+#The panel's own typeface, served to the browser.
+#
+#Poppins ships in src/assets/fonts and the panel draws with it. Every web page
+#fell back to whatever the device had, which is why they never felt like part
+#of the same product - a phone showed San Francisco, a desktop showed Segoe.
+FONTS = """
+@font-face{font-family:Poppins;font-weight:400;font-style:normal;
+  font-display:swap;src:url(/font/Poppins-Regular.ttf) format("truetype")}
+@font-face{font-family:Poppins;font-weight:500;font-style:normal;
+  font-display:swap;src:url(/font/Poppins-Medium.ttf) format("truetype")}
+@font-face{font-family:Poppins;font-weight:600;font-style:normal;
+  font-display:swap;src:url(/font/Poppins-SemiBold.ttf) format("truetype")}
+@font-face{font-family:Poppins;font-weight:700;font-style:normal;
+  font-display:swap;src:url(/font/Poppins-Bold.ttf) format("truetype")}
+@font-face{font-family:Poppins;font-weight:300;font-style:normal;
+  font-display:swap;src:url(/font/Poppins-Light.ttf) format("truetype")}
+"""
+
+PALETTE = """ :root{--bg:#0e0e11;--card:#17171c;--card2:#1e1e25;
+       --line:#2a2a33;--text:#f0f0f4;--muted:#8f8f9c;
+       --accent:#2ff08e;--accent2:#5ac8fa;--warm:#ffb454;--bad:#ff7a7a;
+       --glow:rgba(47,240,142,.16)}
+ *{font-family:Poppins,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+ body{-webkit-font-smoothing:antialiased;letter-spacing:-.011em}"""
 
 
 # Fields. `select` is included deliberately: styling `input` alone left every
@@ -52,7 +74,7 @@ _CHEVRON = ('<svg viewBox="0 0 24 24" aria-hidden="true">'
             '<path d="M15 5l-7 7 7 7"/></svg>')
 
 
-def back_button(token: str, label: str = "All pages", href: str = "/") -> str:
+def back_button(token: str, label: str = "Dashboard", href: str = "/") -> str:
     """A styled back control for the top of a GUI page."""
     joiner = "&" if "?" in href else "?"
     return (f'<a class="back" href="{escape(href)}{joiner}'
@@ -61,4 +83,4 @@ def back_button(token: str, label: str = "All pages", href: str = "/") -> str:
 
 def chrome_css() -> str:
     """Everything a page needs that is not its own layout."""
-    return "\n".join((PALETTE, FIELD_CSS, BACK_CSS))
+    return "\n".join((FONTS, PALETTE, FIELD_CSS, BACK_CSS))
