@@ -446,7 +446,10 @@ class ReminderWatcher:
         if seconds > 0:
             # Closes itself, because a panel covering half the screen until
             # somebody walks past it is worse than no reminder.
-            self.client.TIMEOUTS.add(seconds, self.dismiss, self._timeout_id)
+            # idle: a reminder should not dismiss itself while somebody has
+            # a dialog open over it.
+            self.client.TIMEOUTS.add(seconds, self.dismiss, self._timeout_id,
+                                     idle=True)
             self.client.TIMEOUTS.start(self._timeout_id)
 
     def dismiss(self, event=None) -> None:

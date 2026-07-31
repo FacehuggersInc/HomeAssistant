@@ -169,6 +169,33 @@ self.client.TIMEOUTS.start(self._key)
 self.client.TIMEOUTS.discard(self._key)      # on close
 ```
 
+### `idle` — a timeout that measures nothing happening
+
+```python
+self.client.TIMEOUTS.add(20, self._back_to_night, self._key,
+                         transient=True, idle=True)
+```
+
+An idle registration has its deadline **pushed out** on every pass while a
+dialog is open, so the countdown restarts from when the dialog closes. That is
+what "nothing has happened for twenty seconds" should mean: somebody reading a
+map or answering a prompt is doing something.
+
+Opt-in, because not every timeout measures idleness:
+
+| use `idle=True` | leave it off |
+|---|---|
+| a page returning to a screensaver | a transient widget's lifetime |
+| a panel closing itself | a periodic sync |
+| a notification timing out | any fixed duration |
+
+The test is whether the timeout would be wrong if somebody were looking at the
+screen the whole time. A night clock returning after twenty seconds of quiet
+would be; a widget shown deliberately for eight seconds would not.
+
+Note that **`on_interaction_timeout` is a separate mechanism** and is held back
+separately — see [Dialogs](dialogs.md). Guarding one does not guard the other.
+
 `prune()` only removes registrations marked this way, and only once they have
 stopped counting. Leave it `False` for a timeout registered once and re-armed
 for the life of the app — quick settings does this, and a pruned registration

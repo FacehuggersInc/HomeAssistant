@@ -569,8 +569,13 @@ class NighttimeClockPlugin(Plugin):
     def _arm_settle(self) -> None:
         seconds = max(2, int(self._setting("settle_seconds", 20)))
         try:
+            # idle: this measures nothing happening, so it is held while a
+            # dialog is open. Somebody answering "who is this" is doing
+            # something, and going back to the night clock underneath them is
+            # measuring the wrong thing.
             self.client.TIMEOUTS.add(seconds, self._back_to_night,
-                                     self._settle_key, transient=True)
+                                     self._settle_key, transient=True,
+                                     idle=True)
             self.client.TIMEOUTS.start(self._settle_key)
         except Exception as e:
             self.client.log("warning", f"[Nighttime] Could not arm settle: {e}")

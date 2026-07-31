@@ -1,6 +1,40 @@
 {
  "log": [
   {
+   "at": 1785467755.2246513,
+   "note": "plugins load their own files by path; idle timeouts documented",
+   "pages": [
+    {
+     "slug": "plugins",
+     "state": "updated"
+    },
+    {
+     "slug": "threading",
+     "state": "updated"
+    }
+   ]
+  },
+  {
+   "at": 1785467505.2737913,
+   "note": "test",
+   "pages": [
+    {
+     "slug": "dialogs",
+     "state": "updated"
+    }
+   ]
+  },
+  {
+   "at": 1785467420.5023932,
+   "note": "an idle timeout is held while a dialog is open",
+   "pages": [
+    {
+     "slug": "dialogs",
+     "state": "updated"
+    }
+   ]
+  },
+  {
    "at": 1785467065.7516158,
    "note": "the web event, the bookmark store and the quiet modes documented",
    "pages": [
@@ -729,9 +763,9 @@
    "state": "updated"
   },
   "dialogs": {
-   "at": 1785384140.0123658,
-   "hash": "42bb7cf324e1e272",
-   "opened": 1785451144.589925,
+   "at": 1785467505.273431,
+   "hash": "2a38f3270c1cad1a",
+   "opened": 0,
    "state": "updated"
   },
   "events": {
@@ -807,8 +841,8 @@
    "state": "updated"
   },
   "plugins": {
-   "at": 1785467065.7514424,
-   "hash": "ec6a2264b3aeb305",
+   "at": 1785467755.2244,
+   "hash": "9160cfb0ce3c11f2",
    "opened": 0,
    "state": "updated"
   },
@@ -843,9 +877,9 @@
    "state": "updated"
   },
   "threading": {
-   "at": 1785384140.0126083,
-   "hash": "f8aad7022b68aa56",
-   "opened": 1785451144.5599568,
+   "at": 1785467755.224535,
+   "hash": "5d78d6222bf030ec",
+   "opened": 0,
    "state": "updated"
   },
   "tiles": {

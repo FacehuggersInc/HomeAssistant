@@ -201,7 +201,8 @@ class RSSFeedsPlugin(Plugin):
     def api_feeds(self, name: str = "", url: str = "", remove: str = "",
                   **_ignored):
         """The page a phone manages feeds from, and what it posts back to."""
-        from .api.feeds_page import render_page
+        # By path, not by package: see Plugin.sibling.
+        render_page = self.sibling("api.feeds_page").render_page
         from flask import request as _request
 
         token = ""

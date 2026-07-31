@@ -263,7 +263,7 @@ class CoreWidgetsBundle(Plugin):
     def api_timer_form(self, hours=0, minutes=0, seconds=0, name: str = "",
                        quadrant: str = "", **_ignored):
         """The page a phone starts a timer from, and what it posts back to."""
-        from .api.timer_page import render_page
+        render_page = self.sibling("api.timer_page").render_page
 
         token = self._request_token()
         message, bad = "", False
@@ -337,7 +337,7 @@ class CoreWidgetsBundle(Plugin):
         `files` only arrives because this endpoint registered with
         accepts_files - see APIRegistry.
         """
-        from .api.sticker_page import render_page
+        render_page = self.sibling("api.sticker_page").render_page
 
         token = self._request_token()
         message, bad = "", False

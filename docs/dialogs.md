@@ -296,3 +296,32 @@ opened leaves nothing behind, and released on both exits.
 on its own schedule, and closing it on the first touch would swallow the very
 tap that woke the screen to read it. The AI answer panel does not need it
 either — it already ends its conversation on any interaction.
+
+## What an open dialog holds back
+
+Two separate things measure "nothing has happened", and both are held while a
+dialog is up.
+
+**`on_interaction_timeout`** — `_check_interaction_timeout` returns early
+whenever `DIALOG.dialog_stack` is non-empty, before it asks the page's own
+opinion.
+
+**`TIMEOUTS`** — a registration made with `idle=True` has its deadline pushed
+out on every pass while a dialog is open, so the countdown restarts from when
+the dialog closes.
+
+```python
+client.TIMEOUTS.add(20, self._back_to_night, key,
+                    transient=True, idle=True)
+```
+
+`idle` is opt-in because not every timeout measures idleness. A transient
+widget's few seconds is a **display duration** and keeps counting; a periodic
+sync is work on a schedule. The ones marked are the night clock's settle timer,
+the quick panel closing itself, an answer panel timing out, and a reminder
+dismissing — all of which take something away from somebody who is still
+looking at the screen.
+
+Both matter. The night clock switches pages through `TIMEOUTS` rather than
+through `on_interaction_timeout`, so a guard on one of them leaves the other
+free to take the page away.

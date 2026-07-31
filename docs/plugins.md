@@ -319,6 +319,7 @@ And a few methods worth knowing:
 | `choose_bookmark(on_chosen)` | The bookmark picker — [Registries](registries.md) |
 | `subscribe_to_event(name, fn)` | Including `on_web_event` — [Events](events.md) |
 | `call_on_ui(fn)` | Anything touching Qt from a worker — [Threading](threading.md) |
+| `self.sibling("api.thing")` | A module from your own folder, by path — see below |
 
 ## main.py
 
@@ -588,3 +589,28 @@ the feature comes from a plugin. Someone reading about your registry needs to
 know it disappears when the plugin does.
 
 User plugins in `plugins/` are scanned exactly the same way as bundled ones.
+
+## Importing your own files late
+
+At module level, an ordinary relative import is fine:
+
+```python
+from .api.openmeteo import OpenMeteoAPI
+```
+
+Inside a request handler or a button press, use `sibling()` instead:
+
+```python
+render_page = self.sibling("api.feeds_page").render_page
+```
+
+A relative import resolves through `sys.modules` and the package's `__path__`,
+which the loader arranges. That works while the module is executing, and depends
+on how this particular install registered the plugin as a package. When it does
+not, the failure arrives as `No module named 'YourPlugin.api.thing'` from inside
+an endpoint — long after the plugin loaded perfectly, and only when somebody
+presses the button.
+
+`sibling()` asks the filesystem, which is a question with one answer. The module
+is cached, so two calls hand back the same object, and a name that is not there
+raises an `ImportError` naming the path it looked at.

@@ -118,7 +118,10 @@ class AnswerPanel(Panel):
             # landing where a freed one was inherited its registration - and
             # with it a callback pointing at the deleted panel.
             self._timeout_key = f"answer:{client.uuid()}"
+            # idle: an answer left on screen while somebody reads a dialog
+            # over it has not been ignored.
             client.TIMEOUTS.add(seconds, self.close_panel, self._timeout_key,
+                                idle=True,
                                 transient=True)
             client.TIMEOUTS.start(self._timeout_key)
 

@@ -24,9 +24,17 @@ class TimeoutScheduler:
 		client.THREADS.start("__timeout_scheduler")
 
 	def add(self, sec: float, callback: Callable, id: str,
-	        autostart: bool = False, transient: bool = False) -> str:
+	        autostart: bool = False, transient: bool = False,
+	        idle: bool = False) -> str:
 		"""
 		Register a timeout.
+
+		`idle` marks one that measures NOTHING HAPPENING rather than a
+		duration. Those are held while a dialog is open: somebody reading a
+		map or answering "who is this" is doing something, and a timer that
+		takes the page away underneath them is measuring the wrong thing. A
+		display duration - a transient widget's few seconds - is not idle and
+		keeps counting.
 
 		`transient` marks a registration whose id is generated per instance -
 		a uuid, or anything derived from an object - so prune() may drop it
@@ -40,6 +48,7 @@ class TimeoutScheduler:
 				"callback":  callback,
 				"deadline":  (time.time() + float(sec)) if autostart else None,
 				"transient": bool(transient),
+				"idle":      bool(idle),
 			}
 		return id
 
@@ -101,6 +110,8 @@ class TimeoutScheduler:
 				break
 
 			now = time.time()
+			# Asked once per pass, not once per entry.
+			blocked = self._dialog_open()
 			due: list[Callable] = []
 			# Collected under the lock, dispatched outside it - call_on_ui
 			# emits a queued signal, and holding the lock across that invites
@@ -108,12 +119,33 @@ class TimeoutScheduler:
 			with self._lock:
 				for entry in self.timeouts.values():
 					deadline = entry["deadline"]
-					if deadline is not None and now >= deadline:
+					if deadline is None:
+						continue
+					if entry.get("idle") and blocked:
+						# Pushed out, not cancelled. The countdown restarts
+						# from when the dialog closes, which is what "nothing
+						# has happened for twenty seconds" should mean.
+						entry["deadline"] = now + entry["sec"]
+						continue
+					if now >= deadline:
 						entry["deadline"] = None
 						due.append(entry["callback"])
 
 			for callback in due:
 				self.client.call_on_ui(callback)
+
+	def _dialog_open(self) -> bool:
+		"""
+		Whether a dialog is up.
+
+		No try/except around the lookup: DIALOG and dialog_stack both exist on
+		a built client, and swallowing an AttributeError here would turn a
+		rename into an idle timer that quietly stopped being held.
+		"""
+		manager = getattr(self.client, "DIALOG", None)
+		if manager is None:
+			return False
+		return bool(manager.dialog_stack)
 
 	def stop(self) -> None:
 		self.client.THREADS.stop("__timeout_scheduler")

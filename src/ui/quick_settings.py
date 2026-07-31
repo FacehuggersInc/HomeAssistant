@@ -439,8 +439,12 @@ class QuickSettings(Panel):
         self._clock_timer.timeout.connect(self._tick_volume)
         self._clock_timer.timeout.connect(self._tick_wifi)
         self._clock_timer.timeout.connect(self._tick_bluetooth)
+        # idle: held while a dialog is open. Opening the bookmark picker from
+        # this panel and having the panel close behind it is the same bug as
+        # the night page switching under a dialog.
         self._timeout_id = self.client.TIMEOUTS.add(
-            self.AUTO_CLOSE, self.close_panel, "__timeout_quick_settings")
+            self.AUTO_CLOSE, self.close_panel, "__timeout_quick_settings",
+            idle=True)
 
         self.client.QUICK.subscribe(self.rebuild_quick_access)
 
