@@ -12,7 +12,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QDesktopServices, QImage, QTextDocument
 
-from src.styling import make_font, SIZES, set_style
+from src.styling import make_font, SIZES, set_style, get_style_sheet
 
 from .markdown import to_rich_text
 
@@ -247,6 +247,7 @@ class ChatPanel(QWidget):
         outer.addWidget(self.totals)
 
         self.scroll = QScrollArea()
+        self.scroll.setStyleSheet(get_style_sheet("scrollbar"))
         self.scroll.setWidgetResizable(True)
         self.scroll.setFrameShape(QFrame.Shape.NoFrame)
         self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)

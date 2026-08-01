@@ -12,7 +12,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtGui import QFontMetrics, QPainter, QColor
 from PyQt6.QtCore import Qt, QEvent, QPoint, QRect, QTimer, QSize
 
-from src.styling import make_font, SIZES, set_style
+from src.styling import make_font, SIZES, set_style, get_style_sheet
 from src.ui.overlays import Panel
 from src.ui.controls.buttons import IconButton
 from src.ui.icons import Icons, icon as resolve_icon
@@ -178,6 +178,7 @@ class _Card(QFrame):
         outer.addWidget(heading)
 
         self.scroll = QScrollArea()
+        self.scroll.setStyleSheet(get_style_sheet("scrollbar"))
         self.scroll.setWidgetResizable(True)
         self.scroll.setFrameShape(QFrame.Shape.NoFrame)
         self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)

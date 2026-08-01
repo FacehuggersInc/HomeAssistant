@@ -13,7 +13,7 @@ from src.ui.widget import Widget
 from src.ui.overlays import Panel
 from src.ui.controls.buttons import IconButton
 from src.ui.icons import Icons, icon as resolve_icon
-from src.styling import make_font, set_style
+from src.styling import make_font, set_style, get_style_sheet
 
 if TYPE_CHECKING:
     from src.main import Client
@@ -286,6 +286,7 @@ class NotificationPanel(Panel):
 
         #scrollable list of history items
         scroll = QScrollArea()
+        scroll.setStyleSheet(get_style_sheet("scrollbar"))
         scroll.setWidgetResizable(True)
         set_style(scroll, "notification", "notification-scroll", object_tag="QScrollArea")
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)

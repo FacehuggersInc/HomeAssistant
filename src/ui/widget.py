@@ -12,7 +12,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, QTimer, QPoint, QPointF, QRect, QEvent
 from PyQt6.QtGui import QPainter, QColor, QPen, QBrush, QTransform
 
-from src.styling import set_style, make_font, SIZES
+from src.styling import set_style, make_font, SIZES, get_style_sheet
 
 if TYPE_CHECKING:
     from src.main import Client
@@ -2407,6 +2407,7 @@ class WidgetFramework(QWidget):
         column.addWidget(hint)
 
         scroll = QScrollArea()
+        scroll.setStyleSheet(get_style_sheet("scrollbar"))
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
         set_style(scroll, "common", "transparent")

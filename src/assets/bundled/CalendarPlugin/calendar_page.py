@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import calendar as calendar_module
-from datetime import date
+from datetime import date, datetime
 from typing import TYPE_CHECKING
 
 from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel
-from PyQt6.QtCore import Qt, QRect
+from PyQt6.QtCore import Qt, QRect, QTimer
 from PyQt6.QtGui import QPainter, QColor, QPen, QBrush, QLinearGradient
 
 from src.ui.page import SubPageFramework
@@ -225,12 +225,35 @@ class CalendarPage(SubPageFramework):
 
     # Painted rather than a stylesheet: a QSS gradient on a page-sized widget
     # is re-parsed on every repaint, and this one covers the whole screen.
-    TOP    = QColor("#1b2436")
-    BOTTOM = QColor("#2b1f33")
+    #
+    # The background follows the time of day, not the month. Pulling it toward
+    # whatever events a month happens to contain means the page changes colour
+    # as somebody pages through it, while the controls on top of it - labels,
+    # icon buttons, the weekday row - keep the fixed colours the rest of the
+    # application uses. Every control then looks correct on some months and
+    # wrong on others, and there is no colour for them that is right on all.
+    #
+    # An event's own colour stays where it belongs: on the event, in its bar in
+    # the day cell, and in the widgets that show it.
+    #
+    # Keys are hours. The gradient is interpolated between the two nearest, so
+    # the page drifts through the day rather than stepping at each boundary.
+    SKY = {
+        0:  ("#0d1220", "#141326"),   # night
+        5:  ("#111a2e", "#1d1b33"),   # first light
+        7:  ("#1b2c46", "#2a2540"),   # morning
+        10: ("#20364f", "#2c2b45"),   # daylight
+        14: ("#22384f", "#2e2c46"),   # afternoon
+        17: ("#2a3149", "#3a2740"),   # low sun
+        19: ("#1f2439", "#2e1f36"),   # dusk
+        21: ("#131a2b", "#1c162a"),   # evening
+        24: ("#0d1220", "#141326"),   # back to night
+    }
 
-    # How far the month's own colours pull the background. Enough to notice a
-    # holiday-heavy month, not enough to stop the page reading as one place.
-    TINT = 0.42
+    #How often the background is re-measured against the clock. The gradient
+    #moves slowly enough that a minute is invisible, and this runs on a page
+    #that is often left open for hours.
+    SKY_REFRESH_MS = 60 * 1000
 
     def __init__(self, client: "Client", page):
         super().__init__(client=client, key="sub.calendar", coord=(0, 1))
@@ -263,6 +286,13 @@ class CalendarPage(SubPageFramework):
         })
 
         self.client.subscribe_to_event("on_calendar_changed", self._on_changed)
+
+        # The gradient drifts through the day, so it is re-measured while the
+        # page sits open. A repaint only - nothing is rebuilt.
+        self._sky_timer = QTimer(self)
+        self._sky_timer.timeout.connect(self.update)
+        self._sky_timer.start(self.SKY_REFRESH_MS)
+
         self.refresh()
 
     def paintEvent(self, event) -> None:
@@ -276,29 +306,37 @@ class CalendarPage(SubPageFramework):
 
     @staticmethod
     def _blend(base: QColor, other: QColor, amount: float) -> QColor:
+        amount = max(0.0, min(1.0, amount))
         return QColor(
-            int(base.red()   + (other.red()   - base.red())   * amount),
-            int(base.green() + (other.green() - base.green()) * amount),
-            int(base.blue()  + (other.blue()  - base.blue())  * amount),
+            int(round(base.red()   + (other.red()   - base.red())   * amount)),
+            int(round(base.green() + (other.green() - base.green()) * amount)),
+            int(round(base.blue()  + (other.blue()  - base.blue())  * amount)),
         )
+
+    def _sky_hour(self) -> float:
+        """The clock as a fraction of the day. Split out so a test can move it."""
+        now = datetime.now()
+        return now.hour + now.minute / 60.0
 
     def _month_colours(self) -> tuple:
         """
-        The base gradient pulled toward whatever is on this month.
+        The background for the time of day.
 
-        Averaged rather than taking the first: a month with one birthday in it
-        should look slightly different from the one before, not entirely.
+        Named for what every caller wants of it - the two ends of the page
+        gradient - rather than for what it reads to answer that.
         """
-        colours = getattr(self, "_tints", None)
-        if not colours:
-            return self.TOP, self.BOTTOM
+        hour = self._sky_hour()
+        keys = sorted(self.SKY)
 
-        reds = sum(c.red() for c in colours) // len(colours)
-        greens = sum(c.green() for c in colours) // len(colours)
-        blues = sum(c.blue() for c in colours) // len(colours)
-        average = QColor(reds, greens, blues)
-        return (self._blend(self.TOP, average, self.TINT * 0.6),
-                self._blend(self.BOTTOM, average, self.TINT))
+        lower = max(k for k in keys if k <= hour)
+        upper = min((k for k in keys if k > hour), default=keys[-1])
+        span = (upper - lower) or 1
+        amount = (hour - lower) / span
+
+        top_from, bottom_from = (QColor(c) for c in self.SKY[lower])
+        top_to, bottom_to = (QColor(c) for c in self.SKY[upper])
+        return (self._blend(top_from, top_to, amount),
+                self._blend(bottom_from, bottom_to, amount))
 
     ## -- chrome
 
@@ -424,15 +462,6 @@ class CalendarPage(SubPageFramework):
         days = [day for week in weeks for day in week]
         while len(days) < 42:
             days.append(days[-1] + (days[-1] - days[-2]))
-
-        # Gathered while the month is being laid out, so the background is
-        # never a frame behind the grid it belongs to.
-        tints = []
-        for events in by_day.values():
-            for entry in events:
-                tints.append(QColor(entry.colour
-                                    or SOURCE_COLOURS.get(entry.source, "#4f9de0")))
-        self._tints = tints[:40]
 
         for index, (cell, day) in enumerate(zip(self.cells, days[:42])):
             in_month = (day.month == self.month and day.year == self.year)

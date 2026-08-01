@@ -14,7 +14,7 @@ from PyQt6.QtGui import (
     QColor, QPainter, QBrush, QPen, QRegion, QPixmap, QPainterPath,
 )
 
-from src.styling import set_style, make_font, SIZES
+from src.styling import set_style, make_font, SIZES, get_style_sheet
 
 if TYPE_CHECKING:
     from src.main import Client
@@ -897,6 +897,7 @@ class BaseDialog(QFrame):
     def _scrollable(cls, widget, max_height: int):
         """Wrap a widget so it scrolls past max_height rather than clipping."""
         area = QScrollArea()
+        area.setStyleSheet(get_style_sheet("scrollbar"))
         area.setWidgetResizable(True)
         area.setFrameShape(QFrame.Shape.NoFrame)
         area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
@@ -929,6 +930,7 @@ class BaseDialog(QFrame):
 
     def add_scroll(self, inner: QWidget, min_height: int = 200) -> QScrollArea:
         scroll = QScrollArea()
+        scroll.setStyleSheet(get_style_sheet("scrollbar"))
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
