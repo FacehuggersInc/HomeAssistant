@@ -37,6 +37,7 @@
   "assistant.input_device": "Microphone to listen on; empty means system default",
   "assistant.mic_processing": "Whether the microphone cleans its own audio",
   "assistant.model": "Whisper model used for transcription",
+  "assistant.wake_model": "The model used to spot the wake word",
   "assistant.voice_bar": "Show the activity bar along the bottom while listening",
   "assistant.tts_enabled": "Whether the assistant speaks its replies",
   "assistant.greet_on_start": "Say hello out loud when the assistant starts listening",

@@ -1637,6 +1637,8 @@ class Client:
             # changing this without a restart left the panel half switched:
             # the guards on this side moved and the audio pipeline did not.
             str(self.setting("assistant.mic_processing.value", "software")),
+            # Loaded in the child at spawn, like the phrase model above it.
+            str(self.setting("assistant.wake_model.value", "tiny.en")),
         )
 
     def stop_assistant(self) -> None:

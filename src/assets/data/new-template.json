@@ -312,7 +312,18 @@
     "small.en",
     "small"
    ],
-   "description": "Whisper model used for transcription. Larger is more accurate and slower; the '.en' variants are English-only and faster. Downloaded on first use."
+   "description": "Whisper model used to transcribe what you said. Larger is more accurate and slower; the '.en' variants are English-only and faster. This is the one that decides how long the panel takes to answer - the wake word is checked separately with a small one. Downloaded on first use."
+  },
+  "wake_model": {
+   "type": "enum",
+   "options": [
+    "tiny.en",
+    "tiny",
+    "base.en"
+   ],
+   "default": "tiny.en",
+   "value": "tiny.en",
+   "description": "The model that checks for the wake word. Small on purpose: it runs on every fragment of speech and answers one question, so mishearing an ordinary word costs nothing. Only used when the phrase model above is bigger than this one - otherwise that one does both jobs."
   },
   "voice_bar": {
    "type": "bool",

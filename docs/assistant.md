@@ -153,6 +153,36 @@ while the audio pipeline stayed as it was - which is the worst of both and
 says nothing about itself. `assistant_config()` lists it alongside the model
 and the input device for that reason.
 
+## Two models, not one
+
+The wake word and the phrase are transcribed by different models, and they
+want opposite things.
+
+The **wake check** runs on every 150ms of speech and answers one question -
+was the wake word in that. It is looking for a single known word, so a model
+that mishears "weather" costs nothing, and it has to answer before the person
+finishes their sentence. Small.
+
+The **phrase** is transcribed once and read by a person. Accuracy is what
+matters, and a second of latency is amortised over a whole utterance.
+
+Sharing one model meant the accurate choice paid its cost on every wake check
+too. Worse, they took the same lock, so a phrase being transcribed held up the
+wake check behind it:
+
+| | wake answered after |
+|---|---|
+| One model, one lock | 601ms |
+| Two models, two locks | 61ms |
+
+(with a phrase taking 300ms in both)
+
+`assistant.model` is the one that decides how long the panel takes to answer.
+`assistant.wake_model` is small and separate - and ignored when the phrase
+model is already `tiny`, because loading a second copy of it would be waste. A
+wake model that fails to load falls back to the phrase model rather than
+stopping the process: checked slowly beats not at all.
+
 ## Where the time goes
 
 Every finalised phrase logs its own timing at `debug`:

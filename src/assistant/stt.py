@@ -694,6 +694,24 @@ class STTProcessing():
 				self.client.log("warning",
 					f"[STTProcessing] A transcript listener failed: {e}")
 
+	#What the wake word is checked with. Small on purpose: it answers one
+	#question, on every 150ms of speech, and a model that mishears an ordinary
+	#word costs nothing because only the wake word is being looked for.
+	WAKE_MODEL = "tiny.en"
+
+	def wake_model_name(self) -> str:
+		"""
+		The model the wake check uses.
+
+		The phrase model, when that is already small enough - loading two
+		copies of tiny.en to run them separately would be pure waste.
+		"""
+		phrase = str(self.model or "tiny.en")
+		if phrase.startswith("tiny"):
+			return phrase
+		return str(self.client.setting(
+			"assistant.wake_model.value", self.WAKE_MODEL) or self.WAKE_MODEL)
+
 	def mic_processing(self) -> str:
 		"""Whether the microphone cleans its own audio."""
 		try:
@@ -1011,6 +1029,9 @@ class STTProcessing():
 				"session_silence_ms": self.session_silence_ms,
 				# What the microphone does for itself - see mic_profile().
 				"mic_processing": self.mic_processing(),
+				# The wake word is checked with a small model whatever the
+				# phrase model is. See the constructor in whisper-process.
+				"wake_model": self.wake_model_name(),
 				# So the process can notice the client dying without a STOP and
 				# leave on its own, instead of surviving as an orphan holding
 				# the microphone and both ports.

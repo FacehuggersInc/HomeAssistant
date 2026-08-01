@@ -204,6 +204,7 @@ class WakeWhisper:
 		wake_timeout_seconds:float= 2.5,
 		wake_speech_after_timeout_extension:float = 1.0,
 		max_wake_speech_extensions:int = 2,
+		wake_model:str = "",
 		use_noise_reduction:bool=True,
 		max_queue_size:int=8,
 		session_silence_ms:int = 800,
@@ -306,6 +307,36 @@ class WakeWhisper:
 		self.device = device
 		self.compute_type = compute_type
 		self.model = WhisperModel(self.model_name, device=self.device, compute_type=self.compute_type)
+
+		# A second, small model for the wake word only.
+		#
+		# The two jobs want opposite things. The wake check runs on every
+		# 150ms of speech and has to answer before the person finishes their
+		# sentence; it is looking for ONE known word, so a model that mishears
+		# "weather" costs nothing. The phrase is transcribed once and is read
+		# by a person, so accuracy is what matters and a second of latency is
+		# amortised over the whole utterance.
+		#
+		# Sharing one model made the accurate choice pay its cost on every
+		# wake check too - and they take the same lock, so a phrase being
+		# transcribed blocks the next wake check behind it.
+		self.wake_model = self.model
+		self.wake_model_name = self.model_name
+		if wake_model and wake_model != self.model_name:
+			try:
+				self.wake_model = WhisperModel(
+					wake_model, device=self.device,
+					compute_type=self.compute_type)
+				self.wake_model_name = wake_model
+				self.send_log("info",
+					f"[Whisper]: Wake word on '{wake_model}', "
+					f"phrases on '{self.model_name}'.")
+			except Exception as exc:
+				# The big one still works. A wake word checked slowly is
+				# better than a process that will not start.
+				self.send_log("warning",
+					f"[Whisper]: Could not load wake model "
+					f"'{wake_model}': {exc}. Using '{self.model_name}'.")
 		self.transcribe_settings = {
 			"language": "en",
 			"temperature": 0,
@@ -330,6 +361,11 @@ class WakeWhisper:
 		# the wake-word check runs on its own thread alongside the processing
 		# loop.
 		self._model_lock = Lock()
+		#Its own lock, so a phrase being transcribed does not hold up the next
+		#wake check behind it. Only meaningful when they are separate models;
+		#when they are the same object both paths take the same lock.
+		self._wake_lock = (Lock() if self.wake_model is not self.model
+						   else self._model_lock)
 
 
 	## CORE
@@ -382,10 +418,17 @@ class WakeWhisper:
 		self.mode = mode
 		self.switching = True
 
-	def transcribe(self, audio):
-		"""Locked transcribe, returning cleaned text or ''."""
-		with self._model_lock:
-			segments, _ = self.model.transcribe(audio, **self.transcribe_settings)
+	def transcribe(self, audio, wake: bool = False):
+		"""
+		Locked transcribe, returning cleaned text or ''.
+
+		`wake=True` uses the small model - see the constructor for why the two
+		jobs do not want the same one.
+		"""
+		model = self.wake_model if wake else self.model
+		lock = self._wake_lock if wake else self._model_lock
+		with lock:
+			segments, _ = model.transcribe(audio, **self.transcribe_settings)
 			text = " ".join(seg.text.strip() for seg in segments).strip()
 		return "" if is_hallucination(text) else text
 
@@ -430,7 +473,7 @@ class WakeWhisper:
 		"""
 		try:
 			converted = np.frombuffer(sample, dtype=np.int16).astype(np.float32) / self.__PCM_NORM_FACTOR
-			text = self.transcribe(converted)
+			text = self.transcribe(converted, wake=True)
 			if self.__wake_check_id != started_as:
 				# The utterance this sample came from has already been
 				# finalised and sent while this was transcribing. Waking now
@@ -1061,6 +1104,10 @@ class STTServer:
 		self.whisper = WakeWhisper(
 			log = self.send_log,
 			model_name = self.model_name,
+			# Always small, whatever the phrase model is. It answers one
+			# question - "was the wake word in that" - and has to answer it
+			# before the person finishes speaking.
+			wake_model = str(config.get("wake_model") or "tiny.en"),
 			# Aggressive either way, and deliberately so.
 			#
 			# The obvious move is to soften this when the array has its own
