@@ -127,6 +127,9 @@ class VoiceBar(QWidget):
 
         if status == "LISTENING":
             self._accent = QColor(ACCENT["LISTENING"])
+            # Stopped, because the live status is now what keeps it up and
+            # _release() defers to that. It restarts when the status leaves a
+            # visible state - see the else branch.
             self._hold.stop()
             self._set_text("Listening…")
             self._reveal()
@@ -141,6 +144,9 @@ class VoiceBar(QWidget):
         elif not self._hold.isActive():
             # Nothing to say and no transcript being held: drop away.
             self._dismiss()
+        # A hold that is still running keeps whatever it is showing until it
+        # expires, and _release() then dismisses because the status is no
+        # longer visible.
 
     def hold_ms(self, text: str) -> int:
         """How long to keep a transcript up, from the user floor and its length."""
@@ -169,10 +175,41 @@ class VoiceBar(QWidget):
         self._hold.start(1600)
 
     def show_woke(self, wake_word: str) -> None:
+        """
+        Name the wake word that was heard.
+
+        Held on a timer like every other message. It used to stop the timer
+        and start none, leaving the pill up until a STATUS CHANGE happened to
+        take it down - and a request that arrives already answered, from the
+        API or from a wake check that came back late, never produces one. The
+        pill then read "listening" with nothing listening.
+
+        The live status still wins while it is busy: _release() checks it and
+        does nothing if the assistant is still working.
+        """
         self._accent = QColor(ACCENT["LISTENING"])
-        self._hold.stop()
         self._set_text(f"{str(wake_word).strip().title()} \u2014 listening\u2026")
         self._reveal()
+        self._hold.start(self.hold_ms(""))
+
+    def check_still_wanted(self) -> None:
+        """
+        Take the pill down if nothing is keeping it up.
+
+        Called on every poll, including the ones where the status did not
+        change - which is exactly when a stuck pill happens. `apply_state`
+        returns early on an unchanged status, so a message shown between two
+        polls has nothing to dismiss it; this is that.
+        """
+        if self._status in VISIBLE_STATES:
+            return
+        if self._hold.isActive():
+            return
+        # Visible by opacity, not by isVisible(): the widget is faded rather
+        # than hidden, so it stays "visible" to Qt at zero opacity and this
+        # would ask to dismiss something already gone on every poll.
+        if self._opacity > 0.01:
+            self._dismiss()
 
     def _set_text(self, text: str) -> None:
         self._text = text

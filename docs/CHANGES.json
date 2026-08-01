@@ -1,6 +1,46 @@
 {
  "log": [
   {
+   "at": 1785558698.9784415,
+   "note": "a pill that takes itself down",
+   "pages": [
+    {
+     "slug": "assistant",
+     "state": "updated"
+    }
+   ]
+  },
+  {
+   "at": 1785558459.1514828,
+   "note": "asking the assistant without speaking to it",
+   "pages": [
+    {
+     "slug": "assistant",
+     "state": "updated"
+    }
+   ]
+  },
+  {
+   "at": 1785558155.2974918,
+   "note": "a pill that always stands down",
+   "pages": [
+    {
+     "slug": "assistant",
+     "state": "updated"
+    }
+   ]
+  },
+  {
+   "at": 1785557357.025259,
+   "note": "a wake that answers too late",
+   "pages": [
+    {
+     "slug": "assistant",
+     "state": "updated"
+    }
+   ]
+  },
+  {
    "at": 1785556743.9900327,
    "note": "a speech process that keeps listening",
    "pages": [
@@ -169,8 +209,8 @@
    "state": "seen"
   },
   "assistant": {
-   "at": 1785556743.9886303,
-   "hash": "79ed84aa4eb0ab02",
+   "at": 1785558698.9775348,
+   "hash": "d10868462a1f3de3",
    "opened": 0,
    "state": "updated"
   },

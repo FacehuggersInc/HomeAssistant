@@ -316,11 +316,24 @@ def FlaskApp(client):
 	@app.route("/process", methods=["GET"])
 	def start_intent():
 		query = request.args.get("q")
-		if query and query.strip():
-			Thread(target=client.STT.pre_processing, args=[query]).start()
-			return {"request": "Success"}, 200
-		else:
+		if not (query and query.strip()):
 			return {"request": "Failed", "reason": "No Query(q) Given!"}, 404
+
+		# submit(), not pre_processing(). The second is the microphone's path
+		# and looks for a wake word first; a typed query has none, so it was
+		# matched against every wake arg, matched none, and was dropped in
+		# silence - a 200 and nothing happening.
+		#
+		# Answered rather than assumed: the caller is told whether anything
+		# took it.
+		try:
+			taken = bool(client.STT.submit(query))
+		except Exception as e:
+			return {"request": "Failed", "reason": str(e)}, 500
+		if not taken:
+			return {"request": "Failed",
+			        "reason": "The assistant is busy."}, 409
+		return {"request": "Success"}, 200
 
 	## NAVIGATION
 

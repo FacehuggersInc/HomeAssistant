@@ -119,6 +119,12 @@ class CoreSkills(Plugin):
 
         state = (self.client.ASSIST_STATUS, round(self.client.ASSIST_VOICE_ACTIVITY_LEVEL, 2))
         if state == self._last_state:
+            # Nothing moved. The bar is still asked to check itself, because
+            # what it is SHOWING can be wrong while the status is right: a
+            # phrase that arrives already answered goes LIVE -> THINKING ->
+            # LIVE between two polls, so this sees no change at all, and the
+            # pill that was put up in the middle of it is never taken down.
+            self.client.call_on_ui(self.voice_bar.check_still_wanted)
             return
         self._last_state = state
 

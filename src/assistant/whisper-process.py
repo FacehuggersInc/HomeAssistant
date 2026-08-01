@@ -222,6 +222,9 @@ class WakeWhisper:
 		self._process_thread = None
 		self.stop_event = ThreadEvent()
 		self.sample_check_thread = None
+		#Bumped whenever the current utterance ends, so a wake check that
+		#finishes after it can tell its answer is no longer wanted.
+		self.__wake_check_id = 0
 		self._overflows = 0
 
 		#Callbacks
@@ -411,7 +414,7 @@ class WakeWhisper:
 				# for the client to give up and terminate the process instead.
 				self.stop_event.wait(5)
 
-	def __wake_word_check(self, sample:bytes):
+	def __wake_word_check(self, sample:bytes, started_as:int = 0):
 		"""
 		Look for a wake word in one sample, on its own thread.
 
@@ -424,6 +427,15 @@ class WakeWhisper:
 		try:
 			converted = np.frombuffer(sample, dtype=np.int16).astype(np.float32) / self.__PCM_NORM_FACTOR
 			text = self.transcribe(converted)
+			if self.__wake_check_id != started_as:
+				# The utterance this sample came from has already been
+				# finalised and sent while this was transcribing. Waking now
+				# announces a phrase that has already been answered, and
+				# nothing further is coming to stand the panel back down - so
+				# it sits reading "listening" with nobody talking to it.
+				self.send_log("debug",
+					"[Whisper]: Wake check finished too late - discarded.")
+				return
 			if text:
 				lowered = text.lower()
 				for word in self.wake_words:  # e.g., ["clyde", "jarvis"]
@@ -455,7 +467,7 @@ class WakeWhisper:
 		sample = b"".join(sample_window)
 		self.sample_check_thread = Thread(
 			target=self.__wake_word_check,
-			args=[sample],
+			args=[sample, self.__wake_check_id],
 			daemon=True
 		)
 		self.sample_check_thread.start()
@@ -518,6 +530,9 @@ class WakeWhisper:
 			check = self.sample_check_thread
 			if check is None or not check.is_alive():
 				self.sample_check_thread = None
+			# Anything still transcribing belongs to the utterance being
+			# thrown away, so its answer is no longer wanted.
+			self.__wake_check_id += 1
 
 		## CORE LOOP
 		while not self.stop_event.is_set():

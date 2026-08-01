@@ -156,6 +156,9 @@ class STTProcessing():
 		# When the wake word was heard, so a wake nobody followed up on can be
 		# stood down. See check_wake_timeout().
 		self.woke_at : float = 0.0
+		#When LISTENING was entered by something other than a wake word.
+		#See check_wake_timeout().
+		self.listening_since : float = 0.0
 
 		self.session :Session = None
 		self.route = "wake"
@@ -216,6 +219,7 @@ class STTProcessing():
 		# case listening is the truth and saying otherwise would be worse.
 		if not self.is_session():
 			self.woke_at = 0.0
+			self.listening_since = 0.0
 			self.client.ASSIST_STATUS = "LIVE"
 			self.client.ASSIST_VOICE_ACTIVITY_LEVEL = 0.0
 
@@ -233,6 +237,7 @@ class STTProcessing():
 		
 		if not found_skill:
 			self.processing = False
+			self.listening_since = 0.0
 			self.client.ASSIST_STATUS = "LIVE"
 
 	def start_skill_parse(self, wake:str, processed:str):
@@ -248,6 +253,7 @@ class STTProcessing():
 			self.processing = False
 			self.woke_with = None
 			self.woke_at = 0.0
+			self.listening_since = 0.0
 			self.client.ASSIST_STATUS = "LIVE"
 
 	def routing(self, processed:str):
@@ -426,6 +432,69 @@ class STTProcessing():
 		"""Called when the panel finishes a spoken reply."""
 		self.spoke_until = time.time()
 
+	def submit(self, phrase: str) -> bool:
+		"""
+		Handle a phrase that was typed or sent, not heard.
+
+		Separate from `pre_processing`, which is the microphone's path and
+		expects a wake word: a request arriving over the API has already said
+		who it is talking to by arriving at all. Sent through wake detection
+		it matched no wake word, so `found_skill` stayed False and it was
+		dropped in silence - the pill showed the query and then nothing
+		happened, which is what "/process did nothing" looks like.
+
+		A session still takes it, because a conversation waiting on an answer
+		should get one however it was sent.
+
+		Returns whether anything was going to act on it.
+		"""
+		phrase = str(phrase or "").strip()
+		if not phrase:
+			return False
+
+		if self.is_session():
+			self.pre_processing(phrase)
+			return True
+
+		if self.processing:
+			self.client.log("debug",
+				f"[STTProcessing] Busy - ignored '{phrase}'.")
+			return False
+
+		self.processing = True
+		self.client.ASSIST_STATUS = "THINKING"
+		try:
+			processed = normalize.normalize(phrase)
+
+			# A wake word is allowed but not required. Somebody sending
+			# "alexa play something" means the same as "play something", and
+			# leaving it in hands the skill parser a word that is not part of
+			# the request.
+			try:
+				words = [w[0] for w in self.client.SKILLS.wake_args] or list(self.wake_words)
+			except Exception:
+				words = list(self.wake_words)
+			for wake in words:
+				if wake and self.find_wake(processed, wake):
+					stripped = self.strip_wake(processed, wake).strip()
+					if stripped:
+						processed = stripped
+					break
+
+			self.client.log("info",
+				f"[STTProcessing] Submitted -> '{processed}'")
+			Thread(target=self.process_phrase,
+			       args=[self.clean_text(processed)],
+			       daemon=True).start()
+			return True
+		except Exception as exc:
+			self.processing = False
+			self.listening_since = 0.0
+			self.client.ASSIST_STATUS = "LIVE"
+			self.client.log("warning",
+				f"[STTProcessing] Could not handle '{phrase}': {exc}")
+			return False
+
 	def pre_processing(self, transcribed:str):
 		if self.heard_itself():
 			# The wake word gets through anyway, and stops the talking.
@@ -467,14 +536,32 @@ class STTProcessing():
 			return
 		transcribed = trimmed
 
-		if not self.processing:
-			self.processing = True
-			self.client.ASSIST_STATUS = "THINKING"
+		if self.processing:
+			# Something is already being dealt with. Said rather than dropped
+			# in silence: /process spawns a thread per call, so two requests
+			# close together land here and the second simply vanished.
+			self.client.log("debug",
+				f"[STTProcessing] Busy - ignored '{transcribed}'.")
+			return
+
+		self.processing = True
+		self.client.ASSIST_STATUS = "THINKING"
+		try:
 			processed = normalize.normalize(transcribed)
 			if processed != transcribed:
 				self.client.log("debug",
 					f"[STTProcessing] Normalised '{transcribed}' -> '{processed}'")
 			self.routing( processed )
+		except Exception as exc:
+			# `processing` is the gate on everything else being heard, and it
+			# was cleared only by the paths that succeeded. A raise anywhere
+			# under routing() left it set for good, and the panel went deaf
+			# with the pill still up.
+			self.processing = False
+			self.listening_since = 0.0
+			self.client.ASSIST_STATUS = "LIVE"
+			self.client.log("warning",
+				f"[STTProcessing] Could not handle '{transcribed}': {exc}")
 
 
 	def wake_timeout_seconds(self) -> float:
@@ -484,6 +571,10 @@ class STTProcessing():
 				"assistant.wake_listen_timeout.value", 12)))
 		except Exception:
 			return 12.0
+
+	def note_not_listening(self) -> None:
+		"""Drop the listening anchor. Called whenever the status leaves it."""
+		self.listening_since = 0.0
 
 	def check_wake_timeout(self) -> None:
 		"""
@@ -497,18 +588,51 @@ class STTProcessing():
 		Self-healing on the panel's own clock, so a process that never sends
 		its reset cannot strand the assistant.
 		"""
-		if not self.woke_at or self.is_session():
-			return
 		if self.client.ASSIST_STATUS not in ("LISTENING",):
 			return
-		if time.time() - self.woke_at < self.wake_timeout_seconds():
+
+		# Anchored on entering LISTENING, not on waking.
+		#
+		# `woke_at` is set by the wake word and by nothing else, so every
+		# other way of reaching LISTENING - a session taking a phrase, a
+		# /process call while one is open - produced a pill this could not
+		# see, because it returned early on `not self.woke_at`. It stayed up
+		# until something happened to say otherwise, which in a session is
+		# minutes.
+		# Stamped when this pass first SEES it listening, and dropped the
+		# moment it is not. Keeping an anchor across a stand-down would time
+		# out the next listening state the instant it began.
+		if not self.woke_at and not self.listening_since:
+			self.listening_since = time.time()
+			return
+		since = self.woke_at or self.listening_since
+		if time.time() - since < self.wake_timeout_seconds():
+			return
+
+		# A session used to disable this entirely, so a wake that arrived with
+		# nothing behind it - a check that finished after its own phrase had
+		# already been answered - left the pill reading "listening" for as
+		# long as the conversation stayed open, which is minutes.
+		#
+		# The session is left alone; only the wake state is stood down. It is
+		# still listening for the conversation, and saying so was the lie.
+		if self.is_session():
+			self.client.log("info",
+				"[STTProcessing] Stale wake during a session - standing down "
+				"the wake state, session left open.")
+			self.woke_at = 0.0
+			self.listening_since = 0.0
+			self.woke_with = None
+			self.client.ASSIST_VOICE_ACTIVITY_LEVEL = 0.0
 			return
 
 		self.client.log("info",
-			"[STTProcessing] Wake timed out with nothing said - standing down.")
+			"[STTProcessing] Listening timed out with nothing said - standing down.")
 		self.woke_at = 0.0
+		self.listening_since = 0.0
 		self.woke_with = None
 		self.processing = False
+		self.listening_since = 0.0
 		self.client.ASSIST_STATUS = "LIVE"
 		self.client.ASSIST_VOICE_ACTIVITY_LEVEL = 0.0
 
@@ -529,6 +653,7 @@ class STTProcessing():
 		self.woke_at = 0.0
 		self.processing = False
 		self.route = "wake"
+		self.listening_since = 0.0
 		self.client.ASSIST_STATUS = "LIVE"
 		self.client.ASSIST_VOICE_ACTIVITY_LEVEL = 0.0
 		self.client.iterate_event_callables("on_assistant_cancelled", reason)
@@ -549,6 +674,7 @@ class STTProcessing():
 			self.route = "session"
 
 	def close_session(self):
+		self.listening_since = 0.0
 		self.client.ASSIST_STATUS = "LIVE"
 		self.send_command("START_WAKE")
 		self.route = "wake"
@@ -597,6 +723,7 @@ class STTProcessing():
 							match command:
 								case "notify":
 									if self.client.ASSIST_STATUS == "DORMANT":
+										self.listening_since = 0.0
 										self.client.ASSIST_STATUS = "LIVE"
 										self.client.simple_notify(
 											"assistant",
@@ -640,6 +767,7 @@ class STTProcessing():
 									self.client.ASSIST_STATUS = "LISTENING"
 
 								case "wait":
+									self.listening_since = 0.0
 									self.client.ASSIST_STATUS = "LIVE"
 									self.processing = False
 									self.woke_at = 0.0
@@ -671,6 +799,7 @@ class STTProcessing():
 		if not message:
 			if self.last_error:
 				self.last_error = ""
+				self.listening_since = 0.0
 				self.client.ASSIST_STATUS = "LIVE"
 				self.client.simple_notify("assistant", "Assistant", "Microphone reconnected.")
 			return
@@ -679,6 +808,7 @@ class STTProcessing():
 			return
 		self.last_error = message
 
+		self.listening_since = 0.0
 		self.client.ASSIST_STATUS = "DORMANT"
 		self.client.log("error", f"[STTProcessing] Audio error: {message}")
 		self.client.simple_notify("error", "Assistant", "Microphone unavailable. Tap for details.")

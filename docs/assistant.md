@@ -16,6 +16,43 @@ Settings live under **Assistant**:
 | `wake_listen_timeout` | Seconds to keep listening after the wake word with nothing said |
 | `tts_enabled` | Whether replies are spoken |
 
+## The pill on screen
+
+Two separate things decide whether the voice bar is up: the live status, and a
+hold timer for a message that should stay readable after the status has moved
+on. Every message starts a hold. `show_woke` did not - it stopped the timer and
+started none, so the pill sat there until a status CHANGE took it down, and a
+phrase that arrives already answered never produces one.
+
+The poll that drives the bar returns early when the status has not changed,
+which is exactly when a stuck pill happens: a request handled between two
+polls goes LIVE -> THINKING -> LIVE and the poll sees nothing at all. So the
+bar is asked to `check_still_wanted()` on every pass, changed or not, and takes
+itself down when nothing is keeping it up.
+
+"Nothing keeping it up" is: the status is not one this bar shows, no hold is
+running, and it is actually on screen - read from its opacity, because the
+widget is faded rather than hidden and stays visible to Qt at zero.
+
+## Asking without speaking
+
+`/process?q=...` and anything else that hands the assistant a phrase it did
+not hear go through `STT.submit()`, not `pre_processing()`.
+
+The difference is the wake word. `pre_processing` is the microphone's path and
+looks for one first; a typed request has none, so it matched nothing, no skill
+was found, and it was dropped in silence behind a `200 Success` - the pill
+showed the query and then nothing happened.
+
+`submit()` goes straight to the skills. A wake word is allowed and stripped,
+since "alexa play something" means the same as "play something" and leaving it
+in hands the parser a word that is not part of the request. A session takes the
+phrase instead when one is open, because a conversation waiting on an answer
+should get one however it was sent.
+
+The endpoint now answers with what happened: `409` when the assistant was
+already busy rather than `200` for a phrase nobody took.
+
 ## Two threads, and what may not block
 
 The speech process runs an audio thread and a processing thread, and the rule
@@ -39,6 +76,28 @@ Two failures worth knowing about, because both were silent:
 
 Neither logged anything. `check_whisper_process.py` asserts the shapes that
 caused them are gone.
+
+A third came from the same place. The wake check transcribes a sample on its
+own thread, and on a slow one it can answer AFTER the utterance it came from
+has already been finalised, sent and acted on. Waking then announces a phrase
+that has already been answered - and nothing further arrives to stand the panel
+down, so the pill sits reading "listening" with nobody talking to it.
+
+Each check now carries the id of the utterance it belongs to, and one that
+comes back to a different id is discarded.
+
+The panel's own watchdog covers the rest, and it had two blind spots. It
+skipped entirely while a session was open - exactly when a stuck pill lasts
+longest. And it measured from `woke_at`, which the wake word sets and nothing
+else does: a session taking a phrase, or a `/process` call while one is open,
+both reach LISTENING with `woke_at` still zero, so the watchdog returned early
+and never looked.
+
+It anchors on entering LISTENING now, however that happened, and the anchor is
+dropped wherever the status leaves it - keeping one across a stand-down would
+time out the next pill the instant it went up. During a session it stands the
+wake state down and leaves the session alone, since that one really is
+listening.
 
 ## What the transcriber makes up
 
