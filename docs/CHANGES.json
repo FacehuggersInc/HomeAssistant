@@ -1,6 +1,16 @@
 {
  "log": [
   {
+   "at": 1785619567.9456952,
+   "note": "a wake word that survives being misheard",
+   "pages": [
+    {
+     "slug": "assistant",
+     "state": "updated"
+    }
+   ]
+  },
+  {
    "at": 1785619053.728079,
    "note": "greeting with the wake word it actually listens for",
    "pages": [
@@ -327,8 +337,8 @@
    "state": "seen"
   },
   "assistant": {
-   "at": 1785619053.7276106,
-   "hash": "9398ef6b6fbd4a63",
+   "at": 1785619567.9451911,
+   "hash": "134ab9adcd3905f1",
    "opened": 0,
    "state": "updated"
   },

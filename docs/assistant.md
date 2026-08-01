@@ -158,6 +158,35 @@ while the audio pipeline stayed as it was - which is the worst of both and
 says nothing about itself. `assistant_config()` lists it alongside the model
 and the input device for that reason.
 
+## Hearing the wake word
+
+Two things make this hard, and both are about the check rather than the
+microphone.
+
+**It reads a fraction of a second.** `wake_sample_windows` is 12 windows of
+30ms, about 360ms - enough for two syllables. It was 5 (150ms), which is
+barely one, and a small model handed that comes back with something adjacent
+to the word rather than the word.
+
+**And the word is matched loosely.** `find_wake` tries an exact match on word
+boundaries first, then falls back to `find_wake_fuzzy`, which allows a
+similarity of `WAKE_RATIO` (0.8) and also tries each word joined with its
+neighbour - because the other common failure is one word arriving as two.
+
+| Heard | |
+|---|---|
+| `Alexa`, `alexa,` | exact |
+| `Elexa`, `alexah`, `Lexa` | fuzzy |
+| `a lexa`, `Alex a` | fuzzy, joined |
+| `Alexis`, `a lexus` | **refused** |
+
+Those last two score 0.727, the same as each other. No threshold takes one and
+not the other, so both are refused: a name spoken in the room waking the panel
+is worse than one more retry.
+
+Only the wake word is fuzzy. What follows it is passed on as heard, because a
+skill's arguments are not a known short list to match against.
+
 ## Two models, not one
 
 The wake word and the phrase are transcribed by different models, and they

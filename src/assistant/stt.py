@@ -188,10 +188,61 @@ class STTProcessing():
 		"""
 		if not text or not wake:
 			return None
+
 		found = None
 		for match in re.finditer(rf"\b{re.escape(wake)}\b", text, re.IGNORECASE):
 			found = match
-		return found
+		if found is not None:
+			return found
+
+		# Nothing matched exactly. The wake check reads 150ms of audio with a
+		# small model, so an exact spelling is a lot to ask - see
+		# find_wake_fuzzy for what that actually returns.
+		return STTProcessing.find_wake_fuzzy(text, wake)
+	#How wrong a heard word may be and still count as the wake word.
+	#
+	#0.8 is roughly one wrong letter in five. The wake check transcribes 150ms
+	#of audio with a small model, which is barely a syllable - it comes back
+	#with "alexis", "elexa", "a lexa", "lexa" for somebody saying the word
+	#perfectly clearly. Demanding an exact spelling threw all of those away
+	#and the panel looked deaf.
+	#
+	#Only the wake word is fuzzy. Everything after it is passed on as heard,
+	#because a skill's arguments are not a known short list to match against.
+	WAKE_RATIO = 0.8
+
+	@classmethod
+	def find_wake_fuzzy(cls, text: str, wake: str):
+		"""
+		The wake word, allowing for a small model mishearing it.
+
+		Tried only after an exact match fails. A word is compared against the
+		wake word on its own and joined with its neighbour, because the other
+		common failure is one word arriving as two.
+		"""
+		if not text or not wake:
+			return None
+		import difflib
+
+		target = wake.lower()
+		words = list(re.finditer(r"[A-Za-z']+", text))
+		best = None
+		best_score = 0.0
+
+		for index, match in enumerate(words):
+			candidates = [(match.group(0), match)]
+			if index + 1 < len(words):
+				# "a lexa" and "alex a" - one word heard as two.
+				joined = match.group(0) + words[index + 1].group(0)
+				candidates.append((joined, words[index + 1]))
+
+			for word, ending in candidates:
+				score = difflib.SequenceMatcher(
+					None, word.lower(), target).ratio()
+				if score >= cls.WAKE_RATIO and score > best_score:
+					best_score = score
+					best = ending
+		return best
 
 	@classmethod
 	def strip_wake(cls, text: str, wake: str) -> str:

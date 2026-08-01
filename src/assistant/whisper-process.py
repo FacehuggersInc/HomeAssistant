@@ -200,7 +200,12 @@ class WakeWhisper:
 		context_audio_windows_end:int= 10,
 		minimum_speech_windows:int= 25,
 		maximum_speech_windows:int= 267,
-		wake_sample_windows:int=5,
+		#How much speech the wake check gets. 5 windows is 150ms, which is
+		#barely a syllable - a small model handed that comes back with
+		#something adjacent to the word rather than the word. 12 is ~360ms,
+		#enough for two syllables, and still well inside the time somebody
+		#takes to finish a sentence.
+		wake_sample_windows:int=12,
 		wake_timeout_seconds:float= 2.5,
 		wake_speech_after_timeout_extension:float = 1.0,
 		max_wake_speech_extensions:int = 2,
