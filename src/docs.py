@@ -823,15 +823,23 @@ def _nav_button(entry, direction: str, skip: bool) -> str:
     if not entry:
         return '<span class="page-nav-gap"></span>'
     slug, title = entry
-    arrow = "\u2190" if direction == "prev" else "\u2192"
     label = html.escape(title)
     hint = "Skip to" if skip else ("Previous" if direction == "prev" else "Next")
-    inner = (f'<span class="page-nav-hint">{arrow} {hint}</span>'
-             f'<span class="page-nav-title">{label}</span>')
-    if direction == "next":
-        inner = (f'<span class="page-nav-hint">{hint} {arrow}</span>'
-                 f'<span class="page-nav-title">{label}</span>')
+
+    # An arrow with a size of its own, beside the words rather than inside
+    # them. It used to be a character at the front of the hint, which put it
+    # at the hint's twelve pixels in the hint's muted grey - the same weight
+    # as the label it was meant to point away from, and small enough on a
+    # wall panel to read as punctuation.
+    arrow = ("&#10094;" if direction == "prev" else "&#10095;")
+    mark = f'<span class="page-nav-arrow" aria-hidden="true">{arrow}</span>'
+    words = (f'<span class="page-nav-words">'
+             f'<span class="page-nav-hint">{hint}</span>'
+             f'<span class="page-nav-title">{label}</span></span>')
+
+    inner = (mark + words) if direction == "prev" else (words + mark)
     classes = "page-nav-link" + (" skip" if skip else "")
+    classes += " prev" if direction == "prev" else " next"
     return f'<a class="{classes}" href="/docs/{slug}">{inner}</a>'
 
 
@@ -1120,10 +1128,20 @@ a:hover { text-decoration:underline; }
 .page-nav { display:flex; gap:10px; flex-wrap:wrap; margin:0 0 22px; }
 .page-nav.bottom { margin:34px 0 0; }
 .page-nav-link {
-  flex:1 1 220px; min-width:0; display:block; padding:10px 14px;
+  flex:1 1 220px; min-width:0; display:flex; align-items:center; gap:12px;
+  padding:10px 14px;
   border:1px solid var(--line); border-radius:10px; background:var(--card);
   text-decoration:none;
 }
+.page-nav-link.next { justify-content:space-between; }
+.page-nav-link.next .page-nav-words { text-align:right; }
+/* Big enough to be a control rather than punctuation, and in the text colour
+ * so it does not read as a disabled thing. */
+.page-nav-arrow {
+  flex:none; font-size:22px; line-height:1; color:var(--text); opacity:.75;
+}
+.page-nav-link:hover .page-nav-arrow { color:var(--accent); opacity:1; }
+.page-nav-words { min-width:0; flex:1 1 auto; }
 .page-nav-link:hover { border-color:var(--accent); text-decoration:none; }
 /* The skipping one steps back, so the ordinary next page stays the obvious
  * thing to press and the shortcut is there when it is wanted. */

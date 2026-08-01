@@ -2,7 +2,22 @@
 
 ## Levels
 
-`debug` lines are dropped unless `debug.enabled` is on. Everything else always
+| Level | For |
+|---|---|
+| `debug` | Numbers you would want when something looks wrong on screen. |
+| `info` | Normal lifecycle: loaded, registered, connected, navigated. |
+| `warning` | Something failed and was handled. The app carries on. |
+| `error` | Something failed and a feature is now broken. |
+| `critical` | The app cannot continue. |
+
+The distinction that matters is `warning` versus `error`: a warning means the
+degradation is contained, an error means a user will notice something missing.
+"Could not reach the weather API, using the last reading" is a warning.
+"Could not start the STT process" is an error.
+
+### Turning `debug` off
+
+`debug` lines are dropped unless `debug.enabled` is on. Every other level always
 goes out.
 
 Without that filter every diagnostic in the tree printed on every launch, which
@@ -54,21 +69,6 @@ self.client.log("info", "[MyPlugin] Loaded 4 feeds.")
 ```
 
 
-## Levels
-
-| Level | For |
-|---|---|
-| `debug` | Numbers you would want when something looks wrong on screen. |
-| `info` | Normal lifecycle: loaded, registered, connected, navigated. |
-| `warning` | Something failed and was handled. The app carries on. |
-| `error` | Something failed and a feature is now broken. |
-| `critical` | The app cannot continue. |
-
-The distinction that matters is `warning` versus `error`: a warning means the
-degradation is contained, an error means a user will notice something missing.
-"Could not reach the weather API, using the last reading" is a warning.
-"Could not start the STT process" is an error.
-
 
 ## Format
 
@@ -96,6 +96,29 @@ Use it in an `except` block where the exception type alone will not be enough.
 `pointer` appends `FRM <object>`, for when several instances of the same class
 are logging and you need to tell them apart.
 
+
+## The hourly census
+
+Once an hour, before the collection cycle releases anything, the client counts
+what has piled up and logs it as a **warning**:
+
+```
+[Census] on_update 6, on_interaction 3, ... | widgets 412, timers 19,
+         threads 11, timeouts 2, tracked objects 91043
+[Census] Grown since the last hour: on_update 6->13, widgets 412->640
+```
+
+The first line is always written. The second appears only when something is
+higher than it was an hour ago, so a steady panel stays quiet and a leaking one
+names what is leaking.
+
+Counted **before** the collection, deliberately: the question is what an hour of
+running accumulated, not what survived the tidy-up. A count that climbs every
+hour and resets on restart is the thing to chase.
+
+Warning rather than info because these lines are wanted by somebody going
+looking after the panel felt slow - `info` is where the ordinary lifecycle
+noise lives, and this would be lost in it.
 
 ## Files
 

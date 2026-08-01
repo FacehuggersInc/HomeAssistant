@@ -33,6 +33,10 @@ twice does not say the same thing twice. The written form adds "Say Alexa when
 you need me"; the spoken one does not, because it is talking to somebody who is
 already there.
 
+They are full sentences rather than two words. Speech needs a moment to be
+recognised as speech, and a room reacts to "I'm awake" after it has already
+finished.
+
 ## The pill on screen
 
 Two separate things decide whether the voice bar is up: the live status, and a
@@ -69,6 +73,22 @@ should get one however it was sent.
 
 The endpoint now answers with what happened: `409` when the assistant was
 already busy rather than `200` for a phrase nobody took.
+
+## Playing a reply to the end
+
+Audio is written to the output stream in short chunks so a stop can land part
+way through. `write()` only queues, though - and in sounddevice's own words
+`close()` discards pending buffers "as if abort() had been called", while
+`stop()` "waits until all pending audio buffers have been played".
+
+So the stream is stopped before it is closed, or the last chunk is thrown away
+and every reply loses its final syllables. A single blocking write of the whole
+buffer used to hide this, which is why it appeared when playback was split up
+to be interruptible - and why a short greeting suffered most, a short phrase
+being mostly end.
+
+Skipped when somebody interrupted: they are not asking for the rest of the
+buffer to play out first.
 
 ## Two threads, and what may not block
 

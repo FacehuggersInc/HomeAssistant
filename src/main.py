@@ -1982,6 +1982,83 @@ class Client:
         )
         self.THREADS.start("__client_update_thread")
 
+    #What the census watches. Each is something that should settle at a
+    #steady number: a count that climbs every hour is the leak.
+    CENSUS_EVENTS = ("on_update", "on_interaction", "on_settings_saved",
+                     "on_collection", "on_visit")
+
+    def log_accumulation(self) -> None:
+        """
+        Say what has piled up, once an hour, before anything is collected.
+
+        A panel that gets slower the longer it runs and comes back after a
+        restart is accumulating something. Which something is not answerable
+        by reading the source - every candidate looks bounded until it is
+        counted - so it is counted here, in the one place that already runs on
+        a slow timer and already reports memory.
+
+        Logged as a warning rather than info: these lines are only worth
+        anything when somebody goes looking after the panel felt slow, and
+        `debug` is off by default while `info` is where the ordinary
+        lifecycle noise lives.
+        """
+        try:
+            import gc as _gc
+
+            subscribers = {}
+            for name in self.CENSUS_EVENTS:
+                try:
+                    subscribers[name] = len(self.EVENTS["on_call"][name])
+                except Exception:
+                    continue
+
+            widgets = timers = 0
+            try:
+                from PyQt6.QtWidgets import QWidget
+                from PyQt6.QtCore import QTimer
+                for obj in _gc.get_objects():
+                    if isinstance(obj, QWidget):
+                        widgets += 1
+                    elif isinstance(obj, QTimer):
+                        timers += 1
+            except Exception:
+                pass
+
+            threads = 0
+            try:
+                threads = len(thread_enum())
+            except Exception:
+                pass
+
+            timeouts = 0
+            try:
+                timeouts = len(getattr(self.TIMEOUTS, "timeouts", ()) or ())
+            except Exception:
+                pass
+
+            self.log(
+                "warning",
+                "[Census] " + ", ".join(f"{k} {v}" for k, v in subscribers.items())
+                + f" | widgets {widgets}, timers {timers}, threads {threads}, "
+                f"timeouts {timeouts}, tracked objects {len(_gc.get_objects())}"
+            )
+
+            # Only the ones that moved, so a steady panel says nothing more and
+            # a climbing one names what is climbing.
+            previous = getattr(self, "_last_census", None)
+            now = dict(subscribers, widgets=widgets, timers=timers,
+                       threads=threads, timeouts=timeouts)
+            if previous:
+                grown = {k: (previous[k], v) for k, v in now.items()
+                         if k in previous and v > previous[k]}
+                if grown:
+                    self.log("warning", "[Census] Grown since the last hour: "
+                             + ", ".join(f"{k} {was}->{is_}"
+                                         for k, (was, is_) in grown.items()))
+            self._last_census = now
+        except Exception as e:
+            self.log("warning", f"[Census] Could not take a census: {e}")
+
     def update_thread(self, stop_event) -> None:
         while not stop_event.is_set():
             if self.BUILT:
@@ -1994,6 +2071,11 @@ class Client:
 
                     before_mb       = self._process.memory_info().rss / (1024 * 1024)
                     overlays_before = len(self.OVERLAYS.children())
+
+                    # Counted BEFORE anything is released, so this is what an
+                    # hour of running actually accumulated rather than what
+                    # survived the tidy-up.
+                    self.log_accumulation()
 
                     #see "on_collection" in the README for what plugins should do with this
                     self.iterate_event_callables("on_collection", None, True)

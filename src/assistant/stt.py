@@ -567,12 +567,19 @@ class STTProcessing():
 
 	#What it says when it starts listening. Picked at random so a panel that
 	#restarts twice does not say the same thing twice.
+	#
+	#Full sentences rather than two words. Speech needs a moment to be
+	#recognised as speech - a room reacts to "I'm awake" after it has already
+	#finished - and a phrase this short gives somebody nothing to catch. These
+	#run two or three seconds, which is long enough to be heard from the next
+	#room and short enough not to be in the way.
 	GREETINGS = (
-		"Hi, I'm listening.",
-		"Ready when you are.",
-		"I'm awake.",
-		"Listening now.",
-		"Here and listening.",
+		"Hello. I'm up and listening whenever you need me.",
+		"Good to be back. I'm listening now.",
+		"I'm awake and ready when you are.",
+		"Hello there. The microphone is on and I'm listening.",
+		"I'm here and listening, whenever you want something.",
+		"Back up and running. Just say the word.",
 	)
 
 	def greet(self) -> None:

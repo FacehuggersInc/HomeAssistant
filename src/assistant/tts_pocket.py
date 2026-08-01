@@ -341,6 +341,27 @@ class PocketTTSProcessing:
                         self.client.log("debug", "[TTS] Stopped part way.")
                         break
                     stream.write(data[start:start + step])
+
+                # Let the device finish what it has been handed.
+                #
+                # sounddevice's own words: close() discards pending buffers
+                # "as if abort() had been called", while stop() "waits until
+                # all pending audio buffers have been played". write() only
+                # queues, so closing straight after the last one threw it
+                # away - every reply lost its final syllables and a short one
+                # lost most of itself.
+                #
+                # A single blocking write of the whole buffer used to hide
+                # this, which is why it appeared when playback was split up to
+                # be interruptible.
+                #
+                # Skipped when interrupted: somebody who cut the reply short
+                # does not want the rest of the buffer played out first.
+                if not self._interrupt:
+                    try:
+                        stream.stop()
+                    except Exception:
+                        pass
             finally:
                 try:
                     stream.close()
