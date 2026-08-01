@@ -174,23 +174,28 @@ class VoiceBar(QWidget):
         self._reveal()
         self._hold.start(1600)
 
-    def show_woke(self, wake_word: str) -> None:
+    def show_matched(self, what: str) -> None:
         """
-        Name the wake word that was heard.
+        Say that something was understood, and what.
+
+        This fires when a SKILL has matched, which is the moment the panel
+        starts acting - not the moment it woke. It used to read
+        "Alexa - listening…", which was wrong twice over: it had finished
+        listening, and the word it named was the skill's own rather than the
+        one the person says.
 
         Held on a timer like every other message. It used to stop the timer
-        and start none, leaving the pill up until a STATUS CHANGE happened to
-        take it down - and a request that arrives already answered, from the
-        API or from a wake check that came back late, never produces one. The
-        pill then read "listening" with nothing listening.
-
-        The live status still wins while it is busy: _release() checks it and
-        does nothing if the assistant is still working.
+        and start none, leaving the pill up until a STATUS CHANGE took it
+        down - and a request that arrives already answered never produces one.
         """
-        self._accent = QColor(ACCENT["LISTENING"])
-        self._set_text(f"{str(wake_word).strip().title()} \u2014 listening\u2026")
+        self._accent = QColor(ACCENT.get("THINKING", ACCENT["LISTENING"]))
+        text = str(what or "").strip()
+        self._set_text(text if text else "Working on it\u2026")
         self._reveal()
-        self._hold.start(self.hold_ms(""))
+        self._hold.start(self.hold_ms(text))
+
+    #The old name, for anything still calling it.
+    show_woke = show_matched
 
     def check_still_wanted(self) -> None:
         """

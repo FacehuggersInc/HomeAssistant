@@ -100,16 +100,32 @@ class CoreSkills(Plugin):
         self.client.call_on_ui(lambda: self.voice_bar.show_cancelled())
 
     def on_woke(self, event):
+        """
+        A skill matched. Say what was understood.
+
+        The event carries `(skill, phrase)` - it fires from `process_phrase`
+        AFTER parsing, so by the time this runs the panel is acting rather
+        than listening. It used to show "<wake word> - listening…", which was
+        wrong twice: it had stopped listening, and the word it named was the
+        matched SKILL's own wake word rather than the one the person says.
+
+        The phrase is what is worth showing. It is the panel repeating back
+        what it heard, which is the one thing that says whether it got it
+        right.
+        """
         if self.voice_bar is None:
             return
-        wake = ""
-        if isinstance(event, (tuple, list)) and event:
-            skill = event[0]
-            wake = getattr(skill, "wake", "") or ""
+
+        said = ""
+        if isinstance(event, (tuple, list)) and len(event) >= 2:
+            said = str(event[1] or "").strip()
         elif isinstance(event, str):
-            wake = event
-        wake = wake or self.wake_word()
-        self.client.call_on_ui(lambda: self.voice_bar.show_woke(wake))
+            said = event.strip()
+
+        # Without a phrase there is still something worth saying: it
+        # understood, even if this does not know what.
+        shown = said or "Got it\u2026"
+        self.client.call_on_ui(lambda: self.voice_bar.show_matched(shown))
 
     def update_assistant(self, event):
         # on_update runs on the update thread; widgets must be touched on the

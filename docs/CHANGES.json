@@ -1,6 +1,16 @@
 {
  "log": [
   {
+   "at": 1785619912.068201,
+   "note": "a pill that says what it understood",
+   "pages": [
+    {
+     "slug": "assistant",
+     "state": "updated"
+    }
+   ]
+  },
+  {
    "at": 1785619567.9456952,
    "note": "a wake word that survives being misheard",
    "pages": [
@@ -337,8 +347,8 @@
    "state": "seen"
   },
   "assistant": {
-   "at": 1785619567.9451911,
-   "hash": "134ab9adcd3905f1",
+   "at": 1785619912.0677555,
+   "hash": "2e20850bc6575c16",
    "opened": 0,
    "state": "updated"
   },

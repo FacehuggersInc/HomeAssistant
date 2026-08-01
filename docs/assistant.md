@@ -46,20 +46,28 @@ finished.
 
 Two separate things decide whether the voice bar is up: the live status, and a
 hold timer for a message that should stay readable after the status has moved
-on. Every message starts a hold. `show_woke` did not - it stopped the timer and
-started none, so the pill sat there until a status CHANGE took it down, and a
-phrase that arrives already answered never produces one.
+on.
 
-The poll that drives the bar returns early when the status has not changed,
-which is exactly when a stuck pill happens: a request handled between two
-polls goes LIVE -> THINKING -> LIVE and the poll sees nothing at all. So the
-bar is asked to `check_still_wanted()` on every pass, changed or not, and takes
-itself down when nothing is keeping it up.
+The status alone is not enough. `on_woke_assistant` fires from
+`process_phrase` AFTER the skill has parsed, and a skill that runs in twenty
+milliseconds takes the status LISTENING -> THINKING -> LIVE between two polls
+of a 200ms timer - so THINKING is never drawn and the panel appears never to
+have understood anything.
 
-"Nothing keeping it up" is: the status is not one this bar shows, no hold is
-running, and it is actually on screen - read from its opacity, because the
-widget is faded rather than hidden and stays visible to Qt at zero.
+So a match puts up its own message, held on its own timer:
 
+```
+1. woke        Listening…
+2. thinking    Thinking…            (may never be drawn)
+3. understood  turn the lights off  (held, outlives the status)
+4. live        still showing it until the hold ends
+```
+
+It shows **the phrase**, which is the panel repeating back what it heard -
+the one thing that says whether it got it right. It used to read
+"<wake word> - listening…", which was wrong twice: it had stopped listening by
+then, and the word it named came from the matched SKILL rather than the one
+the person says.
 ## Asking without speaking
 
 `/process?q=...` and anything else that hands the assistant a phrase it did
