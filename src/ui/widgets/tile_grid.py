@@ -110,6 +110,33 @@ class TileGrid(QWidget):
         except RuntimeError:
             pass
 
+    def forget(self, key: str) -> bool:
+        """
+        Drop one tile's saved entry from disk.
+
+        For a key that should no longer exist at all - a bookmark that held
+        the template's own key before this tile could be placed twice, and has
+        been re-saved under one of its own. Left behind it would be restored
+        onto the template again on the next launch.
+        """
+        path = self._layout_path()
+        try:
+            if not path.is_file():
+                return False
+            data = json.loads(path.read_text(encoding="utf-8")) or {}
+        except (OSError, ValueError) as e:
+            self.client.log("warning", f"[TileGrid] Could not forget {key}: {e}")
+            return False
+
+        section = data.get(self.owning_plugin_key) or {}
+        if key not in section:
+            return False
+        section.pop(key, None)
+        # _write() merges under the plugin key, so it is handed the section
+        # rather than the whole file.
+        self._write(section)
+        return True
+
     def save_positions(self) -> None:
         # Span as well as position, so a resized tile comes back resized -
         # plus whatever the tile itself says it needs.

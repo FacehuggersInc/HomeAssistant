@@ -1,6 +1,16 @@
 {
  "log": [
   {
+   "at": 1785584554.172048,
+   "note": "a drag that follows the finger",
+   "pages": [
+    {
+     "slug": "tiles",
+     "state": "updated"
+    }
+   ]
+  },
+  {
    "at": 1785583842.7143376,
    "note": "an hourly census of what piled up",
    "pages": [
@@ -389,10 +399,10 @@
    "state": "seen"
   },
   "tiles": {
-   "at": 1785540425.8653476,
-   "hash": "fc8be3a2f5b3d3d1",
-   "opened": 1785540425.8653479,
-   "state": "seen"
+   "at": 1785584554.1716707,
+   "hash": "e33a01c491cd0b19",
+   "opened": 0,
+   "state": "updated"
   },
   "updating": {
    "at": 1785540425.8653836,

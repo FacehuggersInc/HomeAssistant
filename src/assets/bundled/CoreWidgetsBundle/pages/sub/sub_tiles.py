@@ -168,6 +168,22 @@ class SubTilesPage(SubPageFramework):
         self.registry[tile.KEY] = tile
 
         saved = self.tile_grid.load_positions()
+
+        if getattr(tile_class, "MULTIPLE", False):
+            # The template belongs in the panel, always. It is the thing that
+            # MAKES bookmarks, not a bookmark - so a saved entry under its
+            # bare key must not put it on the grid, where it would sit
+            # showing somebody else's address and leave the panel with
+            # nothing to place.
+            #
+            # An entry under the bare key is one placed before this tile could
+            # be placed twice. It becomes a copy like any other, so it keeps
+            # its cell and its address and stops owning the template's key.
+            self._adopt_legacy(tile, saved)
+            self.tile_panel.add_tile(tile)
+            self._restore_copies(tile, saved, col, row)
+            return tile
+
         if tile.KEY in saved:
             entry = saved[tile.KEY] or {}
             span_w, span_h = entry.get("w"), entry.get("h")
@@ -183,17 +199,56 @@ class SubTilesPage(SubPageFramework):
 
         return tile
 
-    ##DRAG NOTIFICATIONS
+    def _adopt_legacy(self, template: Tile, saved: dict) -> None:
+        """
+        Turn a bookmark saved under the template's own key into a copy.
 
-    # A tile is removed by holding it and tapping its delete handle, the same
-    # way a widget is. A drag-to-a-bin target as well meant two ways to do one
-    # thing, a bin sliding in over the grid on every ordinary move, and a hit
-    # test plus a repaint on every mouse-move event of a drag.
-    def notify_drag_started(self) -> None:
-        pass
+        One was placed before this tile could be placed more than once, so it
+        holds the bare key. Left there it drags the template onto the grid and
+        the panel is left with nothing to place another with.
+        """
+        entry = saved.get(template.KEY)
+        if not entry:
+            return
+        adopted = f"{template.KEY}:{self.client.uuid()}"
+        saved[adopted] = dict(entry)
+        saved.pop(template.KEY, None)
+        try:
+            self.tile_grid.forget(template.KEY)
+        except Exception:
+            pass
+        self.client.log("info",
+                        f"[Tiles] Moved the placed bookmark to '{adopted}' so "
+                        f"the panel can make more.")
 
-    def notify_drag_ended(self, global_pos, tile) -> None:
-        pass
+    def _restore_copies(self, template: Tile, saved: dict,
+                        col: int, row: int) -> None:
+        """
+        Put back every copy of a template that was on the grid.
+
+        The template itself stays in the panel to make the next one. Without
+        this only the template was ever built, so a second bookmark survived
+        until the next restart and then quietly was not there - its saved
+        position still on disk, with nothing to give it to.
+        """
+        for key, entry in sorted(saved.items()):
+            if not str(key).startswith(f"{template.KEY}:"):
+                continue
+            if key in self.registry:
+                continue
+            entry = entry or {}
+            span_w, span_h = entry.get("w"), entry.get("h")
+            span = (int(span_w), int(span_h)) if span_w and span_h else None
+            try:
+                copy = template.make_copy(key, span)
+            except Exception as e:
+                self.client.log("warning",
+                                f"[Tiles] Could not restore '{key}': {e}")
+                continue
+            if span:
+                copy.apply_span(span[0], span[1], force=True)
+            self.registry[key] = copy
+            self.tile_grid.add_tile(copy, col, row)
 
     def receive_tile_from_panel(self, tile, global_pos) -> None:
         pass

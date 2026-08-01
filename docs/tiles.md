@@ -23,6 +23,20 @@ that looks tidy. Both are registered rather than constructed-and-placed, and
 both remember where you put them.
 
 
+## Dragging one
+
+A drag positions the tile from where the pointer IS, not by adding up how far
+it has moved since the last event. Deltas accumulate whatever they miss - a
+finger faster than the events are delivered, a tile nudged by anything else -
+and the tile then stays permanently behind the finger, because every later
+delta is measured from where it already is.
+
+Every way a drag can end puts the tile back on the grid, including the ways
+that are not a release. A move arriving with no button held ends the gesture -
+a touchscreen produces those on a fast flick - and that path used to just clear
+the flags, leaving the tile between two cells, belonging to neither, and
+refusing to move again because the gesture state was gone.
+
 ## The framework
 
 Three classes, all owned by the page rather than by you:

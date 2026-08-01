@@ -26,6 +26,10 @@ class BookmarkTile(Tile):
 
     KEY  = "bookmark_tile"
     NAME = "Bookmark"
+    # A bookmark to one page is not a feature. The panel entry is a template
+    # and every one placed is a copy with its own key and its own address -
+    # the same way the sticky note works.
+    MULTIPLE = True
     ICON = "mdi.bookmark"
 
     MIN_GRID_W, MIN_GRID_H = 1, 1
@@ -79,7 +83,10 @@ class BookmarkTile(Tile):
         self._name_label.setWordWrap(False)
         self._name_label.setFont(make_font(SIZES.S1, bold=True))
         self._name_label.setStyleSheet("color:#e8ecf4;background:transparent;")
-        self._name_label.setSizePolicy(QSizePolicy.Policy.Ignored,
+        # Not Ignored horizontally. Combined with eliding to the label's own
+        # width that is a loop that eats itself: the label asks for no width,
+        # gets very little, elides to fit that, and asks for less again.
+        self._name_label.setSizePolicy(QSizePolicy.Policy.Preferred,
                                        QSizePolicy.Policy.Fixed)
         add_text_shadow(self._name_label, blur=8)
         layout.addWidget(self._name_label, stretch=0)
@@ -87,14 +94,28 @@ class BookmarkTile(Tile):
         self.refresh()
         return host
 
+    #Side margins the label sits inside, from the layout below.
+    LABEL_INSET = 16
+
     def _fit_label(self) -> None:
-        """Shorten the name to whatever width the cell actually has."""
+        """
+        Shorten the name to whatever width the TILE has.
+
+        Measured from the tile, not from the label. A label's own width is
+        whatever the last layout pass gave it - and this runs when the address
+        is set, which is before the first pass - so it read as a handful of
+        pixels and elided the name down to two letters. Worse, eliding to the
+        label's own width shrinks what the label then asks for, so every
+        resize cut it down further.
+        """
         label = self._name_label
         if label is None:
             return
         text = getattr(self, "_label_text", "") or ""
-        room = max(0, label.width() - 4)
-        if room <= 0:
+        room = self.width() - self.LABEL_INSET
+        if room <= 8:
+            # No geometry yet. The full text is set, and the next resize
+            # trims it - showing too much briefly beats showing two letters.
             label.setText(text)
             return
         metrics = QFontMetrics(label.font())

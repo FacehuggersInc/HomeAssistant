@@ -1,7 +1,7 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING, Callable, Optional
 
-from PyQt6.QtWidgets import QWidget, QVBoxLayout
+from PyQt6.QtWidgets import QWidget, QVBoxLayout, QApplication
 from PyQt6.QtCore import Qt, QPoint, QRect, QTimer, pyqtSignal
 from PyQt6.QtGui import QPainter, QColor, QBrush, QPen, QMouseEvent
 
@@ -65,6 +65,9 @@ class Tile(QWidget):
         self.radius    = 10
         self.dragging  = False
         self.drag_start: Optional[QPoint] = None
+        #Where inside the tile a drag was started from, so it is positioned
+        #from the pointer rather than by adding up deltas.
+        self._grab: QPoint = QPoint(0, 0)
         self.hovered   = False
 
         self.template_key: str = ""
@@ -330,17 +333,40 @@ class Tile(QWidget):
             return
 
         self.drag_start = event.globalPosition().toPoint()
+        # Where in the tile the press landed. The drag positions the tile from
+        # this rather than accumulating deltas - see mouseMoveEvent.
+        self._grab = event.position().toPoint()
         self.dragging   = False
         self._selected_now = False
         self._hold.start()
 
     def _end_gesture(self) -> None:
-        """Drop any in-progress drag or resize, whatever left it running."""
+        """
+        Drop any in-progress drag or resize, whatever left it running.
+
+        A drag abandoned this way is still put back on the grid. It used to
+        just clear the flags, which left the tile wherever the pointer had
+        got to - sitting between two cells, belonging to neither, and refusing
+        to move again because `drag_start` was gone. Every way a drag can end
+        has to end with the tile somewhere real.
+        """
+        was_dragging = self.dragging
+
         self.resizing       = False
         self._resize_origin = None
         self.dragging       = False
         self.drag_start     = None
         self._hold.stop()
+
+        if not was_dragging:
+            return
+        grid = self.parent()
+        try:
+            if grid is not None and hasattr(grid, "snap_tile"):
+                grid.snap_tile(self)
+        except Exception as e:
+            self.client.log("warning",
+                            f"[Tiles] Could not put a dropped tile back: {e}")
 
     def mouseMoveEvent(self, event: QMouseEvent) -> None:
         # Mouse tracking is on so the tile can highlight on hover, which means
@@ -349,6 +375,19 @@ class Tile(QWidget):
         # and re-sized mid-drag, so it can - would otherwise pick straight back
         # up the next time the pointer crossed the tile.
         if not (event.buttons() & Qt.MouseButton.LeftButton):
+            # Checked against the DEVICE, not just this event.
+            #
+            # An event's buttons() is a snapshot, and Qt makes events that
+            # were never a real gesture: raising the tile at the start of a
+            # drag re-stacks it, so Qt works out what is under the cursor
+            # again and can deliver a synthetic hover move - with no button,
+            # because it is not describing a press. Trusting it alone ended
+            # the drag on the first move that started it, which reads as the
+            # tile stopping dead under a finger that is still down.
+            #
+            # QApplication.mouseButtons() asks what is held right now.
+            if QApplication.mouseButtons() & Qt.MouseButton.LeftButton:
+                return
             if self.resizing or self.dragging or self.drag_start is not None:
                 self._end_gesture()
                 self.update()
@@ -375,9 +414,19 @@ class Tile(QWidget):
                 page.notify_drag_started()
 
         if self.dragging:
-            new_pos = self.pos() + event.globalPosition().toPoint() - self.drag_start
-            self.move(new_pos)
-            self.drag_start = event.globalPosition().toPoint()
+            # Positioned from where the pointer is now, not by adding up how
+            # far it has moved since the last event.
+            #
+            # Deltas accumulate whatever they miss. A finger moving faster
+            # than the events are delivered, a tile nudged by anything else,
+            # a move that lands short - each one leaves the tile permanently
+            # behind the finger, and it never catches up because every later
+            # delta is measured from where it already is.
+            grid = self.parent()
+            here = event.globalPosition().toPoint()
+            if grid is not None:
+                self.move(grid.mapFromGlobal(here) - self._grab)
+            self.drag_start = here
 
             self.move_requested.emit(self, *self.screen_to_grid())
 
