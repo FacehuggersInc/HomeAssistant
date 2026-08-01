@@ -11,7 +11,7 @@ import string
 import socket
 import subprocess
 from pathlib import Path
-from threading import Thread
+from threading import Thread, RLock
 from typing import TYPE_CHECKING
 
 
@@ -156,6 +156,10 @@ class STTProcessing():
 		self.woke_with : str = None
 		# When the wake word was heard, so a wake nobody followed up on can be
 		# stood down. See check_wake_timeout().
+		#Anything watching transcripts without taking them - the microphone
+		#test page. See add_listener().
+		self._listeners : list = []
+		self._listener_lock = RLock()
 		self.woke_at : float = 0.0
 		#When LISTENING was entered by something other than a wake word.
 		#See check_wake_timeout().
@@ -339,7 +343,7 @@ class STTProcessing():
 			return phrase if _has_words(phrase) else None
 
 		since = time.time() - getattr(self, "interrupted_at", 0.0)
-		if since < self.INTERRUPT_SETTLE:
+		if since < self.interrupt_settle():
 			# Spent, so only the first phrase after an interruption is
 			# treated as the tail. Everything after it is somebody talking.
 			self.interrupted_at = 0.0
@@ -379,7 +383,7 @@ class STTProcessing():
 		except Exception:
 			return False
 		return (time.time() - getattr(self, "spoke_until", 0.0)
-				) < self.SELF_HEARING_GRACE
+				) < self.self_hearing_grace()
 
 	def interrupt_for_wake(self, transcribed: str) -> bool:
 		"""
@@ -613,6 +617,75 @@ class STTProcessing():
 		except Exception as e:
 			self.client.log("debug", f"[STTProcessing] Could not greet: {e}")
 
+	def add_listener(self, callback) -> None:
+		"""
+		Watch every transcript, without taking it.
+
+		For the microphone test page, and anything else that wants to see
+		what was heard rather than act on it. A listener does not consume the
+		phrase - routing happens exactly as it would have.
+		"""
+		with self._listener_lock:
+			if callback not in self._listeners:
+				self._listeners.append(callback)
+
+	def remove_listener(self, callback) -> None:
+		with self._listener_lock:
+			if callback in self._listeners:
+				self._listeners.remove(callback)
+
+	def _tell_listeners(self, phrase: str) -> None:
+		"""
+		Hand a transcript to anything watching.
+
+		Each in its own try. A listener that raises is a bug in the listener,
+		and it must not take the transcript down with it - the phrase still
+		has a panel to reach.
+		"""
+		with self._listener_lock:
+			watching = list(self._listeners)
+		for callback in watching:
+			try:
+				callback(phrase)
+			except Exception as e:
+				self.client.log("warning",
+					f"[STTProcessing] A transcript listener failed: {e}")
+
+	def mic_processing(self) -> str:
+		"""Whether the microphone cleans its own audio."""
+		try:
+			mode = str(self.client.setting(
+				"assistant.mic_processing.value", "software")).strip().lower()
+		except Exception:
+			mode = "software"
+		return "hardware" if mode == "hardware" else "software"
+
+	#What a microphone array that does its own work changes on this side.
+	#
+	#An XVF3800 and its like have already run AEC, noise suppression, AGC and
+	#VAD before the audio arrives. Running the same things again is not
+	#neutral: a second noise pass on already-clean speech is what makes it
+	#sound underwater, and the self-hearing guards exist to work around an
+	#echo the hardware has already cancelled.
+	#
+	#Shorter rather than zero. The hardware cancels what it can hear through
+	#its own reference; a speaker not wired through the array is still an
+	#echo it knows nothing about, so a little caution is kept.
+	HARDWARE_GRACE = 0.6
+	HARDWARE_SETTLE = 0.2
+
+	def self_hearing_grace(self) -> float:
+		"""How long after speaking the panel still expects to hear itself."""
+		if self.mic_processing() == "hardware":
+			return self.HARDWARE_GRACE
+		return self.SELF_HEARING_GRACE
+
+	def interrupt_settle(self) -> float:
+		"""How long after an interruption the tail is still expected."""
+		if self.mic_processing() == "hardware":
+			return self.HARDWARE_SETTLE
+		return self.INTERRUPT_SETTLE
+
 	def wake_timeout_seconds(self) -> float:
 		"""How long to stay listening after a wake with nothing said."""
 		try:
@@ -787,6 +860,12 @@ class STTProcessing():
 											f"[Whisper] {body}")
 
 								case "transcribe":
+									# Anything watching gets it raw, before
+									# normalising, wake matching or routing.
+									# That is the point of watching: to tell
+									# "the microphone heard nothing" apart
+									# from "the wake word did not match".
+									self._tell_listeners(data)
 									self.pre_processing(data)
 
 								case "voice_activity": #Will Get Used A Lot
@@ -880,6 +959,8 @@ class STTProcessing():
 				"input_device": self.input_device,
 				"model":        self.model,
 				"session_silence_ms": self.session_silence_ms,
+				# What the microphone does for itself - see mic_profile().
+				"mic_processing": self.mic_processing(),
 				# So the process can notice the client dying without a STOP and
 				# leave on its own, instead of surviving as an orphan holding
 				# the microphone and both ports.

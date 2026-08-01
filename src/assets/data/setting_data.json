@@ -35,6 +35,7 @@
   "assistant.enabled": "Whether the voice assistant runs at all",
   "assistant.wake_word": "The word that wakes the assistant",
   "assistant.input_device": "Microphone to listen on; empty means system default",
+  "assistant.mic_processing": "Whether the microphone cleans its own audio",
   "assistant.model": "Whisper model used for transcription",
   "assistant.voice_bar": "Show the activity bar along the bottom while listening",
   "assistant.tts_enabled": "Whether the assistant speaks its replies",

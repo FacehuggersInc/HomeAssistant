@@ -1325,6 +1325,11 @@ class SettingsPage(PageFramework):
         from src.pages.logs import build_logs_page
         self.new_category("logs", build_logs_page(self.client),
                           label="Logs", system=True)
+        # Live, and holds the microphone open only while a session is
+        # running - see MicTestPage.
+        from src.pages.mic_test import build_mic_test_page
+        self.new_category("mic_test", build_mic_test_page(self.client),
+                          label="Microphone test", system=True)
         # Info is always last
         self.new_category("info",
                           _build_info_page(self.client, self._working_settings),

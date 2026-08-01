@@ -90,6 +90,53 @@ being mostly end.
 Skipped when somebody interrupted: they are not asking for the rest of the
 buffer to play out first.
 
+## When the microphone does the work itself
+
+`assistant.mic_processing` is `software` or `hardware`.
+
+`software` assumes a plain microphone and cleans the audio here. `hardware` is
+for arrays that have already done it - a ReSpeaker XVF3800 runs AEC, noise
+suppression, AGC and VAD on its own chip before anything reaches this side.
+
+Running those a second time is not neutral. A second noise pass over
+already-clean speech is what makes it sound underwater, two aggressive VAD
+gates in series drop the quiet start of a phrase between them, and the
+self-hearing guards work around an echo the hardware has already cancelled.
+
+| | software | hardware |
+|---|---|---|
+| Noise reduction | on | off |
+| VAD aggressiveness | 3 | 1 |
+| Silence floor | -60dB | -48dB |
+| Self-hearing grace | 2.5s | 0.6s |
+| Interrupt settle | 0.5s | 0.2s |
+
+The silence floor rises because sixty decibels of AGC lifts the room's noise
+along with the speech, so a threshold set for a quiet raw signal stops telling
+them apart.
+
+The grace shortens rather than disappearing. Hardware AEC cancels what it can
+hear through its own reference; a speaker not wired through the array is an
+echo it knows nothing about, so a little caution is kept.
+
+**Software by default.** A plain microphone is the common case, and this
+profile on one would hear far less.
+
+## Testing the microphone on its own
+
+Settings has a **Microphone test** page. A session is started by hand, every
+transcript lands in a list exactly as it was heard, and it stops when told.
+
+Nothing is routed. No wake word is needed and no skill runs - the point is to
+tell "the microphone is not working" apart from "the wake word is not
+matching" apart from "the skill is not firing", which is impossible while all
+three are in the way of each other.
+
+It holds the microphone only while a session is running, and navigating away
+is a stop. Watching is done through `STT.add_listener()`, which is handed each
+transcript before normalising or routing and does not consume it - the phrase
+reaches the panel exactly as it would have.
+
 ## Two threads, and what may not block
 
 The speech process runs an audio thread and a processing thread, and the rule

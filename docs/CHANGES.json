@@ -1,6 +1,16 @@
 {
  "log": [
   {
+   "at": 1785605590.148265,
+   "note": "a microphone that cleans its own audio",
+   "pages": [
+    {
+     "slug": "assistant",
+     "state": "updated"
+    }
+   ]
+  },
+  {
    "at": 1785601902.2275507,
    "note": "the action tile, and docs that had drifted",
    "pages": [
@@ -277,8 +287,8 @@
    "state": "seen"
   },
   "assistant": {
-   "at": 1785559426.8104458,
-   "hash": "264ed73dfc666025",
+   "at": 1785605590.1468263,
+   "hash": "55b9e393144920b8",
    "opened": 0,
    "state": "updated"
   },

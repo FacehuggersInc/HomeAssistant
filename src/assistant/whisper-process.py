@@ -283,6 +283,10 @@ class WakeWhisper:
 		#Set below quiet speech and above what is left of a silent room after
 		#de-noising, which is roughly -70dB.
 		self.SILENT_DB = -60.0
+		#Raised for a microphone with its own AGC. Sixty decibels of gain
+		#lifts the room's noise floor along with the speech, so a threshold
+		#set for a quiet raw signal stops separating them.
+		self.HARDWARE_SILENT_DB = -48.0
 		self.vad = webrtcvad.Vad(vad_aggressiveness)
 
 		self.wake_words = wake_words
@@ -942,7 +946,9 @@ class WakeWhisper:
 			# than a dropped phrase to be wrong here.
 			level = float(np.sqrt(np.mean(speech ** 2)))
 			level_db = 20 * np.log10(level + 1e-9)
-			if level_db < self.SILENT_DB:
+			floor = (self.HARDWARE_SILENT_DB if not self.use_noise_reduction
+					 else self.SILENT_DB)
+			if level_db < floor:
 				self.send_log("debug",
 					f"[Whisper]: Nothing said ({level_db:.0f}dB).")
 				continue
@@ -1031,13 +1037,20 @@ class STTServer:
 		self.whisper = WakeWhisper(
 			log = self.send_log,
 			model_name = self.model_name,
-			vad_aggressiveness=3,
+			# Gentler when the array has its own VAD. Two aggressive gates in
+			# series drop the quiet start of a phrase between them.
+			vad_aggressiveness=(1 if str(config.get("mic_processing") or "")
+								== "hardware" else 3),
 			window_duration_ms=30,
 			context_audio_windows_start = 14,
 			context_audio_windows_end = 5,
 			minimum_speech_windows = 20,
 			wake_timeout_seconds = 3.5,
-			use_noise_reduction=True,
+			# Off when the microphone has already done it. A second pass over
+			# audio an XVF3800 has already cleaned is what makes speech sound
+			# underwater - see mic_profile in the settings.
+			use_noise_reduction=(str(config.get("mic_processing") or "software")
+								 != "hardware"),
 			session_silence_ms = int(config.get("session_silence_ms") or 800),
 			session_minimum_speech_ms = int(config.get("session_minimum_speech_ms") or 150),
 			wake_words = wake_words,

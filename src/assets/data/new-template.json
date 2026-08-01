@@ -290,6 +290,16 @@
    "value": "",
    "description": "Name of the microphone to listen on. Leave empty to use the system default. Available devices are listed in the Assistant section of the log at startup."
   },
+  "mic_processing": {
+   "type": "enum",
+   "options": [
+    "software",
+    "hardware"
+   ],
+   "default": "software",
+   "value": "software",
+   "description": "What the microphone does for itself. 'software' assumes a plain mic and cleans the audio here. 'hardware' is for arrays that already do it - the ReSpeaker XVF3800 and similar - and turns off the second pass, because cleaning already-clean audio is what makes speech sound underwater. Set this to hardware only if the device really does the work; on a plain mic it will hear far less."
+  },
   "model": {
    "type": "enum",
    "default": "tiny.en",
