@@ -37,6 +37,38 @@ class SecretRegistry:
         self.client = client
         self.store: dict[str, set[str]] = {}   # {owner: {KEY, ...}}
         self.meta: dict[str, dict] = {}        # {KEY: {"owner":..., "label":...}}
+        self.load_env()
+
+    def load_env(self) -> int:
+        """
+        Read .env into the process. Returns how many names it carried.
+
+        Nothing did this. `set()` writes the file AND the environment, so a key
+        entered on the settings page worked for that run and read as unset on
+        the next one - and a key put in the file by hand was never seen at all,
+        because the only thing that had ever put a name in `os.environ` was
+        this process writing it there.
+
+        Existing environment variables win. A key exported by a service file is
+        a deliberate choice by whoever runs the panel, and a file checked out
+        beside it should not quietly replace it.
+        """
+        try:
+            from dotenv import load_dotenv
+        except Exception as e:
+            self.client.log("warning",
+                            f"[SecretRegistry] Could not read .env: {e}")
+            return 0
+        if not ENV_PATH.is_file():
+            return 0
+        try:
+            before = set(os.environ)
+            load_dotenv(ENV_PATH, override=False)
+            return len(set(os.environ) - before)
+        except Exception as e:
+            self.client.log("warning",
+                            f"[SecretRegistry] Could not read .env: {e}")
+            return 0
 
     ## -- REGISTRATION
 
@@ -114,8 +146,31 @@ class SecretRegistry:
 
         Callers should use get_for(); this exists for the registry itself and
         for the settings UI, which is privileged by definition.
+
+        Falls back to the file. The environment is loaded once at startup, so
+        a key added to .env by hand while the panel is running is not in it -
+        and "Not set" beside a key somebody just typed into the file is the
+        panel calling them a liar.
         """
-        return os.environ.get(key, default) or default
+        found = os.environ.get(key)
+        if found:
+            return found
+        found = self._read_env_file().get(key, "")
+        if found:
+            # Remembered, so the next read is not another file open.
+            os.environ[key] = found
+            return found
+        return default
+
+    def _read_env_file(self) -> dict:
+        """Every name in .env, or an empty mapping."""
+        if not ENV_PATH.is_file():
+            return {}
+        try:
+            from dotenv import dotenv_values
+            return {k: v for k, v in dotenv_values(ENV_PATH).items() if v}
+        except Exception:
+            return {}
 
     def get(self, key: str, default: str = "") -> str:
         return self._read(key, default)

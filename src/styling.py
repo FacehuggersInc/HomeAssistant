@@ -132,6 +132,30 @@ def load_styles() -> None:
     with open(".styles", "w") as dump_file:
         json.dump(STYLES.to_dict(), dump_file, indent=2)
 
+def style_scrollbar(widget) -> None:
+    """
+    Give a scroll area the shared scrollbar, keeping whatever it already has.
+
+    Appended rather than set. `setStyleSheet` REPLACES, and set_style() uses
+    it - so a scroll area given the scrollbar sheet and then styled for
+    anything else silently loses the scrollbar again and shows the platform's
+    own. Every call site had that ordering wrong at once, which is what a trap
+    rather than a mistake looks like.
+
+    Safe to call at any point, and safe to call twice.
+    """
+    try:
+        sheet = get_style_sheet("scrollbar")
+        if not sheet.strip():
+            return
+        existing = widget.styleSheet() or ""
+        if "QScrollBar" in existing:
+            return
+        widget.setStyleSheet((existing + "\n" + sheet).strip())
+    except Exception as e:
+        print(f"[Styling] Could not style a scrollbar - {e}")
+
+
 def get_style_sheet(css_file_name: str) -> str:
     stylesheet = _styles_dir() / f"{css_file_name.strip()}.css"
     if stylesheet.exists():

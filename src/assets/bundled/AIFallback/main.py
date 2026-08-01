@@ -53,6 +53,27 @@ class Usage:
 
 
 class AIFallback(Plugin):
+    #What ends a conversation when it is said.
+    #
+    #Checked inside the follow-up loop as well as registered with the cancel
+    #engine, because a session takes precedence: with one open every phrase
+    #goes into its queue rather than to the intent engine, so "stop" arrived
+    #here as a question and was sent to the model to answer.
+    DISMISS_WORDS = (
+        "nevermind", "never mind", "no nevermind", "no never mind",
+        "cancel", "cancel that", "forget it", "forget that", "nothing",
+        "nothing nevermind", "leave it", "disregard", "disregard that",
+        "scratch that", "dont worry", "don't worry", "dont worry about it",
+        "don't worry about it", "as you were", "stop", "stop it", "abort",
+        "quit that", "that's all", "thats all", "we're done", "were done",
+        "goodbye", "bye",
+    )
+
+    #How far the conversation card sits in from every edge. Enough that it
+    #reads as laid on top of the panel rather than as a new page, and enough
+    #that there is somewhere beside it to press to put it away.
+    PANEL_INSET = 28
+
 
     ## CORE
 
@@ -84,13 +105,7 @@ class AIFallback(Plugin):
         # one open over music, "stop" means close this.
         self.client.CANCEL.register(
             "aifallback", "answer_panel",
-            keywords=["nevermind", "never mind", "no nevermind",
-                      "no never mind", "cancel", "cancel that", "forget it",
-                      "forget that", "nothing", "nothing nevermind",
-                      "leave it", "disregard", "disregard that",
-                      "scratch that", "dont worry", "don't worry",
-                      "dont worry about it", "don't worry about it",
-                      "as you were", "stop", "stop it", "abort", "quit that"],
+            keywords=list(self.DISMISS_WORDS),
             handler=self.close_panel,
             is_active=self._panel_is_open,
             priority=50,
@@ -169,6 +184,7 @@ class AIFallback(Plugin):
         self.session = session
         self._dismissed = False
         phrase = first_phrase
+        dismissed = False
 
         try:
             if session is None:
@@ -185,9 +201,22 @@ class AIFallback(Plugin):
                     phrase = session.wait_for_phrase()
                     if phrase is None:
                         # Cancelled, timed out, or closed.
+                        #
+                        # A cancelled session is somebody saying they were
+                        # finished: wait_for_phrase() recognises the backing
+                        # out itself and answers None, so "stop" never reached
+                        # the check below and the panel stayed up with nothing
+                        # listening to it.
+                        dismissed = bool(getattr(session, "cancelled", False))
                         break
                     phrase = phrase.strip()
                     if not phrase:
+                        break
+                    if self.is_dismissal(phrase):
+                        # Answered here rather than by the cancel engine: an
+                        # open session queues every phrase, so this one never
+                        # reached it and was asked of the model instead.
+                        dismissed = True
                         break
         finally:
             if self.session is session:
@@ -195,6 +224,12 @@ class AIFallback(Plugin):
             with self._lock:
                 self.busy = False
             self.client.call_on_ui(lambda: self._set_status(""))
+            if dismissed:
+                # Somebody said they were finished. The session ending is half
+                # of that; the panel going is the other half, and stopping at
+                # the first left a conversation on screen that nothing was
+                # listening to.
+                self.close_panel()
 
     def _exchange(self, phrase: str) -> bool:
         """
@@ -209,9 +244,17 @@ class AIFallback(Plugin):
         panel_open = self.chat is not None
         if panel_open:
             self.client.call_on_ui(lambda: self._show(phrase, from_user=True))
-            self.client.call_on_ui(lambda: self._set_status("Thinking…"))
+            # Not "Thinking…": the pill reads the assistant's own state now,
+            # and says more than this did - whether it is speaking, and that
+            # the wake word will interrupt it. Overriding it here replaced all
+            # of that with one word.
 
-        reply, error, fatal, usage = self._ask(phrase)
+        # The pill says so for the whole round trip. The assistant's own
+        # THINKING is set while the phrase is routed and cleared once routing
+        # returns, which is before this request has even been sent - so a slow
+        # model left the panel looking idle while it waited.
+        with self.client.thinking("asking the model"):
+            reply, error, fatal, usage = self._ask(phrase)
 
         if error:
             self._report_error(error, panel_open)
@@ -350,6 +393,15 @@ class AIFallback(Plugin):
         self.chat = ChatPanel(self.client)
         timeout = int(self.option("conversation.panel_timeout", 300))
 
+        # The room is about to be a conversation. Music over the top of it is
+        # both hard to talk through and hard for the microphone to hear past.
+        self._held_music = False
+        try:
+            music = self.client.public.music
+            self._held_music = bool(music["hold"]("the assistant"))
+        except Exception:
+            self._held_music = False
+
         def created(panel):
             self.panel = panel
             # Long on purpose: a conversation should not be cut off mid-thought
@@ -360,9 +412,36 @@ class AIFallback(Plugin):
             except Exception:
                 pass
 
+        # A card over the whole screen, not a drawer down one side.
+        #
+        # A conversation is the thing being looked at while it is open, and a
+        # column six hundred pixels wide turns every reply into a narrow
+        # ribbon. The inset keeps it reading as something laid on top rather
+        # than as a new page.
+        #
+        # Sized here rather than after the panel exists: open_panel() works out
+        # where it slides TO before on_created runs, so a size applied
+        # afterwards animates to the old position and lands cut off.
+        inset = self.PANEL_INSET
+        try:
+            host = self.client.OVERLAYS
+            width = max(360, host.width() - inset * 2)
+        except Exception:
+            width, inset = Panel.DEFAULT_WIDTH, 0
+
         self.client.create_panel(
-            content=self.chat, width=Panel.DEFAULT_WIDTH, edge="right",
+            content=self.chat, width=width, edge="right",
+            # None fills the cross axis, less the margin.
+            height=None, margin=inset,
             key="__ai_fallback", destroy_on_close=False, on_created=created,
+            # A conversation covering the screen has to be dismissable by
+            # pressing beside it; there is nowhere else to press.
+            dismiss_on_outside_click=True,
+            # A conversation is read at a person's own pace and produces no
+            # interaction while it is. The panel has its own, much longer
+            # timeout - see `conversation.panel_timeout` - which is what
+            # eventually puts it away.
+            blocks_idle=True,
         )
 
     def _show(self, text: str, from_user: bool, usage: Usage = None):
@@ -448,6 +527,12 @@ class AIFallback(Plugin):
             # Panel deleted between the check above and here.
             return False
 
+    def is_dismissal(self, phrase: str) -> bool:
+        """Whether a phrase means the conversation is over."""
+        cleaned = " ".join(str(phrase or "").lower().split())
+        cleaned = cleaned.strip(" .,!?")
+        return cleaned in self.DISMISS_WORDS
+
     def close_panel(self):
         """
         Tear the whole conversation down: timeout, session, history, panel.
@@ -479,3 +564,14 @@ class AIFallback(Plugin):
         self.usage = Usage()
         if panel is not None:
             self.client.call_on_ui(panel.close_panel)
+
+        # Whatever was playing gets to carry on. Only if this is what stopped
+        # it: music paused by hand during a conversation was not asking to be
+        # started again afterwards.
+        if getattr(self, "_held_music", False):
+            self._held_music = False
+            try:
+                self.client.public.music["release"]("the assistant")
+            except Exception as e:
+                self.client.log("debug",
+                                f"[AIFallback] Could not resume music: {e}")

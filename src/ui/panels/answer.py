@@ -147,6 +147,17 @@ class AnswerPanel(Panel):
         key = getattr(self, "_timeout_key", "")
         if key:
             self.client.TIMEOUTS.discard(key)
+
+        # Whatever put the answer up gets told it has gone, however it went -
+        # a tap beside it, the timeout, or a tap on the card. A caller that
+        # only hears about one of those has to guess about the others.
+        hook, self.on_closed = getattr(self, "on_closed", None), None
+        if callable(hook):
+            try:
+                hook()
+            except Exception as e:
+                self.client.log("warning",
+                                f"[AnswerPanel] on_closed failed: {e}")
         super().close_panel(destroy)
 
     def paintEvent(self, event) -> None:

@@ -121,6 +121,9 @@ token as `?token=`. Pair a device once and approve it on the panel.
 registered by the Calendar plugin on `client.API` and disappear with
 it. See [Backend API](/docs/api).
 
+Stickers stuck to days and to events are published here too - see
+[Stickers](/docs/plugin/calendarplugin/stickers).
+
 ### The form
 
 `calendar_form` is a single page sized for a phone: title, date, start, end,

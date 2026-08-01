@@ -15,6 +15,10 @@ if TYPE_CHECKING:
 ##TILE GRID
 
 class TileGrid(QWidget):
+    #The gap between tiles, as a share of one tile. Proportional rather than
+    #fixed so the spacing looks the same on a grid of four and a grid of forty.
+    GAP_RATIO = 0.15
+
 
     def __init__(self, client: "Client", cols: int = 16, rows: int = 10):
         super().__init__()
@@ -28,7 +32,7 @@ class TileGrid(QWidget):
 
         self.cell_size = 0
         self.gap_x     = 0   #horizontal spacing between cells
-        self.gap_y     = 0   #vertical spacing between cells
+        self.gap_y     = 0   #vertical spacing between cells, always the same
         self.margin    = 0
         self.origin_x  = 0
         self.origin_y  = 0
@@ -142,36 +146,44 @@ class TileGrid(QWidget):
         margin = int(self.client.SETTINGS.home.widget_margin.value)
         self.margin = margin
 
-        #minimum gap before any stretching — keeps cells from touching
+        #minimum gap before anything else — keeps cells from touching
         base_gap = max(6, margin // 4)
 
         bottom_reserve = margin   #was max(drawer_handle, margin); there is no drawer now
         available_w    = self.width()  - margin * 2
         available_h    = self.height() - margin - bottom_reserve
 
-        #square cells: whichever axis is tighter wins the cell size
-        cell_from_w = (available_w - base_gap * (self.cols - 1)) / self.cols
-        cell_from_h = (available_h - base_gap * (self.rows - 1)) / self.rows
-        self.cell_size = int(min(cell_from_w, cell_from_h))
+        # One gap, both ways, proportional to the cell.
+        #
+        # Pouring each axis's LEFTOVER into that axis's gaps makes the two
+        # disagree by however much the screen disagrees with the grid: on a
+        # wide panel almost all the spare room is horizontal, so the columns
+        # end up far apart and the rows nearly touching. The tiles are square
+        # and the spacing between them should be too.
+        #
+        # So the cell is sized to leave room for the same gap on both axes,
+        # and whatever is still spare becomes margin rather than more gap.
+        ratio = self.GAP_RATIO
+        cell_from_w = available_w / (self.cols + (self.cols - 1) * ratio)
+        cell_from_h = available_h / (self.rows + (self.rows - 1) * ratio)
+        self.cell_size = max(1, int(min(cell_from_w, cell_from_h)))
 
-        grid_w = self.cell_size * self.cols + base_gap * (self.cols - 1)
-        grid_h = self.cell_size * self.rows + base_gap * (self.rows - 1)
+        gap = max(base_gap, int(round(self.cell_size * ratio)))
+        # A gap that no longer fits after rounding comes back down rather than
+        # pushing the last column off the edge.
+        for axis, count in ((available_w, self.cols), (available_h, self.rows)):
+            if count > 1:
+                room = (axis - self.cell_size * count) / (count - 1)
+                gap = min(gap, int(room))
+        gap = max(0, gap)
+        self.gap_x = self.gap_y = gap
 
-        leftover_w = available_w - grid_w
-        leftover_h = available_h - grid_h
+        grid_w = self.cell_size * self.cols + gap * (self.cols - 1)
+        grid_h = self.cell_size * self.rows + gap * (self.rows - 1)
 
-        if leftover_w > 0 and self.cols > 1:
-            self.gap_x = base_gap + leftover_w / (self.cols - 1)
-        else:
-            self.gap_x = base_gap
-
-        if leftover_h > 0 and self.rows > 1:
-            self.gap_y = base_gap + leftover_h / (self.rows - 1)
-        else:
-            self.gap_y = base_gap
-
-        self.origin_x = margin
-        self.origin_y = margin
+        # Centred in what is left, so the spare room reads as a margin.
+        self.origin_x = margin + max(0, (available_w - grid_w) // 2)
+        self.origin_y = margin + max(0, (available_h - grid_h) // 2)
 
     def cell_rect(self, col: int, row: int, span_w: int = 1, span_h: int = 1) -> QRect:
         x = self.origin_x + col * (self.cell_size + self.gap_x)

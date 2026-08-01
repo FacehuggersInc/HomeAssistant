@@ -132,6 +132,9 @@ class BookmarkTile(Tile):
     def set_url(self, url: str) -> None:
         self.url = str(url or "").strip()
         self.refresh()
+        # Written now, not on the next drag. Choosing the address IS the
+        # change worth keeping, and nothing else on this tile triggers a save.
+        self.request_save()
 
     def tile_state(self) -> dict:
         """Read by TileGrid.save_positions and merged into this tile's entry."""

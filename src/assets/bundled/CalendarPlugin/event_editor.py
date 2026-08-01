@@ -13,7 +13,7 @@ from PyQt6.QtCore import Qt
 from .dialogs import _WideDialog
 from src.ui.keyboard import KeyboardDialog
 from src.ui.controls.buttons import IconButton
-from src.styling import make_font, SIZES, set_style, get_style_sheet
+from src.styling import make_font, SIZES, set_style, get_style_sheet, style_scrollbar
 
 if TYPE_CHECKING:
     from src.main import Client
@@ -570,14 +570,13 @@ class EventEditorDialog(_WideDialog):
         # excess is simply cut off - and what sits near the bottom is the icon
         # row, which is exactly what was disappearing.
         scroll = QScrollArea()
-        scroll.setStyleSheet(get_style_sheet("scrollbar"))
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
         scroll.setHorizontalScrollBarPolicy(
             Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         scroll.setWidget(holder)
-        set_style(scroll, "common", "transparent")
         set_style(scroll.viewport(), "common", "transparent")
+        style_scrollbar(scroll)
         # The same drag-to-scroll as everywhere else on this panel.
         QScroller.grabGesture(
             scroll.viewport(),

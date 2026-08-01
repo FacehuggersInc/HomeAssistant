@@ -1076,12 +1076,17 @@ def FlaskApp(client):
 			state["quiet"] = {"dnd": False, "muted": False}
 
 		try:
+			# `latest` as well as the wording, so the dashboard can tell
+			# whether a re-check found a different commit from the one its
+			# button was offering.
+			latest = getattr(client, "UPDATE_LATEST", None)
 			state["update"] = {
 				"available": bool(client.UPDATE_AVAILABLE),
 				"detail": str(getattr(client, "UPDATE_DETAIL", "") or ""),
+				"latest": latest if isinstance(latest, dict) else None,
 			}
 		except Exception:
-			state["update"] = {"available": False, "detail": ""}
+			state["update"] = {"available": False, "detail": "", "latest": None}
 
 		try:
 			state["brightness"] = int(client.DIMMER.brightness())

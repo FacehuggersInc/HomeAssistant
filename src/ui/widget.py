@@ -12,7 +12,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, QTimer, QPoint, QPointF, QRect, QEvent
 from PyQt6.QtGui import QPainter, QColor, QPen, QBrush, QTransform
 
-from src.styling import set_style, make_font, SIZES, get_style_sheet
+from src.styling import set_style, make_font, SIZES, get_style_sheet, style_scrollbar
 
 if TYPE_CHECKING:
     from src.main import Client
@@ -2389,14 +2389,6 @@ class WidgetFramework(QWidget):
         header.addWidget(title)
         header.addStretch()
 
-        close = QPushButton("Close")
-        close.setFixedHeight(40)
-        close.setMinimumWidth(96)
-        close.setFont(make_font(SIZES.S2, bold=True))
-        close.setCursor(Qt.CursorShape.PointingHandCursor)
-        set_style(close, "settings", "plugin-action-copy")
-        close.clicked.connect(lambda: self.panel.close_panel() if self.panel else None)
-        header.addWidget(close)
         column.addLayout(header)
 
         hint = QLabel("Place a widget on the page. Hold a placed widget to "
@@ -2407,10 +2399,9 @@ class WidgetFramework(QWidget):
         column.addWidget(hint)
 
         scroll = QScrollArea()
-        scroll.setStyleSheet(get_style_sheet("scrollbar"))
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
-        set_style(scroll, "common", "transparent")
+        style_scrollbar(scroll)
 
         inner = QWidget()
         set_style(inner, "common", "transparent")
@@ -2429,7 +2420,8 @@ class WidgetFramework(QWidget):
         self.panel = Panel(self.client, width=Panel.DEFAULT_WIDTH,
                            edge="right",
                            key=f"__widgets_{self.page_key}",
-                           destroy_on_close=False)
+                           destroy_on_close=False,
+                           dismiss_on_outside_click=True)
         self.panel.add_content(host)
 
     def apply_stacking(self) -> None:

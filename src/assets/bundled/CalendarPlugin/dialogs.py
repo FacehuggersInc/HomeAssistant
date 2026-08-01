@@ -57,7 +57,7 @@ class _WideDialog(BaseDialog):
             pass
 from src.ui.controls.buttons import IconButton
 from src.ui.icons import icon
-from src.styling import make_font, SIZES, set_style, get_style_sheet
+from src.styling import make_font, SIZES, set_style, get_style_sheet, style_scrollbar
 
 if TYPE_CHECKING:
     from src.main import Client
@@ -159,15 +159,15 @@ class DayViewDialog(_WideDialog):
         self.list_layout.setSpacing(8)
 
         scroll = QScrollArea()
-        scroll.setStyleSheet(get_style_sheet("scrollbar"))
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        style_scrollbar(scroll)
+        style_scrollbar(scroll)
         # No fixed cap. The dialog is already bounded by the screen, and a
         # second limit inside it just wastes the room the dialog asked for.
         scroll.setMinimumHeight(240)
         scroll.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
-        set_style(scroll, "common", "transparent")
         scroll.setWidget(self.list_host)
         self.content.addWidget(scroll, stretch=1)
 
@@ -338,11 +338,10 @@ class SubscriptionsDialog(_WideDialog):
         self.list_layout.setSpacing(8)
 
         scroll = QScrollArea()
-        scroll.setStyleSheet(get_style_sheet("scrollbar"))
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        set_style(scroll, "common", "transparent")
+        style_scrollbar(scroll)
         scroll.setWidget(self.list_host)
         self.content.addWidget(scroll, stretch=1)
 

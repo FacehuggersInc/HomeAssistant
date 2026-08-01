@@ -51,6 +51,71 @@ dlg.set_status("42 of 300")     # safe from any thread
 self.client.close_dialog()
 ```
 
+## Taking the room over
+
+A panel that runs for minutes rather than seconds should stop the music while
+it is up, and start it again after:
+
+```python
+music = client.public.music
+held = music["hold"]("the assistant")
+...
+if held:
+    music["release"]("the assistant")
+```
+
+Different from ducking, which is for a phrase or two and comes back by itself.
+`release()` checks whether the music is still stopped before starting it -
+music paused by hand during a conversation was not asking to be started again.
+
+## Holding the idle clock
+
+A panel meant to be READ rather than used should say so:
+
+```python
+client.create_panel(content=view, key="__something", blocks_idle=True)
+```
+
+The idle clock already stops for a dialog and for a page that sets
+`blocks_idle`, and did not consider panels at all - so a conversation covering
+the screen was timed out from under whoever was reading it. Reading produces no
+interaction, so measuring interaction measures the wrong thing.
+
+Off by default. Most panels are a control somebody uses and leaves, and one
+that stops the panel ever going idle has to be dismissed by hand.
+
+## Holding the assistant pill
+
+Something slow that a person is waiting on should say so:
+
+```python
+with client.thinking("asking the model"):
+    reply = call_the_api(phrase)
+```
+
+Counted, not a flag. A reply is often still being generated while the previous
+one is being spoken, and a plain boolean means whichever finishes first puts
+the pill away while the other is still working. The status before the first
+hold is what is restored after the last, so a wake word arriving mid-reply is
+not overwritten on the way out.
+
+## Telling a caller the answer has gone
+
+`client.answer()` takes `on_closed`, called however the panel goes - a tap
+beside it, a tap on it, or its own timeout. A caller whose answer stands for
+something still happening needs all three, and one that hears about only one
+of them has to guess about the others.
+
+```python
+client.answer("mdi.timer-outline", "Eggs finished",
+              ["Ten minutes is up.", "Tap anywhere to silence it."],
+              tint="#c0603f",
+              on_closed=lambda: service.dismissed(timer.key))
+```
+
+The timer service uses this: dismissing the answer stops the alarm, because an
+alarm still sounding after somebody has acknowledged it is the panel arguing.
+
 ## The overlay hit mask
 
 `OverlayManager` sets a mask built from the union of its visible children's

@@ -29,6 +29,11 @@ PROCESS_WHISPER     = str(_HERE / "whisper-process.py")
 _CANCELLED = object()
 
 
+def _has_words(text: str) -> bool:
+	"""Whether a phrase contains anything somebody actually said."""
+	return bool(re.search(r"[A-Za-z0-9]", str(text or "")))
+
+
 class Session():
 	def __init__(self, client):
 		self.__client = client
@@ -59,6 +64,13 @@ class Session():
 
 	def id(self) -> str:
 		return self.__id
+
+	def keep_waiting(self) -> None:
+		"""Restart the idle clock without taking a phrase."""
+		try:
+			self.__client.TIMEOUTS.start(self.__id)
+		except Exception:
+			pass
 
 	def timed_out(self):
 		# Used to call close_session() directly, which reset the STT but left
@@ -248,14 +260,87 @@ class STTProcessing():
 
 			case "session":
 				if self.is_session():
-					self.client.log("info", f"[STTProcessing] Routing -> '{processed}' to {self.route}")
-					self.session.put(processed)
-					self.client.ASSIST_STATUS = "LISTENING"
+					spoken = self.for_session(processed)
+					if spoken is None:
+						# Heard, but not a question yet. The wake word on its
+						# own is how somebody cuts a reply short before they
+						# have decided what to ask - passing it on sends the
+						# word "alexa" to be answered.
+						self.session.keep_waiting()
+						self.client.ASSIST_STATUS = "LISTENING"
+					else:
+						self.client.log("info", f"[STTProcessing] Routing -> '{spoken}' to {self.route}")
+						self.session.put(spoken)
+						self.client.ASSIST_STATUS = "LISTENING"
 				else:
 					self.close_session()
 				self.processing = False
 		
 		self.client.iterate_event_callables("on_assistant_transcribed", processed, True)
+
+	#How long after cutting a reply short the tail of it is still expected.
+	#
+	#The microphone was recording while the panel spoke, and Whisper only
+	#transcribes once it hears silence - so the last thing it was saying
+	#arrives just AFTER it was stopped, looking like a question.
+	#
+	#Short, and spent once. There is exactly one tail to catch, and a window
+	#that keeps swallowing means somebody who interrupts and then asks has to
+	#ask again - which is the panel ignoring them at the moment they took the
+	#trouble to interrupt it.
+	INTERRUPT_SETTLE = 0.5
+
+	def for_session(self, processed: str) -> str | None:
+		"""
+		What a session should be given, or None to keep listening.
+
+		| Heard | Given to the session |
+		|---|---|
+		| "alexa what about tuesday" | "what about tuesday" |
+		| "alexa" | nothing - keep listening |
+		| something else, just after an interruption | nothing - it is the tail |
+		| something else | as it was said |
+
+		The wake word is stripped rather than passed on: inside a session it is
+		not addressing the panel, it is interrupting it, and what follows is
+		the question. On its own it is somebody stopping a reply before they
+		have decided what to ask.
+		"""
+		phrase = str(processed or "").strip()
+		if not _has_words(phrase):
+			return None
+
+		try:
+			words = [w[0] for w in self.client.SKILLS.wake_args] or list(self.wake_words)
+		except Exception:
+			words = list(self.wake_words)
+
+		woke = False
+		for wake in words:
+			if wake and self.find_wake(phrase, wake):
+				phrase = self.strip_wake(phrase, wake).strip()
+				woke = True
+				break
+
+		if woke:
+			# This is the phrase that did the interrupting. Whatever follows
+			# the wake word in it is the question, and holding that back for
+			# the settle would drop the thing somebody just said.
+			#
+			# Punctuation is not a question: "Alexa!" leaves an exclamation
+			# mark behind, which is not empty and would be asked of the model.
+			return phrase if _has_words(phrase) else None
+
+		since = time.time() - getattr(self, "interrupted_at", 0.0)
+		if since < self.INTERRUPT_SETTLE:
+			# Spent, so only the first phrase after an interruption is
+			# treated as the tail. Everything after it is somebody talking.
+			self.interrupted_at = 0.0
+			self.client.log("debug",
+				f"[STTProcessing] Holding '{phrase}' - the panel had just been "
+				f"stopped and this is its tail.")
+			return None
+		return phrase if _has_words(phrase) else None
 
 	def words_to_numbers(self, text):
 		# Kept as a method because plugins and mixins may target it. The old
@@ -289,16 +374,74 @@ class STTProcessing():
 		return (time.time() - getattr(self, "spoke_until", 0.0)
 				) < self.SELF_HEARING_GRACE
 
+	def interrupt_for_wake(self, transcribed: str) -> bool:
+		"""
+		Whether the wake word was heard, and anything playing was stopped.
+
+		Answers on the WAKE WORD, not on whether there was something to stop.
+		Returning "stopped" instead meant the two-and-a-half second grace after
+		a reply ate the wake word entirely: nothing was playing by then, so
+		there was nothing to stop, so it was dropped as the panel hearing
+		itself - which is the exact window somebody talks in, because they are
+		answering what it just said.
+
+		The panel never says its own wake word, so hearing one is never it
+		hearing itself.
+
+		Only the wake word counts. Anything else during a reply is the panel,
+		and treating a stray phrase as an interruption would let one talk
+		itself out of its own sentence.
+		"""
+		try:
+			words = [w[0] for w in self.client.SKILLS.wake_args] or list(self.wake_words)
+		except Exception:
+			words = list(self.wake_words)
+
+		spoken = normalize.normalize(transcribed) if transcribed else ""
+		if not spoken or not any(self.find_wake(spoken, w) for w in words if w):
+			return False
+
+		tts = getattr(self.client, "TTS", None)
+		stopped = False
+		try:
+			if tts is not None and hasattr(tts, "stop"):
+				stopped = bool(tts.stop())
+		except Exception as e:
+			self.client.log("warning", f"[STTProcessing] Could not stop speech: {e}")
+
+		self.client.log("info",
+			f"[STTProcessing] Heard '{transcribed}' over the panel"
+			+ (" and stopped it." if stopped else "."))
+		# When the words are allowed to start piling up again.
+		self.interrupted_at = time.time()
+		# Whatever was still coming is not coming now, so the grace would only
+		# suppress the next real thing said.
+		self.spoke_until = 0.0
+		# Said immediately rather than waiting for the wake pipeline: this is
+		# the moment somebody is looking for a sign they were heard.
+		self.client.ASSIST_STATUS = "LISTENING"
+		return True
+
 	def note_speech_ended(self) -> None:
 		"""Called when the panel finishes a spoken reply."""
 		self.spoke_until = time.time()
 
 	def pre_processing(self, transcribed:str):
 		if self.heard_itself():
-			self.client.log("debug",
-				f"[STTProcessing] Ignored '{transcribed}' - the panel was "
-				f"talking.")
-			return
+			# The wake word gets through anyway, and stops the talking.
+			#
+			# Refusing everything while the panel speaks means waiting out a
+			# whole reply before the next question can be asked, and no way to
+			# cut one short by voice at all. A wake word is not something the
+			# microphone picks up by accident from a room, and hearing it
+			# clearly means somebody wants to say something now.
+			if self.interrupt_for_wake(transcribed):
+				pass
+			else:
+				self.client.log("debug",
+					f"[STTProcessing] Ignored '{transcribed}' - the panel was "
+					f"talking.")
+				return
 
 		# Dropped before anything else looks at it.
 		#
@@ -311,6 +454,18 @@ class STTProcessing():
 			self.client.log("debug",
 				f"[STTProcessing] Ignored '{transcribed}' - nothing was said.")
 			return
+
+		# What the transcriber added to the end of a real phrase comes off
+		# before anything reads it. It appends its habits to a question asked
+		# with a pause after it, and the invented half was being asked of the
+		# model along with the real one.
+		trimmed = normalize.strip_hallucination(transcribed)
+		if trimmed != transcribed:
+			self.client.log("debug",
+				f"[STTProcessing] Trimmed '{transcribed}' -> '{trimmed}'")
+		if not trimmed:
+			return
+		transcribed = trimmed
 
 		if not self.processing:
 			self.processing = True

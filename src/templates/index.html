@@ -132,6 +132,9 @@
    font-family:inherit;color:#0d1a12;border:none;
    background:linear-gradient(135deg,var(--accent),var(--accent2));
    box-shadow:0 8px 30px var(--glow)}
+ /* The shared button rule turns text to the accent on hover, which on this
+    button is accent text on an accent gradient. It states its own. */
+ .update:hover{color:#0d1a12}
  .update:active{transform:scale(.99)}
  .update .ico{width:40px;height:40px;border-radius:12px;flex:none;
    background:rgba(0,0,0,.18);display:flex;align-items:center;
@@ -312,6 +315,56 @@ function esc(s) {
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
+// Asked again before the question is put.
+//
+// The dashboard's copy of "an update is ready" is as old as the last poll,
+// and the panel keeps it until it restarts - so a second commit landing after
+// the first was found leaves the button offering to install something that is
+// no longer the newest. The confirmation says which one it is about, and says
+// when that is not the one the button was showing.
+function beginUpdate(button) {
+  var was = (LATEST_UPDATE || {}).sha || '';
+  var label = button.querySelector('.go');
+  var wasLabel = label ? label.textContent : '';
+  if (label) { label.textContent = 'Checking\u2026'; }
+
+  fetch('/update/check?token=' + TOKEN, {headers: {Accept: 'application/json'}})
+    .then(function (r) { return r.json(); })
+    .then(function (body) {
+      if (label) { label.textContent = wasLabel; }
+      if (!body || body.available !== true) {
+        show('Already up to date', false);
+        refresh();
+        return;
+      }
+      var now = (body.latest || {});
+      var newer = was && now.sha && now.sha !== was;
+      var lines = ['Update and restart'];
+      if (now.sha) { lines.push('Version ' + String(now.sha).slice(0, 7)); }
+      if (now.message) { lines.push(now.message); }
+      if (newer) {
+        lines.push('(a newer one arrived since this button appeared)');
+      }
+      if (!confirm(lines.join('\n') + '\n\nAre you sure?')) { return; }
+      show('Update and restart\u2026', false);
+      fetch('/update?token=' + TOKEN).then(function (r) {
+        return r.text().then(function (bodyText) {
+          show(readable(bodyText), !r.ok);
+          refresh();
+        });
+      }).catch(function () {
+        show('Update and restart: no answer (it may be restarting)', false);
+      });
+    })
+    .catch(function () {
+      if (label) { label.textContent = wasLabel; }
+      show('Could not reach the update server', true);
+    });
+}
+
+//What the dashboard last heard was newest, so a re-check can tell.
+var LATEST_UPDATE = null;
+
 function paint(s) {
   document.getElementById('where').textContent = s.page.label || 'the panel';
 
@@ -329,11 +382,10 @@ function paint(s) {
         '<span><span class="t">An update is ready</span>' +
         '<span class="d" id="udetail"></span></span>' +
         '<span class="go">Install &amp; restart \u2192</span>';
-      b.addEventListener('click', function () {
-        run('/update?token=' + TOKEN, 'Update and restart', true);
-      });
+      b.addEventListener('click', function () { beginUpdate(b); });
       box.appendChild(b);
     }
+    LATEST_UPDATE = s.update.latest || null;
     var detail = document.getElementById('udetail');
     if (detail) { detail.textContent = s.update.detail || ''; }
   } else {

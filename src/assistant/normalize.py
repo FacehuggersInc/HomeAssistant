@@ -224,6 +224,13 @@ CANCEL_PHRASES = {
 # real sentence is a real word, and only a bare "thanks" arriving from a quiet
 # room is suspect.
 HALLUCINATIONS = {
+    # Filler the transcriber adds to a pause. Heard often enough on this panel
+    # to be worth naming: it appends them to a real question rather than
+    # offering them alone, which is why they are also stripped from the end -
+    # see strip_hallucination().
+    "i like that", "i like it", "i love it", "that's it", "thats it",
+    "okay", "ok", "alright", "all right", "right", "yeah", "yep",
+    "mm hmm", "mhm", "uh huh",
     # end-screen boilerplate
     "thank you", "thank you very much", "thanks", "thanks a lot",
     "thank you for watching", "thanks for watching",
@@ -248,6 +255,84 @@ HALLUCINATIONS = {
 #A phrase saying the same short thing over and over is the other shape a
 #hallucination takes - "thank you thank you thank you".
 _REPEAT_LIMIT = 3
+
+
+#What may be taken off either END of a real phrase.
+#
+#Both ends, because the transcriber puts it at either: it fills the pause
+#before somebody starts speaking as readily as the one after they stop, so
+#"i like that what is the weather" and "what is the weather i like that" are
+#the same mistake in two places.
+#
+#Deliberately NOT the whole hallucination set. That one holds single common
+#words - "you", "music", "right" - which are fine to reject as a whole
+#utterance and ruinous to strip from the edge of one: "who are you" would
+#become "who are", and "what is that music" would lose the music.
+#
+#Everything here is something nobody says as the first or last words of an
+#instruction to a panel. That is the whole test for adding to it, and it is a
+#stricter one for the front: "i like that idea, remind me" is a sentence
+#somebody could say, so the list stays short rather than clever.
+EDGE_NOISE = frozenset({
+    "i like that", "i like it", "i love it", "like that",
+    "thank you", "thank you very much", "thanks", "thanks a lot",
+    "thank you for watching", "thanks for watching",
+    "please subscribe", "don't forget to subscribe",
+    "dont forget to subscribe", "subscribe to my channel",
+    "bye bye", "the end", "amara org", "amaraorg", "otter ai",
+    "background music", "intro music", "outro music", "blank audio",
+})
+
+
+def strip_hallucination(text: str) -> str:
+    """
+    Take known boilerplate off either end of a transcript.
+
+    `is_hallucination` only answers about a whole utterance, and the
+    transcriber does not always give it one: it fills the pause around what
+    was actually said with its own habits, so both
+
+        "i like that what is the weather"
+        "what is the weather i like that"
+
+    arrive as one phrase with an invented half that gets asked along with the
+    real one.
+
+    Only the ends, and only while something is left. Cutting from the middle
+    would take real speech with it, and a phrase that IS one of these is
+    `is_hallucination`'s answer to give rather than this one's.
+    """
+    words = str(text or "").split()
+    if not words:
+        return ""
+    if is_hallucination(text):
+        # The whole thing is boilerplate. Taking an edge off "i like that"
+        # leaves "i", which is worse than either dropping it or keeping it.
+        return ""
+
+    # Longest first, so "thank you very much" is not left as "very much".
+    sizes = sorted({len(phrase.split()) for phrase in EDGE_NOISE},
+                   reverse=True)
+
+    def edge(seq) -> str:
+        return " ".join(seq).strip(" .!?,").lower()
+
+    changed = True
+    while changed and words:
+        changed = False
+        for size in sizes:
+            if size >= len(words):
+                # Never take the whole phrase; that is the guard above.
+                continue
+            if edge(words[:size]) in EDGE_NOISE:
+                words = words[size:]
+                changed = True
+                break
+            if edge(words[-size:]) in EDGE_NOISE:
+                words = words[:-size]
+                changed = True
+                break
+    return " ".join(words)
 
 
 def is_hallucination(text: str) -> bool:

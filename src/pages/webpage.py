@@ -77,13 +77,24 @@ DRAG_SCROLL_JS = """
     lastX = x; lastY = y; velocity = 0;
     target = scroller(node);
     if (timer) { cancelAnimationFrame(timer); timer = null; }
+    // Selection is refused from the press, not from the threshold.
+    //
+    // Applying user-select:none only once a drag is recognised is too late:
+    // the browser began selecting on the press, so a drag down a page leaves
+    // a blue streak behind it. Refused here and allowed again on release, so
+    // a press that turns out to be a tap can still select by holding.
+    document.documentElement.classList.add('ha-dragging');
   }
 
   function move(x, y, event) {
     if (!active) { return; }
     var dy = lastY - y, dx = lastX - x;
     if (!moved && Math.abs(dy) + Math.abs(dx) < THRESHOLD) { return; }
-    if (!moved) { document.documentElement.classList.add('ha-dragging'); }
+    if (!moved) {
+      // Anything the press managed to select before this ran goes now.
+      var chosen = document.getSelection();
+      if (chosen && chosen.removeAllRanges) { chosen.removeAllRanges(); }
+    }
     moved = true;
     scrollBy(dx, dy);
     velocity = dy;
@@ -488,9 +499,35 @@ def _web_view():
     """
     try:
         from PyQt6.QtWebEngineWidgets import QWebEngineView
-        return QWebEngineView()
+        view = QWebEngineView()
     except Exception:
         return None
+
+    # Video, without a gesture the panel cannot make.
+    #
+    # `PlaybackRequiresUserGesture` defaults to True, which is right for a
+    # desktop browser and wrong here: a site that starts its player from a
+    # script - most of them - gets refused, and the video never loads. It is
+    # why the music plugin plays YouTube and this page did not; that plugin
+    # sets this and this one never did.
+    try:
+        from PyQt6.QtWebEngineCore import QWebEngineSettings
+        settings = view.settings()
+        for attribute, state in (
+            (QWebEngineSettings.WebAttribute.PlaybackRequiresUserGesture, False),
+            # A player that wants its own full-screen element gets it, rather
+            # than drawing a black box where the video was.
+            (QWebEngineSettings.WebAttribute.FullScreenSupportEnabled, True),
+            (QWebEngineSettings.WebAttribute.JavascriptEnabled, True),
+            (QWebEngineSettings.WebAttribute.LocalStorageEnabled, True),
+        ):
+            try:
+                settings.setAttribute(attribute, state)
+            except Exception:
+                continue
+    except Exception:
+        pass
+    return view
 
 
 class WebPage(PageFramework):

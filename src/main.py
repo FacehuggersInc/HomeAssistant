@@ -13,6 +13,7 @@ import traceback
 import uuid as _uuid
 from datetime import datetime
 from pathlib import Path
+from contextlib import contextmanager
 from threading import Thread, RLock, enumerate as thread_enum
 from typing import Callable, Literal, Optional, TextIO
 
@@ -317,6 +318,10 @@ class Client:
 
         self.ASSIST_VOICE_ACTIVITY_LEVEL = 0.0
         self.ASSIST_STATUS               = "DORMANT"
+        #Held while something slow is running - see thinking().
+        self._thinking_depth             = 0
+        self._thinking_was               = "DORMANT"
+        self._thinking_lock              = RLock()
         self.SKILLS = SkillIntentEngine(self)
         self.STT    = None
         self.TTS    = None
@@ -557,6 +562,23 @@ class Client:
         except Exception:
             pass
 
+        # A panel can refuse it too, the same way a page can.
+        #
+        # Panels were not considered at all: a conversation covering the
+        # screen is read for as long as it takes to read, produces no
+        # interaction while it is, and was timed out from under the person
+        # reading it.
+        try:
+            host = self.OVERLAYS
+            if host is not None:
+                from src.ui.overlays import Panel
+                for panel in host.findChildren(Panel):
+                    if panel.isVisible() and getattr(panel, "blocks_idle", False):
+                        self._last_interaction_time = time.time()
+                        return
+        except Exception:
+            pass
+
         timeout_ms = self.SETTINGS.get("application.interaction_timeout.value", 5000)
 
         timeout_ms = max(timeout_ms, self.MIN_INTERACTION_TIMEOUT_MS)
@@ -699,12 +721,24 @@ class Client:
                       edge: str = "right", bgcolor: str = "#1e1e1e",
                       key: str = None, destroy_on_close: bool = True,
                       on_created: Optional[Callable[[Panel], None]] = None,
-                      dismiss_on_outside_click: bool = False
+                      dismiss_on_outside_click: bool = False,
+                      height: int = None, margin: int = 0,
+                      blocks_idle: bool = False
                       ) -> Optional[Panel]:
+        """
+        Build a panel and slide it in.
+
+        `height` and `margin` are forwarded rather than left to the caller to
+        set afterwards: open_panel() computes where the panel slides TO before
+        on_created runs, so a size applied after the fact animates to the old
+        position and lands cut off.
+        """
         def _build() -> Panel:
             panel = Panel(self, width=width, edge=edge, bgcolor=bgcolor, key=key,
                            destroy_on_close=destroy_on_close,
-                           dismiss_on_outside_click=dismiss_on_outside_click)
+                           dismiss_on_outside_click=dismiss_on_outside_click,
+                           height=height, margin=margin,
+                           blocks_idle=blocks_idle)
             if content is not None:
                 panel.add_content(content)
             panel.open_panel()
@@ -896,7 +930,7 @@ class Client:
 
     def answer(self, icon: str, title: str, lines: list = None,
                tint: str = "#4f9de0", timeout: int = None,
-               speak: str = None) -> None:
+               speak: str = None, on_closed=None) -> None:
         """
         Show an answer, and say it.
 
@@ -914,6 +948,10 @@ class Client:
             try:
                 from src.ui.panels.answer import AnswerPanel
                 panel = AnswerPanel(self, icon, title, lines, tint, timeout)
+                # Told when it goes, so a caller whose answer stands for
+                # something still happening - a timer making a noise - can
+                # deal with that when the answer is dismissed.
+                panel.on_closed = on_closed
                 panel.open_panel()
             except Exception as e:
                 # Falls back rather than losing the answer - a spoken reply
@@ -1340,6 +1378,7 @@ class Client:
         """
         self.UPDATE_AVAILABLE = False
         self.UPDATE_DETAIL = ""
+        self.UPDATE_LATEST = None
         self.UPDATE_COMMIT = None
         self._update_notified_sha = None
 
@@ -1392,6 +1431,13 @@ class Client:
             # Kept as text as well, for anything that cannot render a commit -
             # the dashboard says what is waiting rather than that something is.
             self.UPDATE_DETAIL = str(reason or "")
+            # And as plain data, so a caller can tell one commit from another.
+            # A dashboard holding "an update is ready" from an hour ago has no
+            # way to notice a newer one landed without something to compare.
+            try:
+                self.UPDATE_LATEST = commit.as_dict() if commit else None
+            except Exception:
+                self.UPDATE_LATEST = None
 
             if not available:
                 if not quiet and on_result is None:
@@ -1504,6 +1550,38 @@ class Client:
         self.STT.cancel(reason)
         return True
 
+    @contextmanager
+    def thinking(self, why: str = ""):
+        """
+        Hold the assistant pill at "Thinking…" while something slow runs.
+
+        Counted, not a flag. Two slow things overlap all the time - a reply is
+        still being generated while the previous one is being spoken - and a
+        plain boolean means whichever finishes first puts the pill away while
+        the other is still working.
+
+        The status before the first hold is what is restored after the last
+        one, so this never invents a state the assistant was not in.
+        """
+        with self._thinking_lock:
+            self._thinking_depth += 1
+            first = self._thinking_depth == 1
+            if first:
+                self._thinking_was = getattr(self, "ASSIST_STATUS", "DORMANT")
+                self.ASSIST_STATUS = "THINKING"
+        if why:
+            self.log("debug", f"[Assistant] Thinking: {why}")
+        try:
+            yield
+        finally:
+            with self._thinking_lock:
+                self._thinking_depth = max(0, self._thinking_depth - 1)
+                if self._thinking_depth == 0:
+                    # Only if nothing else has moved it on since. A wake word
+                    # arriving mid-reply means LISTENING is the truth now.
+                    if getattr(self, "ASSIST_STATUS", "") == "THINKING":
+                        self.ASSIST_STATUS = self._thinking_was or "LIVE"
+
     def say(self, text: str, thread: bool = True) -> bool:
         """
         Speak. Returns whether a person actually heard it.
@@ -1526,7 +1604,11 @@ class Client:
         if self.sounds_muted():
             return False
         try:
-            self.TTS.play(text, thread=thread)
+            # The pill stays up while the audio is made. A local voice takes a
+            # second or two on a long reply, and a silent panel in that gap
+            # looks like nothing happened.
+            with self.thinking("speaking"):
+                self.TTS.play(text, thread=thread)
             return True
         except Exception as e:
             self.log("warning", f"[Assistant] TTS failed: {e}")

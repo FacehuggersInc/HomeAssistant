@@ -13,7 +13,7 @@ from PyQt6.QtGui import QPainter, QColor, QLinearGradient, QBrush
 
 from src.ui.widgets.tile import Tile
 from src.ui.icons import icon
-from src.styling import make_font, set_style, add_text_shadow, get_style_sheet
+from src.styling import make_font, set_style, add_text_shadow, get_style_sheet, style_scrollbar
 
 if TYPE_CHECKING:
     from src.main import Client
@@ -128,12 +128,11 @@ class WeatherTile(Tile):
         # there is content - and shrinking the text to fit is what makes a
         # wall panel unreadable from across a room.
         area = QScrollArea()
-        area.setStyleSheet(get_style_sheet("scrollbar"))
         area.setWidgetResizable(True)
         area.setFrameShape(QFrame.Shape.NoFrame)
         area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        set_style(area, "common", "transparent")
         area.setWidget(holder)
+        style_scrollbar(area)
         layout.addWidget(area, stretch=1)
 
         return host

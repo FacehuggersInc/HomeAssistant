@@ -195,6 +195,27 @@ class Tile(QWidget):
     def tick_once(self) -> None:
         self.tick()
 
+    def request_save(self) -> None:
+        """
+        Ask the grid to write the layout, including this tile's own state.
+
+        A tile that changes something it reports through `tile_state()` has to
+        say so. The grid saves on a drag and on a resize, which is every way
+        the GRID changes a tile and no way the tile changes itself - so a
+        bookmark chosen for a square was remembered until the page was rebuilt
+        and then asked for again.
+        """
+        grid = self.parent()
+        while grid is not None and not hasattr(grid, "save_positions"):
+            grid = grid.parent()
+        if grid is None:
+            return
+        try:
+            grid.save_positions()
+        except Exception as e:
+            self.client.log("debug",
+                            f"[Tiles] {self.KEY} could not save its state: {e}")
+
     ##APPEARANCE
 
     def set_bg_color(self, color: str) -> None:

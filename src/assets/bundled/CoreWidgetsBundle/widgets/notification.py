@@ -13,7 +13,7 @@ from src.ui.widget import Widget
 from src.ui.overlays import Panel
 from src.ui.controls.buttons import IconButton
 from src.ui.icons import Icons, icon as resolve_icon
-from src.styling import make_font, set_style, get_style_sheet
+from src.styling import make_font, set_style, get_style_sheet, style_scrollbar
 
 if TYPE_CHECKING:
     from src.main import Client
@@ -249,7 +249,8 @@ class NotificationPanel(Panel):
     WIDTH = Panel.DEFAULT_WIDTH   #shared by every panel — see Panel.apply_frosted_style()
 
     def __init__(self, manager: NotificationCenterWidget):
-        super().__init__(manager.client, width=self.WIDTH, edge="right")
+        super().__init__(manager.client, width=self.WIDTH, edge="right",
+                         dismiss_on_outside_click=True)
         self.manager = manager
         self._anim.setEasingCurve(QEasingCurve.Type.OutCubic)
 
@@ -260,37 +261,21 @@ class NotificationPanel(Panel):
         outer.setContentsMargins(16, 12, 16, 12)
         outer.setSpacing(8)
 
-        #header — title, close button, clear-history button
+        #header — title and clear-history. Tapping outside closes it.
         header = QHBoxLayout()
         title_lbl = QLabel("Notifications")
         title_lbl.setFont(make_font(20, bold=True))
         set_style(title_lbl, "common", "text-strong")
 
-        close_btn = QPushButton("\u2715")
-        close_btn.setFixedSize(28, 28)
-        close_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        set_style(close_btn, "notification", "notification-panel-close")
-        close_btn.clicked.connect(self.toggle)
-
-        clear_btn = QPushButton("Clear history")
-        clear_btn.setFixedWidth(120)
-        clear_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        set_style(clear_btn, "notification", "notification-panel-clear")
-        clear_btn.clicked.connect(self.manager.history.clear)
-
-        header.addWidget(title_lbl)
-        header.addStretch()
-        header.addWidget(clear_btn)
-        header.addWidget(close_btn)
         outer.addLayout(header)
 
         #scrollable list of history items
         scroll = QScrollArea()
-        scroll.setStyleSheet(get_style_sheet("scrollbar"))
         scroll.setWidgetResizable(True)
         set_style(scroll, "notification", "notification-scroll", object_tag="QScrollArea")
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         scroll.viewport().setAutoFillBackground(False)
+        style_scrollbar(scroll)
         QScroller.grabGesture(scroll.viewport(),
                                QScroller.ScrollerGestureType.LeftMouseButtonGesture)
 
@@ -307,12 +292,18 @@ class NotificationPanel(Panel):
         self._populate()
 
 
+    def dismiss(self) -> None:
+        """A press beside the panel. This one slides itself, so it toggles."""
+        if self.open:
+            self.toggle()
+
     def toggle(self) -> None:
         self._sync_geometry()   #account for any window resize since last toggle
 
         self._anim.stop()
 
         if self.open:
+            self._release_scrim()
             self._anim.setStartValue(self.pos())
             self._anim.setEndValue(self._hidden_pos)
             self._anim.finished.connect(self.hide)
@@ -321,6 +312,9 @@ class NotificationPanel(Panel):
         else:
             self.move(self._hidden_pos)
             self.refresh_backdrop()
+            # This toggle does not go through open_panel(), which is where the
+            # base builds the catcher that closes it on a press beside it.
+            self._build_scrim()
             self.show()
             self.raise_()
             self._populate()   #refresh contents each time it's opened

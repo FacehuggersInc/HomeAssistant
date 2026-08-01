@@ -72,6 +72,8 @@ class PocketTTSProcessing:
     def __init__(self, client: "Client"):
         self.client = client
         self.speaking = False
+        #Set by stop() and read between chunks of playback.
+        self._interrupt = False
         self.available = False
         self.error = ""
 
@@ -320,11 +322,25 @@ class PocketTTSProcessing:
             # sound landing while this is speaking reaches into it from another
             # thread. PortAudio answers that with SIGABRT.
             channels = 1 if data.ndim == 1 else data.shape[1]
-            stream = sd.OutputStream(samplerate=self._playback_rate(),
+            rate = self._playback_rate()
+            stream = sd.OutputStream(samplerate=rate,
                                      channels=channels, dtype="float32")
             try:
                 stream.start()
-                stream.write(data)
+                # Written in pieces so it can be stopped part way.
+                #
+                # One write() of the whole reply blocks until every sample has
+                # played, which is why the wake word could not interrupt: by
+                # the time anything could act on it the sentence had finished
+                # anyway. A tenth of a second is short enough to feel immediate
+                # and long enough not to underrun.
+                step = max(1, int(rate * self.INTERRUPT_STEP))
+                self._interrupt = False
+                for start in range(0, len(data), step):
+                    if self._interrupt:
+                        self.client.log("debug", "[TTS] Stopped part way.")
+                        break
+                    stream.write(data[start:start + step])
             finally:
                 try:
                     stream.close()
@@ -440,6 +456,18 @@ class PocketTTSProcessing:
     def is_speaking(self) -> bool:
         return self.speaking
 
+    def stop(self) -> bool:
+        """
+        Stop speaking now. Returns whether there was anything to stop.
+
+        The reply is abandoned rather than paused: somebody who interrupts is
+        not asking for the rest of it later.
+        """
+        if not self.speaking:
+            return False
+        self._interrupt = True
+        return True
+
     def get_voices(self) -> tuple:
         """
         The one voice in use, in the shape the ElevenLabs backend returns.
@@ -449,6 +477,10 @@ class PocketTTSProcessing:
         an answer here - the configured one is what there is.
         """
         return dict(self.voices), dict(self.voice_ids)
+
+    #How much audio is written at a time, in seconds. Short enough that a
+    #stop lands immediately, long enough not to starve the output.
+    INTERRUPT_STEP = 0.1
 
     ## -- interface
 

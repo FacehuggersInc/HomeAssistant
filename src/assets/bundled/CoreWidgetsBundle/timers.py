@@ -189,6 +189,26 @@ class TimerService:
         self.client.call_on_ui(lambda: self._remove_widget(key))
         return True
 
+    def _dismissed(self, key: str) -> None:
+        """
+        Somebody acknowledged a finished timer. Stop it and say so.
+
+        Reached from the answer panel going away and from a tap on the Done
+        square - both mean the same thing, and both have to silence the alarm
+        rather than only take the picture off the screen.
+        """
+        timer = self.timers.get(key)
+        if timer is None:
+            return
+        label = timer.label()
+        if not self.cancel(key):
+            return
+        try:
+            self.client.simple_notify("mdi.timer-off-outline", label,
+                                      "Silenced and cleared.", history=False)
+        except Exception:
+            pass
+
     def find(self, name: str = "", seconds: float = 0) -> list:
         """
         Timers matching a name, a duration, or both.
@@ -323,8 +343,13 @@ class TimerService:
 
         try:
             self.client.answer("mdi.timer-outline", f"{label} finished",
-                               [f"{describe(timer.duration)} is up."],
-                               tint="#c0603f", speak=spoken)
+                               [f"{describe(timer.duration)} is up.",
+                                "Tap anywhere to silence it."],
+                               tint="#c0603f", speak=spoken,
+                               # Dismissing the answer deals with the timer.
+                               # An alarm that keeps sounding after somebody
+                               # has acknowledged it is the panel arguing.
+                               on_closed=lambda k=timer.key: self._dismissed(k))
         except Exception as e:
             self.client.log("warning", f"[Timers] Could not announce: {e}")
             try:

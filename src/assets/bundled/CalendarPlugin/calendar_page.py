@@ -278,10 +278,23 @@ class CalendarPage(SubPageFramework):
             self.grid.addWidget(cell, index // 7, index % 7)
         outer.addLayout(self.grid, stretch=1)
 
+        # Over the grid rather than inside a cell: a sticker is dragged from
+        # one day to another, and a child widget cannot cross into its sibling.
+        from .sticker_layer import StickerLayer
+        self.stickers = StickerLayer(self, self._sticker_store(), client)
+        self.stickers.setGeometry(self.rect())
+        self.stickers.show()
+        self.stickers.raise_()
+
         self.add_features({
             "refresh":      self.refresh,
             "show_month":   self.show_month,
             "open_day":     self.open_day,
+            "open_month":   self.open_month,
+            "open_jump":    self.open_jump,
+            "add_sticker":  self.add_sticker,
+            "edit_stickers": self.edit_stickers,
+            "sticker_store": lambda: self._sticker_store(),
             "current_month": lambda: (self.year, self.month),
         })
 
@@ -350,6 +363,19 @@ class CalendarPage(SubPageFramework):
         row.addWidget(self.title)
         row.addStretch()
 
+        self.month_btn = IconButton("mdi.format-list-bulleted", self.open_month,
+                                    size=24)
+        row.addWidget(self.month_btn)
+        self.jump_btn = IconButton("mdi.calendar-search", self.open_jump,
+                                   size=24)
+        row.addWidget(self.jump_btn)
+        self.sticker_btn = IconButton("mdi.sticker-emoji", self.add_sticker,
+                                      size=24)
+        row.addWidget(self.sticker_btn)
+        # Arranging what is already there, without adding another.
+        self.arrange_btn = IconButton("mdi.cursor-move", self.edit_stickers,
+                                      size=24)
+        row.addWidget(self.arrange_btn)
         self.subs_btn = IconButton("mdi.calendar-sync", self.open_subscriptions, size=24)
         row.addWidget(self.subs_btn)
         self.today_btn = IconButton("mdi.calendar-today", self.go_today, size=24)
@@ -473,7 +499,116 @@ class CalendarPage(SubPageFramework):
                     events = []
             cell.set_day(day, events, in_month, column=index % 7)
 
-    ## -- dialogs
+        # The month on screen decides which stickers are on it. The layer is
+        # re-measured as well: a month needing six weeks is a taller grid than
+        # one needing five, and the day boxes move with it.
+        layer = getattr(self, "stickers", None)
+        if layer is not None:
+            layer.setGeometry(self.rect())
+            layer.raise_()
+            layer.refresh()
+
+    ## -- stickers
+
+    def _sticker_store(self):
+        """
+        The calendar's own sticker file, made once and shared.
+
+        On the page rather than the plugin because the page is what draws them,
+        and a page that outlives a plugin reload would otherwise be holding a
+        store belonging to something that has gone.
+        """
+        api = self._calendar()
+        if api is not None:
+            store = api.get("stickers") if hasattr(api, "get") else None
+            if store is not None:
+                return store
+
+        # The plugin is not up yet. An empty store keeps the page drawable
+        # rather than making every caller check for None.
+        existing = getattr(self, "_stickers", None)
+        if existing is not None:
+            return existing
+
+        from src.constants import get_data_dir, APP_NAME
+        from .stickers import StickerStore
+        self._stickers = StickerStore(
+            get_data_dir(APP_NAME) / "calendar" / "stickers.json",
+            log=self.client.log)
+        return self._stickers
+
+    def edit_stickers(self, event=None) -> None:
+        """
+        Arrange the stickers already on the month.
+
+        Separate from adding one, because the layer takes the mouse for the
+        whole page while it is on: the toolbar and the day boxes are underneath
+        it and cannot be pressed. Done, on the layer itself, gives them back.
+        """
+        layer = getattr(self, "stickers", None)
+        if layer is None:
+            return
+        layer.set_editing(not layer.editing)
+
+    def add_sticker(self, event=None) -> None:
+        """
+        Pick one from the library, then drop it on a day.
+
+        The picker is the bundle's own, so the calendar offers exactly the
+        stickers the home screen does rather than keeping a second library.
+        """
+        library = None
+        try:
+            library = self.client.public.stickers
+        except Exception:
+            library = None
+        if library is None:
+            self.client.simple_notify(
+                "mdi.sticker-emoji", "Stickers",
+                "The sticker library is not loaded.")
+            return
+
+        entries = library["list"](refresh=True)
+        if not entries:
+            self.client.simple_notify(
+                "mdi.sticker-emoji", "Stickers",
+                "There are no stickers yet. Upload one from a phone.")
+            return
+
+        from .sticker_picker import choose_sticker
+        choose_sticker(self.client, entries, self._place_sticker)
+
+    def _place_sticker(self, name: str) -> None:
+        started = self.stickers.begin_placing(
+            name, on_placed=self._sticker_placed)
+        if not started:
+            return
+        self.client.simple_notify(
+            "mdi.sticker-emoji", "Stickers",
+            "Drag it onto a day, then press Done.", history=False)
+
+    def _sticker_placed(self, key: str) -> None:
+        """Ask whether it belongs to an event, once it has a day."""
+        from .sticker_attach import ask_to_attach
+        ask_to_attach(self.client, self, key)
+
+    def open_jump(self, event=None) -> None:
+        """A year, then a month. Two taps to anywhere."""
+        from .jump_dialog import JumpToMonthDialog
+        self.client.dialog(JumpToMonthDialog(self.client, self))
+
+    def open_month(self, event=None) -> None:
+        """Everything on this month, in one list."""
+        from .month_dialog import MonthEventsDialog
+        self.client.dialog(MonthEventsDialog(self.client, self,
+                                             self.year, self.month))
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        layer = getattr(self, "stickers", None)
+        if layer is not None:
+            layer.setGeometry(self.rect())
+            layer.raise_()
 
     def open_subscriptions(self, event=None) -> None:
         from .dialogs import SubscriptionsDialog

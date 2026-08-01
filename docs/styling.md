@@ -210,6 +210,35 @@ Rows in one list usually carry the same labels and still line up; a row that
 genuinely needs more gets more, because a readable row slightly out of line
 beats a tidy column of cut-off words.
 
+## Scroll areas
+
+Every scrolling surface the panel draws itself takes one sheet:
+
+```python
+from src.styling import style_scrollbar
+
+scroll = QScrollArea()
+scroll.setWidgetResizable(True)
+set_style(scroll.viewport(), "common", "transparent")
+style_scrollbar(scroll)
+```
+
+`style_scrollbar()` **appends**. `setStyleSheet` replaces, and `set_style()`
+uses it - so a scroll area given the sheet and then styled for anything else
+loses the scrollbar again and shows the platform's own, which on this palette
+is a bright grey slab. Appending means the order does not matter.
+
+A surface that hides its bar and drags instead needs neither:
+
+```python
+scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+QScroller.grabGesture(scroll.viewport(),
+                      QScroller.ScrollerGestureType.LeftMouseButtonGesture)
+```
+
+Web pages are separate - Chromium draws its own, restyled in `webpage.py` and
+`docs.py`.
+
 ## The web UI
 
 Everything a phone sees comes from `src/webui.py`. `page()` builds a whole

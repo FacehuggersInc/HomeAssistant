@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import calendar as calendar_module
-from datetime import date
+from datetime import date, timedelta
 from typing import TYPE_CHECKING
 
 from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel
-from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QPainter, QColor, QPen, QBrush, QLinearGradient
+from PyQt6.QtCore import Qt, QRectF
+from PyQt6.QtGui import (
+    QPainter, QColor, QPen, QBrush, QLinearGradient, QPainterPath)
 
 from src.ui.widget import Widget
 from src.ui.widgets.tile import Tile
@@ -43,17 +44,33 @@ class _TintedWidget(Widget):
     them turns the home screen into a set of coloured panels.
     """
 
-    # Alpha at the top and bottom of the gradient, out of 255. The wallpaper
-    # still shows through, but text no longer has to compete with whatever
-    # photograph happens to be behind it.
-    TOP_ALPHA    = 178
-    BOTTOM_ALPHA = 96
+    # A dark surface carrying a hint of the event's colour, rather than the
+    # colour itself at partial opacity.
+    #
+    # Text sits on this. Lifting the tint toward white at the top and dropping
+    # the alpha to a third at the bottom leaves white words competing with
+    # whatever photograph the wallpaper happens to be showing through - the
+    # card reads as coloured glass rather than as something written on.
+    #
+    # The colour is not lost: it is what the surface is tinted with, and it is
+    # the bar down the left edge at full strength.
+    SURFACE = QColor("#101014")
+    #How much of the event's colour is mixed into the surface.
+    TINT_TOP    = 0.24
+    TINT_BOTTOM = 0.12
+    #A tint lighter than this is darkened before it is mixed in. Without it a
+    #pale event colour - a yellow, a mint - washes the card out and the words
+    #on it stop reading, while a deep one stays perfectly legible. Capping the
+    #lightness rather than the mix keeps every colour at the same contrast
+    #instead of tuning for the palest one and losing the rest.
+    TINT_CAP = 0.42
+    #Out of 255. High enough to read on, low enough that the wallpaper is
+    #still there behind it.
+    TOP_ALPHA    = 232
+    BOTTOM_ALPHA = 214
 
-    # The colour shifts as well as the opacity - lifted toward white at the
-    # top and pushed toward black at the bottom. Fading one flat colour in and
-    # out reads as a single tone rather than as a gradient.
-    TOP_LIFT   = 0.30
-    BOTTOM_DROP = 0.42
+    #The event's colour, at full strength, down one edge.
+    EDGE = 5
 
     RADIUS = 14
 
@@ -95,6 +112,31 @@ class _TintedWidget(Widget):
 
     def set_event(self, event) -> None:
         self._event_key = getattr(event, "key", "") if event is not None else ""
+        self._sticker = None
+        self._sticker_name = ""
+        if event is None:
+            self.update()
+            return
+        from .sticker_layer import sticker_for_event, load_sticker
+        name = sticker_for_event(self.client, event)
+        if name:
+            self._sticker_name = name
+            self._sticker = load_sticker(self.client, name)
+        self.update()
+
+    def paint_sticker(self, painter) -> None:
+        """
+        Draw whatever is stuck to the event this widget is showing.
+
+        Sized against the widget rather than against a day box: the scale a
+        sticker carries is a share of a calendar cell, and a cell is nothing
+        like the shape of a card that has an event's name across it.
+        """
+        pixmap = getattr(self, "_sticker", None)
+        if pixmap is None:
+            return
+        from .sticker_layer import draw_beside
+        draw_beside(painter, pixmap, self.rect())
 
     DRAG_SLOP = 12
 
@@ -162,30 +204,53 @@ class _TintedWidget(Widget):
         """Override to recolour the labels a subclass owns."""
         pass
 
+    @classmethod
+    def _deepened(cls, tint: QColor) -> QColor:
+        """A tint dark enough to write white on, keeping its hue."""
+        lightness = (0.2126 * tint.red() + 0.7152 * tint.green()
+                     + 0.0722 * tint.blue()) / 255
+        if lightness <= cls.TINT_CAP:
+            return tint
+        factor = cls.TINT_CAP / max(lightness, 0.001)
+        return QColor(int(tint.red() * factor), int(tint.green() * factor),
+                      int(tint.blue() * factor))
+
     def paintEvent(self, event) -> None:
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
-        tint = self._tint
-        top = QColor(
-            int(tint.red()   + (255 - tint.red())   * self.TOP_LIFT),
-            int(tint.green() + (255 - tint.green()) * self.TOP_LIFT),
-            int(tint.blue()  + (255 - tint.blue())  * self.TOP_LIFT),
-            self.TOP_ALPHA)
-        bottom = QColor(
-            int(tint.red()   * (1 - self.BOTTOM_DROP)),
-            int(tint.green() * (1 - self.BOTTOM_DROP)),
-            int(tint.blue()  * (1 - self.BOTTOM_DROP)),
-            self.BOTTOM_ALPHA)
+        tint = self._deepened(self._tint)
+
+        def mixed(amount: float, alpha: int) -> QColor:
+            base = self.SURFACE
+            return QColor(
+                int(base.red()   + (tint.red()   - base.red())   * amount),
+                int(base.green() + (tint.green() - base.green()) * amount),
+                int(base.blue()  + (tint.blue()  - base.blue())  * amount),
+                alpha)
 
         gradient = QLinearGradient(0, 0, 0, self.height())
-        gradient.setColorAt(0.0, top)
-        gradient.setColorAt(1.0, bottom)
+        gradient.setColorAt(0.0, mixed(self.TINT_TOP, self.TOP_ALPHA))
+        gradient.setColorAt(1.0, mixed(self.TINT_BOTTOM, self.BOTTOM_ALPHA))
         painter.setBrush(QBrush(gradient))
-        painter.setPen(QPen(QColor(self._tint.red(), self._tint.green(),
-                                   self._tint.blue(), 105), 1))
-        painter.drawRoundedRect(self.rect().adjusted(0, 0, -1, -1),
-                                self.RADIUS, self.RADIUS)
+        painter.setPen(QPen(QColor(tint.red(), tint.green(), tint.blue(), 120), 1))
+        body = self.rect().adjusted(0, 0, -1, -1)
+        painter.drawRoundedRect(body, self.RADIUS, self.RADIUS)
+
+        # The event's own colour, at full strength, where nothing is written.
+        painter.save()
+        path = QPainterPath()
+        path.addRoundedRect(QRectF(body), self.RADIUS, self.RADIUS)
+        painter.setClipPath(path)
+        painter.setPen(Qt.PenStyle.NoPen)
+        # The edge keeps the colour as it was given, not as it was deepened:
+        # nothing is written on it, so it has nothing to be legible against.
+        painter.setBrush(QBrush(self._tint))
+        painter.drawRect(0, 0, self.EDGE, self.height())
+        painter.restore()
+        # Before end(), and before the child labels are drawn by the base:
+        # a sticker belongs on the card, not over the words.
+        self.paint_sticker(painter)
         painter.end()
         super().paintEvent(event)
 
@@ -295,87 +360,180 @@ class UpcomingEventWidget(_TintedWidget):
 
 
 class NextEventsWidget(_TintedWidget):
-    """A short list of what is coming, for people who want the shape of a week."""
+    """
+    Today and the two days after it, with what is on each.
+
+    A flat list of the next few events answers "what is next" - which the
+    other widget already answers, larger. What this is for is the shape of the
+    next few days, and that needs the days themselves: an empty tomorrow is
+    information, and a list that skips to the day after hides it.
+    """
 
     KEY         = "calendar_list"
     NAME        = "Coming up"
     ICON        = "mdi.format-list-bulleted"
-    DESCRIPTION = "The next few events, in order."
+    DESCRIPTION = "Today and the next two days, with what is on each."
 
     RESIZABLE = True
     ROTATABLE = False
     FLOATABLE = True
     REMOVABLE = True
 
-    MIN_W, MIN_H = 260, 160
-    MAX_W, MAX_H = 620, 460
-    DEFAULT_ANCHOR = "right"
+    MIN_W, MIN_H = 260, 170
+    MAX_W, MAX_H = 620, 520
+    DEFAULT_ANCHOR = "center-right"
 
-    ROW_H = 34
+    #How many days it covers. Today, tomorrow, and the day after.
+    DAYS = 3
+    ROW_H = 30
+    HEAD_H = 26
 
     def __init__(self, client: "Client", key: str = None, **kwargs):
         super().__init__(client=client, key=key or self.KEY,
-                         width=340, height=260, **kwargs)
+                         width=340, height=300, **kwargs)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(14, 10, 14, 12)
-        layout.setSpacing(4)
+        layout.setSpacing(6)
 
-        self.heading = QLabel("Coming up")
-        self.heading.setFont(make_font(SIZES.S1, bold=True))
-        add_text_shadow(self.heading, blur=6)
-        layout.addWidget(self.heading)
-
-        self.rows = QVBoxLayout()
-        self.rows.setSpacing(2)
-        layout.addLayout(self.rows)
+        self.days = QVBoxLayout()
+        self.days.setSpacing(4)
+        layout.addLayout(self.days)
         layout.addStretch()
 
         self.start_tick(60_000)
-        self.apply_tint_to_text()
         self.tick()
 
     def apply_tint_to_text(self) -> None:
-        heading = getattr(self, "heading", None)
-        if heading is not None:
-            heading.setStyleSheet(f"color: {self.accent()}; background: transparent;")
+        # Every label is rebuilt on each tick, so there is nothing standing to
+        # recolour. Kept because the base calls it when the tint changes.
+        pass
+
+    ## -- how much fits
 
     def _capacity(self) -> int:
-        """However many fit. A fixed count either overflows or wastes the space."""
-        return max(1, (self.height() - 46) // self.ROW_H)
+        """
+        How many lines fit in the widget, headings included.
+
+        One budget for the whole list rather than a share each. Dividing the
+        height between three days gives an empty tomorrow the same room as a
+        full today, and a busy day says "+4 more" beside two blank rows.
+        """
+        return max(self.DAYS, int((self.height() - 22) // self.ROW_H))
+
+    ## -- content
 
     def tick(self) -> None:
-        while self.rows.count():
-            item = self.rows.takeAt(0)
+        while self.days.count():
+            item = self.days.takeAt(0)
             widget = item.widget() if item is not None else None
             if widget is not None:
                 widget.setParent(None)
                 widget.deleteLater()
 
         api = calendar_api(self.client)
-        events = []
-        if api is not None:
-            try:
-                events = api["upcoming"](self._capacity())
-            except Exception:
-                events = []
+        today = date.today()
+        days = [today + timedelta(days=offset) for offset in range(self.DAYS)]
+
+        by_day = {}
+        for day in days:
+            found = []
+            if api is not None:
+                try:
+                    found = list(api["on_day"](day))
+                except Exception:
+                    found = []
+            by_day[day] = found
+
+        # The colour of the next thing that actually happens, not of today.
+        # A day with nothing on it has no colour to lend.
+        leading = next((entry for day in days for entry in by_day[day]), None)
+        self.set_tint(colour_of(leading) if leading is not None else "#4f9de0")
+        self.set_event(leading)
+
+        for widget in self._lay_out(days, by_day, api):
+            self.days.addWidget(widget)
+
+    def _lay_out(self, days: list, by_day: dict, api) -> list:
+        """
+        The list, filled from the top until the room runs out.
+
+        Every day gets its heading and at least one line, so a day with
+        nothing on it still says so - an empty tomorrow is information, and a
+        list that skips it hides that. What is left over goes to the days with
+        the most on them, in order, which is where it is worth having.
+        """
+        budget = self._capacity()
+        # A heading and one line each, reserved before anything is handed out.
+        budget -= self.DAYS * 2
+        shown = {day: 0 for day in days}
+
+        for day in days:
+            if not by_day[day]:
+                continue
+            shown[day] = 1
+
+        # The rest, a line at a time, to whichever day still has the most
+        # waiting. Round robin rather than first-come, so a packed today does
+        # not swallow every spare line before Wednesday is looked at.
+        while budget > 0:
+            hungriest = max(
+                days, key=lambda d: len(by_day[d]) - shown[d])
+            if len(by_day[hungriest]) - shown[hungriest] <= 0:
+                break
+            shown[hungriest] += 1
+            budget -= 1
+
+        blocks = []
+        for day in days:
+            blocks.append(self._day_block(day, by_day[day], shown[day], api))
+        return blocks
+
+    def _day_block(self, day, events: list, capacity: int, api) -> QWidget:
+        host = QWidget()
+        set_style(host, "common", "transparent")
+        column = QVBoxLayout(host)
+        column.setContentsMargins(0, 0, 0, 0)
+        column.setSpacing(1)
+
+        heading = QLabel(self._day_name(day))
+        heading.setFont(make_font(SIZES.S1, bold=True))
+        heading.setFixedHeight(self.HEAD_H)
+        heading.setStyleSheet(f"color: {self.accent()}; background: transparent;")
+        add_text_shadow(heading, blur=6)
+        column.addWidget(heading)
 
         if not events:
-            empty = QLabel("Nothing coming up")
-            empty.setFont(make_font(SIZES.S2))
-            empty.setStyleSheet(f"color: {self.accent()}; background: transparent;")
-            add_text_shadow(empty, blur=6)
-            self.rows.addWidget(empty)
-            self.set_tint("#4f9de0")
-            self.set_event(None)
-            return
+            empty = QLabel("Nothing on")
+            empty.setFont(make_font(SIZES.S1))
+            empty.setFixedHeight(self.ROW_H)
+            empty.setStyleSheet(
+                "color: rgba(255,255,255,110); background: transparent;")
+            column.addWidget(empty)
+            return host
 
-        # The first event, not an average. This widget is a queue and its
-        # colour should be whatever is at the front of it.
-        self.set_tint(colour_of(events[0]))
-        self.set_event(events[0])
-        for event in events:
-            self.rows.addWidget(self._row(event, api))
+        shown = events[:max(0, capacity)]
+        for entry in shown:
+            column.addWidget(self._row(entry, api))
+
+        remaining = len(events) - len(shown)
+        if remaining > 0:
+            more = QLabel(f"+{remaining} more")
+            more.setFont(make_font(SIZES.S1))
+            more.setFixedHeight(self.ROW_H)
+            more.setStyleSheet(
+                "color: rgba(255,255,255,140); background: transparent;")
+            column.addWidget(more)
+        return host
+
+    @staticmethod
+    def _day_name(day) -> str:
+        today = date.today()
+        if day == today:
+            return "Today"
+        if day == today + timedelta(days=1):
+            return "Tomorrow"
+        return day.strftime("%A")
 
     def _row(self, event, api) -> QWidget:
         host = QWidget()
@@ -388,10 +546,10 @@ class NextEventsWidget(_TintedWidget):
 
         glyph = QLabel()
         try:
-            glyph.setPixmap(icon(event.icon, color=colour_of(event)).pixmap(18, 18))
+            glyph.setPixmap(icon(event.icon, color=colour_of(event)).pixmap(16, 16))
         except Exception:
             pass
-        glyph.setFixedWidth(22)
+        glyph.setFixedWidth(20)
         line.addWidget(glyph)
 
         title = QLabel(event.title)
@@ -400,9 +558,10 @@ class NextEventsWidget(_TintedWidget):
         add_text_shadow(title, blur=6)
         line.addWidget(title, stretch=1)
 
-        when = QLabel(api["describe_gap"](event) if api else "")
-        when.setFont(make_font(SIZES.S1, bold=True))
-        when.setStyleSheet(f"color: {self.accent()}; background: transparent;")
+        when = QLabel(str(getattr(event, "time", "") or "All day"))
+        when.setFont(make_font(SIZES.S1))
+        when.setStyleSheet(
+            "color: rgba(255,255,255,170); background: transparent;")
         add_text_shadow(when, blur=6)
         line.addWidget(when)
         return host

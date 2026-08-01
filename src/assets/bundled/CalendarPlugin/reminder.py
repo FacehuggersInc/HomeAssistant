@@ -134,7 +134,40 @@ class ReminderPanel(Panel):
         column.addWidget(when)
 
         row.addLayout(column, stretch=1)
+
+        # Anything stuck to this event, beside the words rather than over
+        # them. A label in the header rather than a painted corner: the panel
+        # has buttons along its bottom, and painting into that corner would put
+        # a picture under a control.
+        sticker = self._sticker_label()
+        if sticker is not None:
+            row.addWidget(sticker, alignment=Qt.AlignmentFlag.AlignTop)
         return row
+
+    #Big enough to recognise across a room, small enough that the event's name
+    #is still the thing being read.
+    STICKER_SIDE = 64
+
+    def _sticker_label(self):
+        """A label holding this event's sticker, or None when it has none."""
+        from .sticker_layer import sticker_for_event, load_sticker
+
+        name = sticker_for_event(self.client, self.event)
+        if not name:
+            return None
+        pixmap = load_sticker(self.client, name)
+        if pixmap is None:
+            return None
+
+        label = QLabel()
+        label.setFixedSize(self.STICKER_SIDE, self.STICKER_SIDE)
+        label.setStyleSheet("background: transparent;")
+        label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        label.setPixmap(pixmap.scaled(
+            self.STICKER_SIDE, self.STICKER_SIDE,
+            Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.SmoothTransformation))
+        return label
 
     def _details(self) -> QVBoxLayout:
         column = QVBoxLayout()

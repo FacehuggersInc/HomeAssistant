@@ -14,7 +14,7 @@ from PyQt6.QtGui import (
     QColor, QPainter, QBrush, QPen, QRegion, QPixmap, QPainterPath,
 )
 
-from src.styling import set_style, make_font, SIZES, get_style_sheet
+from src.styling import set_style, make_font, SIZES, get_style_sheet, style_scrollbar
 
 if TYPE_CHECKING:
     from src.main import Client
@@ -897,13 +897,12 @@ class BaseDialog(QFrame):
     def _scrollable(cls, widget, max_height: int):
         """Wrap a widget so it scrolls past max_height rather than clipping."""
         area = QScrollArea()
-        area.setStyleSheet(get_style_sheet("scrollbar"))
         area.setWidgetResizable(True)
         area.setFrameShape(QFrame.Shape.NoFrame)
         area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         area.setMaximumHeight(max_height)
-        set_style(area, "common", "transparent")
         area.setWidget(widget)
+        style_scrollbar(area)
         return area
 
     @staticmethod
@@ -930,13 +929,12 @@ class BaseDialog(QFrame):
 
     def add_scroll(self, inner: QWidget, min_height: int = 200) -> QScrollArea:
         scroll = QScrollArea()
-        scroll.setStyleSheet(get_style_sheet("scrollbar"))
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        set_style(scroll, "common", "transparent")
         scroll.setWidget(inner)
         scroll.setMinimumHeight(min_height)
+        style_scrollbar(scroll)
         self.content.addWidget(scroll)
         return scroll
 
@@ -1078,7 +1076,7 @@ class _PanelScrim(QWidget):
         # letting it through would also hit whatever is underneath.
         event.accept()
         try:
-            self.panel.close_panel()
+            self.panel.dismiss()
         except RuntimeError:
             pass
 
@@ -1105,12 +1103,21 @@ class Panel(QWidget):
         height:            int  = None,      #None fills the cross axis; set it for a panel that does not reach the far edge
         margin:            int  = 0,         #inset from the screen edges — non-zero makes the panel float
         dismiss_on_outside_click: bool = False,
+        blocks_idle:       bool = False,     #hold the idle clock open while this is up
     ):
         super().__init__(client.OVERLAYS)
         self.client            = client
         self.key               = key
         self.edge              = edge if edge in ("right", "left", "top", "bottom") else "right"
         self.margin            = max(0, int(margin))
+        # Whether the idle clock runs while this panel is open.
+        #
+        # Off by default: most panels are a control somebody uses and leaves,
+        # and one that stops the panel ever going idle is a panel that has to
+        # be dismissed by hand. On for anything meant to be READ - a
+        # conversation produces no interaction while somebody reads it, so
+        # timing out behind one measures the wrong thing.
+        self.blocks_idle       = bool(blocks_idle)
         self.floating          = self.margin > 0
         # None on either axis means "fill it, less the margin". A left/right
         # panel still defaults to DEFAULT_WIDTH so existing callers are
@@ -1271,6 +1278,17 @@ class Panel(QWidget):
         scrim.stackUnder(self)
         self._scrim = scrim
 
+    def dismiss(self) -> None:
+        """
+        Close, however this panel closes.
+
+        The scrim calls this rather than `close_panel()` directly. A panel that
+        drives its own slide - the tiles and notification panels both do - has
+        a close path of its own, and reaching past it leaves the panel hidden
+        while it still believes it is open.
+        """
+        self.close_panel()
+
     def _release_scrim(self) -> None:
         scrim, self._scrim = self._scrim, None
         if scrim is None:
@@ -1359,6 +1377,10 @@ class Panel(QWidget):
             self.client.log("warning", f"[Panel] open_panel() called on an already-destroyed panel (key={self.key}) — ignored.")
             return
         if self.open:
+            # Already open, but make sure it can still be closed. A press that
+            # arrives mid-slide can leave the catcher behind, and a panel
+            # nobody can dismiss is worse than one that opens twice.
+            self._build_scrim()
             return
         self._closing = False
         self._sync_geometry()
@@ -1412,10 +1434,15 @@ class Panel(QWidget):
         self._anim.start()
 
     def _on_closed(self) -> None:
-        self._release_scrim()
         if not self._closing:
             # The animation that just finished was an open, not a close.
+            #
+            # The scrim used to be released BEFORE this check, so a panel
+            # opened, closed and reopened faster than the slide takes ended up
+            # open with nothing behind it to catch a press - and with no close
+            # button either, which is stuck.
             return
+        self._release_scrim()
         self.hide()
         self._closing = False
         self._release_mask()

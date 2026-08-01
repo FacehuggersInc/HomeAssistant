@@ -12,7 +12,7 @@ import qtawesome as qta
 
 from src.ui.widgets.tile import Tile
 from src.ui.overlays import Panel
-from src.styling import make_font, SIZES, set_style, get_style_sheet
+from src.styling import make_font, SIZES, set_style, get_style_sheet, style_scrollbar
 
 if TYPE_CHECKING:
     from src.main import Client
@@ -251,7 +251,8 @@ class TilePanel(Panel):
     FALLBACK_CELL = 96   #before the grid has been laid out even once
 
     def __init__(self, client: "Client", page: QWidget, grid: "TileGrid"):
-        super().__init__(client, width=self.WIDTH, edge="right")
+        super().__init__(client, width=self.WIDTH, edge="right",
+                         dismiss_on_outside_click=True)
         self.page  = page
         self.grid  = grid
         self.items: dict[str, TilePanelItem] = {}        #tile.KEY -> its live item
@@ -267,7 +268,9 @@ class TilePanel(Panel):
         layout.setContentsMargins(16, 24, 16, 24)
         layout.setSpacing(12)
 
-        #title + close button share one row
+        # Just the title. A panel that closes by being tapped away from
+        # needs no cross, and one that offers both teaches that the
+        # cross is the way.
         header_row = QHBoxLayout()
         header_row.setContentsMargins(0, 0, 0, 0)
         header_row.setSpacing(8)
@@ -276,14 +279,6 @@ class TilePanel(Panel):
         title.setFont(make_font(SIZES.M1, bold=True))
         set_style(title, "common", "text-strong")
 
-        close_btn = QPushButton("\u2715")
-        close_btn.setFixedSize(32, 32)
-        close_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        set_style(close_btn, "tile_panel", "tile-panel-close")
-        close_btn.clicked.connect(self.toggle)   #same toggle used to open it
-
-        header_row.addWidget(title, stretch=1)
-        header_row.addWidget(close_btn)
         layout.addLayout(header_row)
 
         sub = QLabel("Drag a tile onto the grid to place it.")
@@ -295,8 +290,8 @@ class TilePanel(Panel):
         #scrollable list of TilePanelItem widgets
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
-        scroll.setStyleSheet(get_style_sheet("scrollbar"))
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        style_scrollbar(scroll)
         # Explicit: full-size previews make the list far taller than the panel,
         # so this is load-bearing rather than a default worth relying on.
         scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
@@ -457,10 +452,16 @@ class TilePanel(Panel):
     def _page_alive(self) -> bool:
         return not sip.isdeleted(self.page)
 
+    def dismiss(self) -> None:
+        """A press beside the panel. This one slides itself, so it toggles."""
+        if self.open:
+            self.toggle()
+
     def toggle(self) -> None:
         if not self._page_alive():
             return
         if self.open:
+            self._release_scrim()
             self.start_slide_out()
             self.anim.finished.connect(self.finish_slide_out)
             self.anim.finished.connect(lambda: self.anim.finished.disconnect())
@@ -468,6 +469,10 @@ class TilePanel(Panel):
             pw = self.page.width()
             ph = self.page.height()
             self.setFixedHeight(ph)
+            # The catcher behind it, so a press beside the panel closes it.
+            # This toggle does not go through open_panel(), which is where the
+            # base builds one.
+            self._build_scrim()
             self.anim.stop()
             self.move(pw, 0)
             self._shown_pos = QPoint(pw - self.WIDTH, 0)   #for refresh_backdrop()'s rect math

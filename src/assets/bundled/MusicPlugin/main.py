@@ -55,6 +55,8 @@ class MusicPlugin(Plugin):
         self._last_asked = ""
         #whether the assistant stopped the music, so only it resumes it
         self._paused_by_us = False
+        #Who, if anyone, the music is stopped for - see hold().
+        self._held_for = ""
 
     ## CORE
 
@@ -222,6 +224,10 @@ class MusicPlugin(Plugin):
             "play":    self.play,
             "search":  self.search_now,
             "results": lambda: [r.to_dict() for r in self._results],
+            # For anything that takes the room over for a while - see hold().
+            "hold":    self.hold,
+            "release": self.release,
+            "playing": lambda: bool(self.client.PLAYER.state().playing),
         })
 
     def unload(self, carryover=None):
@@ -319,6 +325,57 @@ class MusicPlugin(Plugin):
             self.client.PLAYER.pause()
             return
         self.client.PLAYER.duck(self._duck_to())
+
+    def hold(self, who: str = "") -> bool:
+        """
+        Stop the music for something that has taken the room over.
+
+        Not the same as ducking. Ducking is for a phrase or two and comes back
+        by itself once the assistant settles; this is for a conversation, which
+        can run for minutes and has its own idea of when it is finished.
+
+        Returns whether anything was actually stopped, so a caller can tell
+        whether it owes a release.
+        """
+        try:
+            if not self.client.PLAYER.state().playing:
+                return False
+        except Exception:
+            return False
+
+        self._held_for = str(who or "a conversation")
+        self._settled_at = 0.0
+        try:
+            self.client.PLAYER.pause()
+        except Exception as e:
+            self.client.log("warning", f"[Music] Could not pause: {e}")
+            self._held_for = ""
+            return False
+        self.client.log("info", f"[Music] Paused for {self._held_for}.")
+        return True
+
+    def release(self, who: str = "") -> bool:
+        """
+        Start it again, if this is what stopped it.
+
+        Checked rather than assumed: somebody who paused the music themselves
+        while a conversation was open did not ask for it back, and starting it
+        for them would be the panel overruling them.
+        """
+        if not getattr(self, "_held_for", ""):
+            return False
+        self._held_for = ""
+        try:
+            state = self.client.PLAYER.state()
+            if state.playing:
+                # Started again by hand while this was open. Left alone.
+                return False
+            self.client.PLAYER.play()
+        except Exception as e:
+            self.client.log("warning", f"[Music] Could not resume: {e}")
+            return False
+        self.client.log("info", "[Music] Playing again.")
+        return True
 
     def _watch_assistant(self, event=None) -> None:
         """

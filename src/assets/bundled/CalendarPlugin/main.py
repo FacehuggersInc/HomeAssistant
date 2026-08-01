@@ -210,6 +210,16 @@ class Calendar(Plugin):
         path = get_data_dir(APP_NAME) / "calendar" / "events.json"
         self.store = CalendarStore(path, log=self.client.log)
 
+        # Owned here rather than by the page: the widgets and the reminder
+        # panel draw stickers too, and a store belonging to a page is a store
+        # that does not exist until somebody opens that page.
+        from .stickers import StickerStore
+        self.stickers = StickerStore(
+            get_data_dir(APP_NAME) / "calendar" / "stickers.json",
+            resolve_event=self.store.get,
+            resolve_holiday=self._holiday_on,
+            log=self.client.log)
+
         # One published surface. Methods rather than the store itself, so the
         # storage can change shape without every caller changing with it.
         self.client.public.expose("calendar", "calendar", {
@@ -252,6 +262,9 @@ class Calendar(Plugin):
             # plugin needs an accessor PluginManager does not have, and the
             # registry is already the one surface everything else reads.
             "option":            self.option,
+            # Stickers stuck to days and to events - see stickers.py.
+            "stickers":          self.stickers,
+            "stickers_for":      self.stickers.for_event,
         }, overwrite=True)
 
         # Remote events. Authed, because anything that can write here can put
@@ -618,6 +631,24 @@ class Calendar(Plugin):
 
     ## EVENTS
 
+    def _holiday_on(self, slug: str, year: int):
+        """
+        Where a holiday falls in a given year, by the stable part of its key.
+
+        Computed rather than stored, and many of them move - so a sticker
+        following one has to ask each year rather than remember a date.
+        """
+        if not slug:
+            return None
+        try:
+            for entry in self.store.holidays(int(year)):
+                if str(entry.key or "").split(":")[-1] == slug:
+                    return entry.date
+        except Exception as e:
+            self.client.log("warning",
+                            f"[Calendar] Could not place holiday '{slug}': {e}")
+        return None
+
     def remove_event(self, key: str) -> bool:
         """
         Removal goes through here so it is announced.
@@ -627,6 +658,14 @@ class Calendar(Plugin):
         """
         removed = self.store.remove(key)
         if removed:
+            # Anything stuck to it stays, on the day it was last shown on.
+            # A sticker is something somebody put there, and deleting an event
+            # is not a statement about it.
+            try:
+                self.stickers.remove_for_event(key)
+            except Exception as e:
+                self.client.log("warning",
+                                f"[Calendar] Could not unstick from {key}: {e}")
             self.client.trigger_on_call_event_iteration("on_calendar_changed", key)
         else:
             # Every caller discarded the return value, so a removal that

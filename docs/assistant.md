@@ -16,6 +16,99 @@ Settings live under **Assistant**:
 | `wake_listen_timeout` | Seconds to keep listening after the wake word with nothing said |
 | `tts_enabled` | Whether replies are spoken |
 
+## What the transcriber makes up
+
+Whisper fills the pause around what was said with its own habits, so both of
+these arrive as one phrase with an invented half in it:
+
+```
+i like that what is the weather
+what is the weather i like that
+```
+
+`normalize.strip_hallucination()` takes known boilerplate off **either end**.
+Two rules keep it from doing harm:
+
+- Only the ends. Cutting from the middle would take real speech with it.
+- Its own list (`EDGE_NOISE`), not `HALLUCINATIONS`. That one holds single
+  common words - "you", "music", "right" - which are fine to reject as a whole
+  utterance and ruinous to strip from the edge of one: "who are you" would
+  become "who are", and "what is that music" would lose the music.
+
+A phrase that is entirely boilerplate is still `is_hallucination`'s answer to
+give; taking an edge off "i like that" would leave "i".
+
+The test for adding to `EDGE_NOISE` is whether anybody would say it as the
+first or last words of an instruction - and it is a stricter test at the front,
+because "i like that idea, remind me later" is a sentence somebody could
+plausibly say. The list stays short rather than clever.
+
+## Saying what it is doing
+
+The voice bar lives at the bottom of the SCREEN, and a full-screen panel covers
+it - so while a conversation was open the one thing saying whether the panel was
+listening was hidden behind it.
+
+The conversation carries its own, in the same place and the same shape:
+
+| State | Says |
+|---|---|
+| speaking | Speaking · say the wake word to interrupt |
+| listening | Listening… |
+| thinking | Thinking… |
+| otherwise | Say the wake word to ask another |
+
+The last two rows are the ones worth having. Somebody looking at a finished
+reply has no way to know the session is still open and waiting, and somebody
+listening to a long one has no way to know they can cut it short.
+
+## Speaking over a reply
+
+The wake word is heard while the panel is talking, and hearing it stops the
+speech immediately. The session stays open, so the next question can be asked
+straight away rather than after the rest of the answer has been read out.
+
+Inside a session the wake word is stripped rather than passed on: it is not
+addressing the panel there, it is interrupting it, and what follows is the
+question.
+
+| Heard, mid-reply | Given to the session |
+|---|---|
+| "alexa what about tuesday" | "what about tuesday" |
+| "alexa" | nothing - it keeps listening |
+| anything else, within a second of the stop | nothing - it is the tail |
+| anything else | as it was said |
+
+The last two rows are why there is a settle at all. The microphone records
+while the panel speaks and Whisper only transcribes on silence, so the end of
+what it was saying arrives just AFTER it was stopped, looking like a question.
+
+Everything else heard during a reply is still dropped as the panel hearing
+itself - the microphone captures while it speaks, and treating a stray phrase
+as an interruption would let a reply talk itself out of its own sentence.
+
+**The wake word is never the panel hearing itself**, because the panel never
+says it. So it comes through whether or not there was anything to stop - which
+matters most in the two and a half seconds AFTER a reply, since that is when
+somebody talks: they are answering what was just said. Answering on "was
+anything stopped" instead meant the wake word was dropped exactly there, and
+the panel looked deaf at the one moment it was most likely to be spoken to.
+
+Hearing it sets the pill to listening straight away rather than waiting for the
+wake pipeline, because that is the moment somebody is looking for a sign they
+were heard.
+
+Playback is written in tenth-of-a-second pieces so a stop lands where it was
+asked for. One write of the whole reply blocks until every sample has played,
+which is why nothing could interrupt it before: by the time anything could act
+on the wake word, the sentence had finished anyway.
+
+Saying you are finished - "stop", "nevermind", "that's all" - ends the session
+AND closes the panel. That is checked inside the conversation loop rather than
+left to the cancel engine, because an open session queues every phrase before
+the intent engine sees it, so "stop" arrived as a question and was asked of the
+model.
+
 ## The activity bar
 
 A floating pill above the bottom edge, centred, sized to its content between
