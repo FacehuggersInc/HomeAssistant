@@ -271,6 +271,15 @@ class WakeWhisper:
 		self.window_size_hz = int(sample_rate * (window_duration_ms / 1000)) #16000 * 0.3s
 		self.channels = 1
 		self.too_quiet_db = -35
+		#The same question, on the other side of the noise reduction - and on
+		#a different scale. too_quiet_db is measured on int16 samples; by the
+		#processing loop the audio is normalised to [-1, 1], which is about
+		#90dB lower for the same sound. Reusing the int16 figure there would
+		#throw away everything, including clear speech.
+		#
+		#Set below quiet speech and above what is left of a silent room after
+		#de-noising, which is roughly -70dB.
+		self.SILENT_DB = -60.0
 		self.vad = webrtcvad.Vad(vad_aggressiveness)
 
 		self.wake_words = wake_words
@@ -403,26 +412,46 @@ class WakeWhisper:
 				self.stop_event.wait(5)
 
 	def __wake_word_check(self, sample:bytes):
-		converted = np.frombuffer(sample, dtype=np.int16).astype(np.float32) / self.__PCM_NORM_FACTOR
-		text = self.transcribe(converted)
-		if text:
-			lowered = text.lower()
-			for word in self.wake_words:  # e.g., ["clyde", "jarvis"]
-				# Word boundaries, not substring: "alexa" should not fire on
-				# "alexander", and a short wake word matches inside all sorts
-				# of ordinary speech.
-				if re.search(rf"\b{re.escape(word)}\b", lowered):
-					self.send_log("debug", f"[Whisper]: Wake word '{word}' detected.")
-					self.woke = True
-					if callable(self.on_wake):
-						self.on_wake(word)
-					break
-		self.sample_check_thread = None
+		"""
+		Look for a wake word in one sample, on its own thread.
+
+		The gate is cleared in a `finally`. Cleared only on the success path,
+		a transcribe that raised left a dead Thread in `sample_check_thread`
+		forever - and the loop gates on that attribute being falsy, so wake
+		detection stopped for good. `reset_all()` does not clear it either, so
+		nothing recovered short of a mode switch.
+		"""
+		try:
+			converted = np.frombuffer(sample, dtype=np.int16).astype(np.float32) / self.__PCM_NORM_FACTOR
+			text = self.transcribe(converted)
+			if text:
+				lowered = text.lower()
+				for word in self.wake_words:  # e.g., ["clyde", "jarvis"]
+					# Word boundaries, not substring: "alexa" should not fire on
+					# "alexander", and a short wake word matches inside all sorts
+					# of ordinary speech.
+					if re.search(rf"\b{re.escape(word)}\b", lowered):
+						self.send_log("debug", f"[Whisper]: Wake word '{word}' detected.")
+						self.woke = True
+						if callable(self.on_wake):
+							self.on_wake(word)
+						break
+		except Exception as exc:
+			self.send_log("warning",
+				f"[Whisper]: Wake word check failed: {exc}")
+		finally:
+			self.sample_check_thread = None
 
 	def __test_sample_for_wake(self, sample_window:list[bytes]):
-		if self.sample_check_thread and self.sample_check_thread.is_alive():
+		check = self.sample_check_thread
+		if check is not None and check.is_alive():
 			#Already running a check
 			return
+		if check is not None:
+			# Finished, but the gate was left set. Cleared here as well as in
+			# the check's own finally, so a thread that died in a way that
+			# skipped it cannot stop wake detection permanently.
+			self.sample_check_thread = None
 		sample = b"".join(sample_window)
 		self.sample_check_thread = Thread(
 			target=self.__wake_word_check,
@@ -484,6 +513,11 @@ class WakeWhisper:
 			end_context_windows_accumulated = 0
 			extensions_added = 0
 			speech_cutoff = False
+			# A finished check must not survive a reset holding the gate.
+			# The thread is left to end on its own; only the gate is dropped.
+			check = self.sample_check_thread
+			if check is None or not check.is_alive():
+				self.sample_check_thread = None
 
 		## CORE LOOP
 		while not self.stop_event.is_set():
@@ -593,7 +627,11 @@ class WakeWhisper:
 						# Check Sample Window Regularly for a wake Word
 						if not self.woke:
 							sample_window.append( audio_window )
-							if not self.sample_check_thread and len(sample_window) >= self.wake_sample_windows:
+							# Liveness, not the attribute. A finished thread
+							# object is truthy, so gating on `not
+							# self.sample_check_thread` stopped asking the
+							# moment one was left behind.
+							if len(sample_window) >= self.wake_sample_windows:
 								self.__test_sample_for_wake(sample_window)
 
 						#Build Speech
@@ -626,7 +664,8 @@ class WakeWhisper:
 
 							if not self.woke:
 								sample_window.append( audio_window )
-								if not self.sample_check_thread and len(sample_window) >= self.wake_sample_windows:
+								# Liveness, not the attribute - see above.
+								if len(sample_window) >= self.wake_sample_windows:
 									self.__test_sample_for_wake(sample_window)
 
 							#Dont allow end_context to build yet, so that end context doesn't trigger finalization
@@ -673,14 +712,11 @@ class WakeWhisper:
 							speech_window.extend( end_context ) #add end context to speech window
 							speech = b"".join(speech_window)
 
-							# Optionally : de-noise the entire speech
-							if self.use_noise_reduction:
-								try:
-									utt_np = np.frombuffer(speech, dtype=np.int16).astype(np.float32) / self.__PCM_NORM_FACTOR
-									utt_clean = nr.reduce_noise(y=utt_np, sr=self.sample_rate)
-									speech = (utt_clean * self.__PCM_NORM_FACTOR).astype(np.int16).tobytes()
-								except Exception:
-									pass
+							# De-noising happens in the processing loop, not here.
+							# reduce_noise() on a whole utterance is real work, and
+							# this is the audio thread - the microphone stream keeps
+							# filling while it runs, so a long phrase was paid for by
+							# dropping the start of whatever came next.
 							
 							#Finally if speech wasn't too quiet, queue for processing
 							if not self.is_too_quiet(
@@ -767,14 +803,11 @@ class WakeWhisper:
 								speech_window.extend( end_context ) #add end context to speech window
 								speech = b"".join(speech_window)
 
-								# Optionally : de-noise the entire speech
-								if self.use_noise_reduction:
-									try:
-										utt_np = np.frombuffer(speech, dtype=np.int16).astype(np.float32) / self.__PCM_NORM_FACTOR
-										utt_clean = nr.reduce_noise(y=utt_np, sr=self.sample_rate)
-										speech = (utt_clean * self.__PCM_NORM_FACTOR).astype(np.int16).tobytes()
-									except Exception:
-										pass
+								# De-noising happens in the processing loop, not here.
+								# reduce_noise() on a whole utterance is real work, and
+								# this is the audio thread - the microphone stream keeps
+								# filling while it runs, so a long phrase was paid for by
+								# dropping the start of whatever came next.
 								
 								#Finally if speech wasn't too quiet, queue for processing
 								if not self.is_too_quiet(
@@ -796,10 +829,27 @@ class WakeWhisper:
 
 				#Whether Speech is detected or Not, Reset if too long without speech
 				if time.time() - last_speech_time >= reset_timeout_time:
-					if was_speech: print("[Whisper]: Resetting due to extended silence.") #log only if was_speech
+					# Reported before the reset, and only when there was
+					# something to report.
+					#
+					# reset_all() sets last_speech_time, so this re-arms and
+					# fires again every fifteen seconds forever - in a silent
+					# room that was a socket write on the audio thread, on a
+					# timer, saying nothing had happened. Announced only when
+					# a phrase was actually abandoned.
+					announce = was_speech
+					if announce:
+						self.send_log("debug",
+							"[Whisper]: Resetting due to extended silence.")
 					reset_all()
-					if callable(self.on_timeout):
-						self.on_timeout("extended_timeout")
+					if announce and callable(self.on_timeout):
+						# Off this thread. sendall blocks, and the microphone
+						# stream is filling while it does - a parent that is
+						# slow to read stalls the audio, which drops windows
+						# and truncates whatever is said next.
+						Thread(target=self.__say_timeout,
+						       args=["extended_timeout"],
+						       daemon=True).start()
 
 			except Exception as exc:
 				self.send_log("warning",
@@ -814,6 +864,15 @@ class WakeWhisper:
 		self.send_log("debug", "[Whisper]: Microphone closed.")
 
 	## PROCESSING
+	def __say_timeout(self, kind: str) -> None:
+		"""Report a timeout without the audio thread waiting on the socket."""
+		try:
+			if callable(self.on_timeout):
+				self.on_timeout(kind)
+		except Exception as exc:
+			self.send_log("warning",
+				f"[Whisper]: Could not report {kind}: {exc}")
+
 	def multi_phrase_check(self, text: str) -> bool:
 		"""
 		Reject a transcript that is the model looping rather than speech.
@@ -850,6 +909,29 @@ class WakeWhisper:
 			speech = np.frombuffer(speech, dtype=np.int16).astype(np.float32) / self.__PCM_NORM_FACTOR
 			self.send_log("debug", "[Whisper]: Processing speech window...")
 
+			# De-noised here rather than on the audio thread, which cannot
+			# afford to wait: this one is already about to spend far longer
+			# inside the model, and nothing is being recorded against it.
+			if self.use_noise_reduction:
+				try:
+					speech = nr.reduce_noise(y=speech, sr=self.sample_rate)
+				except Exception as exc:
+					self.send_log("debug",
+						f"[Whisper]: Noise reduction skipped: {exc}")
+
+			# Loudness is judged AFTER the noise comes out, which is the
+			# question worth asking - "was anything said" rather than "was
+			# the room quiet". The check on the audio thread now sees raw
+			# audio and so keeps more than it did; this is what still drops a
+			# window of nothing but hiss, and it costs a transcription rather
+			# than a dropped phrase to be wrong here.
+			level = float(np.sqrt(np.mean(speech ** 2)))
+			level_db = 20 * np.log10(level + 1e-9)
+			if level_db < self.SILENT_DB:
+				self.send_log("debug",
+					f"[Whisper]: Nothing said ({level_db:.0f}dB).")
+				continue
+
 			#Transcribe Audio
 			try:
 				# Locked: the wake-word check transcribes on its own thread and
@@ -882,9 +964,16 @@ class WakeWhisper:
 				final_text = ""
 
 			if final_text and self.clean_text(final_text) and len(final_text.split()) <= 20:
-				
+
 				if self.multi_phrase_check(final_text):
-					return
+					# `continue`, not `return`. This is inside the processing
+					# loop, so returning ended the thread outright - one
+					# repetitive transcript and nothing was ever transcribed
+					# again, with every later phrase queueing behind a worker
+					# that had gone. Nothing restarts it.
+					self.send_log("debug",
+						f"[Whisper]: Discarded repetition: {final_text!r}")
+					continue
 
 				self.send_log("debug", f"[Whisper]: Final Transcription: {final_text}")
 

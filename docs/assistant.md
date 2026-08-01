@@ -16,6 +16,30 @@ Settings live under **Assistant**:
 | `wake_listen_timeout` | Seconds to keep listening after the wake word with nothing said |
 | `tts_enabled` | Whether replies are spoken |
 
+## Two threads, and what may not block
+
+The speech process runs an audio thread and a processing thread, and the rule
+between them is that the audio thread never waits.
+
+It reads the microphone in 30ms windows. Anything that takes longer than a
+window - de-noising a whole utterance, a socket write to a parent that is slow
+to read - drops audio while it runs, and dropped audio truncates whatever is
+said next. So de-noising happens in the processing loop, which is about to
+spend far longer in the model anyway, and the extended-silence timeout is
+reported from a thread of its own.
+
+Two failures worth knowing about, because both were silent:
+
+- The processing loop `return`ed on a repetitive transcript instead of
+  `continue`ing. That ends the worker; nothing restarts it, and every later
+  phrase queues behind a thread that has gone.
+- The wake-word check cleared its gate only on the success path, and the loop
+  gated on that attribute being *falsy* rather than on the thread being alive.
+  One transcribe that raised, and wake detection stopped until a mode switch.
+
+Neither logged anything. `check_whisper_process.py` asserts the shapes that
+caused them are gone.
+
 ## What the transcriber makes up
 
 Whisper fills the pause around what was said with its own habits, so both of

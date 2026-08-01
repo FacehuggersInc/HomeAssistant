@@ -1,6 +1,16 @@
 {
  "log": [
   {
+   "at": 1785556743.9900327,
+   "note": "a speech process that keeps listening",
+   "pages": [
+    {
+     "slug": "assistant",
+     "state": "updated"
+    }
+   ]
+  },
+  {
    "at": 1785555485.3333926,
    "note": "text that fits, and taps that do one thing",
    "pages": [
@@ -159,8 +169,8 @@
    "state": "seen"
   },
   "assistant": {
-   "at": 1785554154.981537,
-   "hash": "7fe20784ad21c87d",
+   "at": 1785556743.9886303,
+   "hash": "79ed84aa4eb0ab02",
    "opened": 0,
    "state": "updated"
   },
