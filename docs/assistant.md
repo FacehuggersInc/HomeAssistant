@@ -146,9 +146,23 @@ matching" apart from "the skill is not firing", which is impossible while all
 three are in the way of each other.
 
 It holds the microphone only while a session is running, and navigating away
-is a stop. Watching is done through `STT.add_listener()`, which is handed each
-transcript before normalising or routing and does not consume it - the phrase
-reaches the panel exactly as it would have.
+is a stop.
+
+A session puts the child into **passthrough** - the same mode a conversation
+uses, where it stops waiting to be woken and finalises on silence - through
+`STT.start_monitor()`. Watching alone would not have been enough: the child
+only transcribes after the wake word fires, so a page that just read
+transcripts would have been testing the wake word as much as the microphone,
+which is the one thing it exists to rule out.
+
+While monitoring, nothing is routed. Every transcript reaches the listeners
+and stops there - a skill firing for each sentence said in the room while this
+page is open would be worse than useless. `stop_monitor()` puts it back to
+waiting for the wake word.
+
+Listeners are added with `STT.add_listener()` and are handed each transcript
+before normalising or routing. A listener does not consume the phrase; outside
+monitoring it reaches the panel exactly as it would have.
 
 ## Two threads, and what may not block
 

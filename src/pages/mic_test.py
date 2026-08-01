@@ -67,9 +67,11 @@ class MicTestPage(QWidget):
     def _blurb(self) -> QLabel:
         label = QLabel(
             "Say something while a session is running and it appears below, "
-            "exactly as the transcriber heard it. Nothing is routed to a "
-            "skill and no wake word is needed \u2014 this is only about "
-            "whether the microphone and the model are working.")
+            "exactly as the transcriber heard it. No wake word is needed and "
+            "nothing is routed to a skill \u2014 the assistant stops waiting "
+            "to be woken and transcribes everything, so this is only about "
+            "whether the microphone and the model are working. It goes back "
+            "to normal when the session stops.")
         label.setFont(make_font(SIZES.S1))
         label.setWordWrap(True)
         set_style(label, "common", "text-muted")
@@ -152,8 +154,19 @@ class MicTestPage(QWidget):
         except Exception as e:
             self._say(f"Could not listen: {e}")
             return
-
         self._hooked = True
+
+        # Everything, with no wake word. Without this the child only
+        # transcribes after being woken, so the page would have been testing
+        # the wake word as much as the microphone - which is the one thing it
+        # exists to rule out.
+        if not stt.start_monitor():
+            stt.remove_listener(self._heard)
+            self._hooked = False
+            self._say("The microphone is not open. Check the assistant is "
+                      "enabled and running, then try again.")
+            return
+
         self.listening = True
         self.started_at = time.time()
         self.heard = 0
@@ -179,6 +192,10 @@ class MicTestPage(QWidget):
         if not self._hooked:
             return
         self._hooked = False
+        try:
+            self.client.STT.stop_monitor()
+        except Exception:
+            pass
         try:
             self.client.STT.remove_listener(self._heard)
         except Exception:
@@ -248,8 +265,8 @@ class MicTestPage(QWidget):
             return
         seconds = int(time.time() - self.started_at)
         mode = "hardware" if self._hardware() else "software"
-        self._say(f"Listening \u2014 {seconds}s, {self.heard} phrase(s). "
-                  f"Microphone processing: {mode}.")
+        self._say(f"Listening to everything \u2014 {seconds}s, {self.heard} "
+                  f"phrase(s). No wake word. Microphone processing: {mode}.")
 
     def _hardware(self) -> bool:
         try:

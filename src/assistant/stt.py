@@ -160,6 +160,9 @@ class STTProcessing():
 		#test page. See add_listener().
 		self._listeners : list = []
 		self._listener_lock = RLock()
+		#Whether something is watching everything said, with no wake word.
+		#See start_monitor().
+		self._monitoring : bool = False
 		self.woke_at : float = 0.0
 		#When LISTENING was entered by something other than a wake word.
 		#See check_wake_timeout().
@@ -617,6 +620,46 @@ class STTProcessing():
 		except Exception as e:
 			self.client.log("debug", f"[STTProcessing] Could not greet: {e}")
 
+	def start_monitor(self) -> bool:
+		"""
+		Transcribe everything, without a wake word and without routing.
+
+		For the microphone test page. Passthrough is the same mode a
+		conversation uses - the child stops waiting to be woken and finalises
+		on silence - but nothing is put into a session, so the phrases reach
+		the listeners and go no further.
+
+		Returns whether the microphone was actually opened.
+		"""
+		if self._monitoring:
+			return True
+		if not self.listening or self.process is None:
+			return False
+		try:
+			self.send_command("START_PASSTHROUGH")
+		except Exception as e:
+			self.client.log("warning",
+				f"[STTProcessing] Could not start monitoring: {e}")
+			return False
+		self._monitoring = True
+		self.client.log("info", "[STTProcessing] Monitoring - no wake word.")
+		return True
+
+	def stop_monitor(self) -> None:
+		"""Back to waiting for the wake word."""
+		if not self._monitoring:
+			return
+		self._monitoring = False
+		try:
+			self.send_command("START_WAKE")
+		except Exception as e:
+			self.client.log("warning",
+				f"[STTProcessing] Could not stop monitoring: {e}")
+		self.client.log("info", "[STTProcessing] Monitoring ended.")
+
+	def is_monitoring(self) -> bool:
+		return bool(self._monitoring)
+
 	def add_listener(self, callback) -> None:
 		"""
 		Watch every transcript, without taking it.
@@ -866,6 +909,13 @@ class STTProcessing():
 									# "the microphone heard nothing" apart
 									# from "the wake word did not match".
 									self._tell_listeners(data)
+									if self._monitoring:
+										# Monitoring is listening without
+										# acting. Routing here would run a
+										# skill for every sentence said in
+										# the room while the test page is
+										# open, which is worse than useless.
+										continue
 									self.pre_processing(data)
 
 								case "voice_activity": #Will Get Used A Lot

@@ -1,6 +1,16 @@
 {
  "log": [
   {
+   "at": 1785606464.216675,
+   "note": "a test page that really does not need a wake word",
+   "pages": [
+    {
+     "slug": "assistant",
+     "state": "updated"
+    }
+   ]
+  },
+  {
    "at": 1785605590.148265,
    "note": "a microphone that cleans its own audio",
    "pages": [
@@ -287,8 +297,8 @@
    "state": "seen"
   },
   "assistant": {
-   "at": 1785605590.1468263,
-   "hash": "55b9e393144920b8",
+   "at": 1785606464.215289,
+   "hash": "32010d82d87a0894",
    "opened": 0,
    "state": "updated"
   },
