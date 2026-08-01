@@ -598,9 +598,17 @@ class STTProcessing():
 		restarts itself at four in the morning should not announce it to the
 		room, so the speech is off by default while the notification is not.
 		"""
-		wake = ""
+		# The configured wake word, not the first skill's.
+		#
+		# `SKILLS.wake_args` is every skill that declares one, in load order,
+		# so `[0][0]` was whichever plugin happened to register first - the
+		# calendar, the timer, whatever. The panel then greeted somebody by
+		# telling them to say a word that is not the one it is listening for.
+		#
+		# `client.wake_word` is the accessor, and its own docstring says to
+		# use it rather than reaching for something else.
 		try:
-			wake = str(self.client.SKILLS.wake_args[0][0] or "").strip().title()
+			wake = str(self.client.wake_word or "").strip().title()
 		except Exception:
 			wake = ""
 

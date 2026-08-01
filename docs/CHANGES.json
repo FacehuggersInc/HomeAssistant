@@ -1,6 +1,16 @@
 {
  "log": [
   {
+   "at": 1785619053.728079,
+   "note": "greeting with the wake word it actually listens for",
+   "pages": [
+    {
+     "slug": "assistant",
+     "state": "updated"
+    }
+   ]
+  },
+  {
    "at": 1785607321.1397007,
    "note": "a fast model for the wake word, an accurate one for the phrase",
    "pages": [
@@ -317,8 +327,8 @@
    "state": "seen"
   },
   "assistant": {
-   "at": 1785607321.1381776,
-   "hash": "ef90261cc8640457",
+   "at": 1785619053.7276106,
+   "hash": "9398ef6b6fbd4a63",
    "opened": 0,
    "state": "updated"
   },

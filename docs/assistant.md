@@ -28,6 +28,11 @@ it came back. Whether it is SPOKEN is `assistant.greet_on_start`, off by
 default: a panel that restarts itself at four in the morning should not
 announce it to the room.
 
+The wake word it names is `client.wake_word` - the configured one. Not
+`SKILLS.wake_args[0][0]`, which is every skill that declares one in load
+order, so indexing it names whichever plugin registered first. A panel telling
+somebody to say a word it is not listening for is worse than not naming one.
+
 The greeting is picked at random from a short list, so a panel that restarts
 twice does not say the same thing twice. The written form adds "Say Alexa when
 you need me"; the spoken one does not, because it is talking to somebody who is
