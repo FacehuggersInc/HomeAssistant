@@ -154,13 +154,18 @@ class _Tile(QFrame):
         name.setToolTip(item.label)
         set_style(name, "common", "text-strong")
 
+        # Measured, not assumed. This was a flat 18px per line while the font
+        # it uses is taller than that, so every name lost its descenders and a
+        # two-line one lost most of its second row.
+        metrics = QFontMetrics(name.font())
+        line_height = metrics.height()
+
         if lines > 1:
             name.setWordWrap(True)
-            name.setFixedHeight(18 * lines)
+            name.setFixedHeight(line_height * lines)
             name.setText(item.label)
         else:
-            name.setFixedHeight(18)
-            metrics = QFontMetrics(name.font())
+            name.setFixedHeight(line_height)
             name.setText(metrics.elidedText(
                 item.label, Qt.TextElideMode.ElideRight, size + 6))
         column.addWidget(name)

@@ -11,8 +11,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Optional
 
 from PyQt6.QtCore import Qt, QSize
-from PyQt6.QtGui import QPixmap
-from PyQt6.QtWidgets import QWidget, QLabel, QVBoxLayout
+from PyQt6.QtGui import QPixmap, QFontMetrics
+from PyQt6.QtWidgets import QWidget, QLabel, QVBoxLayout, QSizePolicy
 
 from src.styling import make_font, set_style, add_text_shadow, SIZES
 from src.ui.widgets.tile import Tile
@@ -54,26 +54,62 @@ class BookmarkTile(Tile):
         host = QWidget()
         set_style(host, "common", "transparent")
         layout = QVBoxLayout(host)
-        layout.setContentsMargins(6, 10, 6, 8)
-        layout.setSpacing(6)
+        layout.setContentsMargins(6, 8, 6, 6)
+        layout.setSpacing(4)
         layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
+        # The icon takes what is left after the name, not a fixed 44px.
+        #
+        # A grid cell is often around sixty pixels square; a fixed icon plus
+        # its margins left negative room for the label, so the name was
+        # squeezed to nothing whatever it said.
         self._icon_label = QLabel()
         self._icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._icon_label.setFixedHeight(44)
+        self._icon_label.setMinimumHeight(0)
+        self._icon_label.setSizePolicy(QSizePolicy.Policy.Preferred,
+                                       QSizePolicy.Policy.Expanding)
         set_style(self._icon_label, "common", "transparent")
-        layout.addWidget(self._icon_label)
+        layout.addWidget(self._icon_label, stretch=1)
 
         self._name_label = QLabel("")
         self._name_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._name_label.setWordWrap(True)
+        # One line, shortened in the middle. Wrapping needs height a cell does
+        # not have, and a wrapped name that does not fit is clipped mid-word
+        # with nothing to say it was - an ellipsis at least says so.
+        self._name_label.setWordWrap(False)
         self._name_label.setFont(make_font(SIZES.S1, bold=True))
         self._name_label.setStyleSheet("color:#e8ecf4;background:transparent;")
+        self._name_label.setSizePolicy(QSizePolicy.Policy.Ignored,
+                                       QSizePolicy.Policy.Fixed)
         add_text_shadow(self._name_label, blur=8)
-        layout.addWidget(self._name_label)
+        layout.addWidget(self._name_label, stretch=0)
 
         self.refresh()
         return host
+
+    def _fit_label(self) -> None:
+        """Shorten the name to whatever width the cell actually has."""
+        label = self._name_label
+        if label is None:
+            return
+        text = getattr(self, "_label_text", "") or ""
+        room = max(0, label.width() - 4)
+        if room <= 0:
+            label.setText(text)
+            return
+        metrics = QFontMetrics(label.font())
+        label.setText(metrics.elidedText(text, Qt.TextElideMode.ElideRight,
+                                         room))
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        # Re-shortened on every resize: a tile is dropped into a grid whose
+        # cell size depends on the panel, so the width it gets is not known
+        # when the name is set.
+        try:
+            self._fit_label()
+        except Exception:
+            pass
 
     ## -- state
 
@@ -112,7 +148,8 @@ class BookmarkTile(Tile):
                 pixmap = None
 
         try:
-            self._name_label.setText(label)
+            self._label_text = label
+            self._fit_label()
             if pixmap is not None:
                 self._icon_label.setPixmap(pixmap)
                 self._icon_label.setText("")

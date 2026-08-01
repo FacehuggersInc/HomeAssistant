@@ -210,6 +210,24 @@ Rows in one list usually carry the same labels and still line up; a row that
 genuinely needs more gets more, because a readable row slightly out of line
 beats a tidy column of cut-off words.
 
+## Fixed heights
+
+A label's height comes from its font, never from a guess:
+
+```python
+label.setFont(make_font(SIZES.S1))
+label.setFixedHeight(QFontMetrics(label.font()).height())
+```
+
+`SIZES.S1` needs 24px on this panel, and the guesses beside it were all 18 -
+so every one of those labels lost its descenders, and a two-line one lost half
+its second row. `check_text_fits.py` reads every `setFixedHeight` next to a
+`make_font` and compares the two.
+
+The same shape of mistake sizes a tile: a fixed icon height in a grid cell
+around sixty pixels square leaves negative room for the text under it. Give the
+text what it needs and let the picture take the rest.
+
 ## Scroll areas
 
 Every scrolling surface the panel draws itself takes one sheet:

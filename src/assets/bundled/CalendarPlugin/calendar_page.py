@@ -216,8 +216,11 @@ class DayCell(QWidget):
             return
         moved = (event.globalPosition().toPoint() - start).manhattanLength()
         # A drag is a swipe and belongs to the page; only a tap opens the day.
-        if moved < self.DRAG_SLOP:
-            self.page.open_day(self.day)
+        if moved >= self.DRAG_SLOP:
+            return
+        if not self.page.taps_open_days():
+            return
+        self.page.open_day(self.day)
 
 
 class CalendarPage(SubPageFramework):
@@ -396,6 +399,54 @@ class CalendarPage(SubPageFramework):
             self.weekday_labels.append(label)
             row.addWidget(label)
         return row
+
+    def taps_open_days(self) -> bool:
+        """
+        Whether a tap on a cell should open its day right now.
+
+        A press that was doing something else entirely still ends in a release
+        on whatever is underneath. Dismissing the quick settings panel and
+        swiping to the next sub-page both land on a day cell, and both opened
+        the day list on the way out.
+
+        Asked at the release rather than blocked at the press, because at the
+        press none of this is known yet - the panel is still open and the
+        swipe has not happened.
+        """
+        # A panel over the page took that press. Closing it IS what the press
+        # did; the cell underneath was never the target.
+        try:
+            host = self.client.OVERLAYS
+            if host is not None:
+                from src.ui.overlays import Panel
+                for panel in host.findChildren(Panel):
+                    if panel.isVisible():
+                        return False
+        except Exception:
+            pass
+
+        # A dialog is in front, so nothing behind it is being tapped.
+        try:
+            if self.client.DIALOG.get() is not None:
+                return False
+        except Exception:
+            pass
+
+        # The page moved under the finger. The release belongs to the
+        # navigation, not to whichever cell happened to end up beneath it.
+        #
+        # Read from the home page's coordinate rather than an animation flag:
+        # a swipe changes it before the slide starts, so this is true from the
+        # moment the gesture is recognised rather than only while it moves.
+        if not self.isVisible():
+            return False
+        home = self.parent()
+        here = getattr(self, "coord", None)
+        showing = getattr(home, "_current_coord", None)
+        if here is not None and showing is not None:
+            if tuple(showing) != tuple(here):
+                return False
+        return True
 
     def block_hold(self, blocked: bool) -> None:
         """Stop the home page's hold gesture while a day is being pressed."""

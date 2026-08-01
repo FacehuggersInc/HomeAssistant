@@ -16,6 +16,7 @@ from __future__ import annotations
 from threading import Thread
 from typing import TYPE_CHECKING, Optional
 
+from PyQt6.QtGui import QFontMetrics
 from PyQt6.QtWidgets import (
     QWidget, QFrame, QLabel, QPushButton, QVBoxLayout, QHBoxLayout, QSizePolicy,
 )
@@ -80,7 +81,9 @@ def _chip(text: str, icon_name: str = "", tone: str = "chip") -> QWidget:
 
     label = QLabel(str(text))
     label.setFont(make_font(SIZES.S1))
-    label.setFixedHeight(18)
+    # Measured from the font. A flat 18px is shorter than S1 needs, which
+    # takes the descenders off every one of these.
+    label.setFixedHeight(QFontMetrics(label.font()).height())
     label.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)
     set_style(label, "settings", tone)
     row.addWidget(label)
