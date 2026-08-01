@@ -268,6 +268,13 @@ class MicTestPage(QWidget):
             self.stop()
 
 
-def build_mic_test_page(client: "Client") -> QWidget:
-    """The settings category body."""
-    return MicTestPage(client)
+def build_mic_test_page(client: "Client") -> list:
+    """
+    The section's contents, for `new_category()`.
+
+    A LIST of widgets, not a widget. The settings page walks what it is given
+    looking for `sort_label`, so handing it one widget raises rather than
+    showing anything - see `build_logs_page` and `build_wifi_page`, which is
+    the shape this should have had.
+    """
+    return [MicTestPage(client)]
