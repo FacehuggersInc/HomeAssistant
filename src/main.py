@@ -239,6 +239,7 @@ class Client:
                 #registering twice and a new kind being a new event name that
                 #nothing is listening for.
                 "on_web_event":             [],
+                "on_heard_assistant":       [],
                 "on_woke_assistant":        [],
                 "on_assistant_transcribed": [],
                 "on_assistant_cancelled":   [],

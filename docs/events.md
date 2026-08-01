@@ -4,6 +4,23 @@ Events let any part of the application — Client, plugins, pages — react to t
 
 There are two kinds.
 
+## An event has to exist before anything subscribes
+
+`subscribe_to_event()` indexes straight into `EVENTS["on_call"]`, so a name
+that was never registered raises `KeyError` at plugin load - and that is not
+one plugin failing, it is the app not starting.
+
+Two ways a name becomes real:
+
+- **Listed in the core dict** in `main.py`. For events the panel itself fires.
+- **`client.create_on_call_event("name")`** at load time. For an event a
+  plugin owns - the calendar does this for `on_calendar_changed`, guarded by
+  an `in` test so a reload does not clear the subscribers.
+
+Adding a `subscribe_to_event` without doing one of those is the mistake, and
+`check_events.py` catches it by comparing every name used against every name
+declared.
+
 ## Client events
 
 A fixed set of built-in events the Client fires itself, at predictable moments.

@@ -1,6 +1,16 @@
 {
  "log": [
   {
+   "at": 1785621374.3572154,
+   "note": "events that exist before they are subscribed to",
+   "pages": [
+    {
+     "slug": "events",
+     "state": "updated"
+    }
+   ]
+  },
+  {
    "at": 1785621119.250844,
    "note": "one place for sound, and devices chosen by name",
    "pages": [
@@ -393,10 +403,10 @@
    "state": "updated"
   },
   "events": {
-   "at": 1785540425.864371,
-   "hash": "8dba17ce6fbb6f2f",
-   "opened": 1785540425.8643713,
-   "state": "seen"
+   "at": 1785621374.3567243,
+   "hash": "4baebd665e58eb08",
+   "opened": 0,
+   "state": "updated"
   },
   "features": {
    "at": 1785540425.864436,
