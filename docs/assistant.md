@@ -16,6 +16,23 @@ Settings live under **Assistant**:
 | `wake_listen_timeout` | Seconds to keep listening after the wake word with nothing said |
 | `tts_enabled` | Whether replies are spoken |
 
+## Saying hello
+
+When the microphone comes up the assistant greets whoever is there, rather than
+reporting on itself - "STT is Listening!" under the title "Assistant: STT" is a
+subsystem talking about its own startup, which is a debug line somebody left in
+front of the person using it.
+
+The notification always appears; somebody who missed the restart wants to know
+it came back. Whether it is SPOKEN is `assistant.greet_on_start`, off by
+default: a panel that restarts itself at four in the morning should not
+announce it to the room.
+
+The greeting is picked at random from a short list, so a panel that restarts
+twice does not say the same thing twice. The written form adds "Say Alexa when
+you need me"; the spoken one does not, because it is talking to somebody who is
+already there.
+
 ## The pill on screen
 
 Two separate things decide whether the voice bar is up: the live status, and a

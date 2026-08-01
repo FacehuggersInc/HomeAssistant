@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import random
 import os
 import sys
 import json
@@ -564,6 +565,47 @@ class STTProcessing():
 				f"[STTProcessing] Could not handle '{transcribed}': {exc}")
 
 
+	#What it says when it starts listening. Picked at random so a panel that
+	#restarts twice does not say the same thing twice.
+	GREETINGS = (
+		"Hi, I'm listening.",
+		"Ready when you are.",
+		"I'm awake.",
+		"Listening now.",
+		"Here and listening.",
+	)
+
+	def greet(self) -> None:
+		"""
+		Say hello now that the microphone is up.
+
+		A notification either way - somebody who missed it wants to know the
+		assistant came back - and spoken only if asked for. A panel that
+		restarts itself at four in the morning should not announce it to the
+		room, so the speech is off by default while the notification is not.
+		"""
+		wake = ""
+		try:
+			wake = str(self.client.SKILLS.wake_args[0][0] or "").strip().title()
+		except Exception:
+			wake = ""
+
+		greeting = random.choice(self.GREETINGS)
+		spoken = f"{greeting} Say {wake} when you need me." if wake else greeting
+
+		self.client.simple_notify(
+			"assistant",
+			"Assistant",
+			spoken,
+			False,
+		)
+
+		try:
+			if bool(self.client.setting("assistant.greet_on_start.value", False)):
+				self.client.say(greeting)
+		except Exception as e:
+			self.client.log("debug", f"[STTProcessing] Could not greet: {e}")
+
 	def wake_timeout_seconds(self) -> float:
 		"""How long to stay listening after a wake with nothing said."""
 		try:
@@ -725,12 +767,7 @@ class STTProcessing():
 									if self.client.ASSIST_STATUS == "DORMANT":
 										self.listening_since = 0.0
 										self.client.ASSIST_STATUS = "LIVE"
-										self.client.simple_notify(
-											"assistant",
-											"Assistant: STT",
-											"STT is Listening!",
-											False
-										)
+										self.greet()
 								case "log":
 									# The child process talking. It has no
 									# logger of its own - it is a different

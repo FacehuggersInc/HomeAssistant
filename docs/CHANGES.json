@@ -1,6 +1,16 @@
 {
  "log": [
   {
+   "at": 1785559134.9990058,
+   "note": "an assistant that says hello",
+   "pages": [
+    {
+     "slug": "assistant",
+     "state": "updated"
+    }
+   ]
+  },
+  {
    "at": 1785558698.9784415,
    "note": "a pill that takes itself down",
    "pages": [
@@ -209,8 +219,8 @@
    "state": "seen"
   },
   "assistant": {
-   "at": 1785558698.9775348,
-   "hash": "d10868462a1f3de3",
+   "at": 1785559134.9983962,
+   "hash": "f00cb8862386ec07",
    "opened": 0,
    "state": "updated"
   },

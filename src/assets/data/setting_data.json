@@ -38,6 +38,7 @@
   "assistant.model": "Whisper model used for transcription",
   "assistant.voice_bar": "Show the activity bar along the bottom while listening",
   "assistant.tts_enabled": "Whether the assistant speaks its replies",
+  "assistant.greet_on_start": "Say hello out loud when the assistant starts listening",
   "assistant.voice_bar_hold": "Minimum time a transcript stays on the activity bar",
   "assistant.tts_backend": "Whether replies are spoken, and by what",
   "assistant.tts_voice": "Which Pocket TTS voice speaks",

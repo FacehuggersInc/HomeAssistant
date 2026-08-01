@@ -316,6 +316,12 @@
    "value": true,
    "description": "Whether the assistant speaks its replies. Uses Kyutai Pocket TTS, which runs locally on the CPU and needs no key. A skill that would have spoken shows its answer instead when this is off."
   },
+  "greet_on_start": {
+   "type": "bool",
+   "default": false,
+   "value": false,
+   "description": "Whether the assistant says hello out loud when it starts listening. The notification appears either way; this is only whether it is spoken. Off by default - a panel that restarts itself at four in the morning should not announce it."
+  },
   "voice_bar_hold": {
    "type": "int",
    "default": 6,
