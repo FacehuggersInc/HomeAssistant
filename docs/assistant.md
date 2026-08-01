@@ -122,6 +122,19 @@ echo it knows nothing about, so a little caution is kept.
 **Software by default.** A plain microphone is the common case, and this
 profile on one would hear far less.
 
+Changing it **restarts the assistant**, because half of what it changes lives
+in the child process and is fixed when that is spawned:
+
+| Lives in | Read | What |
+|---|---|---|
+| The panel | Live, on every call | The self-hearing grace, the interrupt settle |
+| The speech process | Once, at spawn | Noise reduction, VAD aggressiveness, the silence floor |
+
+Without the restart the panel would end up half switched - the guards moving
+while the audio pipeline stayed as it was - which is the worst of both and
+says nothing about itself. `assistant_config()` lists it alongside the model
+and the input device for that reason.
+
 ## Testing the microphone on its own
 
 Settings has a **Microphone test** page. A session is started by hand, every

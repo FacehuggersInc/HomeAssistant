@@ -1631,6 +1631,12 @@ class Client:
             str(self.setting("assistant.tts_voice.value", "")),
             str(self.setting("assistant.tts_voice_file.value", "")),
             str(self.setting("assistant.tts_language.value", "")),
+            # The microphone profile. Half of what it changes lives in the
+            # child process and is fixed when it is spawned - the noise
+            # reduction, the VAD aggressiveness, the silence floor - so
+            # changing this without a restart left the panel half switched:
+            # the guards on this side moved and the audio pipeline did not.
+            str(self.setting("assistant.mic_processing.value", "software")),
         )
 
     def stop_assistant(self) -> None:
