@@ -1,6 +1,16 @@
 {
  "log": [
   {
+   "at": 1785606816.2917254,
+   "note": "where the listening time actually goes",
+   "pages": [
+    {
+     "slug": "assistant",
+     "state": "updated"
+    }
+   ]
+  },
+  {
    "at": 1785606464.216675,
    "note": "a test page that really does not need a wake word",
    "pages": [
@@ -297,8 +307,8 @@
    "state": "seen"
   },
   "assistant": {
-   "at": 1785606464.215289,
-   "hash": "32010d82d87a0894",
+   "at": 1785606816.2904198,
+   "hash": "fb1178505751acdf",
    "opened": 0,
    "state": "updated"
   },

@@ -724,7 +724,20 @@ class WakeWhisper:
 								self.send_log("debug", "[Whisper]: End context full, finalizing speech window.")
 
 						if finalize:
-							self.send_log("debug", "[Whisper]: Finalizing speech window.")
+							# Timed from the first speech window, so the log
+							# says WHERE the wait was rather than only that
+							# there was one. The three numbers are different
+							# problems: talking is the person, waiting is the
+							# VAD refusing to call the room silent, and the
+							# model is the model.
+							spoke_ms = int(len(speech_window)
+										   * self.window_duration_ms)
+							waited_ms = int(end_context_windows_accumulated
+											* self.window_duration_ms)
+							self.send_log("debug",
+								f"[Whisper]: Finalizing - {spoke_ms}ms spoken, "
+								f"{waited_ms}ms waiting for silence.")
+							self._finalised_at = time.time()
 							last_speech_time = time.time() # artificial reset the timer | used to prevent reset before speech_window can be processed
 
 							#Build Final Byte Window
@@ -926,7 +939,12 @@ class WakeWhisper:
 			
 			#Convert
 			speech = np.frombuffer(speech, dtype=np.int16).astype(np.float32) / self.__PCM_NORM_FACTOR
+			queued_ms = 0
+			started = getattr(self, "_finalised_at", 0.0)
+			if started:
+				queued_ms = int((time.time() - started) * 1000)
 			self.send_log("debug", "[Whisper]: Processing speech window...")
+			began = time.time()
 
 			# De-noised here rather than on the audio thread, which cannot
 			# afford to wait: this one is already about to spend far longer
@@ -996,7 +1014,13 @@ class WakeWhisper:
 						f"[Whisper]: Discarded repetition: {final_text!r}")
 					continue
 
-				self.send_log("debug", f"[Whisper]: Final Transcription: {final_text}")
+				# The whole journey, on one line. Anything that got slower
+				# shows up as one of these growing rather than as "it feels
+				# slow now".
+				model_ms = int((time.time() - began) * 1000)
+				self.send_log("debug",
+					f"[Whisper]: Final Transcription ({queued_ms}ms queued, "
+					f"{model_ms}ms in the model): {final_text}")
 
 				if callable(self.on_final):
 					self.on_final(final_text, final_timestamps)
@@ -1037,10 +1061,23 @@ class STTServer:
 		self.whisper = WakeWhisper(
 			log = self.send_log,
 			model_name = self.model_name,
-			# Gentler when the array has its own VAD. Two aggressive gates in
-			# series drop the quiet start of a phrase between them.
-			vad_aggressiveness=(1 if str(config.get("mic_processing") or "")
-								== "hardware" else 3),
+			# Aggressive either way, and deliberately so.
+			#
+			# The obvious move is to soften this when the array has its own
+			# VAD, on the grounds that two aggressive gates in series clip the
+			# quiet start of a phrase. That is true and it is the wrong trade.
+			#
+			# A phrase is finalised when `context_windows_end` consecutive
+			# windows are called SILENCE. A softer gate calls fewer things
+			# silence, so that fills more slowly - and the counter resets on
+			# any speech window, so a room with a fridge in it can hold a
+			# phrase open. Softening it made every phrase END later, which
+			# reads as the panel being slow to hear you.
+			#
+			# Worse with an array's AGC: sixty decibels of gain lifts the
+			# room's noise floor, so ambient noise looks like speech to a gate
+			# already reluctant to call anything silence.
+			vad_aggressiveness=3,
 			window_duration_ms=30,
 			context_audio_windows_start = 14,
 			context_audio_windows_end = 5,

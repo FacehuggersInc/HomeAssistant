@@ -106,10 +106,28 @@ self-hearing guards work around an echo the hardware has already cancelled.
 | | software | hardware |
 |---|---|---|
 | Noise reduction | on | off |
-| VAD aggressiveness | 3 | 1 |
 | Silence floor | -60dB | -48dB |
 | Self-hearing grace | 2.5s | 0.6s |
 | Interrupt settle | 0.5s | 0.2s |
+
+**The VAD aggressiveness is 3 in both, deliberately.** Softening it for an
+array that has its own VAD looks right - two aggressive gates in series clip
+the quiet start of a phrase - and it is the wrong trade. A phrase is finalised
+when `context_windows_end` consecutive windows are called SILENCE; a softer
+gate calls fewer things silence, so that fills more slowly, and the counter
+resets on any speech window. Softening it makes every phrase END later, which
+is felt as the panel being slow to hear you.
+
+An array's AGC makes it worse rather than better: sixty decibels of gain lifts
+the room's noise floor, so ambient noise looks like speech to a gate already
+reluctant to call anything silence.
+
+| | to finalise |
+|---|---|
+| Aggressive, quiet room | ~175ms |
+| Aggressive, noisy room | ~310ms |
+| Soft, quiet room | ~500ms |
+| Soft, noisy room with AGC | ~8700ms |
 
 The silence floor rises because sixty decibels of AGC lifts the room's noise
 along with the speech, so a threshold set for a quiet raw signal stops telling
@@ -134,6 +152,23 @@ Without the restart the panel would end up half switched - the guards moving
 while the audio pipeline stayed as it was - which is the worst of both and
 says nothing about itself. `assistant_config()` lists it alongside the model
 and the input device for that reason.
+
+## Where the time goes
+
+Every finalised phrase logs its own timing at `debug`:
+
+```
+[Whisper]: Finalizing - 1440ms spoken, 180ms waiting for silence.
+[Whisper]: Final Transcription (12ms queued, 340ms in the model): what is the weather
+```
+
+Four numbers, and they are four different problems. **Spoken** is the person.
+**Waiting for silence** is the VAD refusing to call the room quiet - the
+number that grows when the aggressiveness is wrong or the room is noisy.
+**Queued** is the processing thread being busy. **In the model** is the model,
+and the only one a smaller model helps with.
+
+"It feels slow" is not something anybody can act on. One of these growing is.
 
 ## Testing the microphone on its own
 
