@@ -3,6 +3,7 @@ order = 0
 dependencies = []
 name = "Core Widgets Bundle"
 key = "corewidgetsbundle"
+readme = "readme.md"
 
 [settings]
 path = "src/assets/bundled/CoreWidgetsBundle/settings.json"

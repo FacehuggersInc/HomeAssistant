@@ -264,6 +264,166 @@ class _Tile(QFrame):
         self.on_pick(self)
 
 
+#One badge style per kind of thing, so the column reads as a column rather
+#than as a word repeated in the same grey.
+def _badge(ink: str, fill: str) -> str:
+    return (f"QLabel {{ color: {ink}; background: {fill};"
+            f" border-radius: 9px; padding: 3px 9px; }}")
+
+
+#Every word a badge can hold, so one width fits all of them and the column
+#does not step in and out down the list.
+BADGE_WORDS = ("Endpoint", "Page", "Public", "Player", "Quick", "Users",
+               "Audio")
+
+_BADGE_W = 0
+
+
+def _badge_width(font) -> int:
+    """The width the widest badge word needs, measured once."""
+    global _BADGE_W
+    if not _BADGE_W:
+        metrics = QFontMetrics(font)
+        _BADGE_W = max(metrics.horizontalAdvance(word)
+                       for word in BADGE_WORDS) + 22
+    return _BADGE_W
+
+
+BADGE_CSS = {
+    "Endpoint": _badge("#8fc7f5", "rgba(79,157,224,45)"),
+    "Page":     _badge("#f5d98f", "rgba(232,195,90,45)"),
+    "Public":   _badge("#a8e6c4", "rgba(62,192,138,45)"),
+    "Player":   _badge("#d9bff5", "rgba(157,122,224,45)"),
+    "Quick":    _badge("#f5c8a8", "rgba(224,133,90,45)"),
+    "Users":    _badge("#a8dbe6", "rgba(90,208,224,45)"),
+    "Audio":    _badge("#e6b8d4", "rgba(224,85,157,45)"),
+    "_default": _badge("rgba(232,236,244,190)", "rgba(255,255,255,20)"),
+}
+
+
+class _Row(QFrame):
+    """
+    One item as a full-width row: preview, name, subtitle, badge.
+
+    A grid is for scanning something you recognise by sight - a sticker, an
+    icon. A list is for reading, and some things can only be told apart by
+    reading them: two endpoints on the same plugin differ by their path and by
+    nothing else, and at tile size a path is three letters and an ellipsis.
+
+    The same `GridItem` either way, and the same tap-versus-scroll rule, so a
+    caller picks a shape rather than a different dialog.
+    """
+
+    HEIGHT = 66
+    PREVIEW = 44
+    DRAG_SLOP = 12
+
+    def __init__(self, item: GridItem, on_pick: Callable):
+        super().__init__()
+        self.item = item
+        self.on_pick = on_pick
+        self.selected = False
+        self._press = None
+        self._movie = None
+
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
+        self.setFixedHeight(self.HEIGHT)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        set_style(self, "overlays", "grid-tile")
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+
+        line = QHBoxLayout(self)
+        line.setContentsMargins(12, 8, 14, 8)
+        line.setSpacing(12)
+
+        self.preview = QLabel()
+        self.preview.setFixedSize(self.PREVIEW, self.PREVIEW)
+        self.preview.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        set_style(self.preview, "common", "transparent")
+        self._fill_preview()
+        line.addWidget(self.preview)
+
+        words = QVBoxLayout()
+        words.setContentsMargins(0, 0, 0, 0)
+        words.setSpacing(1)
+
+        name = QLabel(item.label)
+        name.setFont(make_font(SIZES.S2, bold=True))
+        set_style(name, "common", "text-strong")
+        words.addWidget(name)
+
+        if item.subtitle:
+            under = QLabel(item.subtitle)
+            under.setFont(make_font(SIZES.S1))
+            set_style(under, "common", "text-muted")
+            words.addWidget(under)
+        line.addLayout(words, stretch=1)
+
+        if item.badge:
+            # Stated, not looked up. `grid-badge` is not a rule that exists,
+            # so set_style found nothing and the label kept the platform
+            # palette - black on a dark row.
+            badge = QLabel(str(item.badge))
+            badge.setFont(make_font(SIZES.S1, bold=True))
+            badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            # Measured, and the same for every badge so the column lines up.
+            # Fixed rather than minimum - a minimum with nothing above it
+            # lets the label take the whole row and the badge becomes a
+            # stripe with a word in the middle. 84 was a guess, and "Endpoint"
+            # is wider than it.
+            badge.setFixedWidth(_badge_width(badge.font()))
+            badge.setStyleSheet(BADGE_CSS.get(
+                str(item.badge), BADGE_CSS["_default"]))
+            line.addWidget(badge)
+
+    def _fill_preview(self) -> None:
+        """A picture if there is one, otherwise the item's icon."""
+        path = getattr(self.item, "preview", "")
+        if path:
+            picture = QPixmap(str(path))
+            if not picture.isNull():
+                self.preview.setPixmap(picture.scaled(
+                    self.PREVIEW, self.PREVIEW,
+                    Qt.AspectRatioMode.KeepAspectRatio,
+                    Qt.TransformationMode.SmoothTransformation))
+                return
+        # `resolve_icon`, which is what this module imported it as. Calling
+        # it `icon` raised NameError into the except below, so every row drew
+        # an empty square and said nothing about why.
+        try:
+            self.preview.setPixmap(resolve_icon(
+                self.item.icon or "mdi.circle-outline").pixmap(26, 26))
+        except Exception as e:
+            print(f"[GridDialog] Could not draw {self.item.icon!r}: {e}")
+
+    ## -- the same interface the grid tiles answer to
+
+    def set_selected(self, state: bool) -> None:
+        if state == self.selected:
+            return
+        self.selected = state
+        set_style(self, "overlays",
+                  "grid-tile-selected" if state else "grid-tile")
+
+    def stop(self) -> None:
+        if self._movie is not None:
+            self._movie.stop()
+            self._movie = None
+
+    def mousePressEvent(self, event) -> None:
+        self._press = event.globalPosition().toPoint()
+        # Ignored, so the gesture can still reach the scroller behind this.
+        event.ignore()
+
+    def mouseReleaseEvent(self, event) -> None:
+        start, self._press = self._press, None
+        if start is None:
+            return
+        moved = event.globalPosition().toPoint() - start
+        if max(abs(moved.x()), abs(moved.y())) <= self.DRAG_SLOP:
+            self.on_pick(self)
+
+
 class ItemGridDialog(BaseDialog):
     """
     A searchable grid of things to pick one of.
@@ -302,7 +462,11 @@ class ItemGridDialog(BaseDialog):
                  choose_text: str = "Use this", empty_text: str = "Nothing here yet.",
                  search_hint: str = "Search", extra_button: tuple = None,
                  sorts: list = None, on_delete: Callable = None,
-                 delete_text: str = "Delete", label_lines: int = 1):
+                 delete_text: str = "Delete", label_lines: int = 1,
+                 layout: str = "grid"):
+        #"grid" to scan by sight, "list" to tell things apart by reading.
+        self.layout_mode = "list" if str(layout).lower() == "list" else "grid"
+
         host = getattr(client, "OVERLAYS", None)
         width = self.MIN_WIDTH
         try:
@@ -404,6 +568,12 @@ class ItemGridDialog(BaseDialog):
         self._grid = QGridLayout(self._grid_host)
         self._grid.setContentsMargins(0, 6, 0, 6)
         self._grid.setSpacing(8)
+        if self.layout_mode == "list":
+            # One column that takes the width, so a row is a row rather than
+            # a tile-sized thing sitting at the left of an empty line.
+            self._grid.setColumnStretch(0, 1)
+            self._grid.setSpacing(6)
+            self._grid.setAlignment(Qt.AlignmentFlag.AlignTop)
         self._grid.setAlignment(Qt.AlignmentFlag.AlignTop |
                                 Qt.AlignmentFlag.AlignLeft)
 
@@ -560,12 +730,21 @@ class ItemGridDialog(BaseDialog):
         if hasattr(self, "_delete_button"):
             self.set_button_state(self._delete_button, False, "destructive")
 
-        columns = self._columns()
-        for index, item in enumerate(items):
-            tile = _Tile(item, self.TILE, self._pick,
-                         lines=self._label_lines)
-            self._grid.addWidget(tile, index // columns, index % columns)
-            self._tiles.append(tile)
+        if self.layout_mode == "list":
+            # One per row, full width. `_tiles` either way - everything else
+            # here selects, clears and counts them without caring which shape
+            # they are.
+            for index, item in enumerate(items):
+                row = _Row(item, self._pick)
+                self._grid.addWidget(row, index, 0)
+                self._tiles.append(row)
+        else:
+            columns = self._columns()
+            for index, item in enumerate(items):
+                tile = _Tile(item, self.TILE, self._pick,
+                             lines=self._label_lines)
+                self._grid.addWidget(tile, index // columns, index % columns)
+                self._tiles.append(tile)
 
         if not items:
             self.status.setText(self.empty_text)

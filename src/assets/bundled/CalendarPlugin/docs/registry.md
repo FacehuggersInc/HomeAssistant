@@ -424,6 +424,27 @@ most three events and counts the rest.
 
 ---
 
+## Driving the page
+
+The calendar page exposes its own features, for anything that wants to put the
+panel somewhere specific rather than ask the registry a question.
+
+```python
+page = client.PAGES.get_entry("#calendar").instance
+page.features("open_day")(date(2026, 8, 14))
+```
+
+| Feature | Does |
+|---|---|
+| `show_month(year, month)` | Move the grid to a month without opening anything. |
+| `current_month()` | Which one it is showing, as `(year, month)`. |
+| `open_day(date)` | The day's event list. |
+| `open_month()` | Every event in the month, grouped by day. |
+| `open_jump()` | The year and month picker. |
+| `add_sticker()` | The sticker library, to place one. |
+| `edit_stickers()` | Turn the sticker layer on for arranging. |
+| `sticker_store()` | The `StickerStore` itself — see `stickers.md`. |
+
 ## Settings and storage
 
 `api["option"](path, default)` reads one of the plugin's own settings without

@@ -14,6 +14,7 @@ from .widgets.weather import WeatherWidget
 from .widgets.configuration_bar import ConfigurationBar
 from .widgets.sticky_note import StickyNote
 from .widgets.tiles.bookmark_tile import BookmarkTile
+from src.assets.bundled.CoreWidgetsBundle.widgets.tiles.action_tile import ActionTile
 from .widgets.tiles.clock_tile import ClockTile
 from .widgets.tiles.weather_tile import WeatherTile
 from .pages.home import HomePage
@@ -1065,6 +1066,7 @@ class CoreWidgetsBundle(Plugin):
         sub_tiles.features().register_tile(ClockTile, in_grid=False)
         sub_tiles.features().register_tile(WeatherTile, in_grid=False)
         sub_tiles.features().register_tile(BookmarkTile, in_grid=False)
+        sub_tiles.features().register_tile(ActionTile, in_grid=False)
 
 
     @mixin("sub.home.__init__", "corewidgetsbundle", "after")

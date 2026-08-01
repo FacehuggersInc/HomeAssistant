@@ -17,6 +17,11 @@ class Tile(QWidget):
 
     DRAG_THRESHOLD = 8
     HOLD_MS        = 400     # press-and-wait before the handles appear
+    #Whether this tile has a setup worth going back to. Off by default: most
+    #tiles are what they are, and a pencil on one with nothing to edit is a
+    #control that does nothing.
+    EDITABLE = False
+
     HANDLE         = 40      # finger-sized, same reasoning as the widget chrome
     HANDLE_PAD     = 10
 
@@ -65,6 +70,8 @@ class Tile(QWidget):
         self.radius    = 10
         self.dragging  = False
         self.drag_start: Optional[QPoint] = None
+        #Whether the press was taken by a handle. See mouseReleaseEvent.
+        self._handled = False
         #Where inside the tile a drag was started from, so it is positioned
         #from the pointer rather than by adding up deltas.
         self._grab: QPoint = QPoint(0, 0)
@@ -241,8 +248,25 @@ class Tile(QWidget):
             return {}
         rects = {}
         size = self.HANDLE
+        # Two handles need twice their size plus a gap between them. Below
+        # that they land on each other, and a tap in the overlap does
+        # whichever was checked first - on a one-cell tile that was delete.
+        room_across = self.width() >= size * 2 + 12
+
         if self.REMOVABLE:
             rects["remove"] = QRect(4, 4, size, size)
+        if self.EDITABLE and room_across:
+            # Top right, away from remove. A tile that holds a setup worth
+            # returning to needs a way back to it, and holding to select then
+            # pressing the tile itself would run the thing instead.
+            #
+            # Dropped rather than crowded on a tile too small for both:
+            # resize is how it is made bigger, and bigger is where this
+            # appears.
+            rects["edit"] = QRect(self.width() - size - 4, 4, size, size)
+        # Always. It is the only way to make a tile bigger, and a tile too
+        # small for two handles is exactly the one somebody wants to resize.
+        # It does crowd remove at one cell, which it did before this too.
         if self.RESIZABLE:
             rects["resize"] = QRect(self.width() - size - 4,
                                     self.height() - size - 4, size, size)
@@ -276,6 +300,9 @@ class Tile(QWidget):
             if name == "remove":
                 p.setBrush(QBrush(QColor("#7a2020")))
                 p.setPen(QPen(QColor("#e08a8a"), 2))
+            elif name == "edit":
+                p.setBrush(QBrush(QColor("#1c1c1c")))
+                p.setPen(QPen(QColor("#e8c35a"), 2))
             else:
                 p.setBrush(QBrush(QColor("#1c1c1c")))
                 p.setPen(QPen(QColor("#6fa8e0"), 2))
@@ -292,6 +319,14 @@ class Tile(QWidget):
                 p.drawLine(c.x() - arm + 3, c.y() - arm + 2, c.x() - arm + 4, c.y() + arm)
                 p.drawLine(c.x() + arm - 3, c.y() - arm + 2, c.x() + arm - 4, c.y() + arm)
                 p.drawLine(c.x() - arm + 4, c.y() + arm, c.x() + arm - 4, c.y() + arm)
+            elif name == "edit":
+                # A pencil: a stroke with a tip, over its own line.
+                p.drawLine(c.x() - arm, c.y() + arm - 1,
+                           c.x() + arm - 2, c.y() - arm + 1)
+                p.drawLine(c.x() - arm, c.y() + arm - 1, c.x() - arm + 5,
+                           c.y() + arm - 1)
+                p.drawLine(c.x() - arm, c.y() + arm - 1, c.x() - arm,
+                           c.y() + arm - 6)
             else:
                 p.drawLine(c.x() - arm, c.y() + arm, c.x() + arm, c.y() - arm)
                 p.drawLine(c.x() + arm, c.y() - arm, c.x() + arm - 4, c.y() - arm)
@@ -325,6 +360,15 @@ class Tile(QWidget):
         if handle == "remove":
             self.remove_requested.emit(self)
             return
+        if handle == "edit":
+            # Remembered, because the release still arrives. Remove takes the
+            # tile away so nothing lands afterwards, but edit leaves it here -
+            # and the release then found a deselected tile with an on_click
+            # and ran it, so pressing the pencil also pressed the tile.
+            self._handled = True
+            self.deselect()
+            self.edit()
+            return
         if handle == "resize":
             self.resizing      = True
             self._resize_origin = event.globalPosition().toPoint()
@@ -332,6 +376,7 @@ class Tile(QWidget):
             self.raise_()
             return
 
+        self._handled = False
         self.drag_start = event.globalPosition().toPoint()
         # Where in the tile the press landed. The drag positions the tile from
         # this rather than accumulating deltas - see mouseMoveEvent.
@@ -463,6 +508,12 @@ class Tile(QWidget):
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:
         self._hold.stop()
 
+        # A handle already dealt with this press. Whatever the tile does when
+        # tapped is not also what was being asked for.
+        if self._handled:
+            self._handled = False
+            return
+
         if self.resizing:
             self.resizing = False
             self._resize_origin = None
@@ -499,6 +550,16 @@ class Tile(QWidget):
             self.deselect()
         elif self.on_click:
             self.on_click()
+
+    def edit(self) -> None:
+        """
+        Open whatever this tile is set up with.
+
+        Overridden by tiles that set `EDITABLE`. The base does nothing rather
+        than raising: a tile can turn the handle on and add this later without
+        the handle being a crash in the meantime.
+        """
+        return None
 
     def screen_to_grid(self) -> tuple[int, int]:
         parent = self.parent()

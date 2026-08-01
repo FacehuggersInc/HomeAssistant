@@ -30,6 +30,9 @@ class BookmarkTile(Tile):
     # and every one placed is a copy with its own key and its own address -
     # the same way the sticky note works.
     MULTIPLE = True
+    # Its address is a setup worth returning to, and pressing it opens the
+    # page rather than offering to change it.
+    EDITABLE = True
     ICON = "mdi.bookmark"
 
     MIN_GRID_W, MIN_GRID_H = 1, 1
@@ -96,6 +99,10 @@ class BookmarkTile(Tile):
 
     #Side margins the label sits inside, from the layout below.
     LABEL_INSET = 16
+
+    def edit(self) -> None:
+        """The chrome's pencil: choose a different page."""
+        self.client.choose_bookmark(self.set_url)
 
     def _fit_label(self) -> None:
         """

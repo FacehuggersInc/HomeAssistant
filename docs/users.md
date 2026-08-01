@@ -15,6 +15,23 @@ device can be revoked without affecting the others, an endpoint can tell who is
 calling, and anything that learns one token has not learned the way in for
 everything else.
 
+## The panel's own identity
+
+Every route wants a device token. The panel is not a device, and it calls its
+own routes constantly - an action tile asking `/dashboard/state`, a skill
+posting to `/say`.
+
+So it holds one of its own, made fresh each run and kept only in memory. It is
+approved by definition, named "This panel", and does not appear among the
+users: it is not somebody's device, it cannot be revoked, and it has no place
+on a page about who has access.
+
+The alternative was borrowing an approved device's token, which is worse than
+it sounds. `touch()` would mark that person as active whenever the panel
+called itself, `/say` would announce their name as the sender, revoking them
+would silently break every action tile - and a fresh install with nobody
+approved would have no access to its own routes at all.
+
 ## From a browser
 
 A browser that reaches a page it is not allowed to see is **redirected** to

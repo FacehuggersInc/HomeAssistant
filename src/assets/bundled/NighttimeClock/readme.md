@@ -14,3 +14,7 @@ to full brightness and to whatever page it was on before.
 Everything is in **Settings → Nighttime Clock**: the two times, whether to fade
 at all, how long the fade takes, both brightness levels, how quickly it settles,
 and the fireflies.
+
+## Docs in this folder
+
+`docs/nighttime.md` covers the scene itself - the layers it draws, what the weather feeds into them, and how the night and day schedules are decided.

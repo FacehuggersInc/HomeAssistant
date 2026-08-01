@@ -456,6 +456,9 @@ is at startup or after a reload. See [Mixins](mixins.md).
 | `add_widgets(...)` | Place an already-constructed widget. |
 | `remove_widget(key)` | Take it off and out of the panel. |
 | `toggle_widget_panel()` | Open or close the panel. |
+| `show_transient(...)` | Place a widget because something happened rather than because somebody arranged it. |
+| `dismiss_transient(key)` | Take one of those away. |
+| `transient_widgets()` | The ones currently up. |
 | `widget_framework` | The `WidgetFramework` itself. |
 
 ### Cleaning up

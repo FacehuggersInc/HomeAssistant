@@ -19,6 +19,7 @@ what is coming up.
 | API | `calendar_add` and `calendar_upcoming`, both authed. |
 | Subscriptions | Read-only mirrors of Google, iCloud or Outlook calendars. Managed from the calendar page, a phone, or settings. |
 | Registry | `client.public.calendar` - see `docs/registry.md`. |
+| Stickers | Pictures placed on the month grid - see `docs/stickers.md`. |
 
 ## Events
 

@@ -121,6 +121,8 @@ reading in full at
 | `KEY` | Unique. Required — `add_tile()` raises without it, and it is the key the position is saved under. |
 | `NAME` | Shown in the tile panel. Required by `register_tile()`. |
 | `ICON` | An `mdi.` name for the panel entry. |
+| `MULTIPLE` | Whether it can be placed more than once. A template stays in the panel and every one placed is a copy with its own key — see the bookmark and action tiles. |
+| `EDITABLE` | Whether it carries a setup worth going back to. Turns on a pencil handle; the tile overrides `edit()` to say what that opens. |
 
 ### Constructor arguments
 
@@ -150,9 +152,20 @@ Design for the ratio, not a pixel count.
 
 ## Selecting, resizing and removing
 
-**Hold** a tile to select it: it gets a dashed border and two handles, a red
-delete in the top-left and a resize in the bottom-right. The border appears
-under your finger and stays there when you let go.
+**Hold** a tile to select it: it gets a dashed border and its handles — a red
+delete in the top-left, a resize in the bottom-right, and, on a tile that sets
+`EDITABLE`, an amber pencil in the top-right. The border appears under your
+finger and stays there when you let go.
+
+The pencil is dropped on a tile too narrow for two handles across the top: at
+one cell they land on each other, and a tap in the overlap does whichever is
+checked first, which was delete. Resize is never dropped — it is the only way
+to make a small tile bigger, and a tile too small for two handles is exactly
+the one somebody wants to resize.
+
+A press taken by a handle is not also a press on the tile. Delete takes the
+tile away so nothing lands afterwards, but the pencil leaves it there, and the
+release used to find a deselected tile with an `on_click` and run it.
 
 To clear it, tap the tile again or tap anywhere on the grid background.
 Selecting one tile deselects any other, so only one is ever live.
@@ -353,6 +366,7 @@ Exposed by `sub.tiles`:
 | `register_tile(cls, ...)` | As above. |
 | `add_tile(tile, col, row)` | Put an already-constructed tile on the grid. |
 | `remove_tile(key)` | Take it off. |
+| `return_tile_to_panel(tile)` | Move it back to the panel rather than deleting it, keeping whatever state it had built up. |
 | `get_tile(key)` | The live instance, or `None`. |
 | `tile_grid` | The `TileGrid` itself. |
 

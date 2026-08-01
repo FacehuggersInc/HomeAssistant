@@ -138,13 +138,58 @@ class UserRegistry:
     ## -- lookups
 
     def get(self, token: str) -> Optional[User]:
+        if self.is_panel(token):
+            return getattr(self, "_panel_user", None)
         return self.users.get((token or "").strip())
 
     def is_approved(self, token: str) -> bool:
+        if self.is_panel(token):
+            return True
         return self.get(token) is not None
+
+    #The panel's own identity.
+    #
+    #It runs the backend and it calls its own routes - an action tile asking
+    #/dashboard/state, a skill posting to /say. Every route wants a device
+    #token and the panel is not a device, so without this there are two bad
+    #options: no access at all until somebody approves a phone, or borrowing
+    #an approved device's token. The second is worse than it sounds - touch()
+    #would mark that person as active, /say would announce their name as the
+    #sender, and revoking them would silently break the panel.
+    #
+    #Not written to disk and not listed among the users: it is not somebody's
+    #device, it cannot be revoked, and it should not appear on a page about
+    #who has access.
+    PANEL_NAME = "This panel"
+
+    def panel_token(self) -> str:
+        """
+        The token the panel uses to call itself.
+
+        Made once per run and kept in memory. A new one every launch is
+        correct - nothing should be able to save it, replay it, or find it in
+        a file.
+        """
+        existing = getattr(self, "_panel_token", "")
+        if existing:
+            return existing
+
+        import secrets
+        self._panel_token = secrets.token_urlsafe(32)
+        self._panel_user = User(self._panel_token, self.PANEL_NAME,
+                                address="127.0.0.1")
+        return self._panel_token
+
+    def is_panel(self, token: str) -> bool:
+        """Whether this is the panel calling itself."""
+        return bool(token) and token == getattr(self, "_panel_token", "")
 
     def touch(self, token: str) -> Optional[User]:
         """Record that a device was seen, and return it."""
+        if self.is_panel(token):
+            # Answered, but not recorded. There is no "last seen" worth
+            # keeping for something that is always here.
+            return self._panel_user
         user = self.get(token)
         if user is not None:
             user.last_seen = time.time()

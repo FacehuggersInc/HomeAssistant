@@ -422,5 +422,17 @@ and changing the update check interval restarts the checker.
 ## Adding cards to the Settings page
 
 A plugin can add its own content to a settings category rather than only
-declaring fields. See [Features](features.md) for `new_category`,
-`insert_block` and `new_settings_list`.
+declaring fields. The Settings page exposes these:
+
+| Feature | Does |
+|---|---|
+| `new_category(name, ...)` | A top-level category. `system=True` puts it with the panel's own rather than among the plugins. |
+| `new_subcategory(parent, name, controls, ...)` | A subcategory under one that already exists. Warns and does nothing if the parent is not there. |
+| `insert_block(...)` | A card of your own inside a category. |
+| `insert_plugin_block(...)` | The same, keyed to a plugin so it goes when the plugin does. |
+| `new_settings_list(...)` | The builder, for declaring fields from a list. |
+
+```python
+settings = client.PAGES.get_entry("#settings").instance
+settings.features("new_subcategory")("plugins", "my_plugin", controls)
+```
