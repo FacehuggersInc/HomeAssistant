@@ -137,6 +137,65 @@ def is_install_once(rel_path: str, patterns: list) -> bool:
     return any(_glob_match(rel_path, g) for g in patterns)
 
 
+#Settings that have moved, as old path -> new path.
+#
+#`merge_values` matches by path, so a setting that moves to a new category
+#looks like one key dropped and another added: the old value goes and the new
+#one arrives at its default. Somebody who had set a TTS voice would find it
+#reset by an update that only reorganised a menu.
+#
+#Entries stay here forever. An install can be any age, and one skipping three
+#versions has to make the same journey as one skipping a single version.
+MOVED_SETTINGS = {
+    "assistant.tts_enabled":     "audio.tts_enabled",
+    "assistant.tts_backend":     "audio.tts_backend",
+    "assistant.tts_voice":       "audio.tts_voice",
+    "assistant.tts_language":    "audio.tts_language",
+    "assistant.tts_voice_file":  "audio.tts_voice_file",
+    "assistant.tts_padding_ms":  "audio.tts_padding_ms",
+    "assistant.tts_rate":        "audio.tts_rate",
+    "assistant.input_device":    "audio.input_device",
+    "assistant.mic_processing":  "audio.mic_processing",
+    "accessibility.do_not_disturb": "audio.do_not_disturb",
+    "accessibility.mute_sounds":    "audio.mute_sounds",
+}
+
+
+def _at(tree, path):
+    """The leaf at a dotted path, or None."""
+    node = tree
+    for step in path.split("."):
+        if not isinstance(node, dict) or step not in node:
+            return None
+        node = node[step]
+    return node
+
+
+def carry_moved(shipped, installed):
+    """
+    Copy values across settings that changed their path.
+
+    Done before the merge, by writing the old value into the new location in
+    the INSTALLED tree - so the merge that follows finds it exactly where it
+    now expects it and needs to know nothing about any of this.
+    """
+    if not isinstance(installed, dict):
+        return installed
+    for old_path, new_path in MOVED_SETTINGS.items():
+        was = _at(installed, old_path)
+        if not isinstance(was, dict) or "value" not in was:
+            continue
+        if _at(installed, new_path) is not None:
+            # Already moved, by an earlier update or by hand.
+            continue
+        section, _, name = new_path.rpartition(".")
+        holder = installed
+        for step in section.split("."):
+            holder = holder.setdefault(step, {})
+        holder[name] = dict(was)
+    return installed
+
+
 def merge_values(shipped, installed):
     """
     Structure and new keys from `shipped`, user values from `installed`.
@@ -152,6 +211,10 @@ def merge_values(shipped, installed):
     """
     if not isinstance(shipped, dict) or not isinstance(installed, dict):
         return shipped
+    if "value" not in shipped:
+        # The top of the tree. Anything that moved is carried across first,
+        # so the walk below finds it where it now lives.
+        installed = carry_moved(shipped, installed)
     if "value" in shipped and "value" in installed:
         if type(shipped["value"]) is type(installed["value"]):
             shipped["value"] = installed["value"]

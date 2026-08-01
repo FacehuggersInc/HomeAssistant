@@ -10,6 +10,46 @@ Two layers, and they are not the same thing:
 Both use the same declaration format and the same widget builders.
 
 
+## Audio
+
+Everything the panel does with sound is in one category: which devices it
+uses, how it speaks, and whether it makes any noise at all. TTS moved here
+from Assistant, and the two Accessibility settings - do not disturb, mute
+sounds - came with them, which emptied that category entirely.
+
+**The two devices are dropdowns of real hardware**, filled at startup by
+`Client.fill_device_options()` from `AUDIO.devices()`. A list written into the
+template would be whatever machine the template was made on.
+
+Devices are held by **name**, not index. PortAudio renumbers when anything is
+plugged in - exactly what a USB microphone array does - so a saved index
+quietly points at something else after a reboot. `AUDIO.device_index()`
+translates at the point of use, and answers `None` for a device that is not
+connected, which means the system default: a working panel beats a stale
+index.
+
+A saved device that is not plugged in right now stays in the dropdown.
+Dropping it would silently rewrite the setting to whatever came first, so a
+panel booted with its speaker unplugged would forget which speaker it had.
+
+`Default` means "follow the system". That is right for most panels and wrong
+for one with an array that takes the output as well as the input when it
+appears - which is the reason the rest of the list exists.
+
+## Settings that move
+
+`merge_values` matches by path, so a setting that moves category looks like
+one key dropped and another added: the old value goes and the new one arrives
+at its default. Somebody who had chosen a TTS voice would find it reset by an
+update that only reorganised a menu.
+
+`MOVED_SETTINGS` in `updater.py` maps old path to new. The value is copied
+into the new location in the installed tree **before** the merge, so the merge
+finds it where it now expects it and needs to know nothing about any of this.
+
+Entries stay there forever. An install can be any age, and one skipping three
+versions has to make the same journey as one skipping a single version.
+
 ## Reading and writing
 
 ```python

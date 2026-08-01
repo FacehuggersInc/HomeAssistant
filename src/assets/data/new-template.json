@@ -75,7 +75,120 @@
    "description": "How much of the screen height the quick settings panel takes. A share rather than a pixel count, so one value suits any display. A third is tight on 1080; 0.45 gives the System side room without scrolling. Clamped to 0.15-0.9."
   }
  },
- "accessibility": {
+ "audio": {
+  "output_device": {
+   "type": "enum",
+   "options": [
+    "Default"
+   ],
+   "default": "Default",
+   "value": "Default",
+   "description": "Where the panel plays sound. 'Default' follows whatever the system is using, which changes when a USB device is plugged in - a microphone array with a speaker jack will take the output as well as the input unless it is named here."
+  },
+  "input_device": {
+   "type": "enum",
+   "default": "Default",
+   "value": "Default",
+   "description": "Which microphone the assistant listens with. 'Default' follows the system.",
+   "options": [
+    "Default"
+   ]
+  },
+  "mic_processing": {
+   "type": "enum",
+   "options": [
+    "software",
+    "hardware"
+   ],
+   "default": "software",
+   "value": "software",
+   "description": "What the microphone does for itself. 'software' assumes a plain mic and cleans the audio here. 'hardware' is for arrays that already do it - the ReSpeaker XVF3800 and similar - and turns off the second pass, because cleaning already-clean audio is what makes speech sound underwater. Set this to hardware only if the device really does the work; on a plain mic it will hear far less."
+  },
+  "tts_enabled": {
+   "type": "bool",
+   "default": true,
+   "value": true,
+   "description": "Whether the assistant speaks its replies. Uses Kyutai Pocket TTS, which runs locally on the CPU and needs no key. A skill that would have spoken shows its answer instead when this is off."
+  },
+  "tts_backend": {
+   "type": "enum",
+   "default": "auto",
+   "value": "auto",
+   "options": [
+    "auto",
+    "pocket",
+    "off"
+   ],
+   "description": "Whether to speak replies. 'auto' and 'pocket' both use Kyutai Pocket TTS - local, no key, CPU only. 'off' silences them."
+  },
+  "tts_voice": {
+   "type": "enum",
+   "default": "alba",
+   "value": "alba",
+   "description": "Pocket TTS voice. 21 English, plus estelle (fr), giovanni (it), juergen (de), lola (es), rafael (pt). Overridden by Tts Voice File when that is set.",
+   "options": [
+    "alba",
+    "anna",
+    "azelma",
+    "bill_boerst",
+    "caro_davy",
+    "charles",
+    "cosette",
+    "eponine",
+    "eve",
+    "fantine",
+    "george",
+    "jane",
+    "jean",
+    "javert",
+    "marius",
+    "mary",
+    "michael",
+    "paul",
+    "peter_yearsley",
+    "stuart_bell",
+    "vera",
+    "estelle",
+    "giovanni",
+    "juergen",
+    "lola",
+    "rafael"
+   ]
+  },
+  "tts_language": {
+   "type": "enum",
+   "default": "default",
+   "value": "default",
+   "options": [
+    "default",
+    "english",
+    "french",
+    "german",
+    "portuguese",
+    "italian",
+    "spanish"
+   ],
+   "description": "Pocket TTS language weights. 'default' uses the model's own."
+  },
+  "tts_voice_file": {
+   "type": "str",
+   "default": "",
+   "value": "",
+   "description": "A wav to clone instead of a listed voice - a local path or an hf:// URL. Overrides Tts Voice. The sample's audio quality is reproduced, so a clean recording matters more than a long one."
+  },
+  "tts_padding_ms": {
+   "type": "int",
+   "default": 140,
+   "value": 140,
+   "suffix": "ms",
+   "description": "Silence added either side of a spoken reply. The model stops when the sentence stops, so a one-line answer otherwise begins and ends hard. Also covers the moment a Bluetooth speaker takes to wake, which eats the first syllable. Pocket TTS only."
+  },
+  "tts_rate": {
+   "type": "float",
+   "default": 1.0,
+   "value": 1.0,
+   "description": "Playback speed. Pocket TTS has no rate control, so this changes the sample rate instead - which moves the PITCH with the speed. 0.95 is audibly less hurried and hard to notice; below about 0.9 it sounds like a slowed recording. Pocket TTS only."
+  },
   "do_not_disturb": {
    "type": "bool",
    "default": false,
@@ -284,22 +397,6 @@
    "value": "alexa",
    "description": "The word that wakes the assistant. Plugins use this as the default wake word for their skills. Requires a restart of the assistant."
   },
-  "input_device": {
-   "type": "string",
-   "default": "",
-   "value": "",
-   "description": "Name of the microphone to listen on. Leave empty to use the system default. Available devices are listed in the Assistant section of the log at startup."
-  },
-  "mic_processing": {
-   "type": "enum",
-   "options": [
-    "software",
-    "hardware"
-   ],
-   "default": "software",
-   "value": "software",
-   "description": "What the microphone does for itself. 'software' assumes a plain mic and cleans the audio here. 'hardware' is for arrays that already do it - the ReSpeaker XVF3800 and similar - and turns off the second pass, because cleaning already-clean audio is what makes speech sound underwater. Set this to hardware only if the device really does the work; on a plain mic it will hear far less."
-  },
   "model": {
    "type": "enum",
    "default": "tiny.en",
@@ -331,12 +428,6 @@
    "value": true,
    "description": "Show the thin activity bar along the bottom of the screen while the assistant is listening."
   },
-  "tts_enabled": {
-   "type": "bool",
-   "default": true,
-   "value": true,
-   "description": "Whether the assistant speaks its replies. Uses Kyutai Pocket TTS, which runs locally on the CPU and needs no key. A skill that would have spoken shows its answer instead when this is off."
-  },
   "greet_on_start": {
    "type": "bool",
    "default": false,
@@ -363,85 +454,6 @@
    "value": 12,
    "suffix": "sec",
    "description": "How long the panel keeps listening after the wake word before giving up. Too short and it stops mid-thought; too long and it sits listening to the room."
-  },
-  "tts_backend": {
-   "type": "enum",
-   "default": "auto",
-   "value": "auto",
-   "options": [
-    "auto",
-    "pocket",
-    "off"
-   ],
-   "description": "Whether to speak replies. 'auto' and 'pocket' both use Kyutai Pocket TTS - local, no key, CPU only. 'off' silences them."
-  },
-  "tts_voice": {
-   "type": "enum",
-   "default": "alba",
-   "value": "alba",
-   "description": "Pocket TTS voice. 21 English, plus estelle (fr), giovanni (it), juergen (de), lola (es), rafael (pt). Overridden by Tts Voice File when that is set.",
-   "options": [
-    "alba",
-    "anna",
-    "azelma",
-    "bill_boerst",
-    "caro_davy",
-    "charles",
-    "cosette",
-    "eponine",
-    "eve",
-    "fantine",
-    "george",
-    "jane",
-    "jean",
-    "javert",
-    "marius",
-    "mary",
-    "michael",
-    "paul",
-    "peter_yearsley",
-    "stuart_bell",
-    "vera",
-    "estelle",
-    "giovanni",
-    "juergen",
-    "lola",
-    "rafael"
-   ]
-  },
-  "tts_language": {
-   "type": "enum",
-   "default": "default",
-   "value": "default",
-   "options": [
-    "default",
-    "english",
-    "french",
-    "german",
-    "portuguese",
-    "italian",
-    "spanish"
-   ],
-   "description": "Pocket TTS language weights. 'default' uses the model's own."
-  },
-  "tts_voice_file": {
-   "type": "str",
-   "default": "",
-   "value": "",
-   "description": "A wav to clone instead of a listed voice - a local path or an hf:// URL. Overrides Tts Voice. The sample's audio quality is reproduced, so a clean recording matters more than a long one."
-  },
-  "tts_padding_ms": {
-   "type": "int",
-   "default": 140,
-   "value": 140,
-   "suffix": "ms",
-   "description": "Silence added either side of a spoken reply. The model stops when the sentence stops, so a one-line answer otherwise begins and ends hard. Also covers the moment a Bluetooth speaker takes to wake, which eats the first syllable. Pocket TTS only."
-  },
-  "tts_rate": {
-   "type": "float",
-   "default": 1.0,
-   "value": 1.0,
-   "description": "Playback speed. Pocket TTS has no rate control, so this changes the sample rate instead - which moves the PITCH with the speed. 0.95 is audibly less hurried and hard to notice; below about 0.9 it sounds like a slowed recording. Pocket TTS only."
   }
  },
  "debug": {

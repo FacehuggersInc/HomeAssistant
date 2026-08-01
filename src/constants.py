@@ -21,6 +21,7 @@ EVENTS = Literal[
     "on_close",
     "on_settings_saved",
     "on_woke_assistant",
+    "on_heard_assistant",
     "on_assistant_transcribed",
     "on_assistant_cancelled",
     "on_assistant_fallback",

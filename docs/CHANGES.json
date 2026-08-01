@@ -1,6 +1,16 @@
 {
  "log": [
   {
+   "at": 1785621119.250844,
+   "note": "one place for sound, and devices chosen by name",
+   "pages": [
+    {
+     "slug": "settings",
+     "state": "updated"
+    }
+   ]
+  },
+  {
    "at": 1785619912.068201,
    "note": "a pill that says what it understood",
    "pages": [
@@ -473,8 +483,8 @@
    "state": "seen"
   },
   "settings": {
-   "at": 1785601902.2273638,
-   "hash": "50f35f63df1b971e",
+   "at": 1785621119.2506807,
+   "hash": "35138787e663bc55",
    "opened": 0,
    "state": "updated"
   },

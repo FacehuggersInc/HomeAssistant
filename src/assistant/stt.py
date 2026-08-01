@@ -259,6 +259,15 @@ class STTProcessing():
 		return text
 
 	def process_phrase(self, phrase:str):
+		# Said before the search, not after it.
+		#
+		# Parsing is fast when it matches and no slower when it does not, so
+		# without this the only feedback is the answer - and a phrase that
+		# matches nothing produces no feedback at all. Somebody who was
+		# misheard then cannot tell whether the microphone failed or the
+		# skill did.
+		self.client.iterate_event_callables("on_heard_assistant", phrase)
+
 		skill, _ = self.client.SKILLS.parse( phrase )
 		if skill:
 			self.client.iterate_event_callables("on_woke_assistant", (skill, phrase))
@@ -775,7 +784,7 @@ class STTProcessing():
 		"""Whether the microphone cleans its own audio."""
 		try:
 			mode = str(self.client.setting(
-				"assistant.mic_processing.value", "software")).strip().lower()
+				"audio.mic_processing.value", "software")).strip().lower()
 		except Exception:
 			mode = "software"
 		return "hardware" if mode == "hardware" else "software"

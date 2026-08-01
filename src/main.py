@@ -365,6 +365,7 @@ class Client:
         # What is playing, whatever is playing it. Backends register;
         # widgets and skills talk to this rather than to a backend.
         self.AUDIO          = AudioRegistry(self)
+        self.fill_device_options()
         self.BOOKMARKS      = BookmarkStore(self)
         self.PLAYER         = PlayerRegistry(self)
         # What "stop" means right now. Whatever can be cancelled
@@ -1213,7 +1214,7 @@ class Client:
         disagree.
         """
         try:
-            return bool(self.setting("accessibility.do_not_disturb.value", False))
+            return bool(self.setting("audio.do_not_disturb.value", False))
         except Exception:
             return False
 
@@ -1228,15 +1229,15 @@ class Client:
         if self.do_not_disturb():
             return True
         try:
-            return bool(self.setting("accessibility.mute_sounds.value", False))
+            return bool(self.setting("audio.mute_sounds.value", False))
         except Exception:
             return False
 
     def set_do_not_disturb(self, on: bool) -> bool:
-        return self._set_quiet("accessibility.do_not_disturb.value", bool(on))
+        return self._set_quiet("audio.do_not_disturb.value", bool(on))
 
     def set_sounds_muted(self, on: bool) -> bool:
-        return self._set_quiet("accessibility.mute_sounds.value", bool(on))
+        return self._set_quiet("audio.mute_sounds.value", bool(on))
 
     def _set_quiet(self, path: str, on: bool) -> bool:
         try:
@@ -1614,29 +1615,55 @@ class Client:
             self.log("warning", f"[Assistant] TTS failed: {e}")
             return False
 
+    def fill_device_options(self) -> None:
+        """
+        Put the real devices into the two device dropdowns.
+
+        Done at startup, because the settings page reads `options` when it
+        builds the control and a list written into the template would be
+        whatever machine the template was made on.
+
+        A device that is saved but not currently connected is kept in the
+        list. Dropping it would silently rewrite the setting to whatever came
+        first, so a panel booted with its speaker unplugged would forget which
+        speaker it had.
+        """
+        try:
+            for path, direction in (("audio.output_device", "output"),
+                                    ("audio.input_device", "input")):
+                section, _, name = path.partition(".")
+                setting = getattr(getattr(self.SETTINGS, section), name)
+                found = self.AUDIO.devices(direction)
+                saved = str(getattr(setting, "value", "") or "").strip()
+                if saved and saved not in found:
+                    found.append(saved)
+                setting.options = found
+        except Exception as e:
+            self.log("warning", f"[Audio] Could not list devices: {e}")
+
     def assistant_config(self) -> tuple:
         """The settings the running assistant depends on. Compared on save to
         decide whether it needs restarting."""
         return (
             self.assistant_enabled(),
-            str(self.setting("assistant.input_device.value", "") or "").strip(),
+            str(self.setting("audio.input_device.value", "") or "").strip(),
             str(self.setting("assistant.model.value", "tiny.en") or "tiny.en"),
             self.wake_word,
             int(self.setting("assistant.session_silence.value", 800)),
-            bool(self.setting("assistant.tts_enabled.value", True)),
+            bool(self.setting("audio.tts_enabled.value", True)),
             # The voice settings, so changing one restarts the assistant and
             # the new voice is actually loaded rather than waiting for a manual
             # restart.
-            str(self.setting("assistant.tts_backend.value", "auto")),
-            str(self.setting("assistant.tts_voice.value", "")),
-            str(self.setting("assistant.tts_voice_file.value", "")),
-            str(self.setting("assistant.tts_language.value", "")),
+            str(self.setting("audio.tts_backend.value", "auto")),
+            str(self.setting("audio.tts_voice.value", "")),
+            str(self.setting("audio.tts_voice_file.value", "")),
+            str(self.setting("audio.tts_language.value", "")),
             # The microphone profile. Half of what it changes lives in the
             # child process and is fixed when it is spawned - the noise
             # reduction, the VAD aggressiveness, the silence floor - so
             # changing this without a restart left the panel half switched:
             # the guards on this side moved and the audio pipeline did not.
-            str(self.setting("assistant.mic_processing.value", "software")),
+            str(self.setting("audio.mic_processing.value", "software")),
             # Loaded in the child at spawn, like the phrase model above it.
             str(self.setting("assistant.wake_model.value", "tiny.en")),
         )
@@ -1690,7 +1717,11 @@ class Client:
             self.log("info", "[Assistant] Disabled in settings.")
             return
 
-        device_name = str(getattr(self.SETTINGS.assistant.input_device, "value", "") or "").strip()
+        device_name = str(getattr(self.SETTINGS.audio.input_device, "value", "") or "").strip()
+        # "Default" is the dropdown's way of saying no preference, which is
+        # what working_input() already means by an empty string.
+        if device_name.lower() == "default":
+            device_name = ""
         model = str(getattr(self.SETTINGS.assistant.model, "value", "tiny.en") or "tiny.en")
 
         ok, reason = audio.available()
@@ -1807,14 +1838,14 @@ class Client:
         """
         from src.assistant.tts_pocket import PocketTTSProcessing
 
-        choice = str(self.setting("assistant.tts_backend.value", "auto")
+        choice = str(self.setting("audio.tts_backend.value", "auto")
                      or "auto").strip().lower()
         if choice == "off":
             return []
         return [("Pocket TTS", PocketTTSProcessing)]
 
     def _start_tts(self) -> None:
-        if not self.setting("assistant.tts_enabled.value", True):
+        if not self.setting("audio.tts_enabled.value", True):
             self.TTS = None
             self.log("info", "[Assistant] Spoken replies are disabled in settings.")
             return

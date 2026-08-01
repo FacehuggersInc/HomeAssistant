@@ -174,6 +174,25 @@ class VoiceBar(QWidget):
         self._reveal()
         self._hold.start(1600)
 
+    def show_understood(self, phrase: str) -> None:
+        """
+        The middle of the three: it heard a phrase and is working out what it
+        means.
+
+        Between "listening" and the confirmation. Without this the bar goes
+        straight from listening to the answer, so everything between - the
+        text arriving, the skills being searched - happens behind a pill that
+        still says listening, and a search that finds nothing looks like a
+        microphone that heard nothing.
+        """
+        self._accent = QColor(ACCENT.get("THINKING", ACCENT["LISTENING"]))
+        text = str(phrase or "").strip()
+        self._set_text(f"\u201c{text}\u201d" if text else "Thinking\u2026")
+        self._reveal()
+        # No hold. This is a stage, not a message - the next stage replaces
+        # it, and if nothing does, the status going idle takes it down.
+        self._hold.stop()
+
     def show_matched(self, what: str) -> None:
         """
         Say that something was understood, and what.
@@ -188,9 +207,9 @@ class VoiceBar(QWidget):
         and start none, leaving the pill up until a STATUS CHANGE took it
         down - and a request that arrives already answered never produces one.
         """
-        self._accent = QColor(ACCENT.get("THINKING", ACCENT["LISTENING"]))
+        self._accent = QColor(ACCENT.get("ACTING", ACCENT["LISTENING"]))
         text = str(what or "").strip()
-        self._set_text(text if text else "Working on it\u2026")
+        self._set_text(text if text else "Got it\u2026")
         self._reveal()
         self._hold.start(self.hold_ms(text))
 

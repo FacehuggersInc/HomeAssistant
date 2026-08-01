@@ -951,7 +951,7 @@ def FlaskApp(client):
 				names = []
 			voices, current = [], ""
 			try:
-				entry = client.SETTINGS.assistant.tts_voice
+				entry = client.SETTINGS.audio.tts_voice
 				voices = list(entry.options)
 				current = str(entry.value)
 			except Exception:
@@ -980,9 +980,9 @@ def FlaskApp(client):
 		previous = ""
 		if voice:
 			try:
-				previous = str(client.SETTINGS.assistant.tts_voice.value)
+				previous = str(client.SETTINGS.audio.tts_voice.value)
 				if voice != previous:
-					client.SETTINGS.assistant.tts_voice.value = voice
+					client.SETTINGS.audio.tts_voice.value = voice
 				else:
 					previous = ""
 			except Exception as e:
@@ -997,7 +997,7 @@ def FlaskApp(client):
 
 		if previous:
 			try:
-				client.SETTINGS.assistant.tts_voice.value = previous
+				client.SETTINGS.audio.tts_voice.value = previous
 			except Exception:
 				pass
 

@@ -215,6 +215,78 @@ class AudioRegistry:
         """Whether anything can be played at all."""
         return self._backend() is not None
 
+    #What "follow the system" is called in the settings.
+    DEFAULT_DEVICE = "Default"
+
+    def devices(self, direction: str = "output") -> list:
+        """
+        The audio devices the system can see, for a settings dropdown.
+
+        Named rather than numbered. PortAudio indices are not stable - they
+        renumber when anything is plugged in, which is exactly what happens
+        with a USB microphone array, so a saved index quietly points at
+        something else after a reboot.
+
+        `Default` is always first and always means "whatever the system is
+        using now". That is the right answer for most panels and the wrong
+        one for a panel with an array that takes the output as well as the
+        input, which is why the rest of the list exists.
+        """
+        found = [self.DEFAULT_DEVICE]
+        backend = self._backend()
+        if backend is None:
+            return found
+        sounddevice, _ = backend
+
+        wants_input = str(direction).lower().startswith("in")
+        try:
+            for device in sounddevice.query_devices():
+                channels = device.get(
+                    "max_input_channels" if wants_input
+                    else "max_output_channels", 0)
+                if not channels:
+                    continue
+                name = str(device.get("name") or "").strip()
+                if name and name not in found:
+                    found.append(name)
+        except Exception as e:
+            self.client.log("warning",
+                            f"[Audio] Could not list devices: {e}")
+        return found
+
+    def device_index(self, name: str, direction: str = "output"):
+        """
+        A named device as a PortAudio index, or None for the system default.
+
+        Looked up each time rather than saved. The index is what the audio
+        libraries want and the name is what survives a reboot, so the
+        translation happens here and the setting never holds a number.
+        """
+        wanted = str(name or "").strip()
+        if not wanted or wanted == self.DEFAULT_DEVICE:
+            return None
+        backend = self._backend()
+        if backend is None:
+            return None
+        sounddevice, _ = backend
+
+        wants_input = str(direction).lower().startswith("in")
+        try:
+            for index, device in enumerate(sounddevice.query_devices()):
+                if not device.get("max_input_channels" if wants_input
+                                  else "max_output_channels", 0):
+                    continue
+                if str(device.get("name") or "").strip() == wanted:
+                    return index
+        except Exception as e:
+            self.client.log("warning",
+                            f"[Audio] Could not find '{wanted}': {e}")
+        # Gone. The system default is a working panel; a stale index is not.
+        self.client.log("warning",
+                        f"[Audio] '{wanted}' is not connected - using the "
+                        f"system default.")
+        return None
+
     def _backend(self):
         """
         (sounddevice, soundfile), or None.
@@ -351,7 +423,15 @@ class AudioRegistry:
         channels = 1 if data.ndim == 1 else data.shape[1]
         stream = None
         try:
+            # The chosen output, or the system's. A microphone array with a
+            # speaker jack takes the default output when it is plugged in,
+            # which is how the panel ends up playing through a device nobody
+            # chose - see audio.output_device.
+            chosen = self.device_index(
+                str(self.client.setting("audio.output_device.value", "")),
+                "output")
             stream = sounddevice.OutputStream(samplerate=rate,
+                                              device=chosen,
                                               channels=channels,
                                               dtype="float32")
             stream.start()

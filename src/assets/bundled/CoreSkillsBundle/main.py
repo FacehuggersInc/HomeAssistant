@@ -36,6 +36,7 @@ class CoreSkills(Plugin):
         self.load_skills()
         self.client.subscribe_to_event("on_update", self.update_assistant)
         self.client.subscribe_to_event("on_assistant_transcribed", self.on_transcribed)
+        self.client.subscribe_to_event("on_heard_assistant", self.on_heard)
         self.client.subscribe_to_event("on_woke_assistant", self.on_woke)
         self.client.subscribe_to_event("on_assistant_cancelled", self.on_cancelled)
 
@@ -45,6 +46,7 @@ class CoreSkills(Plugin):
     def unload(self, carryover=None):
         self.client.unsubscribe_from_event("on_update", self.update_assistant)
         self.client.unsubscribe_from_event("on_assistant_transcribed", self.on_transcribed)
+        self.client.unsubscribe_from_event("on_heard_assistant", self.on_heard)
         self.client.unsubscribe_from_event("on_woke_assistant", self.on_woke)
         self.client.unsubscribe_from_event("on_assistant_cancelled", self.on_cancelled)
         if self.voice_bar is not None:
@@ -98,6 +100,20 @@ class CoreSkills(Plugin):
         if self.voice_bar is None:
             return
         self.client.call_on_ui(lambda: self.voice_bar.show_cancelled())
+
+    def on_heard(self, event):
+        """
+        A phrase arrived and is being looked up. Show it.
+
+        The middle of the three stages. It fires before the skill search, so
+        a phrase that matches nothing still leaves the person knowing what
+        the panel heard - which is the difference between "it misheard me"
+        and "there is no skill for that".
+        """
+        if self.voice_bar is None:
+            return
+        said = str(event or "").strip()
+        self.client.call_on_ui(lambda: self.voice_bar.show_understood(said))
 
     def on_woke(self, event):
         """
