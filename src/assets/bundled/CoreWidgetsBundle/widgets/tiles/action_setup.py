@@ -81,11 +81,19 @@ class ActionSetupDialog(BaseDialog):
 
     #The setup panel. Fixed, because it holds a fixed set of controls and the
     #tabs beside it should get every pixel that is left.
+    #
+    #There is deliberately no PANE_HEIGHT. Height is whatever the dialog has
+    #after its title and buttons, handed over by `expand_content()` - a number
+    #here would be a floor the card cannot give up, and a floor is what runs a
+    #clamped dialog off the bottom of a screen.
     SIDE_WIDTH = 380
-    #How tall the panes are. The argument list is the reason - a list worth
-    #scrolling needs to show enough rows that scrolling it is obviously
+
+    #How tall this would like to be. A want, not a floor - it is capped by
+    #`maximumHeight()`, which the base dialog has already fitted to the
+    #screen. The argument list is the reason for the number: a list worth
+    #scrolling has to show enough rows that scrolling it is obviously
     #possible.
-    PANE_HEIGHT = 940
+    WANTED_HEIGHT = 940
 
     #The path button. Stated, like every other control here - see
     #action_arguments for why nothing inherits the platform palette.
@@ -112,11 +120,10 @@ class ActionSetupDialog(BaseDialog):
 
     def __init__(self, client: "Client", runnable, action: dict = None,
                  on_saved: Callable = None, on_rechoose: Callable = None):
-        super().__init__(client, "Set up this action",
-                         "Not everything answers with something a tile can "
-                         "show. Try it below to see what comes back - and if "
-                         "you need an exact behaviour, a plugin of your own "
-                         "will serve you better than this will.")
+        # No blurb. Every line of it is height taken from the panes, on the
+        # one dialog where the panes are the whole point - and what it had to
+        # say belongs on the Preview tab, next to the button that does it.
+        super().__init__(client, "Set up this action", "")
         self.runnable = runnable
         self.on_saved = on_saved
         self.on_rechoose = on_rechoose
@@ -132,25 +139,35 @@ class ActionSetupDialog(BaseDialog):
         panes.addWidget(self._left(), stretch=0)
         panes.addWidget(self._tabs(saved), stretch=1)
 
-        # Asked for on the widget rather than through the layout. The base
-        # dialog adds `content` without a stretch and puts a spacer under it,
-        # so nothing inside can claim height by asking - the panes have to be
-        # tall enough on their own.
         holder = QWidget()
         set_style(holder, "common", "transparent")
         holder.setLayout(panes)
-        # Asked for, not demanded. A minimum taller than the dialog is
-        # allowed to be pushes the whole thing past its own maximum, which is
-        # how a clamped dialog still runs off the bottom of the screen.
-        # Whatever is left after the title, blurb and buttons - and no floor
-        # under it. A floor here is the same mistake as the scroll areas
-        # below: it is a number that looks safe and is exactly what stops a
-        # clamped dialog fitting a small screen.
-        holder.setMinimumHeight(max(0, min(self.PANE_HEIGHT,
-                                           self.maximumHeight() - 190)))
         holder.setSizePolicy(QSizePolicy.Policy.Expanding,
                              QSizePolicy.Policy.Expanding)
         self.content.addWidget(holder, stretch=1)
+
+        # The leftover height goes to the panes, and NO minimum is set on
+        # them.
+        #
+        # `expand_content()` drops the base dialog's trailing spacer and
+        # gives the stretch to `content`, which is the supported way to say
+        # "the content is the point". Claiming the space with a minimum
+        # instead - `maximumHeight() - 190`, a guess at the title, buttons and
+        # margins - is what overlapped the buttons: when the real chrome is
+        # taller than the guess, the minimum is larger than what is left, and
+        # Qt honours a minimum over a maximum. The card grows past its own cap
+        # and the row at the bottom goes with it.
+        self.expand_content()
+
+        # A floor, on the DIALOG rather than on anything inside it, and never
+        # above its own maximum.
+        #
+        # `expand_content()` hands over the leftover height but does not ask
+        # for any: `center()` shrinks to the size hint, so a card whose panes
+        # can all scroll collapses to a band. `maximumHeight()` is already
+        # clamped to the screen, so taking the smaller of the two cannot
+        # overflow however small the display is.
+        self.setMinimumHeight(min(self.maximumHeight(), self.WANTED_HEIGHT))
 
         self.add_button("Save", self._save, "primary")
         # A way back to the list without cancelling. Somebody who picked the
@@ -551,7 +568,9 @@ class ActionSetupDialog(BaseDialog):
         host, column = self._page(
             "What it answers with",
             "Run it once, then pick the part of the answer the rules should "
-            "read.")
+            "read. Not everything answers with something a tile can show - "
+            "and if you need an exact behaviour, a plugin of your own will "
+            "serve you better than this will.")
 
         self.try_button = ActionButton(
             "mdi.play", "Try it for real", self._try, kind="secondary")

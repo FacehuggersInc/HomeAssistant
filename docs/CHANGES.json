@@ -1,6 +1,16 @@
 {
  "log": [
   {
+   "at": 1785686430.3312643,
+   "note": "a minimum beats a maximum",
+   "pages": [
+    {
+     "slug": "dialogs",
+     "state": "updated"
+    }
+   ]
+  },
+  {
    "at": 1785686080.5005496,
    "note": "cleaning the transcript where it is made",
    "pages": [
@@ -805,8 +815,8 @@
    "state": "updated"
   },
   "dialogs": {
-   "at": 1785680032.7135534,
-   "hash": "a279a283d76511c0",
+   "at": 1785686430.3301227,
+   "hash": "0308e60a31e4ea21",
    "opened": 0,
    "state": "updated"
   },

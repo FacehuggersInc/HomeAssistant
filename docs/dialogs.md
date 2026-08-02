@@ -68,6 +68,23 @@ scroll area especially - giving up height is what it is for, and a floor on
 one is what stops a clamped dialog fitting. The same goes for `max(320, ...)`
 style guards: they look safe and are exactly the thing that overflows.
 
+**A minimum beats a maximum**, which is what makes this a layout bug rather
+than a cosmetic one. Ask for `maximumHeight() - 190` inside a dialog, guessing
+at the title, buttons and margins, and the day the real chrome is 220 the card
+grows past its own cap - taking the button row over the bottom edge with it.
+
+Two rules follow:
+
+- **Content takes leftover height, it does not claim it.** `expand_content()`
+  drops the trailing spacer and gives the stretch to `content`. That is the
+  supported way to say "the content is the point".
+- **A floor goes on the DIALOG, bounded by its own maximum.**
+  `expand_content()` hands over what is spare but asks for nothing, and
+  `center()` shrinks to the size hint - so a card whose panes can all scroll
+  collapses to a band. `setMinimumHeight(min(self.maximumHeight(), wanted))`
+  cannot overflow, because `maximumHeight()` has already been fitted to the
+  screen.
+
 ### When a layout stops fitting
 
 Shrinking every column only moves the point at which each becomes useless.

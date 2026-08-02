@@ -1,60 +1,60 @@
 {
-  "general": {
-    "enabled": {
-      "type": "bool",
-      "default": true,
-      "value": true,
-      "description": "Answer unmatched phrases with an AI. Turn off and unmatched phrases are simply ignored."
+    "general": {
+        "enabled": {
+            "type": "bool",
+            "default": true,
+            "value": true,
+            "description": "Answer unmatched phrases with an AI. Turn off and unmatched phrases are simply ignored."
+        },
+        "model": {
+            "type": "enum",
+            "default": "gpt-5.4-mini",
+            "value": "gpt-5.4-mini",
+            "options": [
+                "gpt-5.4-mini"
+            ],
+            "description": "OpenAI model used for replies."
+        },
+        "max_tokens": {
+            "type": "int",
+            "default": 600,
+            "value": 600,
+            "description": "Ceiling on reply length. Lower is faster and cheaper."
+        },
+        "history_turns": {
+            "type": "int",
+            "default": 8,
+            "value": 8,
+            "description": "How many previous exchanges to send as context. Higher costs more per call."
+        }
     },
-    "model": {
-      "type": "enum",
-      "default": "gpt-5.4-mini",
-      "value": "gpt-5.4-mini",
-      "options": [
-        "gpt-5.4-mini"
-      ],
-      "description": "OpenAI model used for replies."
+    "credentials": {
+        "openai_key": {
+            "type": "secret",
+            "env": "OPENAI_API_KEY",
+            "value": "",
+            "description": "OpenAI API key. Note that OpenAI has no free tier - the account needs credit on it. Stored in your .env file, not here."
+        }
     },
-    "max_tokens": {
-      "type": "int",
-      "default": 600,
-      "value": 600,
-      "description": "Ceiling on reply length. Lower is faster and cheaper."
-    },
-    "history_turns": {
-      "type": "int",
-      "default": 8,
-      "value": 8,
-      "description": "How many previous exchanges to send as context. Higher costs more per call."
+    "conversation": {
+        "system_prompt": {
+            "type": "body",
+            "default": "You are the voice assistant for a wall-mounted home display. Answer in a few short sentences unless asked for detail. You are being read aloud and shown on a small screen, so avoid long lists. If you do not know something, say so briefly.\n\nAlways format your reply as Markdown, every time, even for a one-line answer. Use it for emphasis, bullet and numbered lists, inline code, fenced code blocks with a language tag, headings, links and tables.\n\nLinks must always be Markdown links written as [label](https://full.url/path). Use complete, real, working URLs beginning with https:// - never a relative path, never a bare domain, and never a placeholder such as example.com or your-link-here.\n\nImages must always use Markdown image syntax with a full absolute URL: ![short description](https://full.url/image.jpg). Never use an HTML <img> tag, never use a relative or data: URL, and always link directly to the image file itself rather than to the page it appears on. Always include a short description in the square brackets. If you do not have a real image URL you can vouch for, leave the image out rather than inventing one.",
+            "value": "You are the voice assistant for a wall-mounted home display. Answer in a few short sentences unless asked for detail. You are being read aloud and shown on a small screen, so avoid long lists. If you do not know something, say so briefly.\n\nAlways format your reply as Markdown, every time, even for a one-line answer. Use it for emphasis, bullet and numbered lists, inline code, fenced code blocks with a language tag, headings, links and tables.\n\nLinks must always be Markdown links written as [label](https://full.url/path). Use complete, real, working URLs beginning with https:// - never a relative path, never a bare domain, and never a placeholder such as example.com or your-link-here.\n\nImages must always use Markdown image syntax with a full absolute URL: ![short description](https://full.url/image.jpg). Never use an HTML <img> tag, never use a relative or data: URL, and always link directly to the image file itself rather than to the page it appears on. Always include a short description in the square brackets. If you do not have a real image URL you can vouch for, leave the image out rather than inventing one.",
+            "description": "Sent to the AI before every conversation, telling it what it is and how to reply. The Markdown and link rules matter: the chat panel renders Markdown, so anything else arrives as literal characters."
+        },
+        "speak_replies": {
+            "type": "bool",
+            "default": true,
+            "value": true,
+            "description": "Read replies aloud as well as showing them, when TTS is available."
+        },
+        "panel_timeout": {
+            "type": "int",
+            "default": 300,
+            "value": 300,
+            "suffix": "sec",
+            "description": "How long the chat panel stays open with no interaction. Deliberately long, so a conversation is not cut off mid-thought."
+        }
     }
-  },
-  "credentials": {
-    "openai_key": {
-      "type": "secret",
-      "env": "OPENAI_API_KEY",
-      "value": "",
-      "description": "OpenAI API key. Note that OpenAI has no free tier - the account needs credit on it. Stored in your .env file, not here."
-    }
-  },
-  "conversation": {
-    "system_prompt": {
-      "type": "body",
-      "default": "You are the voice assistant for a wall-mounted home display. Answer in a few short sentences unless asked for detail. You are being read aloud and shown on a small screen, so avoid long lists. If you do not know something, say so briefly.\n\nAlways format your reply as Markdown, every time, even for a one-line answer. Use it for emphasis, bullet and numbered lists, inline code, fenced code blocks with a language tag, headings, links and tables.\n\nLinks must always be Markdown links written as [label](https://full.url/path). Use complete, real, working URLs beginning with https:// - never a relative path, never a bare domain, and never a placeholder such as example.com or your-link-here.\n\nImages must always use Markdown image syntax with a full absolute URL: ![short description](https://full.url/image.jpg). Never use an HTML <img> tag, never use a relative or data: URL, and always link directly to the image file itself rather than to the page it appears on. Always include a short description in the square brackets. If you do not have a real image URL you can vouch for, leave the image out rather than inventing one.",
-      "value": "You are the voice assistant for a wall-mounted home display. Answer in a few short sentences unless asked for detail. You are being read aloud and shown on a small screen, so avoid long lists. If you do not know something, say so briefly.\n\nAlways format your reply as Markdown, every time, even for a one-line answer. Use it for emphasis, bullet and numbered lists, inline code, fenced code blocks with a language tag, headings, links and tables.\n\nLinks must always be Markdown links written as [label](https://full.url/path). Use complete, real, working URLs beginning with https:// - never a relative path, never a bare domain, and never a placeholder such as example.com or your-link-here.\n\nImages must always use Markdown image syntax with a full absolute URL: ![short description](https://full.url/image.jpg). Never use an HTML <img> tag, never use a relative or data: URL, and always link directly to the image file itself rather than to the page it appears on. Always include a short description in the square brackets. If you do not have a real image URL you can vouch for, leave the image out rather than inventing one.",
-      "description": "Sent to the AI before every conversation, telling it what it is and how to reply. The Markdown and link rules matter: the chat panel renders Markdown, so anything else arrives as literal characters."
-    },
-    "speak_replies": {
-      "type": "bool",
-      "default": true,
-      "value": true,
-      "description": "Read replies aloud as well as showing them, when TTS is available."
-    },
-    "panel_timeout": {
-      "type": "int",
-      "default": 300,
-      "value": 300,
-      "suffix": "sec",
-      "description": "How long the chat panel stays open with no interaction. Deliberately long, so a conversation is not cut off mid-thought."
-    }
-  }
 }
