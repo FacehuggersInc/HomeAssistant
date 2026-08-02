@@ -269,8 +269,28 @@ That last part matters here more than the accuracy does. `is_hallucination`,
 you for watching" out of room tone. On Parakeet they mostly have nothing to do.
 
 It covers 25 European languages against whisper's 99, which is why this is a
-choice rather than a replacement. The weights are about 600MB, downloaded on
-first use.
+choice rather than a replacement. The weights are about 600MB.
+
+**They are fetched by the panel, before the speech process starts.** That
+process loads its model before its socket exists, so a download there is
+several minutes during which nothing can be said - the panel looks frozen and
+the log stops mid-startup with no clue why. Doing it in `_start_assistant`
+means a notification reaches somebody, the log says what is happening, and the
+child then finds the files already there.
+
+The child refuses to download at all. Reaching it with no weights means the
+fetch failed, so it says so and whisper takes over rather than trying again
+where nobody can see.
+
+To check while it is happening:
+
+```
+python3 hactl.py speech-model
+```
+
+Answered locally, without touching the panel - a download that has not
+finished looks exactly like a panel that will not start, and that is worth
+being able to tell apart.
 
 **It falls back rather than failing.** No library, no weights, a model that
 will not load - none of those should leave a panel that cannot transcribe, so

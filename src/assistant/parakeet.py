@@ -66,13 +66,20 @@ class Parakeet:
         if not ok:
             self.reason = why
             return
+        if not cached(self.name):
+            # Not on disk, and this is the speech process - which has no
+            # socket yet, so a download here is minutes of silence with the
+            # panel looking frozen. The panel fetches it before starting this
+            # (see Client._start_assistant), so reaching here means that did
+            # not work, and whisper is the answer rather than trying again
+            # somewhere nobody can see.
+            self.reason = (f"'{self.model_id}' is not downloaded yet")
+            self.log("warning", f"[Parakeet]: {self.reason}.")
+            return
+
         try:
             import onnx_asr
-            # Downloaded on first use and cached by the hub, like the Whisper
-            # models. It is around 600MB, so the first launch after choosing
-            # it is slow and every one after is not.
-            self.log("info", f"[Parakeet]: Loading '{self.model_id}' "
-                             f"(downloaded on first use)...")
+            self.log("info", f"[Parakeet]: Loading '{self.model_id}'...")
             self.model = onnx_asr.load_model(self.model_id)
             self.ready = True
             self.log("info", f"[Parakeet]: Ready.")
@@ -102,6 +109,70 @@ class Parakeet:
         if isinstance(result, (list, tuple)):
             result = result[0] if result else ""
         return str(result or "").strip()
+
+
+def cached(name: str) -> bool:
+    """
+    Whether the weights are already on disk.
+
+    Asked before starting, so the panel can say "downloading 600MB" rather
+    than sitting silent for several minutes with nothing in the log.
+    """
+    model_id = MODELS.get(str(name or "").strip().lower())
+    if not model_id:
+        return False
+    try:
+        from huggingface_hub import snapshot_download
+        snapshot_download(repo_id=_repo_for(model_id),
+                          local_files_only=True)
+        return True
+    except Exception:
+        return False
+
+
+def _repo_for(model_id: str) -> str:
+    """The HuggingFace repo onnx-asr pulls a model from."""
+    # Hard-coded rather than read from onnx-asr: it does not expose the
+    # mapping, and this is only used to ask whether the files are already
+    # there. If it is wrong the answer is "not cached", which costs a
+    # message rather than a failure.
+    return f"istupakov/{model_id.replace('nemo-', '')}-onnx"
+
+
+def fetch(name: str, log=None) -> tuple:
+    """
+    Make sure the weights are on disk. Returns (ok, reason).
+
+    Done from the panel rather than the speech process, and BEFORE it is
+    started. The child loads its model before its socket exists, so a
+    download there is several minutes during which the panel can say nothing
+    at all - it looks frozen, and the log stops mid-startup with no clue why.
+    """
+    log = log or (lambda level, message: None)
+    ok, why = available()
+    if not ok:
+        return False, why
+
+    model_id = MODELS.get(str(name or "").strip().lower())
+    if not model_id:
+        return False, f"'{name}' is not a Parakeet model"
+
+    if cached(name):
+        log("info", f"[Parakeet] '{model_id}' is already downloaded.")
+        return True, ""
+
+    log("info", f"[Parakeet] Downloading '{model_id}' - about 600MB, once. "
+                f"The assistant starts when it finishes.")
+    try:
+        import onnx_asr
+        # Loaded and thrown away. There is no download-only entry point, and
+        # loading is what puts the files in the cache - the child then finds
+        # them there and starts immediately.
+        onnx_asr.load_model(model_id)
+    except Exception as e:
+        return False, f"could not download '{model_id}': {e}"
+    log("info", f"[Parakeet] '{model_id}' downloaded.")
+    return True, ""
 
 
 def load(name: str, log=None) -> Optional["Parakeet"]:

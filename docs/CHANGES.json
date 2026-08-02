@@ -1,6 +1,16 @@
 {
  "log": [
   {
+   "at": 1785638935.9723463,
+   "note": "a download you can see happening",
+   "pages": [
+    {
+     "slug": "assistant",
+     "state": "updated"
+    }
+   ]
+  },
+  {
    "at": 1785638394.1276386,
    "note": "a new dropdown option reaching an existing install",
    "pages": [
@@ -437,8 +447,8 @@
    "state": "seen"
   },
   "assistant": {
-   "at": 1785637949.1041248,
-   "hash": "415e796b395115c4",
+   "at": 1785638935.971629,
+   "hash": "e7aaacdcd57be514",
    "opened": 0,
    "state": "updated"
   },

@@ -1772,6 +1772,33 @@ class Client:
         # A listed device is not an openable one, and `default` can point at
         # something that blocks with no error and no end - which froze the panel
         # here, during startup, with nothing in the log after the attempt began.
+        # The weights first, if this is a model that has to fetch them.
+        #
+        # The speech process loads its model before its socket exists, so a
+        # download there is several minutes during which the panel can say
+        # nothing at all - it looks frozen, and the log stops mid-startup with
+        # no clue why. Doing it here means the panel is up, the notification
+        # reaches somebody, and the child then finds the files already there.
+        try:
+            from src.assistant import parakeet
+            if parakeet.is_parakeet(model):
+                if not parakeet.cached(model):
+                    self.simple_notify(
+                        "mdi.cloud-download-outline", "Assistant",
+                        f"Downloading the {model} speech model, about 600MB. "
+                        f"The assistant starts when it finishes.", False)
+                ok, why = parakeet.fetch(model, log=self.log)
+                if not ok:
+                    self.log("warning", f"[Assistant] {why}")
+                    self.simple_notify(
+                        "mdi.alert-outline", "Assistant",
+                        f"Could not set up {model}, so the assistant is "
+                        f"listening with a smaller model instead.")
+        except Exception as e:
+            self.log("warning", f"[Assistant] Parakeet setup skipped: {e}")
+
+        # Each candidate is opened in turn until one answers, rather than
+        # trusting the one the system calls `default`.
         self.log("info", "[Assistant] Looking for an input that opens...")
 
         # Said out loud, but only once something has actually gone wrong.
