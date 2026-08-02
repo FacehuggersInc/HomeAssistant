@@ -26,5 +26,28 @@
             "value": "fahrenheit",
             "description": "fahrenheit or celsius. Changes the API request, not just the label."
         }
+    },
+    "alerts": {
+        "timer_alarm_seconds": {
+            "type": "int",
+            "default": 20,
+            "value": 20,
+            "suffix": "sec",
+            "description": "How long a finished timer keeps sounding. Long enough to hear from another room, short enough that one nobody is near stops on its own. 0 turns the sound off and leaves the panel."
+        },
+        "alarm_ring_seconds": {
+            "type": "int",
+            "default": 45,
+            "value": 45,
+            "suffix": "sec",
+            "description": "How long an alarm keeps ringing. Longer than a timer's: a timer is answered by somebody standing over it, and an alarm by somebody who has to wake up first. 0 turns the sound off."
+        },
+        "alarm_give_up_after": {
+            "type": "int",
+            "default": 300,
+            "value": 300,
+            "suffix": "sec",
+            "description": "How long an unanswered alarm stays up before it clears itself. One nobody is near should not still be ringing when they get home."
+        }
     }
 }

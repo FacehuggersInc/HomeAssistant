@@ -257,8 +257,31 @@ class STTProcessing():
 
 	## PROCESSING
 	def clean_text(self, text:str) -> str:
-		text = ''.join(ch for ch in text if ch not in string.punctuation).strip()
-		return text
+		"""
+		Punctuation off, except where it is part of a word or a number.
+
+		Stripping every punctuation character turns "11:46" into "1146" and
+		"o'clock" into "oclock" - and the Matcher runs on this, so a clock
+		time stops being one on its way to the skill that wanted it. A
+		trailing full stop is noise; the one in "3.5" is not.
+		"""
+		said = str(text or "")
+		kept = []
+		for index, char in enumerate(said):
+			if char not in string.punctuation:
+				kept.append(char)
+				continue
+			before = said[index - 1] if index else ""
+			after = said[index + 1] if index + 1 < len(said) else ""
+			# Inside a number: a clock time, or a decimal.
+			if char in ":." and before.isdigit() and after.isdigit():
+				kept.append(char)
+				continue
+			# Inside a word: "o'clock", "don't".
+			if char == "'" and before.isalpha() and after.isalpha():
+				kept.append(char)
+				continue
+		return "".join(kept).strip()
 
 	def process_phrase(self, phrase:str):
 		# Said before the search, not after it.

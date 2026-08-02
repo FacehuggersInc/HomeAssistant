@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import random
+import time as _time
 from datetime import date, datetime, timedelta
 
 from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFrame
@@ -13,6 +14,73 @@ from src.styling import make_font, SIZES, set_style
 from .voice_bar import VoiceBar
 
 
+# Units a duration is counted in, as LEMMAs so one entry covers the plural.
+# Abbreviations ("mins", "secs") are expanded upstream by
+# normalize.expand_units before a skill sees them.
+DURATION_UNITS = ["second", "minute", "hour", "day"]
+
+# What sits between two halves of one duration. "an hour AND a half";
+# "two hours THIRTY" has nothing between them at all, which is why every part
+# after the first is optional rather than joined.
+DURATION_JOINERS = ["and", "plus", "&"]
+
+# A clock time as one token. "4:40" is a single NUM token whose `like_num` is
+# FALSE, so LIKE_NUM never matches it - the shape has to be asked for.
+_CLOCK = {"TEXT": {"REGEX": r"^\d{1,2}([:.]\d{2})?$"}}
+_MERIDIEM = {"LOWER": {"IN": ["am", "pm", "a.m.", "p.m.", "am.", "pm."]}}
+
+# Longest first, so the widest match wins on the ones that overlap.
+ALARM_TIME_PATTERNS = [
+    [{"LOWER": {"IN": ["half", "quarter"]}},
+     {"LOWER": {"IN": ["past", "to"]}}, _CLOCK, dict(_MERIDIEM, OP="?")],
+    [_CLOCK, _MERIDIEM],
+    [_CLOCK, {"LOWER": "o'clock", "OP": "?"}],
+    [{"LOWER": {"IN": ["noon", "midday", "midnight"]}}],
+]
+
+# "in 20 minutes", "10 minutes from now", "an hour and a half from now".
+ALARM_AFTER_PATTERNS = [
+    [{"LIKE_NUM": True}, {"LEMMA": {"IN": DURATION_UNITS}},
+     {"LOWER": {"IN": DURATION_JOINERS}, "OP": "?"},
+     {"LIKE_NUM": True, "OP": "?"},
+     {"LEMMA": {"IN": DURATION_UNITS}, "OP": "?"},
+     {"LOWER": {"IN": ["from", "in"]}, "OP": "?"},
+     {"LOWER": {"IN": ["now", "time"]}, "OP": "?"}],
+]
+
+ALARM_DAY_PATTERNS = [
+    [{"LOWER": {"IN": ["today", "tomorrow", "tonight"]}}],
+    [{"LOWER": {"IN": ["monday", "tuesday", "wednesday", "thursday",
+                       "friday", "saturday", "sunday"]}}],
+]
+
+ALARM_PART_PATTERNS = [
+    [{"LOWER": "in", "OP": "?"}, {"LOWER": "the", "OP": "?"},
+     {"LOWER": {"IN": ["morning", "afternoon", "evening", "night",
+                       "tonight"]}}],
+]
+
+ALARM_REPEAT_PATTERNS = [
+    [{"LOWER": {"IN": ["daily", "everyday", "repeating"]}}],
+    [{"LOWER": "every"}, {"LOWER": {"IN": ["day", "morning", "night"]}}],
+]
+
+# The same idea as TIMER_NAME_STOPWORDS: what may sit before "alarm" without
+# being its name. Clock words as well as units, or "the 7 am alarm" comes back
+# as an alarm called "am".
+ALARM_NAME_STOPWORDS = [
+    "alarm", "alarms", "repeating",
+    "second", "seconds", "minute", "minutes", "hour", "hours", "day", "days",
+    "am", "pm", "a.m.", "p.m.", "o'clock", "noon", "midday", "midnight",
+    "morning", "afternoon", "evening", "night", "tonight",
+    "today", "tomorrow", "daily", "everyday",
+    "monday", "tuesday", "wednesday", "thursday", "friday", "saturday",
+    "sunday",
+    "all", "every", "next", "new", "another", "other", "scheduled",
+    "and", "plus",
+]
+
+
 # Words that may sit immediately before "timer" without being its name.
 # Shared by set-timer and cancel-timer: two copies would drift, and the whole
 # point is that "a 5 minute timer" is not a timer called "minute".
@@ -20,6 +88,10 @@ TIMER_NAME_STOPWORDS = [
     "timer", "timers",
     "second", "seconds", "minute", "minutes", "hour", "hours", "day", "days",
     "all", "every", "running", "remaining", "new", "another", "other",
+    # Joiners inside a compound duration. Without these, "the 1 hour and 10
+    # minute timer" hands back a timer named "and" when the unit before
+    # "timer" is skipped.
+    "and", "plus",
 ]
 
 
@@ -304,9 +376,21 @@ class CoreSkills(Plugin):
                     # LEMMA, not LOWER: one entry covers singular and plural.
                     # Abbreviations ("mins", "secs") are expanded upstream by
                     # normalize.expand_units before this ever sees them.
+                    # A compound duration is ONE span, not two.
+                    #
+                    # `[number, unit]` alone matches "1 hour" and "48 minutes"
+                    # separately in "1 hour and 48 minutes", and the extractor
+                    # keeps the widest - which has to exist to be kept. Three
+                    # parts is more than anybody says out loud.
                     "time": [
                         [{"LIKE_NUM": True},
-                         {"LEMMA": {"IN": ["second", "minute", "hour", "day"]}}],
+                         {"LEMMA": {"IN": DURATION_UNITS}},
+                         {"LOWER": {"IN": DURATION_JOINERS}, "OP": "?"},
+                         {"LIKE_NUM": True, "OP": "?"},
+                         {"LEMMA": {"IN": DURATION_UNITS}, "OP": "?"},
+                         {"LOWER": {"IN": DURATION_JOINERS}, "OP": "?"},
+                         {"LIKE_NUM": True, "OP": "?"},
+                         {"LEMMA": {"IN": DURATION_UNITS}, "OP": "?"}],
                     ],
                     "name": [
                         # "call it Eggs" is in the examples but was not in the
@@ -346,14 +430,23 @@ class CoreSkills(Plugin):
                     "cancel the 5 minute timer", "stop the 10 minute timer",
                     "cancel my 30 second timer", "stop the 30 second timer",
                     "cancel the 1 hour timer",
+                    "cancel the 1 hour and 10 minute timer",
+                    "stop the 2 hour 30 minute timer",
                 ],
                 arguments={
-                    # LEMMA covers singular and plural in one entry, and
-                    # normalize.expand_units has already turned "mins" into
-                    # "minutes" by the time this runs.
+                    # The same shape as start-timer's: a compound duration is
+                    # ONE span. "cancel the 1 hour and 10 minutes timer"
+                    # otherwise matches "1 hour" and "10 minutes" separately,
+                    # and cancels whichever the extractor kept.
                     "time": [
                         [{"LIKE_NUM": True},
-                         {"LEMMA": {"IN": ["second", "minute", "hour"]}}],
+                         {"LEMMA": {"IN": DURATION_UNITS}},
+                         {"LOWER": {"IN": DURATION_JOINERS}, "OP": "?"},
+                         {"LIKE_NUM": True, "OP": "?"},
+                         {"LEMMA": {"IN": DURATION_UNITS}, "OP": "?"},
+                         {"LOWER": {"IN": DURATION_JOINERS}, "OP": "?"},
+                         {"LIKE_NUM": True, "OP": "?"},
+                         {"LEMMA": {"IN": DURATION_UNITS}, "OP": "?"}],
                     ],
                     "name": [
                         # "called eggs" / "named laundry"
@@ -380,6 +473,106 @@ class CoreSkills(Plugin):
                     "how long until my timer is done", "how long on the timer",
                 ],
                 func=self.check_timers,
+            ),
+            Skill(
+                wake_word=wake, skill_key="set-alarm", plugin_key=key,
+                examples=[
+                    # A clock time
+                    "set an alarm at 4:40 PM", "set an alarm for 7 am",
+                    "set an alarm at 6:30", "wake me up at 6:30",
+                    "wake me at 7 in the morning",
+                    "set an alarm for half past 7",
+                    "set an alarm at 7 o'clock",
+                    "set an alarm for noon", "set an alarm for midnight",
+                    # A day as well
+                    "set an alarm tomorrow at 8 AM",
+                    "set an alarm at 8 tomorrow",
+                    "wake me up tomorrow at 6:30",
+                    "set an alarm for friday at 9 am",
+                    "set an alarm for monday morning at 7",
+                    # Relative
+                    "set an alarm 10 minutes from now",
+                    "set an alarm for 25 minutes from now",
+                    "set an alarm in 20 minutes",
+                    "set an alarm in an hour and a half",
+                    "wake me up in 45 minutes",
+                    # Named
+                    "set an alarm called laundry for 6 pm",
+                    "set a bread alarm for 7 am",
+                    # Repeating
+                    "set a daily alarm for 7 am",
+                    "wake me up every day at 6:30",
+                ],
+                arguments={
+                    "time":   ALARM_TIME_PATTERNS,
+                    "after":  ALARM_AFTER_PATTERNS,
+                    "day":    ALARM_DAY_PATTERNS,
+                    "part":   ALARM_PART_PATTERNS,
+                    "repeat": ALARM_REPEAT_PATTERNS,
+                    "name": [
+                        [{"LOWER": {"IN": ["call", "called", "name", "named"]}},
+                         {"LOWER": "it", "OP": "?"},
+                         {"POS": "DET", "OP": "?"},
+                         {"IS_ALPHA": True, "IS_STOP": False}],
+                        [{"IS_ALPHA": True, "IS_STOP": False,
+                          "LOWER": {"NOT_IN": ALARM_NAME_STOPWORDS}},
+                         {"LOWER": {"IN": ["alarm", "alarms"]}}],
+                    ],
+                },
+                func=self.set_alarm,
+            ),
+            Skill(
+                wake_word=wake, skill_key="cancel-alarm", plugin_key=key,
+                examples=[
+                    # All of them
+                    "cancel my alarms", "cancel all my alarms",
+                    "clear my alarms", "delete all alarms",
+                    "turn off my alarms", "remove all of my alarms",
+                    # One, by time
+                    "cancel the alarm at 4:40 PM", "cancel the 7 am alarm",
+                    "cancel the alarm at 8 tomorrow",
+                    "delete the alarm for tomorrow at 6:30",
+                    "cancel the alarm for noon",
+                    # One, relative - the way it was asked for
+                    "cancel the alarm 10 minutes from now",
+                    "cancel the alarm in 20 minutes",
+                    # One, by name
+                    "cancel the laundry alarm",
+                    "cancel the alarm called bread",
+                    # The repeating one
+                    "cancel the daily alarm", "stop the daily alarm",
+                    "cancel my everyday alarm",
+                    "turn off the every day alarm",
+                    "cancel the repeating alarm",
+                    "stop waking me up every day",
+                ],
+                arguments={
+                    "time":   ALARM_TIME_PATTERNS,
+                    "after":  ALARM_AFTER_PATTERNS,
+                    "day":    ALARM_DAY_PATTERNS,
+                    "part":   ALARM_PART_PATTERNS,
+                    "repeat": ALARM_REPEAT_PATTERNS,
+                    "name": [
+                        [{"LOWER": {"IN": ["call", "called", "name", "named"]}},
+                         {"LOWER": "it", "OP": "?"},
+                         {"POS": "DET", "OP": "?"},
+                         {"IS_ALPHA": True, "IS_STOP": False}],
+                        [{"IS_ALPHA": True, "IS_STOP": False,
+                          "LOWER": {"NOT_IN": ALARM_NAME_STOPWORDS}},
+                         {"LOWER": {"IN": ["alarm", "alarms"]}}],
+                    ],
+                },
+                func=self.cancel_alarms,
+            ),
+            Skill(
+                wake_word=wake, skill_key="check-alarms", plugin_key=key,
+                examples=[
+                    "what alarms do i have", "what alarms are set",
+                    "when is my alarm", "when is my next alarm",
+                    "do i have an alarm set", "list my alarms",
+                    "check my alarms", "what time is my alarm",
+                ],
+                func=self.check_alarms,
             ),
             # The calendar skills live in the Calendar plugin, against its own
             # registry. Two skills claiming "what is my next event" is the
@@ -743,7 +936,53 @@ class CoreSkills(Plugin):
 
         self.client.answer(glyph, f"{temperature} degrees", lines,
                            tint="#3f7fbf" if is_day else "#3a2159",
-                           speak=f"{temperature} degrees.")
+                           speak=self._weather_spoken(temperature, data))
+
+    #What the sky is doing, in the order somebody would mention it. First hit
+    #wins, so snow beats rain beats cloud.
+    WEATHER_WORDS = (
+        ("snowfall",     0,  "snowing"),
+        ("showers",      0,  "showery"),
+        ("rain",         0,  "raining"),
+        ("cloud_cover", 80,  "overcast"),
+        ("cloud_cover", 40,  "cloudy"),
+    )
+
+    def _weather_spoken(self, temperature, data: dict) -> str:
+        """
+        The weather as a sentence rather than a reading.
+
+        "72 degrees." is two words: a speech model is finished with it before
+        a room has noticed anybody is talking. The answer is not padded with
+        silence - the words somebody misses are the ones at the front, so the
+        front is given something worth missing.
+
+        What is added is real: the sky, and how it feels if that differs from
+        the number. A sentence made of filler is the same problem in more
+        syllables.
+        """
+        sky = ""
+        for key, above, word in self.WEATHER_WORDS:
+            try:
+                if float(data.get(key) or 0) > above:
+                    sky = word
+                    break
+            except (TypeError, ValueError):
+                continue
+        if not sky:
+            sky = "clear" if data.get("is_day", 1) else "clear out"
+
+        said = f"It's {temperature} degrees and {sky}"
+
+        # Only when it disagrees with the thermometer by enough to be worth
+        # saying. "72 degrees, feels like 72" is noise.
+        try:
+            feels = int(float(data.get("apparent_temperature")))
+            if abs(feels - int(float(temperature))) >= 3:
+                said += f", though it feels more like {feels}"
+        except (TypeError, ValueError):
+            pass
+        return said + "."
 
     def start_timer(self, time: str = None, name: str = None):
         """
@@ -766,7 +1005,8 @@ class CoreSkills(Plugin):
                           "loaded.")
             return
 
-        timer = self.client.public.timers["start"](seconds, name=name or "")
+        timer = self.client.public.timers["start"](
+            seconds, name=_clean_label(name))
         if timer is None:
             self._respond("I could not start that timer.")
             return
@@ -794,7 +1034,7 @@ class CoreSkills(Plugin):
             return
 
         seconds = _spoken_duration(time) if time else 0
-        wanted = (name or "").strip()
+        wanted = _clean_label(name)
 
         # Nothing to narrow by: all of them.
         if not seconds and not wanted:
@@ -815,8 +1055,9 @@ class CoreSkills(Plugin):
             else:
                 # "the 30 minutes timer" reads wrong - describe() gives a
                 # noun phrase, not an adjective, so it goes after the noun.
-                        self._respond(
-                    f"Stopped the timer set for {self._describe(timer.duration)}.")
+                self._respond(
+                    f"Stopped the timer set for "
+                    f"{self._describe(timer.duration)}.")
             return
 
         self._respond(f"Stopped {len(matched)} timers.")
@@ -848,6 +1089,146 @@ class CoreSkills(Plugin):
         self.client.answer("mdi.timer-outline",
                            f"{len(running)} timer" + ("s" if len(running) != 1 else ""),
                            lines, tint="#3f7fbf", speak=spoken)
+
+    ## ALARMS
+
+    def _alarms(self):
+        """The alarm service, or None if whoever owns it is not loaded."""
+        if not self.client.public.has("alarms"):
+            return None
+        return self.client.public.alarms
+
+    def _alarm_when(self, time_text, after_text, day, part) -> float:
+        """
+        The epoch an alarm was asked for, however it was asked for.
+
+        Relative beats absolute, always. "10 minutes from now" contains a
+        number that also reads as a clock time, so both arguments match - and
+        the one somebody said is the one with a unit on it.
+        """
+        seconds = _spoken_duration(after_text) if after_text else 0
+        if seconds:
+            return _time.time() + seconds
+        return _alarm_epoch(time_text or "", day or "", part or "")
+
+    def set_alarm(self, time: str = None, after: str = None, day: str = None,
+                  part: str = None, repeat: str = None, name: str = None):
+        """
+        "set an alarm at 4:40 PM", "set an alarm 10 minutes from now".
+
+        Everything ambiguous is resolved in `_alarm_epoch` - which 8 o'clock,
+        which day, and what a bare hour means with a day named on it.
+        """
+        api = self._alarms()
+        if api is None:
+            self._respond("Alarms are not available right now.")
+            return
+
+        when = self._alarm_when(time, after, day, part)
+        if not when:
+            self._respond("I did not catch what time. Try 'set an alarm for "
+                          "seven in the morning'.")
+            return
+
+        alarm = api["schedule"](when, name=_clean_label(name),
+                                repeats=bool(repeat))
+        if alarm is None:
+            # The only way schedule() refuses: a time already gone. Everything
+            # else has had a day rolled onto it by now.
+            self._respond("That time has already passed.")
+            return
+
+        said = api["describe"](alarm.when)
+        every = " every day" if alarm.repeats else ""
+        called = f", called {alarm.name}" if alarm.name else ""
+        lines = [f"Set for {said}."]
+        if alarm.repeats:
+            lines.append("Repeats daily.")
+        self.client.answer("mdi.alarm",
+                           f"Alarm {api['clock_text'](alarm.when)}",
+                           lines, tint="#c0603f",
+                           speak=f"Alarm set for {said}{every}{called}.")
+
+    def cancel_alarms(self, time: str = None, after: str = None,
+                      day: str = None, part: str = None, repeat: str = None,
+                      name: str = None):
+        """
+        "cancel my alarms", "cancel the alarm at 4:40 PM",
+        "cancel the alarm 10 minutes from now".
+
+        The relative form is how it was ASKED for rather than what it reads
+        as now, and both find the same one: "10 minutes from now" resolves to
+        a clock time, and the match is against that to the nearest minute.
+        """
+        api = self._alarms()
+        if api is None:
+            self._respond("Alarms are not available right now.")
+            return
+
+        scheduled = api["scheduled"]()
+        if not scheduled:
+            self._respond("There are no alarms set.")
+            return
+
+        when = self._alarm_when(time, after, day, part)
+        wanted = _clean_label(name)
+        # "the daily alarm" narrows to the repeating ones. On its own that is
+        # usually enough to say which; with a time as well it is both.
+        only_repeating = True if repeat else None
+
+        if not when and not wanted and only_repeating is None:
+            stopped = api["cancel_all"]()
+            self._respond(f"Cleared {stopped} alarm"
+                          + ("s." if stopped != 1 else "."))
+            return
+
+        matched = api["cancel_matching"](when=when, name=wanted,
+                                         repeats=only_repeating)
+        if not matched:
+            self._respond("I could not find that alarm. "
+                          + self._alarm_summary(scheduled))
+            return
+        if len(matched) == 1:
+            alarm = matched[0]
+            said = (alarm.name if alarm.name
+                    else f"the {api['clock_text'](alarm.when)} alarm")
+            if alarm.repeats:
+                said = f"the daily {said}" if not alarm.name else said
+            self._respond(f"Cancelled {said}.")
+            return
+        self._respond(f"Cancelled {len(matched)} alarms.")
+
+    def check_alarms(self):
+        """What is set, soonest first."""
+        api = self._alarms()
+        if api is None:
+            self._respond("Alarms are not available right now.")
+            return
+
+        scheduled = api["scheduled"]()
+        if not scheduled:
+            self._respond("There are no alarms set.")
+            return
+
+        lines = []
+        for alarm in scheduled:
+            said = api["describe"](alarm.when)
+            lines.append(f"{alarm.name}: {said}" if alarm.name else said)
+        self.client.answer(
+            "mdi.alarm",
+            f"{len(scheduled)} alarm" + ("s" if len(scheduled) != 1 else ""),
+            lines, tint="#c0603f", speak=self._alarm_summary(scheduled))
+
+    def _alarm_summary(self, scheduled: list) -> str:
+        """What is set, for when a request matched nothing."""
+        api = self._alarms()
+        if api is None or not scheduled:
+            return "There are no alarms set."
+        said = [(f"{a.name} at {api['describe'](a.when)}" if a.name
+                 else api["describe"](a.when)) for a in scheduled]
+        if len(said) == 1:
+            return f"The only one set is {said[0]}."
+        return "Set: " + ", ".join(said) + "."
 
     ## HELPERS
 
@@ -998,6 +1379,199 @@ def _overlap(said: str, candidate: str) -> float:
     return hits / len(said_words)
 
 
+#Words that name a time without a number on them.
+NAMED_TIMES = {
+    "noon": (12, 0), "midday": (12, 0), "midnight": (0, 0),
+}
+
+#What half of the day a phrase puts the hour in, when no am/pm was said.
+DAY_PARTS = {
+    "morning": (5, 11), "afternoon": (12, 17), "evening": (17, 21),
+    "night": (21, 23), "tonight": (18, 23),
+}
+
+#Which day. Anything not here is "the next one of these there is".
+DAY_WORDS = {"today": 0, "tonight": 0, "tomorrow": 1}
+
+WEEKDAYS = {"monday": 0, "tuesday": 1, "wednesday": 2, "thursday": 3,
+            "friday": 4, "saturday": 5, "sunday": 6}
+
+
+def _clock_parts(text: str):
+    """
+    `(hour, minute, meridiem)` from "4:40 pm", "8", "half past 7", "noon".
+
+    `meridiem` is "am", "pm" or "" - empty meaning nobody said, which is the
+    case the caller has to resolve rather than guess at silently.
+    """
+    import re
+
+    said = " ".join(str(text or "").lower().split())
+    if not said:
+        return None
+
+    for word, (hour, minute) in NAMED_TIMES.items():
+        if word in said:
+            return hour, minute, "am" if hour < 12 else "pm"
+
+    meridiem = ""
+    match = re.search(r"\b([ap])\.?\s?m\.?\b", said)
+    if match:
+        meridiem = match.group(1) + "m"
+
+    # "half past seven", "quarter to eight" - said before the number is read,
+    # because they change what the number means.
+    offset = 0
+    if re.search(r"\bhalf\s+past\b", said):
+        offset = 30
+    elif re.search(r"\b(a\s+)?quarter\s+past\b", said):
+        offset = 15
+    elif re.search(r"\b(a\s+)?quarter\s+to\b", said):
+        offset = -15
+    elif re.search(r"\bhalf\s+to\b", said):
+        offset = -30
+
+    clock = re.search(r"\b(\d{1,2})\s*[:.]\s*(\d{2})\b", said)
+    if clock:
+        hour, minute = int(clock.group(1)), int(clock.group(2))
+    else:
+        bare = re.search(r"\b(\d{1,2})\b", said)
+        if not bare:
+            return None
+        hour, minute = int(bare.group(1)), 0
+
+    if offset:
+        total = hour * 60 + minute + offset
+        hour, minute = (total // 60) % 24, total % 60
+
+    if hour > 23 or minute > 59:
+        return None
+    return hour, minute, meridiem
+
+
+def _alarm_epoch(time_text: str = "", day_text: str = "",
+                 part_text: str = "", now: float = None) -> float:
+    """
+    Seconds since the epoch for a spoken clock time, or 0.
+
+    Everything ambiguous is resolved the way somebody standing in the room
+    would resolve it:
+
+    | Said                     | Means                                      |
+    |--------------------------|--------------------------------------------|
+    | a time already past      | tomorrow                                   |
+    | `8` with no am/pm        | whichever 8 comes first from now           |
+    | `8` with "in the morning"| 8 am, today or tomorrow                    |
+    | `8 tomorrow`             | 8 am tomorrow, because that is what a bare |
+    |                          | hour with a day on it means                |
+    """
+    from datetime import datetime, timedelta
+
+    parts = _clock_parts(time_text)
+    if parts is None:
+        return 0.0
+    hour, minute, meridiem = parts
+
+    now = _time.time() if now is None else now
+    current = datetime.fromtimestamp(now)
+
+    said_day = " ".join(str(day_text or "").lower().split())
+    said_part = " ".join(str(part_text or "").lower().split())
+
+    # Which day, if one was named at all.
+    offset_days = None
+    for word, days in DAY_WORDS.items():
+        if word in said_day or word in said_part:
+            offset_days = days
+            break
+    if offset_days is None:
+        for word, index in WEEKDAYS.items():
+            if word in said_day:
+                ahead = (index - current.weekday()) % 7
+                offset_days = ahead or 7
+                break
+
+    # 12 hour to 24 hour.
+    if meridiem == "pm" and hour < 12:
+        hour += 12
+    elif meridiem == "am" and hour == 12:
+        hour = 0
+    elif not meridiem and hour <= 12:
+        window = None
+        for word, span in DAY_PARTS.items():
+            if word in said_part or word in said_day:
+                window = span
+                break
+        if window is not None:
+            low, high = window
+            if not (low <= hour <= high):
+                if hour + 12 <= high:
+                    hour += 12
+                elif hour == 12 and low == 0:
+                    hour = 0
+        elif offset_days is not None:
+            # A bare hour with a day on it is the MORNING, and left alone.
+            # "8 tomorrow" is eight in the morning; so is "6 tomorrow".
+            # Somebody meaning the evening says so, and an alarm that is
+            # mostly a wake-up should not guess otherwise.
+            pass
+        else:
+            # Whichever comes first. "set an alarm at 8" at nine in the
+            # morning means eight in the evening, not eight tomorrow.
+            morning = current.replace(hour=hour % 12, minute=minute,
+                                      second=0, microsecond=0)
+            evening = current.replace(hour=(hour % 12) + 12, minute=minute,
+                                      second=0, microsecond=0)
+            if morning.timestamp() <= now < evening.timestamp():
+                hour = (hour % 12) + 12
+            elif evening.timestamp() <= now:
+                hour = hour % 12
+
+    target = current.replace(hour=hour % 24, minute=minute,
+                             second=0, microsecond=0)
+    if offset_days:
+        target += timedelta(days=offset_days)
+    # Already gone, and no day was named: the next one there is.
+    if offset_days is None and target.timestamp() <= now:
+        target += timedelta(days=1)
+    return float(target.timestamp())
+
+
+#What a name span may carry that is not part of the name. The Matcher hands
+#back the whole span it matched - "called laundry", "bread alarm" - and the
+#trigger word is how it was found rather than what it is called.
+_NAME_LEADERS = ("call it", "called it", "name it", "named it",
+                 "call", "called", "name", "named")
+
+
+def _clean_label(text: str, nouns=("timer", "timers", "alarm", "alarms")) -> str:
+    """
+    The name out of a name span.
+
+    "call it Eggs" is Eggs; "a bread alarm" is bread. Left alone, a timer
+    started this way is called "laundry timer" and announces itself as "the
+    laundry timer timer".
+    """
+    said = " ".join(str(text or "").split())
+    if not said:
+        return ""
+
+    lowered = said.lower()
+    for lead in _NAME_LEADERS:
+        if lowered.startswith(lead + " "):
+            said = said[len(lead) + 1:]
+            lowered = said.lower()
+            break
+
+    words = said.split()
+    while words and words[-1].lower().strip(".,") in nouns:
+        words.pop()
+    # Determiners left at the front by a lead-in - "call it the eggs one".
+    while words and words[0].lower() in ("a", "an", "the", "my"):
+        words.pop(0)
+    return " ".join(words).strip()
+
+
 def _spoken_duration(text: str) -> float:
     """
     Seconds from a phrase like "10 minutes" or "1 hour 30 minutes".
@@ -1031,12 +1605,16 @@ def _spoken_duration(text: str) -> float:
     tokens = re.findall(r"[a-z0-9\-\.]+", str(text).lower())
     total = 0.0
     pending = None
+    #The last unit counted in, so a number left over at the end has something
+    #to be measured against. See the tail below.
+    last_unit = None
 
     for token in tokens:
         if token in units:
             # A unit with no number in front of it means one of them:
             # "set a timer for an hour" arrives here as just "hour".
             total += (1.0 if pending is None else pending) * units[token]
+            last_unit = units[token]
             pending = None
             continue
         try:
@@ -1061,5 +1639,19 @@ def _spoken_duration(text: str) -> float:
 
     # "set a timer for 10" with no unit at all - minutes is what people mean.
     if total == 0 and pending:
-        total = pending * 60
+        return float(pending * 60)
+
+    # A number left over AFTER a unit. Two readings, and the size of it says
+    # which:
+    #
+    #   "an hour and a half"  - a fraction, so the same unit again.
+    #   "an hour thirty"      - a whole number, so the next unit down. Nobody
+    #                           means thirty hours.
+    if pending and last_unit:
+        if pending < 1:
+            total += pending * last_unit
+        else:
+            smaller = {3600: 60, 60: 1}.get(last_unit)
+            if smaller:
+                total += pending * smaller
     return float(total)

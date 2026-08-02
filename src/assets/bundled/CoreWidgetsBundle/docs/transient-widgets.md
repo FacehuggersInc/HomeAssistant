@@ -158,6 +158,7 @@ The **service** announces it, not the widget and not the placement API:
 
 ```python
 client.subscribe_to_event("on_timer_finished", lambda timer: ...)
+client.subscribe_to_event("on_alarm_fired", lambda alarm: ...)
 ```
 
 ### The widget

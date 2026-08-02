@@ -89,6 +89,15 @@ class CoreWidgetsBundle(Plugin):
         if "on_timer_finished" not in self.client.EVENTS["on_call"]:
             self.client.create_on_call_event("on_timer_finished")
 
+        # Alarms. A wall clock time rather than a countdown - see alarms.py
+        # for the three ways that makes it a different thing.
+        from .alarms import AlarmService
+        self.alarms = AlarmService(self)
+        self.alarms.start_watching()
+
+        if "on_alarm_fired" not in self.client.EVENTS["on_call"]:
+            self.client.create_on_call_event("on_alarm_fired")
+
         from src.assets.bundled.CoreWidgetsBundle.timers import describe
 
         self.client.public.expose("corewidgetsbundle", "timers", {
@@ -105,6 +114,45 @@ class CoreWidgetsBundle(Plugin):
             "running":     self.timers.running,
             "all":         self.timers.all_timers,
         })
+
+        from src.assets.bundled.CoreWidgetsBundle.alarms import (
+            clock_text, describe_alarm)
+
+        self.client.public.expose("corewidgetsbundle", "alarms", {
+            # Said the way somebody would, so a plugin reading an alarm can
+            # also announce it without importing this module.
+            "clock_text":      clock_text,
+            "describe":        describe_alarm,
+            "schedule":        self.alarms.schedule,
+            "cancel":          self.alarms.cancel,
+            "cancel_all":      self.alarms.cancel_all,
+            "cancel_matching": self.alarms.cancel_matching,
+            "find":            self.alarms.find,
+            "get":             self.alarms.get,
+            "scheduled":       self.alarms.scheduled,
+            "ringing":         self.alarms.ringing,
+            "silence":         self.alarms.silence,
+        })
+
+        # "Stop" silences a ringing alarm, and only while one is ringing.
+        #
+        # A higher priority than the music: an alarm is the panel demanding
+        # attention, so it is what "stop" means while it is going off.
+        # `stops_listening` is False because somebody silencing an alarm at
+        # seven in the morning is quite likely to ask for something next.
+        self.client.CANCEL.register(
+            "corewidgetsbundle", "stop_alarm",
+            keywords=["stop", "stop it", "stop the alarm", "silence",
+                      "silence the alarm", "turn it off", "turn off the alarm",
+                      "shut up", "be quiet", "quiet", "enough", "ok ok",
+                      "alright", "i'm up", "im up", "wake up", "snooze off",
+                      "dismiss", "dismiss it", "cancel it"],
+            handler=lambda: self.alarms.silence(),
+            is_active=lambda: bool(self.alarms.ringing()),
+            priority=40,
+            description="silence the alarm",
+            stops_listening=False,
+        )
 
         api_endpoint, registered_flag = self.client.API.register(
             "corewidgetsbundle",
@@ -176,6 +224,22 @@ class CoreWidgetsBundle(Plugin):
         if carryover and carryover.has("was_on_plugin_page"):
             self.client.goto("#cwb_home_page", override=True)
 
+    def _open_timers(self) -> None:
+        if not self.client.public.has("timers"):
+            self.client.simple_notify("mdi.timer-off-outline", "Timers",
+                                      "The timer service is not available.")
+            return
+        from .widgets.schedule_lists import TimersDialog
+        self.client.dialog(TimersDialog(self.client))
+
+    def _open_alarms(self) -> None:
+        if not self.client.public.has("alarms"):
+            self.client.simple_notify("mdi.alarm-off", "Alarms",
+                                      "The alarm service is not available.")
+            return
+        from .widgets.schedule_lists import AlarmsDialog
+        self.client.dialog(AlarmsDialog(self.client))
+
     def unload(self, carryover: PluginCarryover = None):
         current_page = self.client.PAGE
 
@@ -184,6 +248,14 @@ class CoreWidgetsBundle(Plugin):
         # into a module that is gone.
         if getattr(self, "timers", None) is not None:
             self.timers.stop_watching()
+        if getattr(self, "alarms", None) is not None:
+            self.alarms.stop_watching()
+        # The cancel entry goes with it. Left registered, "stop" would call a
+        # handler bound to a service that has stopped watching the clock.
+        try:
+            self.client.CANCEL.unregister("corewidgetsbundle", "stop_alarm")
+        except Exception:
+            pass
 
         if carryover and current_page and current_page.name == "#cwb_home_page":
             carryover.set("was_on_plugin_page", (True, "#cwb_home_page"))
@@ -1109,6 +1181,21 @@ class CoreWidgetsBundle(Plugin):
             order    = 15,
             # It navigates, so the panel goes with it rather than sitting over
             # the page it just opened.
+            closes_panel = True)
+
+        # Two entries, not one with tabs. A timer and an alarm answer
+        # different questions - "how long left" against "what time" - and
+        # somebody opening this already knows which they meant.
+        self.client.QUICK.register(
+            "corewidgetsbundle", "timers", "Timers", "mdi.timer-outline",
+            on_press = self._open_timers,
+            order    = 16,
+            closes_panel = True)
+
+        self.client.QUICK.register(
+            "corewidgetsbundle", "alarms", "Alarms", "mdi.alarm",
+            on_press = self._open_alarms,
+            order    = 17,
             closes_panel = True)
 
         self.client.QUICK.register(

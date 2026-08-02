@@ -943,7 +943,7 @@ class Client:
 
     def answer(self, icon: str, title: str, lines: list = None,
                tint: str = "#4f9de0", timeout: int = None,
-               speak: str = None, on_closed=None) -> None:
+               speak: str = None, on_closed=None, on_built=None) -> None:
         """
         Show an answer, and say it.
 
@@ -953,9 +953,16 @@ class Client:
         """
         if speak:
             try:
-                self.say(speak)
+                # Given the shape of a sentence if it is too short to be one.
+                # A two-word answer is finished before a room has noticed
+                # anybody is talking, and what gets missed is the front.
+                from src.assistant.speakable import flavour
+                self.say(flavour(speak))
             except Exception:
-                pass
+                try:
+                    self.say(speak)
+                except Exception:
+                    pass
 
         def build():
             try:
@@ -965,6 +972,16 @@ class Client:
                 # something still happening - a timer making a noise - can
                 # deal with that when the answer is dismissed.
                 panel.on_closed = on_closed
+                # And handed the panel, for a caller that may need to close it
+                # itself. An alarm cancelled from somewhere else leaves its
+                # own panel on screen otherwise, still offering to silence
+                # something that has already gone.
+                if callable(on_built):
+                    try:
+                        on_built(panel)
+                    except Exception as e:
+                        self.log("warning",
+                                 f"[Answer] on_built failed: {e}")
                 panel.open_panel()
             except Exception as e:
                 # Falls back rather than losing the answer - a spoken reply

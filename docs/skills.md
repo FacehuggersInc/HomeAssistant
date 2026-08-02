@@ -156,6 +156,55 @@ The ones worth knowing:
 `LIKE_NUM` over `IS_DIGIT` almost always. The transcriber writes numbers either way
 depending on how they were said, and normalisation converts most but not all.
 
+### A value spanning several tokens
+
+A pattern of `[{"LIKE_NUM": True}, {"LEMMA": "minute"}]` matches "1 hour" and
+"48 minutes" **separately** in "1 hour and 48 minutes". The Matcher reports
+both, and only one becomes the argument.
+
+Write the whole thing as one pattern with optional tokens:
+
+```python
+"time": [
+    [{"LIKE_NUM": True},
+     {"LEMMA": {"IN": ["second", "minute", "hour", "day"]}},
+     {"LOWER": {"IN": ["and", "plus"]}, "OP": "?"},
+     {"LIKE_NUM": True, "OP": "?"},
+     {"LEMMA": {"IN": ["second", "minute", "hour", "day"]}, "OP": "?"}],
+]
+```
+
+The **widest** match for an argument is the one taken, so the compound span
+beats the two short ones inside it. Ties keep the later match.
+
+Both timer skills share `DURATION_UNITS` and `DURATION_JOINERS` for this, and
+the joiners are in `TIMER_NAME_STOPWORDS` too - otherwise "the 1 hour and 10
+minute timer" comes back as a timer named "and".
+
+Against the real pipeline:
+
+| Said                                   | `time`                           |
+|----------------------------------------|----------------------------------|
+| set a timer for 1 hour and 48 minutes  | `1 hour and 48 minutes` -> 6480s |
+| cancel the 1 hour and 10 minutes timer | `1 hour and 10 minutes` -> 4200s |
+| stop the 2 hour 30 minute timer        | `2 hour 30 minute` -> 9000s      |
+| cancel the eggs timer                  | none; `name` is `eggs timer`     |
+
+### A clock time is not `LIKE_NUM`
+
+`4:40` is a single token, tagged `NUM`, whose `like_num` is **False** - so
+`{"LIKE_NUM": True}` never matches it while `8` matches fine. Ask for the
+shape instead:
+
+```python
+{"TEXT": {"REGEX": r"^\d{1,2}([:.]\d{2})?$"}}
+```
+
+The alarm skills use this (`ALARM_TIME_PATTERNS` in Core Skills), alongside a
+separate `after` argument for the relative form. Both match on "set an alarm
+10 minutes from now" - "10" reads as a clock time - so the handler prefers
+the relative one: the one somebody said is the one with a unit on it.
+
 ### Value operators
 
 A value can be a dict instead of a literal:
@@ -301,6 +350,21 @@ A skill can declare `arguments` and `payload`. Where both name the same key the
 payload wins, since it is the verbatim value.
 
 ## Speaking back
+
+A spoken answer shorter than four words is given a lead-in before it is
+said - `speakable.flavour()`, applied by `client.answer()`. "72 degrees." is
+two words and is finished before a room has noticed anybody is talking, and
+what gets missed is the front of it.
+
+That is a safety net, not a substitute for writing the answer. A lead-in adds
+no information; if a skill has something worth saying, say it:
+
+```python
+speak="It's 72 degrees and overcast, though it feels more like 78."
+```
+
+Anything already four words or longer is left exactly as it is.
+
 
 ```python
 def porch_on(self):

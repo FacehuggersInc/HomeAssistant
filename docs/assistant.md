@@ -434,7 +434,33 @@ A session is opened by a skill expecting a follow-up, and switches the child
 to passthrough.
 
 `normalize.py` cleans a transcript before the intent engine sees it - numbers
-written as words, filler at the edges, spacing. See
+written as words, filler at the edges, spacing.
+
+**Clock times are settled before the number pass.** A transcriber writes
+"eleven fifty am", and `words_to_numbers` reads a run of number words as ONE
+number and sums it - so that arrives as `61 am` and the minutes are gone
+before any skill sees it. `meridiem()` collapses every spelling of the suffix
+(`a m`, `a.m.`, `A.M.`) to one token, then `spoken_clock()` turns an hour
+followed by a spoken minute into digits:
+
+| Said                | Becomes                  |
+|---------------------|--------------------------|
+| eleven fifty am     | `11:50 am`               |
+| four forty p m      | `4:40 pm`                |
+| ten oh five am      | `10:05 am`               |
+| seven thirty        | `7:30`                   |
+| twenty five minutes | `25 minutes` - unchanged |
+
+Narrow on purpose. An hour is 1-12; a minute is a tens word, a teen, or "oh"
+and a digit. "four five" stays two numbers, because that is somebody counting
+rather than saying a time.
+
+**And the colon has to survive the trip.** `STTProcessing.clean_text()` runs
+after normalising and before the Matcher. Stripping every punctuation
+character turns `11:46` into `1146` and `o'clock` into `oclock`, so a clock
+time stops being one on its way to the skill that asked for it. Punctuation
+is dropped except where it is inside a number - `11:46`, `3.5` - or inside a
+word - `o'clock`, `don't`. See
 [Writing skills](skills.md) for how matching works from there.
 
 When nothing matches, `on_assistant_fallback` fires. The AI fallback plugin

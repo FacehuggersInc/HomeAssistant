@@ -295,8 +295,23 @@ class Skill:
 			# Running an empty Matcher emits spaCy's W036 warning on every
 			# parse of an argument-less skill, which is most of them.
 			return args
+		# The WIDEST match per argument, not the last one found.
+		#
+		# A pattern with optional tokens matches at several lengths, and the
+		# Matcher reports all of them. Assigning as they arrive means whichever
+		# came last wins: "1 hour and 48 minutes" offers "1 hour" and
+		# "48 minutes" as separate hits, and the timer was set for 48 minutes.
+		#
+		# Ties keep the later one, which is the previous behaviour for
+		# everything that does not overlap.
+		widest = {}
 		for match_id, start, end in self.arg_matcher(doc):
 			arg_label = doc.vocab.strings[match_id]
+			if arg_label in widest and (end - start) < widest[arg_label][1]:
+				continue
+			widest[arg_label] = ((start, end), end - start)
+
+		for arg_label, ((start, end), _width) in widest.items():
 			span = doc[start:end]
 
 			trimmed = start

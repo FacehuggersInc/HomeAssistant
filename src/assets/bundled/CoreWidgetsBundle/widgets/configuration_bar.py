@@ -69,13 +69,24 @@ class ConfigurationBar(Widget):
         self._timer_btn.setFixedSize(self.BUTTON, self.BUTTON)
         row.addWidget(self._timer_btn)
 
+        # An alarm, for the same reason: a time of day rather than a length,
+        # and the same objection to having to say it out loud.
+        self._alarm_btn = IconButton("mdi.alarm-plus",
+                                     self._new_alarm, size=self.BUTTON // 2)
+        self._alarm_btn.setFixedSize(self.BUTTON, self.BUTTON)
+        row.addWidget(self._alarm_btn)
+
         # An explicit size, not adjustSize(): the bar goes into a graphics
         # proxy before its layout has run, so leaving it to size itself left
         # the buttons clipped by a box smaller than its own contents.
         inner_h = max(self.notifications.height(), self.BUTTON)
+        # Counted rather than written out. Three buttons was two additions
+        # ago, and a width that has to be edited every time one is added is a
+        # width that will be wrong.
+        buttons = 3
         self.setFixedSize(
-            10 + self.notifications.width() + 8 + self.BUTTON
-            + 8 + self.BUTTON + 10,
+            10 + self.notifications.width()
+            + (8 + self.BUTTON) * buttons + 10,
             inner_h + 16,
         )
 
@@ -106,6 +117,33 @@ class ConfigurationBar(Widget):
             self.client.log("warning", f"[ConfigurationBar] Timer failed: {e}")
             self.client.simple_notify("mdi.timer-off-outline", "Timers",
                                       "Could not start that timer.")
+
+    ## -- alarms
+
+    def _new_alarm(self) -> None:
+        if not self.client.public.has("alarms"):
+            self.client.simple_notify("mdi.alarm-off", "Alarms",
+                                      "The alarm service is not available.")
+            return
+        from .alarm_picker import AlarmPickerDialog
+        self.client.dialog(AlarmPickerDialog(
+            self.client, title="New alarm", on_chosen=self._set_alarm))
+
+    def _set_alarm(self, when, repeats: bool = False) -> None:
+        try:
+            alarm = self.client.public.alarms["schedule"](
+                when, repeats=bool(repeats))
+        except Exception as e:
+            self.client.log("warning", f"[ConfigurationBar] Alarm failed: {e}")
+            alarm = None
+        if alarm is None:
+            self.client.simple_notify("mdi.alarm-off", "Alarms",
+                                      "Could not set that alarm.")
+            return
+        said = self.client.public.alarms["describe"](alarm.when)
+        self.client.simple_notify(
+            "mdi.alarm", "Alarm set",
+            f"{said}, every day" if alarm.repeats else said)
 
     def _open_widgets_panel(self) -> None:
         framework = self._framework()

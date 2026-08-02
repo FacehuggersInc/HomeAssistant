@@ -105,6 +105,20 @@ at a time always has the room it needs, on any screen, and there is no
 breakpoint left to be wrong about. Reach for that before a second layout: a
 dialog that needs two shapes usually needs fewer things visible at once.
 
+### A panel somebody else may need to close
+
+`client.answer()` takes `on_built`, called with the `AnswerPanel` once it
+exists. A caller whose answer stands for something still happening - an alarm
+ringing, a timer sounding - can keep it and take it down itself.
+
+Without that, cancelling the thing from anywhere else leaves its panel up,
+still offering to silence something that has already gone. `on_closed` is the
+other half and answers the other direction: the panel telling the caller it
+went.
+
+Every answer times out. Something asking to be acted on can ask for longer;
+something only reporting should ask for less.
+
 ### Text that has to wrap is not a button
 
 `QPushButton` does not word-wrap. It elides, and in a narrow column it simply

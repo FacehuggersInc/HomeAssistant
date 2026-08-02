@@ -101,6 +101,92 @@ def _run_to_int(phrase: str):
     return total + current if seen else None
 
 
+#Hours somebody says a clock time with. Twelve of them, and no zero: nobody
+#says "zero forty" for 00:40.
+_CLOCK_HOURS = {
+    "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6,
+    "seven": 7, "eight": 8, "nine": 9, "ten": 10, "eleven": 11, "twelve": 12,
+}
+
+#Minutes past the hour, as they are said. Ones on their own are NOT here -
+#"four five" is not 4:05, it is somebody counting - so a single-digit minute
+#has to be said with "oh" in front of it, which is how people say it anyway.
+_CLOCK_TENS = {"twenty": 20, "thirty": 30, "forty": 40, "fourty": 40,
+               "fifty": 50}
+_CLOCK_ONES = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6,
+               "seven": 7, "eight": 8, "nine": 9}
+_CLOCK_TEENS = {"ten": 10, "eleven": 11, "twelve": 12, "thirteen": 13,
+                "fourteen": 14, "fifteen": 15, "sixteen": 16,
+                "seventeen": 17, "eighteen": 18, "nineteen": 19}
+
+_HOUR_WORD = "|".join(sorted(_CLOCK_HOURS, key=len, reverse=True))
+_TENS_WORD = "|".join(sorted(_CLOCK_TENS, key=len, reverse=True))
+_ONES_WORD = "|".join(sorted(_CLOCK_ONES, key=len, reverse=True))
+_TEENS_WORD = "|".join(sorted(_CLOCK_TEENS, key=len, reverse=True))
+
+_SPOKEN_CLOCK = re.compile(
+    rf"\b(?P<hour>\d{{1,2}}|{_HOUR_WORD})\s+"
+    rf"(?:"
+    rf"(?P<oh>o|oh)\s+(?P<small>\d|{_ONES_WORD})"
+    rf"|(?P<tens>{_TENS_WORD})(?:\s+(?P<ones>{_ONES_WORD}))?"
+    rf"|(?P<teens>{_TEENS_WORD})"
+    rf")"
+    rf"(?P<tail>\s*(?:a\.?\s?m|p\.?\s?m)\b\.?)?",
+    re.IGNORECASE)
+
+
+#Every way a transcriber writes half past twelve's suffix. Collapsed to one
+#token, because a Matcher pattern asks for tokens: "a m" is two of them and
+#matches nothing, and "a.m." is one but not the same one as "am".
+_MERIDIEM_FORMS = re.compile(
+    r"\b([ap])\s*\.?\s*m\s*\.?(?=\s|$)", re.IGNORECASE)
+
+
+def meridiem(text: str) -> str:
+    """`a m`, `a.m.`, `A.M.` -> `am`. One token, one spelling."""
+    if not text:
+        return text
+    return _MERIDIEM_FORMS.sub(lambda m: m.group(1).lower() + "m", text)
+
+
+def spoken_clock(text: str) -> str:
+    """
+    Clock times as digits, before the number pass can add them up.
+
+    "eleven fifty am" is 11:50, not 61. `words_to_numbers` reads a run of
+    number words as ONE number and sums it, which is right for "twenty five
+    minutes" and wrong for every time of day - and by the time a skill sees
+    the transcript the minutes are gone.
+
+    Deliberately narrow. A clock time is an hour of 1-12 followed by a minute
+    that is said the way minutes are said: a tens word, a teen, or "oh" and a
+    digit. "four five" stays two numbers, because that is somebody counting.
+    """
+    if not text:
+        return text
+
+    def rewrite(match):
+        raw_hour = match.group("hour").lower()
+        hour = int(raw_hour) if raw_hour.isdigit() else _CLOCK_HOURS[raw_hour]
+        if not 1 <= hour <= 12:
+            return match.group(0)
+
+        if match.group("teens"):
+            minute = _CLOCK_TEENS[match.group("teens").lower()]
+        elif match.group("tens"):
+            minute = _CLOCK_TENS[match.group("tens").lower()]
+            if match.group("ones"):
+                minute += _CLOCK_ONES[match.group("ones").lower()]
+        else:
+            small = match.group("small").lower()
+            minute = int(small) if small.isdigit() else _CLOCK_ONES[small]
+
+        tail = match.group("tail") or ""
+        return f"{hour}:{minute:02d}{tail}"
+
+    return _SPOKEN_CLOCK.sub(rewrite, text)
+
+
 def words_to_numbers(text: str) -> str:
     """
     Turn spoken numbers into digits without disturbing the surrounding text.
@@ -192,6 +278,11 @@ def normalize(text: str) -> str:
         return text
     out = strip_fillers(text)
     out = split_glued_units(out)
+    # Before the number pass, which would otherwise add the two halves of a
+    # clock time together - see spoken_clock(). The suffix is settled first,
+    # so the clock pass has one spelling to look for.
+    out = meridiem(out)
+    out = spoken_clock(out)
     out = words_to_numbers(out)
     out = split_glued_units(out)
     out = expand_units(out)

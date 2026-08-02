@@ -334,8 +334,12 @@ class TimerService:
         # heard from another room or not at all, and one chime is easy to miss.
         # Cancelling the timer stops it - see cancel().
         try:
-            seconds = float(self.client.setting(
-                "home.timer_alarm_seconds", ALARM_SECONDS) or ALARM_SECONDS)
+            # From the PLUGIN's settings, not the client's. `client.setting()`
+            # walks the client tree, which never reaches a plugin key - so
+            # "home.timer_alarm_seconds" answered with the default whatever
+            # the settings page saved.
+            seconds = float(self.plugin.setting_value(
+                "alerts.timer_alarm_seconds", ALARM_SECONDS) or ALARM_SECONDS)
             if seconds > 0:
                 self.client.AUDIO.play("timer_alarm", for_seconds=seconds)
         except Exception as e:

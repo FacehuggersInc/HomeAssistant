@@ -79,6 +79,55 @@ def _dollars(text: str) -> str:
     return re.sub(r"\$\s*(\d[\d,]*(?:\.\d+)?)", r"\1 dollars", text)
 
 
+#A short answer, given the shape of a sentence.
+#
+#"72 degrees." is two words and a full stop. A speech model reads it in about
+#three quarters of a second, which is less time than a room takes to notice
+#somebody is talking - so the answer is over before anybody has turned round,
+#and it sounds curt into the bargain.
+#
+#Silence padded either side does not fix that: the words are still gone before
+#they were listened to. A lead-in does, because the part somebody misses is
+#the part that carries no information.
+#Deliberately few, and all of them neutral about what follows. "That would be"
+#and "I make it" read as answers to a question, which is wrong the moment a
+#skill is confirming something it just did.
+LEAD_INS = (
+    "It's {answer}",
+    "Right now, {answer}",
+    "Looks like {answer}",
+)
+
+#Under this many words, an answer gets one. Four is "seventy two degrees out";
+#five is a sentence already.
+FLAVOUR_UNDER = 4
+
+
+def flavour(text: str, under: int = FLAVOUR_UNDER) -> str:
+    """
+    A spoken answer with enough words to be heard as one.
+
+    Left alone if it is already a sentence, or if it starts with something
+    that is clearly one - a lead-in on "There are no timers running" would
+    read as a stammer.
+    """
+    import random
+
+    answer = " ".join(str(text or "").split())
+    if not answer:
+        return answer
+    stripped = answer.rstrip(".!?")
+    if len(stripped.split()) >= under:
+        return answer
+
+    # Sentence case is the answer's own; a lead-in puts it mid-sentence.
+    first, _, rest = stripped.partition(" ")
+    if first[:1].isupper() and not first.isupper():
+        stripped = first.lower() + (" " + rest if rest else "")
+
+    return random.choice(LEAD_INS).format(answer=stripped) + "."
+
+
 def speakable(text: str) -> str:
     """
     An answer, rewritten to be read aloud.

@@ -127,6 +127,23 @@ class Plugin:
 		"""
 		return self.client.SECRETS.get_for(self.plugin_key(), key, default)
 
+	def setting_value(self, path: str, default=None):
+		"""
+		One of THIS plugin's own settings, by dotted path.
+
+		`client.setting()` walks the CLIENT's tree, which a plugin key never
+		reaches - so a plugin reading its own settings that way gets back the
+		default it passed, whatever is on disk and whatever the settings page
+		saved. Silently, and forever.
+		"""
+		try:
+			node = self.settings
+			for part in str(path).split("."):
+				node = getattr(node, part)
+			return node.value
+		except Exception:
+			return default
+
 	def set_secret(self, key: str, value: str) -> bool:
 		"""Write a secret this plugin declared. Refused for anything else."""
 		return self.client.SECRETS.set_for(self.plugin_key(), key, value)

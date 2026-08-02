@@ -1,6 +1,66 @@
 {
  "log": [
   {
+   "at": 1785689739.2169821,
+   "note": "an alarm you can set by hand",
+   "pages": [
+    {
+     "slug": "dialogs",
+     "state": "updated"
+    }
+   ]
+  },
+  {
+   "at": 1785689288.0493,
+   "note": "a colon that survives the trip",
+   "pages": [
+    {
+     "slug": "assistant",
+     "state": "updated"
+    }
+   ]
+  },
+  {
+   "at": 1785689058.9623091,
+   "note": "clock times before the number pass",
+   "pages": [
+    {
+     "slug": "assistant",
+     "state": "updated"
+    }
+   ]
+  },
+  {
+   "at": 1785688599.6484537,
+   "note": "alarms, and a clock time that is not a number",
+   "pages": [
+    {
+     "slug": "skills",
+     "state": "updated"
+    }
+   ]
+  },
+  {
+   "at": 1785687742.6931064,
+   "note": "cancelling a compound timer",
+   "pages": [
+    {
+     "slug": "skills",
+     "state": "updated"
+    }
+   ]
+  },
+  {
+   "at": 1785687344.49807,
+   "note": "compound durations, and answers worth hearing",
+   "pages": [
+    {
+     "slug": "skills",
+     "state": "updated"
+    }
+   ]
+  },
+  {
    "at": 1785686858.3768957,
    "note": "text that wraps, columns that scroll",
    "pages": [
@@ -795,8 +855,8 @@
    "state": "updated"
   },
   "assistant": {
-   "at": 1785686080.4990954,
-   "hash": "d43ac4764e966fac",
+   "at": 1785689288.047792,
+   "hash": "0c5f84ace201fb80",
    "opened": 0,
    "state": "updated"
   },
@@ -825,8 +885,8 @@
    "state": "updated"
   },
   "dialogs": {
-   "at": 1785686858.3756442,
-   "hash": "1c1c907ecb3d50d0",
+   "at": 1785689739.215798,
+   "hash": "412b796505b34363",
    "opened": 0,
    "state": "updated"
   },
@@ -927,8 +987,8 @@
    "state": "updated"
   },
   "skills": {
-   "at": 1785680032.7138324,
-   "hash": "11fc171e9ffde10a",
+   "at": 1785688599.6479852,
+   "hash": "847be23a345f1c8d",
    "opened": 0,
    "state": "updated"
   },
