@@ -1,6 +1,16 @@
 {
  "log": [
   {
+   "at": 1785632470.2219923,
+   "note": "covering the wait, and a knob for it",
+   "pages": [
+    {
+     "slug": "assistant",
+     "state": "updated"
+    }
+   ]
+  },
+  {
    "at": 1785621374.3572154,
    "note": "events that exist before they are subscribed to",
    "pages": [
@@ -367,8 +377,8 @@
    "state": "seen"
   },
   "assistant": {
-   "at": 1785619912.0677555,
-   "hash": "2e20850bc6575c16",
+   "at": 1785632470.2206736,
+   "hash": "1a8c4fdb128e07d1",
    "opened": 0,
    "state": "updated"
   },

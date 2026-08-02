@@ -1025,6 +1025,17 @@ class STTProcessing():
 									self.woke_at = time.time()
 									self.client.ASSIST_STATUS = "LISTENING"
 
+								case "transcribing":
+									# Audio captured, the model is running.
+									# On a big model that is seconds, and
+									# without this the panel stands down after
+									# the wake and says nothing until the text
+									# arrives - a pill that fades, then an
+									# answer out of nowhere.
+									self.client.ASSIST_STATUS = "THINKING"
+									self.client.iterate_event_callables(
+										"on_transcribing_assistant", None)
+
 								case "wait":
 									self.listening_since = 0.0
 									self.client.ASSIST_STATUS = "LIVE"
@@ -1100,6 +1111,10 @@ class STTProcessing():
 				# The wake word is checked with a small model whatever the
 				# phrase model is. See the constructor in whisper-process.
 				"wake_model": self.wake_model_name(),
+				# Accuracy against speed - see the setting. The wake check
+				# always uses 1 whatever this says.
+				"beam_size": int(self.client.setting(
+					"assistant.beam_size.value", 5) or 5),
 				# So the process can notice the client dying without a STOP and
 				# leave on its own, instead of surviving as an orphan holding
 				# the microphone and both ports.

@@ -36,6 +36,8 @@ class CoreSkills(Plugin):
         self.load_skills()
         self.client.subscribe_to_event("on_update", self.update_assistant)
         self.client.subscribe_to_event("on_assistant_transcribed", self.on_transcribed)
+        self.client.subscribe_to_event("on_transcribing_assistant",
+                                       self.on_transcribing)
         self.client.subscribe_to_event("on_heard_assistant", self.on_heard)
         self.client.subscribe_to_event("on_woke_assistant", self.on_woke)
         self.client.subscribe_to_event("on_assistant_cancelled", self.on_cancelled)
@@ -46,6 +48,8 @@ class CoreSkills(Plugin):
     def unload(self, carryover=None):
         self.client.unsubscribe_from_event("on_update", self.update_assistant)
         self.client.unsubscribe_from_event("on_assistant_transcribed", self.on_transcribed)
+        self.client.unsubscribe_from_event("on_transcribing_assistant",
+                                           self.on_transcribing)
         self.client.unsubscribe_from_event("on_heard_assistant", self.on_heard)
         self.client.unsubscribe_from_event("on_woke_assistant", self.on_woke)
         self.client.unsubscribe_from_event("on_assistant_cancelled", self.on_cancelled)
@@ -100,6 +104,19 @@ class CoreSkills(Plugin):
         if self.voice_bar is None:
             return
         self.client.call_on_ui(lambda: self.voice_bar.show_cancelled())
+
+    def on_transcribing(self, event=None):
+        """
+        Audio captured, the model is working on it.
+
+        The stage that covers the wait. On a big model this is seconds, and
+        nothing used to be shown during them - the pill from the wake faded
+        and the answer arrived later out of nowhere, which reads as the panel
+        having missed you and then changed its mind.
+        """
+        if self.voice_bar is None:
+            return
+        self.client.call_on_ui(self.voice_bar.show_transcribing)
 
     def on_heard(self, event):
         """

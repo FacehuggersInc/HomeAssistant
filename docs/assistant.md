@@ -57,11 +57,22 @@ have understood anything.
 So a match puts up its own message, held on its own timer:
 
 ```
-1. woke        Listening…
-2. thinking    Thinking…            (may never be drawn)
-3. understood  turn the lights off  (held, outlives the status)
-4. live        still showing it until the hold ends
+1. woke          Listening…
+2. transcribing  Working out what you said…   (held 20s - covers a slow model)
+3. understood    "turn the lights off"        (the text arrived)
+4. answered      Kitchen lights off           (held, outlives the status)
 ```
+
+Stage 2 is the one that matters on a big model. `small.en` takes seconds, and
+nothing used to be sent during them: the child finalised the audio, the panel
+stood down after the wake, and the next thing anybody saw was the finished
+text. From the outside that is a pill fading and then, seconds later, an
+answer out of nowhere.
+
+The child now sends `transcribing` before the model runs, which the panel
+turns into `on_transcribing_assistant`. It is held on a long timer of its own
+rather than left to the status, because nothing further arrives until the
+model finishes - this is the one stage that has to stay up unaided.
 
 It shows **the phrase**, which is the panel repeating back what it heard -
 the one thing that says whether it got it right. It used to read
@@ -218,6 +229,28 @@ wake check behind it:
 | Two models, two locks | 61ms |
 
 (with a phrase taking 300ms in both)
+
+### Trading accuracy for time
+
+Two knobs, and the second is the one to try first.
+
+`assistant.beam_size` is how many candidate transcriptions the model weighs.
+5 is the default and roughly three times the decode work of 1. Beam search
+helps least on short clear commands, which is most of what a panel hears - so
+a bigger model that hears you correctly but takes too long is often fixed by
+dropping this rather than dropping the model.
+
+Very roughly, against `tiny.en` at beam 1:
+
+| | |
+|---|---|
+| `tiny.en`, beam 1 | 1x |
+| `base.en`, beam 5 | ~6x |
+| `small.en`, beam 1 | ~6x |
+| `small.en`, beam 5 | ~19x |
+
+The wake check always uses beam 1 whatever this says: it asks whether one
+known word is present, not which of five phrasings is best.
 
 `assistant.model` is the one that decides how long the panel takes to answer.
 `assistant.wake_model` is small and separate - and ignored when the phrase

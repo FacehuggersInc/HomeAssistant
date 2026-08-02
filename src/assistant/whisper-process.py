@@ -210,6 +210,8 @@ class WakeWhisper:
 		wake_speech_after_timeout_extension:float = 1.0,
 		max_wake_speech_extensions:int = 2,
 		wake_model:str = "",
+		#How many candidate transcriptions the model weighs. See the setting.
+		beam_size:int = 5,
 		use_noise_reduction:bool=True,
 		max_queue_size:int=8,
 		session_silence_ms:int = 800,
@@ -349,7 +351,7 @@ class WakeWhisper:
 			# best_of only applies when sampling (temperature > 0). At
 			# temperature 0 faster-whisper uses beam search, so the old
 			# "best_of": 5 was inert - beam_size is the knob that was wanted.
-			"beam_size": 5,
+			"beam_size": max(1, int(beam_size or 5)),
 
 			# Whisper carries previous text into the next window by default,
 			# which makes it loop and hallucinate on short isolated commands.
@@ -432,8 +434,14 @@ class WakeWhisper:
 		"""
 		model = self.wake_model if wake else self.model
 		lock = self._wake_lock if wake else self._model_lock
+		settings = dict(self.transcribe_settings)
+		if wake:
+			# One beam. Beam search chooses between phrasings; the wake check
+			# asks whether one known word is present, so the extra four
+			# candidates cost time and change nothing.
+			settings["beam_size"] = 1
 		with lock:
-			segments, _ = model.transcribe(audio, **self.transcribe_settings)
+			segments, _ = model.transcribe(audio, **settings)
 			text = " ".join(seg.text.strip() for seg in segments).strip()
 		return "" if is_hallucination(text) else text
 
@@ -992,6 +1000,14 @@ class WakeWhisper:
 			if started:
 				queued_ms = int((time.time() - started) * 1000)
 			self.send_log("debug", "[Whisper]: Processing speech window...")
+			# Said before the model runs, not after.
+			#
+			# On a big model this is seconds, and until now nothing was sent
+			# during them - the panel had stood down after the wake and the
+			# next thing it heard was the finished text. From the outside
+			# that is a pill that fades and then, seconds later, an answer
+			# arriving out of nowhere.
+			self.send_transcribing()
 			began = time.time()
 
 			# De-noised here rather than on the audio thread, which cannot
@@ -1113,6 +1129,7 @@ class STTServer:
 			# question - "was the wake word in that" - and has to answer it
 			# before the person finishes speaking.
 			wake_model = str(config.get("wake_model") or "tiny.en"),
+			beam_size = int(config.get("beam_size") or 5),
 			# Aggressive either way, and deliberately so.
 			#
 			# The obvious move is to soften this when the array has its own
@@ -1212,6 +1229,15 @@ class STTServer:
 				self.connections["data"].sendall(
 					f"host:woke:{wake_word}".encode("utf-8")
 				)
+			except Exception:
+				self.send_log("warning", "[STTServer]: Lost transcript connection.")
+				self.__close_connection("data")
+
+	def send_transcribing(self) -> None:
+		"""Tell the host that audio is captured and the model is running."""
+		if self.connections["data"]:
+			try:
+				self.connections["data"].sendall(b"host:transcribing:1")
 			except Exception:
 				self.send_log("warning", "[STTServer]: Lost transcript connection.")
 				self.__close_connection("data")

@@ -42,6 +42,14 @@ class VoiceBar(QWidget):
     BOTTOM_MARGIN = 28
     # A fixed hold is wrong either way: too short to read a long sentence, too
     # long for "yes". Scales with reading time, floored by the user setting.
+    #How long the transcribing stage stays up on its own.
+    #
+    #Generous, because a big model on a slow panel is the case this exists
+    #for: it must not fade halfway through the thing it is reporting. The
+    #next stage replaces it as soon as the text arrives, so being too long
+    #costs nothing and being too short is the bug.
+    TRANSCRIBING_MS = 20000
+
     HOLD_BASE_MS = 2000
     HOLD_PER_CHAR_MS = 70
     HOLD_MAX_MS = 20000
@@ -173,6 +181,19 @@ class VoiceBar(QWidget):
         self._set_text("Never mind")
         self._reveal()
         self._hold.start(1600)
+
+    def show_transcribing(self) -> None:
+        """
+        Audio captured, the model running. The stage that covers the wait.
+
+        Held on a generous timer rather than left to the status. A big model
+        takes seconds, and this is the one stage where nothing further will
+        arrive until it finishes - so it has to stay up on its own.
+        """
+        self._accent = QColor(ACCENT.get("THINKING", ACCENT["LISTENING"]))
+        self._set_text("Working out what you said\u2026")
+        self._reveal()
+        self._hold.start(self.TRANSCRIBING_MS)
 
     def show_understood(self, phrase: str) -> None:
         """

@@ -239,6 +239,7 @@ class Client:
                 #registering twice and a new kind being a new event name that
                 #nothing is listening for.
                 "on_web_event":             [],
+                "on_transcribing_assistant": [],
                 "on_heard_assistant":       [],
                 "on_woke_assistant":        [],
                 "on_assistant_transcribed": [],
@@ -1667,6 +1668,8 @@ class Client:
             str(self.setting("audio.mic_processing.value", "software")),
             # Loaded in the child at spawn, like the phrase model above it.
             str(self.setting("assistant.wake_model.value", "tiny.en")),
+            # Baked into transcribe_settings when the child starts.
+            str(self.setting("assistant.beam_size.value", 5)),
         )
 
     def stop_assistant(self) -> None:
