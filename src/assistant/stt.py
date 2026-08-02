@@ -454,7 +454,13 @@ class STTProcessing():
 	#tail of what it said. Longer than the self-hearing grace: that one covers
 	#audio captured DURING speech, and this covers a phrase finalised after
 	#it, which on a long reply read into a live microphone is most of them.
-	ECHO_WINDOW = 15.0
+	#
+	#Measured from when speech ENDED. Measured from when it started, an AI
+	#reply that takes forty seconds to read has used the whole window before
+	#the last phrase is even finalised - and the last phrase is the one that
+	#gets through, because everything before it was still being spoken and
+	#`heard_itself()` had already caught it.
+	ECHO_WINDOW = 20.0
 
 	#How close a transcript has to be to what was said. Not 1.0 - it has been
 	#through a microphone, a room and a transcriber, so "the kitchen lights
@@ -484,9 +490,22 @@ class STTProcessing():
 		So this asks a different question - "is this what I just said" - by
 		matching the transcript against the text handed to the TTS.
 		"""
-		said, when = self.client.last_spoken()
-		if not said or not when:
+		recent = self.client.recent_spoken()
+		if not recent:
 			return False
+
+		# The panel never says its own wake word, so a transcript carrying one
+		# is never the panel. It is also the way out of the one case this
+		# guard gets wrong: the reply suggests something, the person asks for
+		# exactly that, and the words match because they were the panel's
+		# words first. Saying the wake word first always gets through.
+		try:
+			words_for = [w[0] for w in self.client.SKILLS.wake_args] or list(self.wake_words)
+		except Exception:
+			words_for = list(self.wake_words)
+		for wake in words_for:
+			if wake and self.find_wake(transcribed, wake):
+				return False
 
 		speaking = False
 		try:
@@ -494,30 +513,50 @@ class STTProcessing():
 			speaking = bool(tts is not None and tts.is_speaking())
 		except Exception:
 			speaking = False
-		if not speaking and (time.time() - when) > self.ECHO_WINDOW:
-			return False
 
 		heard = normalize.flatten(transcribed)
 		words = heard.split()
 		if len(words) < self.ECHO_MIN_WORDS:
 			return False
 
-		spoken = normalize.flatten(said)
-		if not spoken:
-			return False
-		if heard in spoken:
-			return True
-
-		# A fragment, against the same number of words anywhere in the reply.
-		# Comparing against the WHOLE reply would score almost nothing: six
-		# words out of two hundred is a low ratio however exact they are.
 		import difflib
-		reply = spoken.split()
-		width = len(words)
-		for start in range(0, max(1, len(reply) - width + 1)):
-			window = reply[start:start + width]
-			if difflib.SequenceMatcher(None, words, window).ratio() >= self.ECHO_RATIO:
+		ended = getattr(self, "spoke_until", 0.0)
+		now = time.time()
+		best = 0.0
+
+		for said, when in recent:
+			# From whichever is later: the moment it started saying this, or
+			# the moment it last stopped saying anything.
+			since = max(when, ended)
+			if not speaking and (now - since) > self.ECHO_WINDOW:
+				continue
+
+			spoken = normalize.flatten(said)
+			if not spoken:
+				continue
+			if heard in spoken:
 				return True
+
+			# A fragment, against the same number of words anywhere in the
+			# reply. Comparing against the WHOLE reply would score almost
+			# nothing: six words out of two hundred is a low ratio however
+			# exact they are.
+			reply = spoken.split()
+			width = len(words)
+			for start in range(0, max(1, len(reply) - width + 1)):
+				window = reply[start:start + width]
+				best = max(best, difflib.SequenceMatcher(
+					None, words, window).ratio())
+				if best >= self.ECHO_RATIO:
+					return True
+
+		# Said out loud when it was close. A loop that gets through is a panel
+		# talking to itself, and the number that decides it should not have to
+		# be guessed at from the outside.
+		if best >= 0.5:
+			self.client.log("debug",
+				f"[STTProcessing] '{transcribed}' scored {best:.2f} against "
+				f"what the panel said (needs {self.ECHO_RATIO}).")
 		return False
 
 	def interrupt_for_wake(self, transcribed: str) -> bool:

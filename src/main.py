@@ -325,9 +325,15 @@ class Client:
         self._thinking_depth             = 0
         self._thinking_was               = "DORMANT"
         self._thinking_lock              = RLock()
-        #What the panel last said, and when. Read from the STT thread to tell
-        #a reply coming back through the microphone from a real question.
-        self._spoken: tuple = ("", 0.0)
+        #What the panel has said recently, newest first, as (text, when).
+        #Read from the STT thread to tell a reply coming back through the
+        #microphone from a real question.
+        #
+        #A list rather than one entry. Once a loop has started the panel is
+        #answering itself, so a fragment of the PREVIOUS reply arrives after
+        #the next one has already been spoken - and a single slot has been
+        #overwritten by then.
+        self._spoken: list = []
         self._spoken_lock                = RLock()
         self.SKILLS = SkillIntentEngine(self)
         self.STT    = None
@@ -1589,15 +1595,22 @@ class Client:
                     if getattr(self, "ASSIST_STATUS", "") == "THINKING":
                         self.ASSIST_STATUS = self._thinking_was or "LIVE"
 
-    def note_spoken(self, text: str) -> None:
-        """What the panel last said, and when it started saying it."""
-        with self._spoken_lock:
-            self._spoken = (str(text or ""), time.time())
+    #How many recent replies to keep for the echo check.
+    SPOKEN_MEMORY = 4
 
-    def last_spoken(self) -> tuple:
-        """`(text, when)` for the last thing said. `("", 0.0)` if nothing."""
+    def note_spoken(self, text: str) -> None:
+        """Remember something the panel is about to say."""
+        text = str(text or "").strip()
+        if not text:
+            return
         with self._spoken_lock:
-            return self._spoken
+            self._spoken.insert(0, (text, time.time()))
+            del self._spoken[self.SPOKEN_MEMORY:]
+
+    def recent_spoken(self) -> list:
+        """What the panel has said lately, newest first, as (text, when)."""
+        with self._spoken_lock:
+            return list(self._spoken)
 
     def say(self, text: str, thread: bool = True) -> bool:
         """

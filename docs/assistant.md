@@ -334,20 +334,36 @@ ends - so the first guard has already expired. Each fragment is then a phrase
 the session asks the model about, and the answer is spoken, and it goes round
 again.
 
-`client.say()` records the text before speaking it. A transcript is compared
-against that:
+`client.say()` records the text before speaking it, keeping the last
+`SPOKEN_MEMORY` (4) replies. A transcript is compared against all of them:
 
 |                 |                                                                       |
 |-----------------|-----------------------------------------------------------------------|
-| Window          | `ECHO_WINDOW`, 15s after speech ends, or any time it is speaking      |
+| Window          | `ECHO_WINDOW`, 20s from when speech ENDED, or any time it is speaking |
 | Shortest judged | `ECHO_MIN_WORDS`, 3 - below that it is "yes" or "stop"                |
 | Match           | `ECHO_RATIO`, 0.8, on WORDS against a same-length window of the reply |
+| Never an echo   | Anything containing the wake word                                     |
 
-Words rather than characters. On characters "turn the bedroom lights off"
-scores 0.87 against "turned the kitchen lights off", so asking about a
-different room reads as the panel repeating itself.
+Three details, each of which lets a loop through on its own:
 
-The check runs after the wake word, so interrupting mid-reply still works.
+- **From when speech ended, not when it started.** A forty-second reply has
+  used a window measured from the start before its last phrase is finalised -
+  and that last phrase is the one that gets through, because everything
+  before it was still being spoken and `heard_itself()` had already caught it.
+- **Several replies, not one.** Once a loop is running the panel is answering
+  itself, so a fragment of the previous reply arrives after the next one has
+  been spoken. A single slot has been overwritten by then.
+- **Words, not characters.** On characters "turn the bedroom lights off"
+  scores 0.87 against "turned the kitchen lights off", so asking about a
+  different room reads as the panel repeating itself.
+
+The wake word is never an echo, because the panel never says it. That is also
+the way out of the case this gets wrong: the reply suggests something, the
+person asks for exactly that, and the words match because they were the
+panel's words first. Saying the wake word first always gets through.
+
+A near miss - 0.5 or better and still refused - is logged at `debug` with its
+score, so the threshold can be read off a real transcript rather than guessed.
 
 ### Speaking over a reply
 
