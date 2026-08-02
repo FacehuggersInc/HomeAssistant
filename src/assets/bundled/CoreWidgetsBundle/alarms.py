@@ -19,6 +19,7 @@ And it repeats daily if asked, which a timer never does.
 from __future__ import annotations
 
 import json
+import os
 import time
 import uuid
 from datetime import datetime, timedelta
@@ -161,11 +162,27 @@ class AlarmService:
 
         Anything already past is dropped rather than fired: a panel that was
         off overnight should not wake somebody at lunchtime with six alarms it
-        owes them.
+        owes them. A repeating one is moved to its next occurrence instead.
         """
+        path = self._path()
+        if not path.is_file():
+            # Nothing set yet, or nothing ever set. Not a problem and not
+            # worth a line in the log.
+            return
         try:
-            data = json.loads(self._path().read_text())
-        except Exception:
+            data = json.loads(path.read_text())
+        except Exception as e:
+            # Said out loud, and kept. A file that cannot be read is a set of
+            # alarms that will not go off, and somebody is relying on one -
+            # so it is moved aside rather than overwritten by the first save
+            # after this, which is what would destroy the evidence.
+            self.client.log("warning",
+                            f"[Alarms] Could not read {path.name} ({e}). "
+                            f"Kept as {path.name}.bad; starting empty.")
+            try:
+                path.replace(path.with_suffix(".json.bad"))
+            except Exception:
+                pass
             return
         now = time.time()
         kept = 0
@@ -183,11 +200,26 @@ class AlarmService:
             self.client.log("info", f"[Alarms] {kept} alarm(s) restored.")
 
     def _save(self) -> None:
+        """
+        Write the file, or leave the old one alone.
+
+        Written beside and renamed over, because the point of this file is
+        surviving a crash - and a crash during `write_text` leaves it
+        truncated, which is worse than not having written at all. `os.replace`
+        is atomic on both platforms this runs on.
+        """
+        path = self._path()
+        temp = path.with_suffix(".json.tmp")
+        payload = [a.as_dict() for a in self.alarms.values()]
         try:
-            self._path().write_text(json.dumps(
-                [a.as_dict() for a in self.alarms.values()], indent=2))
+            temp.write_text(json.dumps(payload, indent=2))
+            os.replace(temp, path)
         except Exception as e:
             self.client.log("warning", f"[Alarms] Could not save: {e}")
+            try:
+                temp.unlink(missing_ok=True)
+            except Exception:
+                pass
 
     @staticmethod
     def _next_daily(when: float, now: float) -> float:

@@ -46,10 +46,24 @@ A wall clock time rather than a countdown. `alarms.py` reads beside
 
 A timer is a thing happening in the room over the next few minutes, and a
 panel that rebooted has already failed to count it. An alarm for seven
-tomorrow morning set at ten at night has to still be there in the morning, so
-it is written to the data directory and reloaded on start - anything already
-past is dropped rather than fired, or a panel that was off overnight wakes
-somebody at lunchtime with six alarms it owes them.
+tomorrow morning set at ten at night has to still be there in the morning.
+
+**So it is on disk.** `alarms.json` in the data directory, written on every
+change - set, cancelled, or a repeating one rolling to its next day - and read
+back by `start_watching()`. There is no save on shutdown to miss, which is the
+point: a crash and a clean exit leave the same file.
+
+| Situation                           | What happens                                                               |
+|-------------------------------------|----------------------------------------------------------------------------|
+| Restarted a minute later            | Everything comes back, same keys                                           |
+| Off overnight, one-off already past | Dropped. Six alarms at lunchtime is worse than none                        |
+| Off overnight, repeating            | Moved to its next occurrence                                               |
+| Crash during the write              | The old file is intact - written beside and renamed over with `os.replace` |
+| File unreadable                     | Said in the log, moved to `alarms.json.bad`, starts empty                  |
+
+That last one matters more than it looks: overwriting an unreadable file with
+an empty one on the next save destroys the evidence, and somebody was relying
+on what was in it.
 
 **When one goes off** it resets the idle timeout (so a night clock is
 dismissed rather than left sitting over it), sounds `timer_alarm`, and opens
