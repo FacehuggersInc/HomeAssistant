@@ -177,7 +177,42 @@ while the audio pipeline stayed as it was - which is the worst of both and
 says nothing about itself. `assistant_config()` lists it alongside the model
 and the input device for that reason.
 
-## Hearing the wake word
+## What listens for the wake word
+
+Two detectors, chosen by `assistant.wake_detector`.
+
+**openWakeWord** is a model built for the job. It answers the actual question -
+is the wake word in this audio - as a probability per frame. Nothing to spell,
+nothing to match loosely, no window size to tune.
+
+**Whisper** transcribes a fragment and checks the text for the word. That is a
+transcription per check, and it answers with a spelling rather than an answer,
+which is why everything below this section exists.
+
+| | openWakeWord | whisper |
+|---|---|---|
+| Words | alexa, jarvis, mycroft, rhasspy | any |
+| Cost | a few milliseconds a frame | a whole transcription |
+| Tuning | a threshold | sample size, fuzzy ratio, beam size, model |
+
+`auto` is the default: openWakeWord when there is a model for the wake word,
+whisper otherwise. That is the right answer for almost everybody, and it means
+setting the wake word to something unusual quietly keeps working.
+
+It **falls back rather than failing**. Three things can stop it - the library
+is not installed, there is no model for the word, the model will not load -
+and none of them should leave a panel that cannot hear its own name. Asked for
+by name and not available, it warns; on `auto` with an unusual word it stays
+quiet, because that is the ordinary case rather than a problem.
+
+The spotter is fed every audio window as it arrives. It is a streaming model,
+so each frame builds on the last and skipping any of them describes audio that
+is not adjacent - which is also why `reset_all()` clears it.
+
+`openwakeword` is optional in `requirements.txt`. A panel without it starts
+normally and says so once.
+
+## Hearing the wake word, the whisper way
 
 Two things make this hard, and both are about the check rather than the
 microphone.

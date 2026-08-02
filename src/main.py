@@ -1670,6 +1670,8 @@ class Client:
             str(self.setting("assistant.wake_model.value", "tiny.en")),
             # Baked into transcribe_settings when the child starts.
             str(self.setting("assistant.beam_size.value", 5)),
+            # Chosen when the child starts - see wake_spotter.py.
+            str(self.setting("assistant.wake_detector.value", "auto")),
         )
 
     def stop_assistant(self) -> None:

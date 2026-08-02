@@ -34,6 +34,7 @@
   "assistant": "Voice assistant: speech-to-text, wake word and spoken replies",
   "assistant.enabled": "Whether the voice assistant runs at all",
   "assistant.wake_word": "The word that wakes the assistant",
+  "assistant.wake_detector": "What listens for the wake word",
   "assistant.input_device": "Microphone to listen on; empty means system default",
   "assistant.mic_processing": "Whether the microphone cleans its own audio",
   "assistant.model": "Whisper model used for transcription",

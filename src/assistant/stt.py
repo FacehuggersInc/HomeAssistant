@@ -1111,6 +1111,9 @@ class STTProcessing():
 				# The wake word is checked with a small model whatever the
 				# phrase model is. See the constructor in whisper-process.
 				"wake_model": self.wake_model_name(),
+				# What spots the wake word - see wake_spotter.py.
+				"wake_detector": str(self.client.setting(
+					"assistant.wake_detector.value", "auto") or "auto"),
 				# Accuracy against speed - see the setting. The wake check
 				# always uses 1 whatever this says.
 				"beam_size": int(self.client.setting(

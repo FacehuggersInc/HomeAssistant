@@ -397,6 +397,17 @@
    "value": "alexa",
    "description": "The word that wakes the assistant. Plugins use this as the default wake word for their skills. Requires a restart of the assistant."
   },
+  "wake_detector": {
+   "type": "enum",
+   "options": [
+    "auto",
+    "openwakeword",
+    "whisper"
+   ],
+   "default": "auto",
+   "value": "auto",
+   "description": "How the wake word is spotted. 'openwakeword' uses a model built for the job - far faster and steadier than transcribing a fragment of audio and checking the spelling - but only for the words it ships: alexa, jarvis, mycroft, rhasspy. 'whisper' works with any word. 'auto' uses openWakeWord when there is a model for your wake word and whisper otherwise, which is the right answer for almost everybody."
+  },
   "model": {
    "type": "enum",
    "default": "tiny.en",

@@ -210,6 +210,8 @@ class WakeWhisper:
 		wake_speech_after_timeout_extension:float = 1.0,
 		max_wake_speech_extensions:int = 2,
 		wake_model:str = "",
+		#"auto", "openwakeword" or "whisper" - see __start_spotter.
+		wake_detector:str = "auto",
 		#How many candidate transcriptions the model weighs. See the setting.
 		beam_size:int = 5,
 		use_noise_reduction:bool=True,
@@ -233,6 +235,11 @@ class WakeWhisper:
 		#Bumped whenever the current utterance ends, so a wake check that
 		#finishes after it can tell its answer is no longer wanted.
 		self.__wake_check_id = 0
+
+		#What spots the wake word. None means the Whisper path - see
+		#wake_spotter.py for why there are two.
+		self.spotter = None
+		self.__start_spotter(wake_detector)
 		self._overflows = 0
 
 		#Callbacks
@@ -503,16 +510,78 @@ class WakeWhisper:
 					# "alexander", and a short wake word matches inside all sorts
 					# of ordinary speech.
 					if re.search(rf"\b{re.escape(word)}\b", lowered):
-						self.send_log("debug", f"[Whisper]: Wake word '{word}' detected.")
-						self.woke = True
-						if callable(self.on_wake):
-							self.on_wake(word)
+						self.__woke_on(word)
 						break
 		except Exception as exc:
 			self.send_log("warning",
 				f"[Whisper]: Wake word check failed: {exc}")
 		finally:
 			self.sample_check_thread = None
+
+	def __start_spotter(self, choice:str):
+		"""
+		Set up openWakeWord, if it is wanted and possible.
+
+		Falls back to Whisper rather than failing. Three things can stop this
+		- the library is not installed, there is no model for the wake word,
+		or the model will not load - and none of them should leave a panel
+		that cannot hear its own name. The reason is logged once, at start,
+		where somebody looking for it will find it.
+		"""
+		choice = str(choice or "auto").lower()
+		if choice == "whisper":
+			self.send_log("info", "[Whisper]: Wake word by transcription.")
+			return
+
+		word = self.wake_words[0] if self.wake_words else ""
+		try:
+			from src.assistant.wake_spotter import WakeSpotter, model_for
+		except Exception as e:
+			if choice == "openwakeword":
+				self.send_log("warning",
+					f"[Whisper]: openWakeWord was asked for but could not be "
+					f"loaded ({e}). Using transcription instead.")
+			return
+
+		if not model_for(word):
+			# Only worth saying when it was asked for by name. On "auto" this
+			# is the ordinary case for any word without a model.
+			if choice == "openwakeword":
+				self.send_log("warning",
+					f"[Whisper]: openWakeWord has no model for '{word}'. "
+					f"Using transcription instead.")
+			return
+
+		spotter = WakeSpotter(word, log=self.send_log)
+		if not spotter.ready:
+			self.send_log("warning",
+				f"[Whisper]: {spotter.reason}. Using transcription instead.")
+			return
+		self.spotter = spotter
+
+	def __look_for_wake(self, sample_window:list[bytes], audio_window:bytes):
+		"""
+		Ask whichever detector this panel is using.
+
+		The spotter is fed EVERY window as it arrives, because it is a
+		streaming model - each frame builds on the last, so skipping any of
+		them describes audio that is not adjacent. The Whisper check is the
+		opposite: it wants a batch, and only when there is enough of one.
+		"""
+		if self.spotter is not None and self.spotter.ready:
+			if self.spotter.feed(audio_window) is not None:
+				self.__woke_on(self.wake_words[0] if self.wake_words else "")
+			return
+
+		if len(sample_window) >= self.wake_sample_windows:
+			self.__test_sample_for_wake(sample_window)
+
+	def __woke_on(self, word:str):
+		"""Wake, however it was spotted."""
+		self.send_log("debug", f"[Whisper]: Wake word '{word}' detected.")
+		self.woke = True
+		if callable(self.on_wake):
+			self.on_wake(word)
 
 	def __test_sample_for_wake(self, sample_window:list[bytes]):
 		check = self.sample_check_thread
@@ -593,6 +662,10 @@ class WakeWhisper:
 			# Anything still transcribing belongs to the utterance being
 			# thrown away, so its answer is no longer wanted.
 			self.__wake_check_id += 1
+			# The spotter carries context between frames, and context from
+			# before a gap describes audio that is no longer adjacent.
+			if self.spotter is not None:
+				self.spotter.reset()
 
 		## CORE LOOP
 		while not self.stop_event.is_set():
@@ -702,12 +775,7 @@ class WakeWhisper:
 						# Check Sample Window Regularly for a wake Word
 						if not self.woke:
 							sample_window.append( audio_window )
-							# Liveness, not the attribute. A finished thread
-							# object is truthy, so gating on `not
-							# self.sample_check_thread` stopped asking the
-							# moment one was left behind.
-							if len(sample_window) >= self.wake_sample_windows:
-								self.__test_sample_for_wake(sample_window)
+							self.__look_for_wake(sample_window, audio_window)
 
 						#Build Speech
 						speech_window.append( audio_window )
@@ -739,9 +807,7 @@ class WakeWhisper:
 
 							if not self.woke:
 								sample_window.append( audio_window )
-								# Liveness, not the attribute - see above.
-								if len(sample_window) >= self.wake_sample_windows:
-									self.__test_sample_for_wake(sample_window)
+								self.__look_for_wake(sample_window, audio_window)
 
 							#Dont allow end_context to build yet, so that end context doesn't trigger finalization
 							if self.woke and len(speech_window) < self.minimum_speech_windows:
@@ -1129,6 +1195,7 @@ class STTServer:
 			# question - "was the wake word in that" - and has to answer it
 			# before the person finishes speaking.
 			wake_model = str(config.get("wake_model") or "tiny.en"),
+			wake_detector = str(config.get("wake_detector") or "auto"),
 			beam_size = int(config.get("beam_size") or 5),
 			# Aggressive either way, and deliberately so.
 			#

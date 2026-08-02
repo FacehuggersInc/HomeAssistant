@@ -1,6 +1,16 @@
 {
  "log": [
   {
+   "at": 1785634200.6893075,
+   "note": "a model built for spotting wake words",
+   "pages": [
+    {
+     "slug": "assistant",
+     "state": "updated"
+    }
+   ]
+  },
+  {
    "at": 1785632470.2219923,
    "note": "covering the wait, and a knob for it",
    "pages": [
@@ -377,8 +387,8 @@
    "state": "seen"
   },
   "assistant": {
-   "at": 1785632470.2206736,
-   "hash": "1a8c4fdb128e07d1",
+   "at": 1785634200.6877713,
+   "hash": "1c48d89cb7eb8d74",
    "opened": 0,
    "state": "updated"
   },
