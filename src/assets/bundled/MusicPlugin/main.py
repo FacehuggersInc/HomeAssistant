@@ -24,7 +24,7 @@ from src.registries.player_registry import NowPlaying, STOPPED
 
 from .player import WebPlayer
 from .system_player import SystemPlayer
-from .search import search, split_request, comparable
+from .search import search, split_request, comparable, best_match
 from .aliases import ArtistAliases
 from .history import History
 from .history_panel import HistoryCard
@@ -722,6 +722,19 @@ class MusicPlugin(Plugin):
                     f"Could not find anything matching \u201c{query}\u201d.")
                 self.client.call_on_ui(self._hand_back)
                 return
+
+            # Ranked before anything is queued.
+            #
+            # YouTube orders by popularity and recency, so a festival
+            # recording of a song by a channel nobody asked for routinely
+            # outranks the song itself. Both contain the title; only one is
+            # by the artist, and the artist is what was asked for.
+            if not dropped_artist:
+                results = best_match(results, title, artist)
+            else:
+                # The artist was dropped to find anything, so it was probably
+                # misheard and scoring against it would rank on a wrong name.
+                results = best_match(results, title, "")
 
             ids = [r.video_id for r in results]
             self.client.log("info", f"[Music] '{query}' -> {results[0].title!r} "

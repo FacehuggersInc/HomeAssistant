@@ -5,6 +5,40 @@ Plays from a page nobody sees, and tells `client.PLAYER` what it is doing.
 Nothing here paints. The now-playing widget reads the registry, so it has no
 idea YouTube is involved and a second source would need no change to it.
 
+## Picking a result
+
+YouTube orders by popularity and recency. A festival recording of a song, by a
+channel nobody asked for, routinely outranks the song - "OK GOODNIGHT - The
+Bear @ Night Of The Prog 2024" over "The Bear by Okay Goodnight". Both carry
+the title; only one is by the artist.
+
+So results are scored before anything is queued:
+
+| | |
+|---|---|
+| The title matches | up to 1.0 |
+| The artist matches, by channel **or** in the title | up to 1.4 |
+| A "- Topic" channel | +0.6 |
+| "official", "audio", "lyric" | +0.25 |
+| "live", "cover", "remix", "reaction"... | -0.8, once |
+
+The artist is weighted highest because it is the part that decides it, and a
+result whose TITLE carries the artist counts as well - that is how uploads are
+named when the channel is not the artist.
+
+Discouraged words are matched on **whole words**. Substring matching punished
+"Live Forever" for containing "live" and "Mixtape" for containing "mix"; both
+are the song rather than a video of one.
+
+**Sorted, never filtered.** A low score is a guess about relevance, and the
+queue behind the first result is the fallback for getting it wrong - somebody
+who gets the wrong song presses next, which only works if the rest are still
+there.
+
+When the artist had to be dropped to find anything at all, results are scored
+on the title alone: it was probably misheard, and ranking on a wrong name is
+worse than not ranking on one.
+
 ## Two sources
 
 **System audio** is the default. Every Linux media player worth having speaks

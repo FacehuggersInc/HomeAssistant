@@ -15,6 +15,7 @@ trip on the UI thread would freeze the panel mid-sentence.
 
 from __future__ import annotations
 
+import difflib
 import json
 import re
 import urllib.error
@@ -359,6 +360,114 @@ def split_request(phrase: str) -> tuple:
     if at == -1:
         return text, ""
     return text[:at].strip(), text[at + 4:].strip()
+
+
+#Words a video has that a song does not. A result carrying one of these is
+#somebody's recording of the thing rather than the thing.
+NOT_THE_SONG = (
+    "live", "cover", "remix", "reaction", "reacts", "review", "karaoke",
+    "instrumental", "tutorial", "lesson", "how to play", "backing track",
+    "8 bit", "8-bit", "nightcore", "sped up", "slowed", "loop", "1 hour",
+    "full album", "mix", "compilation", "medley", "concert", "festival",
+    "tour", "rehearsal", "soundcheck", "behind the scenes", "trailer",
+)
+
+#And words that say it IS the thing.
+IS_THE_SONG = (
+    "official", "official video", "official audio", "audio", "lyric",
+    "lyrics", "music video", "topic", "visualizer", "hd",
+)
+
+
+def _plain(text: str) -> str:
+    """A string reduced to the letters and digits somebody actually said."""
+    return " ".join(re.sub(r"[^a-z0-9 ]+", " ", str(text or "").lower()).split())
+
+
+def _closeness(heard: str, found: str) -> float:
+    """
+    How much one string is the other, 0 to 1.
+
+    Both directions matter and they are not the same question. A title that
+    CONTAINS what was asked for is a good match - "The Bear (Official Video)"
+    is "the bear". A title the asked-for string contains is usually a worse
+    one, because it means most of what was said is missing.
+    """
+    want, got = _plain(heard), _plain(found)
+    if not want or not got:
+        return 0.0
+    if want == got:
+        return 1.0
+    if want in got:
+        # Scaled by how much of the result is the thing asked for, so a
+        # title with the song buried in a sentence scores below a clean one.
+        return 0.75 + 0.25 * (len(want) / len(got))
+    if got in want:
+        return 0.6 * (len(got) / len(want))
+    return difflib.SequenceMatcher(None, want, got).ratio() * 0.7
+
+
+def score_result(result, title: str, artist: str) -> float:
+    """
+    How well one search result answers what was asked for.
+
+    The artist is the part that decides it. YouTube ranks by popularity and
+    recency, so a festival recording of a song by a channel nobody asked for
+    routinely outranks the song - "OK GOODNIGHT - The Bear @ Night Of The
+    Prog 2024 6/8 by Himpel Pimpf" over "The Bear by Okay Goodnight". Both
+    contain the title; only one is by the artist.
+
+    So the artist is weighted heavily when one was given, and a result whose
+    TITLE carries the artist name counts too, because that is how uploads are
+    named when the channel is not the artist.
+    """
+    found_title = str(getattr(result, "title", "") or "")
+    found_artist = str(getattr(result, "artist", "") or "")
+
+    score = _closeness(title, found_title) * 1.0
+
+    if artist:
+        # Either the channel is the artist, or the title says who it is by.
+        by_channel = _closeness(artist, found_artist)
+        by_title = 1.0 if _plain(artist) in _plain(found_title) else 0.0
+        score += max(by_channel, by_title) * 1.4
+
+    # Whole words, padded so a phrase can be matched the same way. Substring
+    # matching punished "Live Forever" for containing "live" and "Mixtape"
+    # for containing "mix" - both are the song, not a recording of one.
+    lowered = f" {_plain(found_title)} "
+    for word in NOT_THE_SONG:
+        if f" {word} " in lowered:
+            # Once, not once per word: a title reading "Live (Official
+            # Video)" should not be punished twice for one live recording.
+            score -= 0.8
+            break
+    for word in IS_THE_SONG:
+        if f" {word} " in lowered:
+            score += 0.25
+            break
+    # A "- Topic" channel is YouTube's own upload of a release. Nothing is a
+    # stronger signal that this is the record rather than a video of it.
+    if found_artist.strip().lower().endswith("- topic"):
+        score += 0.6
+    return score
+
+
+def best_match(results: list, title: str, artist: str) -> list:
+    """
+    The same results, best first.
+
+    Sorted rather than filtered. A low score is a guess about relevance and
+    the queue behind the first result is still worth having - somebody who
+    asked for a song and got the wrong one presses next, which only works if
+    the rest are still there.
+    """
+    if not results:
+        return results
+    ranked = sorted(results,
+                    key=lambda r: score_result(r, title, artist),
+                    reverse=True)
+    return ranked
 
 
 def build_query(phrase: str) -> str:
