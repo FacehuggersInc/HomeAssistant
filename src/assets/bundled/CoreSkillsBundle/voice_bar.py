@@ -94,6 +94,8 @@ class VoiceBar(QWidget):
         self._fade.setDuration(240)
         self._fade.setEasingCurve(QEasingCurve.Type.InOutQuad)
 
+        #Whether the waiting message is what is currently showing.
+        self._transcribing = False
         self._hold = QTimer(self)
         self._hold.setSingleShot(True)
         self._hold.timeout.connect(self._release)
@@ -191,9 +193,24 @@ class VoiceBar(QWidget):
         arrive until it finishes - so it has to stay up on its own.
         """
         self._accent = QColor(ACCENT.get("THINKING", ACCENT["LISTENING"]))
+        self._transcribing = True
         self._set_text("Working out what you said\u2026")
         self._reveal()
         self._hold.start(self.TRANSCRIBING_MS)
+
+    def done_transcribing(self) -> None:
+        """
+        Take the waiting message down, if that is still what is showing.
+
+        Guarded on the text, not just called. By the time this arrives the
+        phrase may already have replaced it, and clearing then would remove
+        the one thing worth reading a moment after it appeared.
+        """
+        if not self._transcribing:
+            return
+        self._transcribing = False
+        self._hold.stop()
+        self._release()
 
     def show_understood(self, phrase: str) -> None:
         """
@@ -206,6 +223,7 @@ class VoiceBar(QWidget):
         still says listening, and a search that finds nothing looks like a
         microphone that heard nothing.
         """
+        self._transcribing = False
         self._accent = QColor(ACCENT.get("THINKING", ACCENT["LISTENING"]))
         text = str(phrase or "").strip()
         self._set_text(f"\u201c{text}\u201d" if text else "Thinking\u2026")
@@ -228,6 +246,7 @@ class VoiceBar(QWidget):
         and start none, leaving the pill up until a STATUS CHANGE took it
         down - and a request that arrives already answered never produces one.
         """
+        self._transcribing = False
         self._accent = QColor(ACCENT.get("ACTING", ACCENT["LISTENING"]))
         text = str(what or "").strip()
         self._set_text(text if text else "Got it\u2026")

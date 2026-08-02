@@ -1,6 +1,16 @@
 {
  "log": [
   {
+   "at": 1785637460.009894,
+   "note": "saying when it finished, not just when it started",
+   "pages": [
+    {
+     "slug": "assistant",
+     "state": "updated"
+    }
+   ]
+  },
+  {
    "at": 1785635638.2383773,
    "note": "dialogs that fit the screen they are on",
    "pages": [
@@ -407,8 +417,8 @@
    "state": "seen"
   },
   "assistant": {
-   "at": 1785634200.6877713,
-   "hash": "1c48d89cb7eb8d74",
+   "at": 1785637460.009227,
+   "hash": "37a5ea2d4d5b6fdf",
    "opened": 0,
    "state": "updated"
   },

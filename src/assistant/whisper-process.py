@@ -247,6 +247,10 @@ class WakeWhisper:
 		self.on_final = None
 		self.on_timeout = None
 		self.on_transcribing = None
+		#Said when a pass that announced itself has finished, however it
+		#finished. See __processing_loop.
+		self.on_transcribed = None
+		self._announced = False
 		self.on_voice_activity = None
 		self.on_audio_error = None
 
@@ -407,7 +411,8 @@ class WakeWhisper:
 		if self._process_thread:
 			self._process_thread.join(timeout=2.0)
 
-	def set_callbacks(self, on_wake=None, on_final=None, on_timeout = None, on_voice_activity=None, on_audio_error=None, on_transcribing=None):
+	def set_callbacks(self, on_wake=None, on_final=None, on_timeout = None, on_voice_activity=None, on_audio_error=None, on_transcribing=None,
+					  on_transcribed=None):
 		self.on_wake = on_wake
 		self.on_final = on_final
 		self.on_timeout = on_timeout
@@ -416,6 +421,7 @@ class WakeWhisper:
 		#Said when audio is queued and the model is about to run. The sending
 		#lives on the server; this class only knows it happened.
 		self.on_transcribing = on_transcribing
+		self.on_transcribed = on_transcribed
 
 	## UTIL
 	def clean_text(self, text: str) -> str:
@@ -1062,10 +1068,39 @@ class WakeWhisper:
 	
 	def __processing_loop(self):
 		while not self.stop_event.is_set():
+			# Every pass that says it is working says when it stopped.
+			#
+			# The announcement used to sit on its own, and five of the paths
+			# below leave the loop without sending a transcript - too quiet,
+			# a transcription error, a hallucination, a repetition, an empty
+			# or overlong result. None of those cleared the status, so the
+			# panel sat at "thinking" forever. Silence is the COMMON case: a
+			# fridge hum finalises, the panel announces it is working, and it
+			# never finishes.
+			try:
+				if not self.__one_phrase():
+					break
+			except Exception as exc:
+				self.send_log("warning",
+					f"[Whisper]: Processing failed: {exc}")
+			finally:
+				if getattr(self, "_announced", False):
+					self._announced = False
+					if callable(self.on_transcribed):
+						self.on_transcribed()
+
+	def __one_phrase(self):
+		"""
+		One trip round the processing loop. See __processing_loop.
+
+		Returns False when the queue hands over the shutdown sentinel, which
+		is the one thing that must stop the loop rather than this pass.
+		"""
+		if True:
 			#Get Speech Audio Window
 			speech = self.audio_queue.get()
 			if speech is None:
-				break
+				return False
 			
 			#Convert
 			speech = np.frombuffer(speech, dtype=np.int16).astype(np.float32) / self.__PCM_NORM_FACTOR
@@ -1085,6 +1120,7 @@ class WakeWhisper:
 			# the host. The sending itself belongs to the server - this class
 			# has no socket and never did.
 			if callable(self.on_transcribing):
+				self._announced = True
 				self.on_transcribing()
 			began = time.time()
 
@@ -1111,7 +1147,7 @@ class WakeWhisper:
 			if level_db < floor:
 				self.send_log("debug",
 					f"[Whisper]: Nothing said ({level_db:.0f}dB).")
-				continue
+				return True
 
 			#Transcribe Audio
 			try:
@@ -1122,7 +1158,7 @@ class WakeWhisper:
 					segments = list(segments)
 			except Exception as exc:
 				self.send_log("warning", f"[Whisper]: Transcription error: {exc}")
-				continue
+				return True
 			
 			#Build
 			final_text_pieces = []
@@ -1147,14 +1183,18 @@ class WakeWhisper:
 			if final_text and self.clean_text(final_text) and len(final_text.split()) <= 20:
 
 				if self.multi_phrase_check(final_text):
-					# `continue`, not `return`. This is inside the processing
-					# loop, so returning ended the thread outright - one
-					# repetitive transcript and nothing was ever transcribed
-					# again, with every later phrase queueing behind a worker
-					# that had gone. Nothing restarts it.
+					# `return True` ends this PASS. The loop is driven by the
+					# return value now, so True means "carry on" and only the
+					# shutdown sentinel returns False.
+					#
+					# This was a bare `return` when the loop was one method,
+					# which ended the thread outright: one repetitive
+					# transcript and nothing was ever transcribed again, with
+					# every later phrase queueing behind a worker that had
+					# gone. Nothing restarts it.
 					self.send_log("debug",
 						f"[Whisper]: Discarded repetition: {final_text!r}")
-					continue
+					return True
 
 				# The whole journey, on one line. Anything that got slower
 				# shows up as one of these growing rather than as "it feels
@@ -1169,8 +1209,14 @@ class WakeWhisper:
 
 			final_text = ""
 
+			# Said explicitly. Falling off the end gives None, which is falsy,
+			# and the loop reads that as the shutdown sentinel - so a phrase
+			# that simply had nothing to act on would end the worker.
+			return True
+
 
 class STTServer:
+
 	def __init__(self, host="127.0.0.1", command_port=65432, data_port=65433):
 		self.host = host
 		self.ports = {"command": command_port, "data": data_port}
@@ -1246,6 +1292,7 @@ class STTServer:
 			on_wake = self.trigger_wake,
 			on_timeout = self.trigger_wait,
 			on_transcribing = self.send_transcribing,
+			on_transcribed = self.send_transcribed,
 			on_voice_activity = self.send_voice_activity,
 			on_audio_error = self.send_audio_error
 		)
@@ -1318,6 +1365,15 @@ class STTServer:
 		if self.connections["data"]:
 			try:
 				self.connections["data"].sendall(b"host:transcribing:1")
+			except Exception:
+				self.send_log("warning", "[STTServer]: Lost transcript connection.")
+				self.__close_connection("data")
+
+	def send_transcribed(self) -> None:
+		"""Tell the host the model has finished, whatever it decided."""
+		if self.connections["data"]:
+			try:
+				self.connections["data"].sendall(b"host:transcribed:1")
 			except Exception:
 				self.send_log("warning", "[STTServer]: Lost transcript connection.")
 				self.__close_connection("data")

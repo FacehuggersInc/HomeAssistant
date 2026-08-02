@@ -240,6 +240,7 @@ class Client:
                 #nothing is listening for.
                 "on_web_event":             [],
                 "on_transcribing_assistant": [],
+                "on_transcribed_assistant":  [],
                 "on_heard_assistant":       [],
                 "on_woke_assistant":        [],
                 "on_assistant_transcribed": [],

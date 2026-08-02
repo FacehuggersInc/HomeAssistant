@@ -38,6 +38,8 @@ class CoreSkills(Plugin):
         self.client.subscribe_to_event("on_assistant_transcribed", self.on_transcribed)
         self.client.subscribe_to_event("on_transcribing_assistant",
                                        self.on_transcribing)
+        self.client.subscribe_to_event("on_transcribed_assistant",
+                                       self.on_transcribed)
         self.client.subscribe_to_event("on_heard_assistant", self.on_heard)
         self.client.subscribe_to_event("on_woke_assistant", self.on_woke)
         self.client.subscribe_to_event("on_assistant_cancelled", self.on_cancelled)
@@ -50,6 +52,8 @@ class CoreSkills(Plugin):
         self.client.unsubscribe_from_event("on_assistant_transcribed", self.on_transcribed)
         self.client.unsubscribe_from_event("on_transcribing_assistant",
                                            self.on_transcribing)
+        self.client.unsubscribe_from_event("on_transcribed_assistant",
+                                           self.on_transcribed)
         self.client.unsubscribe_from_event("on_heard_assistant", self.on_heard)
         self.client.unsubscribe_from_event("on_woke_assistant", self.on_woke)
         self.client.unsubscribe_from_event("on_assistant_cancelled", self.on_cancelled)
@@ -117,6 +121,18 @@ class CoreSkills(Plugin):
         if self.voice_bar is None:
             return
         self.client.call_on_ui(self.voice_bar.show_transcribing)
+
+    def on_transcribed(self, event=None):
+        """
+        The model finished, whatever it decided.
+
+        Only clears the WAITING message. If a phrase came back, `on_heard`
+        has already replaced this with the words - and taking that down here
+        would remove the one thing worth reading a moment after it appeared.
+        """
+        if self.voice_bar is None:
+            return
+        self.client.call_on_ui(self.voice_bar.done_transcribing)
 
     def on_heard(self, event):
         """

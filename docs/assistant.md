@@ -69,8 +69,21 @@ stood down after the wake, and the next thing anybody saw was the finished
 text. From the outside that is a pill fading and then, seconds later, an
 answer out of nowhere.
 
-The child now sends `transcribing` before the model runs, which the panel
-turns into `on_transcribing_assistant`. It is held on a long timer of its own
+The child sends `transcribing` before the model runs, which the panel turns
+into `on_transcribing_assistant` - **and `transcribed` when it finishes,
+however it finished.**
+
+That pairing is the whole of it. Five paths end a pass without a transcript:
+too quiet, a transcription error, a hallucination, a repetition, and a result
+that is empty or too long. None of them sends anything, so an announcement
+with no matching end left the panel at "thinking" forever - and silence is the
+COMMON case, so it happened every time a fridge hum finalised.
+
+The end is sent from a `finally`, so it survives any of them. The loop body
+lives in `__one_phrase()` for that reason, with the wrapper doing the pairing;
+that method is driven by its return value, so `True` means "carry on" and only
+the shutdown sentinel returns `False`. A bare `return` there would read as
+shutdown and kill the worker - which is the bug this file already had once. It is held on a long timer of its own
 rather than left to the status, because nothing further arrives until the
 model finishes - this is the one stage that has to stay up unaided.
 

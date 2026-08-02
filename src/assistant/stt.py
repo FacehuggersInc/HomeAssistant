@@ -1036,6 +1036,23 @@ class STTProcessing():
 									self.client.iterate_event_callables(
 										"on_transcribing_assistant", None)
 
+								case "transcribed":
+									# The model finished, whatever it decided.
+									# Five paths in the child end without a
+									# transcript - too quiet, an error, a
+									# hallucination, a repetition, nothing
+									# usable - and without this the panel sat
+									# at "thinking" forever on every one of
+									# them. Silence is the common case.
+									if self.client.ASSIST_STATUS == "THINKING":
+										if not self.processing:
+											self.listening_since = 0.0
+											self.client.ASSIST_STATUS = (
+												"LISTENING" if self.woke_with
+												else "LIVE")
+									self.client.iterate_event_callables(
+										"on_transcribed_assistant", None)
+
 								case "wait":
 									self.listening_since = 0.0
 									self.client.ASSIST_STATUS = "LIVE"
