@@ -129,11 +129,29 @@ class ActionSetupDialog(BaseDialog):
         self.chosen_icon = saved.get("icon") or runnable.icon
         self.label_text = saved.get("label") or runnable.label
 
+        # Three columns, or two with the answer underneath.
+        #
+        # Below about 1580 the three cannot hold their minimums however they
+        # are shrunk - a left pane of icons, a middle of argument rows and an
+        # answer wide enough to read JSON in simply do not fit. Shrinking
+        # them all only moves the point where each becomes useless, so past
+        # it the answer goes under the middle instead, where it still has the
+        # width it needs and gives up height it can afford.
+        self.stacked = self.width() < self.THREE_COLUMN_MIN
+
         panes = QHBoxLayout()
         panes.setSpacing(16)
         panes.addWidget(self._left(), stretch=0)
-        panes.addWidget(self._middle(saved), stretch=1)
-        panes.addWidget(self._right(saved), stretch=0)
+
+        if self.stacked:
+            column = QVBoxLayout()
+            column.setSpacing(12)
+            column.addWidget(self._middle(saved), stretch=3)
+            column.addWidget(self._right(saved), stretch=2)
+            panes.addLayout(column, stretch=1)
+        else:
+            panes.addWidget(self._middle(saved), stretch=1)
+            panes.addWidget(self._right(saved), stretch=0)
 
         # Asked for on the widget rather than through the layout. The base
         # dialog adds `content` without a stretch and puts a spacer under it,
@@ -142,7 +160,15 @@ class ActionSetupDialog(BaseDialog):
         holder = QWidget()
         set_style(holder, "common", "transparent")
         holder.setLayout(panes)
-        holder.setMinimumHeight(self.PANE_HEIGHT)
+        # Asked for, not demanded. A minimum taller than the dialog is
+        # allowed to be pushes the whole thing past its own maximum, which is
+        # how a clamped dialog still runs off the bottom of the screen.
+        # Whatever is left after the title, blurb and buttons - and no floor
+        # under it. A floor here is the same mistake as the scroll areas
+        # below: it is a number that looks safe and is exactly what stops a
+        # clamped dialog fitting a small screen.
+        holder.setMinimumHeight(max(0, min(self.PANE_HEIGHT,
+                                           self.maximumHeight() - 190)))
         holder.setSizePolicy(QSizePolicy.Policy.Expanding,
                              QSizePolicy.Policy.Expanding)
         self.content.addWidget(holder, stretch=1)
@@ -157,9 +183,41 @@ class ActionSetupDialog(BaseDialog):
 
     ## -- left: what it is, and how it looks
 
+    #What the middle pane must keep. Below this the argument rows stop being
+    #usable - a name, a kind, a value and a delete do not fit in less.
+    MIDDLE_MIN = 520
+    #The narrowest a three-column layout can be: both side panes at full
+    #width, the middle at its minimum, and the gaps between them.
+    THREE_COLUMN_MIN = SIDE_WIDTH + ANSWER_WIDTH + MIDDLE_MIN + 64
+
+    def _share(self, wanted: int) -> int:
+        """
+        A side pane's width, shrunk if the middle would not fit otherwise.
+
+        Both sides give up the same proportion, so they stay balanced rather
+        than one collapsing while the other keeps its size.
+        """
+        if getattr(self, "stacked", False):
+            # Stacked: the answer is under the middle and has the whole width
+            # to itself, so only the left pane is a column and it keeps its
+            # size.
+            return int(wanted)
+        spare = self.width() - self.MIDDLE_MIN - 64
+        both = self.SIDE_WIDTH + self.ANSWER_WIDTH
+        if spare >= both or both <= 0:
+            return int(wanted)
+        # Never below half: a pane squeezed past that is a column of clipped
+        # controls, and at that point the dialog wants a different layout
+        # rather than a narrower one.
+        return max(int(wanted * 0.55), int(wanted * spare / both))
+
     def _left(self) -> QWidget:
         host = QWidget()
-        host.setFixedWidth(self.SIDE_WIDTH)
+        # Narrowed with the dialog rather than held. The dialog is clamped to
+        # the screen, so on a small one the three fixed panes would add up to
+        # more than there is and the middle would be squeezed to nothing -
+        # the middle being the part somebody is actually working in.
+        host.setFixedWidth(self._share(self.SIDE_WIDTH))
         set_style(host, "common", "transparent")
 
         column = QVBoxLayout(host)
@@ -453,7 +511,13 @@ class ActionSetupDialog(BaseDialog):
         restarts the panel is recoverable rather than lost work.
         """
         host = QWidget()
-        host.setFixedWidth(self.ANSWER_WIDTH)
+        if self.stacked:
+            # Under the middle now, so it takes the width rather than
+            # claiming a column's worth of it.
+            host.setSizePolicy(QSizePolicy.Policy.Expanding,
+                               QSizePolicy.Policy.Expanding)
+        else:
+            host.setFixedWidth(self._share(self.ANSWER_WIDTH))
         set_style(host, "common", "transparent")
 
         column = QVBoxLayout(host)

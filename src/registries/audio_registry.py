@@ -238,6 +238,17 @@ class AudioRegistry:
             return found
         sounddevice, _ = backend
 
+        # The same filter the assistant already used for its own logging.
+        # PortAudio lists ALSA's plugins as devices - resamplers, mixers,
+        # channel maps - and every one of them opens without complaining and
+        # then behaves in ways nobody chose. A dropdown full of them looks
+        # like a list of microphones, and picking the wrong entry is how a
+        # panel ends up hearing nothing with no error to show for it.
+        try:
+            from src.assistant.audio import _HELPER_DEVICES as skip
+        except Exception:
+            skip = set()
+
         wants_input = str(direction).lower().startswith("in")
         try:
             for device in sounddevice.query_devices():
@@ -247,12 +258,39 @@ class AudioRegistry:
                 if not channels:
                     continue
                 name = str(device.get("name") or "").strip()
-                if name and name not in found:
+                if not name:
+                    continue
+                # "samplerate:CARD=..." as well as bare "samplerate".
+                bare = name.split(":")[0].strip().lower()
+                if bare in skip:
+                    continue
+                # ALSA's own "default" is what `Default` above already means.
+                # Two entries for one thing, one of them capitalised, is a
+                # dropdown that looks like it has a trick in it.
+                if bare == "default":
+                    continue
+                if name not in found:
                     found.append(name)
         except Exception as e:
             self.client.log("warning",
                             f"[Audio] Could not list devices: {e}")
         return found
+
+    def is_helper(self, name: str) -> bool:
+        """
+        Whether a name is an ALSA plugin rather than a device.
+
+        Asked about saved settings: an earlier version of the dropdown
+        offered these, and one that was chosen has to be undone rather than
+        preserved. Unknown names are NOT helpers - they may be hardware that
+        is currently unplugged, which is worth keeping.
+        """
+        try:
+            from src.assistant.audio import _HELPER_DEVICES as known
+        except Exception:
+            return False
+        bare = str(name or "").split(":")[0].strip().lower()
+        return bare in known or bare == "default"
 
     def device_index(self, name: str, direction: str = "output"):
         """

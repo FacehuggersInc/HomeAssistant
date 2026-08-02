@@ -426,7 +426,11 @@ class ArgumentList(QWidget):
         scroll.setFrameShape(QFrame.Shape.NoFrame)
         scroll.setHorizontalScrollBarPolicy(
             Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        scroll.setMinimumHeight(220)
+        # No minimum, like the rules list beside it. A scroll area is the one
+        # thing in a dialog that can always give up height - that is what it
+        # is for - and a minimum here is what stops a clamped dialog fitting
+        # a small screen.
+        scroll.setMinimumHeight(0)
         scroll.setSizePolicy(QSizePolicy.Policy.Expanding,
                              QSizePolicy.Policy.Expanding)
         style_scrollbar(scroll)

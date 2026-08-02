@@ -1638,7 +1638,21 @@ class Client:
                 found = self.AUDIO.devices(direction)
                 saved = str(getattr(setting, "value", "") or "").strip()
                 if saved and saved not in found:
-                    found.append(saved)
+                    if self.AUDIO.is_helper(saved):
+                        # Never a device. It was an ALSA plugin offered by an
+                        # earlier version of this list, and something that
+                        # opens without complaining and then routes audio
+                        # nowhere is exactly how a panel ends up hearing
+                        # nothing with no error to show for it.
+                        self.log("warning",
+                                 f"[Audio] '{saved}' is not a device - "
+                                 f"following the system default instead.")
+                        setting.value = self.AUDIO.DEFAULT_DEVICE
+                    else:
+                        # Unknown, but it could be hardware that is simply
+                        # unplugged. Kept, so a panel booted without its
+                        # speaker does not forget which speaker it had.
+                        found.append(saved)
                 setting.options = found
         except Exception as e:
             self.log("warning", f"[Audio] Could not list devices: {e}")

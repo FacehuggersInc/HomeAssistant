@@ -728,8 +728,14 @@ class BaseDialog(QFrame):
         self.client = client
 
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
-        self.setFixedWidth(width or self.WIDTH)
-        self.setMaximumHeight(self.MAX_HEIGHT)
+        # Never wider or taller than there is room for.
+        #
+        # A dialog declares the size it WANTS; the screen decides what it can
+        # have. Without this one written on a large panel simply runs off a
+        # smaller one - and what goes over the edge is the buttons, because
+        # they sit at the bottom and the right.
+        self.setFixedWidth(self._fits_across(width or self.WIDTH))
+        self.setMaximumHeight(self._fits_down(self.MAX_HEIGHT))
         set_style(self, "overlays", "dialog-card")
 
         self._backdrop: Optional[QPixmap] = None
@@ -892,6 +898,48 @@ class BaseDialog(QFrame):
         set_style(lbl, "common", "text-strong")
         lbl.setWordWrap(True)
         return lbl
+
+    #How much of the screen a dialog may take. Not all of it: an overlay with
+    #no margin looks like a page rather than something on top of one, and the
+    #scrim behind it stops being visible enough to suggest tapping.
+    SCREEN_MARGIN = 48
+
+    def _room(self) -> tuple:
+        """The space available, as (width, height). (0, 0) if unknown."""
+        host = getattr(self.client, "OVERLAYS", None)
+        if host is not None:
+            try:
+                size = host.size()
+                if size.width() > 100 and size.height() > 100:
+                    return size.width(), size.height()
+            except Exception:
+                pass
+        # No overlay sized yet - ask the screen. This runs during startup for
+        # anything that puts a dialog up before the window has a size.
+        try:
+            from PyQt6.QtWidgets import QApplication
+            screen = QApplication.primaryScreen()
+            if screen is not None:
+                area = screen.availableGeometry()
+                return area.width(), area.height()
+        except Exception:
+            pass
+        return 0, 0
+
+    def _fits_across(self, wanted: int) -> int:
+        """The width asked for, or what there is room for."""
+        room, _ = self._room()
+        if not room:
+            return int(wanted)
+        return min(int(wanted), max(280, room - self.SCREEN_MARGIN * 2))
+
+    def _fits_down(self, wanted: int) -> int:
+        """The height asked for, or what there is room for."""
+        _, room = self._room()
+        if not room:
+            return int(wanted)
+        return min(int(wanted), max(240, room - self.SCREEN_MARGIN * 2))
+
 
     @classmethod
     def _scrollable(cls, widget, max_height: int):

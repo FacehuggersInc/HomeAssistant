@@ -22,9 +22,29 @@ MODELS = ("tiny.en", "tiny", "base.en", "base", "small.en", "small")
 # devices. They are not microphones, and listing them makes the input_device
 # setting much harder to use. Real backends (pulse, pipewire, default,
 # sysdefault, hw:*) are deliberately NOT in here.
+#ALSA plugins that PortAudio lists as devices. They are routing and format
+#conversion, not hardware - "samplerate" is a resampler, "dmix" is a mixer,
+#"surround51" is a channel map for a card that may have two speakers.
+#
+#Every one of them accepts an open() and then behaves in ways nobody chose.
+#A settings dropdown full of these is worse than useless: it looks like a
+#list of microphones, and picking the wrong entry is how a panel ends up
+#hearing nothing with no error to show for it.
 _HELPER_DEVICES = {
-    "lavrate", "samplerate", "speexrate", "speex",
-    "upmix", "vdownmix", "dmix", "null", "jack", "oss",
+    # Rate and format conversion
+    "lavrate", "samplerate", "speexrate", "speex", "upmix", "vdownmix",
+    # Mixing and routing
+    "dmix", "dsnoop", "dsp", "asym", "shm", "tee", "plug", "hw", "plughw",
+    # Sinks that go nowhere
+    "null", "file",
+    # Sound servers reached some other way
+    "jack", "oss", "pulse_monitor",
+    # Channel maps rather than devices
+    "front", "rear", "center_lfe", "side",
+    "surround21", "surround40", "surround41", "surround50",
+    "surround51", "surround71",
+    # Aliases for whatever is already the default
+    "sysdefault", "spdif", "iec958",
 }
 
 

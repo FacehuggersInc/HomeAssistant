@@ -237,15 +237,16 @@ class WakeWhisper:
 		self.__wake_check_id = 0
 
 		#What spots the wake word. None means the Whisper path - see
-		#wake_spotter.py for why there are two.
+		#wake_spotter.py for why there are two. Started further down, once
+		#`wake_words` exists: it needs to know which word to listen for.
 		self.spotter = None
-		self.__start_spotter(wake_detector)
 		self._overflows = 0
 
 		#Callbacks
 		self.on_wake = None
 		self.on_final = None
 		self.on_timeout = None
+		self.on_transcribing = None
 		self.on_voice_activity = None
 		self.on_audio_error = None
 
@@ -305,6 +306,10 @@ class WakeWhisper:
 		self.vad = webrtcvad.Vad(vad_aggressiveness)
 
 		self.wake_words = wake_words
+		# After the word it is listening for, not before it. This used to sit
+		# with the other flags sixty lines up, where `wake_words` did not
+		# exist yet - and the whole process died on the attribute.
+		self.__start_spotter(wake_detector)
 		self.wake_sample_windows = wake_sample_windows
 		self.speech_timeout_start = None
 		self.wake_timeout_seconds = wake_timeout_seconds
@@ -402,12 +407,15 @@ class WakeWhisper:
 		if self._process_thread:
 			self._process_thread.join(timeout=2.0)
 
-	def set_callbacks(self, on_wake=None, on_final=None, on_timeout = None, on_voice_activity=None, on_audio_error=None):
+	def set_callbacks(self, on_wake=None, on_final=None, on_timeout = None, on_voice_activity=None, on_audio_error=None, on_transcribing=None):
 		self.on_wake = on_wake
 		self.on_final = on_final
 		self.on_timeout = on_timeout
 		self.on_voice_activity = on_voice_activity
 		self.on_audio_error = on_audio_error
+		#Said when audio is queued and the model is about to run. The sending
+		#lives on the server; this class only knows it happened.
+		self.on_transcribing = on_transcribing
 
 	## UTIL
 	def clean_text(self, text: str) -> str:
@@ -1073,7 +1081,11 @@ class WakeWhisper:
 			# next thing it heard was the finished text. From the outside
 			# that is a pill that fades and then, seconds later, an answer
 			# arriving out of nowhere.
-			self.send_transcribing()
+			# Through the callback, like every other thing this class tells
+			# the host. The sending itself belongs to the server - this class
+			# has no socket and never did.
+			if callable(self.on_transcribing):
+				self.on_transcribing()
 			began = time.time()
 
 			# De-noised here rather than on the audio thread, which cannot
@@ -1233,6 +1245,7 @@ class STTServer:
 			on_final=self.process_transcribed,
 			on_wake = self.trigger_wake,
 			on_timeout = self.trigger_wait,
+			on_transcribing = self.send_transcribing,
 			on_voice_activity = self.send_voice_activity,
 			on_audio_error = self.send_audio_error
 		)

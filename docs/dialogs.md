@@ -51,6 +51,34 @@ dlg.set_status("42 of 300")     # safe from any thread
 self.client.close_dialog()
 ```
 
+## Fitting the screen
+
+A dialog declares the size it WANTS. `BaseDialog` decides what it can have,
+clamping `WIDTH` and `MAX_HEIGHT` to the overlay less `SCREEN_MARGIN` on each
+side. Without that a dialog written on a large panel simply runs off a smaller
+one, and what goes over the edge is the buttons - they sit at the bottom and
+the right.
+
+The margin is deliberate rather than decorative: an overlay filling the screen
+looks like a page rather than something on top of one, and the scrim behind it
+stops being visible enough to suggest tapping.
+
+Nothing inside a dialog should set a `minimumHeight` it cannot give up. A
+scroll area especially - giving up height is what it is for, and a floor on
+one is what stops a clamped dialog fitting. The same goes for `max(320, ...)`
+style guards: they look safe and are exactly the thing that overflows.
+
+### When a layout stops fitting
+
+Shrinking every column only moves the point at which each becomes useless. The
+action setup dialog needs a left pane of icons, a middle of argument rows and
+an answer pane wide enough to read JSON in - about 1580px between them - and
+below that it puts the answer UNDER the middle instead, where it keeps the
+width it needs and gives up height it can afford.
+
+Two shapes, one threshold, rather than three columns that get gradually
+unusable.
+
 ## Taking the room over
 
 A panel that runs for minutes rather than seconds should stop the music while

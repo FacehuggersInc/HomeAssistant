@@ -28,9 +28,28 @@ translates at the point of use, and answers `None` for a device that is not
 connected, which means the system default: a working panel beats a stale
 index.
 
+**ALSA's plugins are not devices.** PortAudio reports them as if they were:
+`samplerate`, `dmix`, `dsnoop`, `surround51`, `sysdefault`, `upmix`, and a
+dozen more. Each is routing or format conversion, each opens without
+complaining, and each then sends audio somewhere nobody chose. A dropdown full
+of them looks like a list of microphones, and picking the wrong entry is how a
+panel ends up hearing nothing with no error to show for it. On one Linux box
+that is 19 entries reported and 5 worth offering.
+
+They are filtered by `_HELPER_DEVICES` in `assistant/audio.py`, which the
+assistant already used for its own logging and the dropdown now shares. ALSA's
+own `default` goes too - it is what the `Default` entry already means, and two
+entries for one thing is a dropdown that looks like it has a trick in it.
+
 A saved device that is not plugged in right now stays in the dropdown.
 Dropping it would silently rewrite the setting to whatever came first, so a
 panel booted with its speaker unplugged would forget which speaker it had.
+
+A saved name that IS a known plugin is different: it was never a device, and
+an earlier version of this list is how it got chosen. That one is reset to
+`Default` with a warning rather than preserved - `AUDIO.is_helper()` is the
+distinction, and an unknown name is deliberately not a helper, because it may
+be hardware that is simply unplugged.
 
 `Default` means "follow the system". That is right for most panels and wrong
 for one with an array that takes the output as well as the input when it

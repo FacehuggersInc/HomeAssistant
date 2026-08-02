@@ -1,6 +1,26 @@
 {
  "log": [
   {
+   "at": 1785635638.2383773,
+   "note": "dialogs that fit the screen they are on",
+   "pages": [
+    {
+     "slug": "dialogs",
+     "state": "updated"
+    }
+   ]
+  },
+  {
+   "at": 1785634864.1677737,
+   "note": "a device list with only devices in it",
+   "pages": [
+    {
+     "slug": "settings",
+     "state": "updated"
+    }
+   ]
+  },
+  {
    "at": 1785634200.6893075,
    "note": "a model built for spotting wake words",
    "pages": [
@@ -417,8 +437,8 @@
    "state": "seen"
   },
   "dialogs": {
-   "at": 1785554629.2138636,
-   "hash": "dc3641708a47e2da",
+   "at": 1785635638.237163,
+   "hash": "bc5e80a6d59e83b7",
    "opened": 0,
    "state": "updated"
   },
@@ -513,8 +533,8 @@
    "state": "seen"
   },
   "settings": {
-   "at": 1785621119.2506807,
-   "hash": "35138787e663bc55",
+   "at": 1785634864.1673145,
+   "hash": "ce61482ea1ad3ad7",
    "opened": 0,
    "state": "updated"
   },
