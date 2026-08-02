@@ -562,7 +562,6 @@ class ItemGridDialog(BaseDialog):
             self.content.addWidget(sort_holder)
             self._paint_sort_buttons()
 
-        # Grid
         self._grid_host = QWidget()
         set_style(self._grid_host, "common", "transparent")
         self._grid = QGridLayout(self._grid_host)

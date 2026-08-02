@@ -81,15 +81,16 @@ class NightPage(PageFramework):
 
     def _setting(self, key: str, default):
         """
-        One of the plugin's settings, read through the plugin itself.
+        One of the plugin's settings, through what the plugin exposes.
 
-        The page has no settings of its own; it asks the plugin that owns
-        them. `client.setting()` walks the client's tree, which a plugin key
-        never reaches.
+        The page has no settings of its own, and `client.setting()` walks the
+        client's tree, which a plugin key never reaches. So the plugin puts a
+        reader on the public registry and the page uses that - rather than
+        asking the plugin manager for an instance, which is a route around
+        the registry the plugin already publishes.
         """
         try:
-            plugin = self.client.PLUGIN.plugins.get("nighttimeclock")
-            return getattr(plugin.settings, key).value
+            return self.client.public.nighttime["setting"](key, default)
         except Exception:
             return default
 
@@ -120,7 +121,7 @@ class NightPage(PageFramework):
             # With effects off it still gets fireflies, because those are
             # the setting above and were here first.
             weather = (self._weather_data
-                       if bool(self._setting("weather_effects", True)) else {})
+                       if bool(self._setting("scene.weather_effects", True)) else {})
             # The reading is in whatever unit the weather setting asked for,
             # and every threshold in there is Fahrenheit.
             unit = self._unit_for(weather)
@@ -128,10 +129,10 @@ class NightPage(PageFramework):
             self._layers = layers_for(
                 weather,
                 unit=unit,
-                fireflies=bool(self._setting("fireflies", True)),
-                firefly_count=int(self._setting("firefly_count", 16)),
-                events=bool(self._setting("sky_events", True)),
-                moon=bool(self._setting("show_moon", True)),
+                fireflies=bool(self._setting("scene.fireflies", True)),
+                firefly_count=int(self._setting("scene.firefly_count", 16)),
+                events=bool(self._setting("scene.sky_events", True)),
+                moon=bool(self._setting("scene.show_moon", True)),
                 when=self._moon_when(weather),
             )
             # One gust source for all of them, so they lean together rather
@@ -215,14 +216,18 @@ class NightPage(PageFramework):
         Computed, not fetched: it is arithmetic on a date and a position, and
         this keeps working with the router off.
         """
-        if not bool(self._setting("show_sun", True)):
+        if not bool(self._setting("scene.show_sun", True)):
             return ""
         try:
             from .astronomy import next_sun_event, describe_wait
-            latitude = float(self.client.setting(
-                "corewidgetsbundle.weather.latitude.value", 0) or 0)
-            longitude = float(self.client.setting(
-                "corewidgetsbundle.weather.longitude.value", 0) or 0)
+            # Asked of the weather API, not read out of another plugin's
+            # settings file. `client.setting()` walks the client's own tree
+            # and never reaches a plugin key, so those paths always answered
+            # with the default - which here meant no sun time, ever.
+            weather = self.client.API.get("weather")
+            if weather is None:
+                return ""
+            latitude, longitude = weather.coordinates()
             if not latitude and not longitude:
                 return ""
             name, moment, seconds = next_sun_event(latitude, longitude)
@@ -321,7 +326,7 @@ class NightPage(PageFramework):
     def _paint_clock(self, painter: QPainter) -> None:
         now = datetime.now()
         try:
-            fmt = str(self.client.setting("home.time_format.value", "%I:%M %p"))
+            fmt = str(self.client.setting("home.clock.time_format.value", "%I:%M %p"))
         except Exception:
             fmt = "%I:%M %p"
         face = now.strftime(fmt)

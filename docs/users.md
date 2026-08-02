@@ -154,18 +154,18 @@ some of the same events, and nothing in the UI showed why.
 
 `client.USERS` is a `UserRegistry`.
 
-| Call | Does |
-|---|---|
-| `get(token)` | The `User`, or `None`. |
-| `is_approved(token)` | Whether that token is allowed. |
-| `touch(token)` | Record that a device was seen, and return it. |
-| `all_users()` | Every approved device, by name. |
-| `state_of(token)` | `approved`, `pending`, `denied` or `unknown`. |
-| `approve(token, name="")` | Let a waiting request in. |
-| `deny(token)` / `revoke(token)` | Refuse one, or remove an approved one. |
-| `rename(token, name)` | Give a device a better name. |
-| `waiting()` | Undecided requests, oldest first. |
-| `subscribe(fn)` / `unsubscribe(fn)` | Told when the list changes. |
+| Call                                | Does                                          |
+|-------------------------------------|-----------------------------------------------|
+| `get(token)`                        | The `User`, or `None`.                        |
+| `is_approved(token)`                | Whether that token is allowed.                |
+| `touch(token)`                      | Record that a device was seen, and return it. |
+| `all_users()`                       | Every approved device, by name.               |
+| `state_of(token)`                   | `approved`, `pending`, `denied` or `unknown`. |
+| `approve(token, name="")`           | Let a waiting request in.                     |
+| `deny(token)` / `revoke(token)`     | Refuse one, or remove an approved one.        |
+| `rename(token, name)`               | Give a device a better name.                  |
+| `waiting()`                         | Undecided requests, oldest first.             |
+| `subscribe(fn)` / `unsubscribe(fn)` | Told when the list changes.                   |
 
 ## Identifying the caller
 

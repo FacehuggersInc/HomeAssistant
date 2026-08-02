@@ -17,11 +17,11 @@ specific need better than a general tool bent towards it.
 Three sources, listed in this order because that is the order somebody reaches
 for them.
 
-| Badge | Where from |
-|---|---|
-| `Panel` | The panel's own HTTP routes — `/process`, `/say`, `/dashboard/state`, `/notify`, and a dozen more. |
-| `Endpoint` / `Page` | Endpoints plugins registered with `client.API.register()`. `Page` means it answers with HTML. |
-| `Public` | Functions plugins published with `client.public.expose()`. |
+| Badge               | Where from                                                                                         |
+|---------------------|----------------------------------------------------------------------------------------------------|
+| `Panel`             | The panel's own HTTP routes — `/process`, `/say`, `/dashboard/state`, `/notify`, and a dozen more. |
+| `Endpoint` / `Page` | Endpoints plugins registered with `client.API.register()`. `Page` means it answers with HTML.      |
+| `Public`            | Functions plugins published with `client.public.expose()`.                                         |
 
 Only **callables**. A registry holds values too — the calendar exposes its
 sticker store — and a tile that "runs" one of those has nothing to run.
@@ -86,13 +86,13 @@ Ordered rather than scored. First-match-wins is the only arrangement somebody
 can reason about without reading all of them, and it makes "anything else" a
 rule at the bottom rather than a special case in the code.
 
-| Test | Holds when |
-|---|---|
-| `is on` / `is off` | The value reads as true or false. An empty list is off. |
-| `is exactly` / `contains` | Compared as text, case-insensitively. |
-| `is more than` / `is less than` | Both sides read as numbers, or it does not hold. |
-| `is not there` / `is there` | Whether the path resolved at all. |
-| `anything` | Always. The bottom of a list. |
+| Test                            | Holds when                                              |
+|---------------------------------|---------------------------------------------------------|
+| `is on` / `is off`              | The value reads as true or false. An empty list is off. |
+| `is exactly` / `contains`       | Compared as text, case-insensitively.                   |
+| `is more than` / `is less than` | Both sides read as numbers, or it does not hold.        |
+| `is not there` / `is there`     | Whether the path resolved at all.                       |
+| `anything`                      | Always. The bottom of a list.                           |
 
 **A missing field is not "off".** A rule meaning that must say `is not there`,
 or a typo'd path quietly reads as a state. It is offered as a third suggestion

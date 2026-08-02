@@ -9,17 +9,17 @@ what is coming up.
 
 ## What it adds
 
-| | |
-|---|---|
-| Sub-page | A month grid at `(0, 1)` - one swipe down from the widgets. |
-| Widgets | **Next event** and **Coming up**. |
-| Tile | **Calendar**, a month at a glance. Minimum 5x3. |
-| Panels | A reminder card before an event starts, with a map, and Snooze. |
-| Skills | Six: what is next, today, tomorrow, this week, next holiday, how long. |
-| API | `calendar_add` and `calendar_upcoming`, both authed. |
+|               |                                                                                                                 |
+|---------------|-----------------------------------------------------------------------------------------------------------------|
+| Sub-page      | A month grid at `(0, 1)` - one swipe down from the widgets.                                                     |
+| Widgets       | **Next event** and **Coming up**.                                                                               |
+| Tile          | **Calendar**, a month at a glance. Minimum 5x3.                                                                 |
+| Panels        | A reminder card before an event starts, with a map, and Snooze.                                                 |
+| Skills        | Six: what is next, today, tomorrow, this week, next holiday, how long.                                          |
+| API           | `calendar_add` and `calendar_upcoming`, both authed.                                                            |
 | Subscriptions | Read-only mirrors of Google, iCloud or Outlook calendars. Managed from the calendar page, a phone, or settings. |
-| Registry | `client.public.calendar` - see `docs/registry.md`. |
-| Stickers | Pictures placed on the month grid - see `docs/stickers.md`. |
+| Registry      | `client.public.calendar` - see `docs/registry.md`.                                                              |
+| Stickers      | Pictures placed on the month grid - see `docs/stickers.md`.                                                     |
 
 ## Events
 
@@ -63,11 +63,11 @@ phone two minutes ago. For that, post to `calendar_add`.
 
 ## Settings
 
-| Section | |
-|---|---|
-| `general` | Holidays, events shown per day, week start, dark map, how long finished events are kept. |
-| `reminders` | Whether panels appear, how far ahead, how long they stay, how long Snooze defers. |
-| `subscriptions` | Refresh interval. Calendars themselves are managed in the list above it. |
+| Section         |                                                                                          |
+|-----------------|------------------------------------------------------------------------------------------|
+| `general`       | Holidays, events shown per day, week start, dark map, how long finished events are kept. |
+| `reminders`     | Whether panels appear, how far ahead, how long they stay, how long Snooze defers.        |
+| `subscriptions` | Refresh interval. Calendars themselves are managed in the list above it.                 |
 
 Two are stored but not shown as fields, because the plugin draws a better
 control for them:

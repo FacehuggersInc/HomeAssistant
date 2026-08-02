@@ -21,11 +21,11 @@ install is wiped when an update is unpacked over it. It is registered as an
 asset under the key `stickers`, which is what makes thumbnails reachable at
 `/asset/stickers/<name>?token=…`.
 
-| Kind | Extensions | On the panel |
-|---|---|---|
-| still | `png` `jpg` `jpeg` `bmp` | drawn as a pixmap |
-| animated | `gif` `webp` | played with `QMovie` |
-| video | `mp4` `webm` `mov` `m4v` | **stored, not yet playable** |
+| Kind     | Extensions               | On the panel                 |
+|----------|--------------------------|------------------------------|
+| still    | `png` `jpg` `jpeg` `bmp` | drawn as a pixmap            |
+| animated | `gif` `webp`             | played with `QMovie`         |
+| video    | `mp4` `webm` `mov` `m4v` | **stored, not yet playable** |
 
 **Video is accepted but cannot be shown yet.** `QMovie` decodes image formats,
 not video — playing one needs QtMultimedia, which is a bigger change than it
@@ -91,14 +91,14 @@ back, so nothing is placed — which is why this is a hook rather than
 something, pick from the library, choose where it lands and how long it stays.
 It is listed on the panel's index as **Stickers**.
 
-| Field | Meaning |
-|---|---|
-| upload | Anything the store accepts. Validated before it is written. |
-| sticker | Which one to place. |
-| quadrant | One of the nine positions — corners, edge centres, middle. |
-| mode | `permanent` or `temporary`. |
-| timeout | Seconds, for a temporary one, from 1 up. `0` means until it is removed. |
-| scale | Small, Normal, Large, Huge, or an exact longest edge in pixels. |
+| Field        | Meaning                                                                     |
+|--------------|-----------------------------------------------------------------------------|
+| upload       | Anything the store accepts. Validated before it is written.                 |
+| sticker      | Which one to place.                                                         |
+| quadrant     | One of the nine positions — corners, edge centres, middle.                  |
+| mode         | `permanent` or `temporary`.                                                 |
+| timeout      | Seconds, for a temporary one, from 1 up. `0` means until it is removed.     |
+| scale        | Small, Normal, Large, Huge, or an exact longest edge in pixels.             |
 | delete_after | Temporary only. Deletes the **file** when the sticker goes. Off by default. |
 
 `delete_after` is for the throwaway case - something sent to the panel for a
@@ -126,12 +126,12 @@ already there.
 
 ### As JSON
 
-| Endpoint | Does |
-|---|---|
-| `GET /public/sticker_list` | The library. |
-| `GET /public/sticker_place` | Place one. `sticker=`, `quadrant=`, `mode=`, `timeout=`, or `x=`/`y=`. |
-| `GET /public/sticker_remove` | Delete one from the library. `key=`. |
-| `GET` or `POST` `/public/sticker_add` | The page, and what it posts back to. |
+| Endpoint                              | Does                                                                   |
+|---------------------------------------|------------------------------------------------------------------------|
+| `GET /public/sticker_list`            | The library.                                                           |
+| `GET /public/sticker_place`           | Place one. `sticker=`, `quadrant=`, `mode=`, `timeout=`, or `x=`/`y=`. |
+| `GET /public/sticker_remove`          | Delete one from the library. `key=`.                                   |
+| `GET` or `POST` `/public/sticker_add` | The page, and what it posts back to.                                   |
 
 ```bash
 curl "http://panel:5000/public/sticker_place?token=...\
@@ -215,13 +215,13 @@ first:
 
 The size choices are **names**, and each is a share of the panel's width:
 
-| | Share |
-|---|---|
-| Small | 8% |
-| Normal | 16% |
-| Large | 30% |
-| Huge | 50% |
-| Enormous | 75% |
+|          | Share |
+|----------|-------|
+| Small    | 8%    |
+| Normal   | 16%   |
+| Large    | 30%   |
+| Huge     | 50%   |
+| Enormous | 75%   |
 
 A share rather than a pixel count, so the words mean the same thing on any
 panel. As a multiplier on a fixed 180px, "huge" was 360px — on a 2560px screen

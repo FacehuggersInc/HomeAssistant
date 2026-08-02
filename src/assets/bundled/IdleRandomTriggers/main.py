@@ -9,6 +9,15 @@ from src.ui.overlays import Panel
 
 
 class IdleTriggersPlugin(Plugin):
+
+    #This plugin's key, as `plugin.toml` declares it.
+    #
+    #Everything registered anywhere is owned by this string. The manager
+    #cleans up on unload by key - `public.clear(key)`, `API.unregister(key)` -
+    #so a registration filed under any other name is one that survives the
+    #plugin, still bound to an instance that has gone.
+    KEY = "idletriggers"
+
     def __init__(self):
         self.builders = {}
         self.invalid_pages = []
@@ -46,8 +55,8 @@ class IdleTriggersPlugin(Plugin):
             self.check_time_update
         )
 
-        self.client.public.expose("carouseltriggers", "add_trigger", self.add, True)
-        self.client.public.expose("carouseltriggers", "remove_trigger", self.remove, True)
+        self.client.public.expose(self.KEY, "add_trigger", self.add, True)
+        self.client.public.expose(self.KEY, "remove_trigger", self.remove, True)
 
     def unload(self, carryover=None):
         if self.last_timeout_id:

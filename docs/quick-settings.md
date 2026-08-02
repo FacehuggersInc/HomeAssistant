@@ -68,15 +68,15 @@ class MyPlugin(Plugin):
         )
 ```
 
-| Argument | Meaning |
-|---|---|
-| `owner` | Your plugin key. Everything under it is dropped when the plugin unloads. |
-| `key` | Unique within the owner. |
-| `label` | Shown under the icon. Keep it to one or two words. |
-| `icon` | An `Icons` constant, or any `mdi.` name. |
-| `on_press` | Called when tapped. |
-| `on_state` | Optional. Returns `True` when the button should read as "on". |
-| `order` | Sort order, lower first. Defaults to 100. |
+| Argument   | Meaning                                                                  |
+|------------|--------------------------------------------------------------------------|
+| `owner`    | Your plugin key. Everything under it is dropped when the plugin unloads. |
+| `key`      | Unique within the owner.                                                 |
+| `label`    | Shown under the icon. Keep it to one or two words.                       |
+| `icon`     | An `Icons` constant, or any `mdi.` name.                                 |
+| `on_press` | Called when tapped.                                                      |
+| `on_state` | Optional. Returns `True` when the button should read as "on".            |
+| `order`    | Sort order, lower first. Defaults to 100.                                |
 
 `on_state` is what makes a button a toggle: the tile picks up the `quick-tile-on`
 style when it returns `True`, and is re-read after every press.
@@ -181,7 +181,7 @@ stuck open. Both bundled navigating entries use it: *Night clock* and
 
 ## How tall it opens
 
-`home.quick_settings_height` is a **share of the window**, not a pixel count, so
+`home.layout.quick_settings_height` is a **share of the window**, not a pixel count, so
 one value suits any display. Clamped to 0.15–0.9; a third is tight on 1080, and
 0.45 gives the System side room without scrolling.
 
@@ -283,14 +283,14 @@ and never changed.
 `connected_devices()` orders by **what a device is for**, matched against
 BlueZ's own `Icon` hint rather than guessed from its name:
 
-| | |
-|---|---|
+|   |                                     |
+|---|-------------------------------------|
 | 0 | headset, headphones, audio, speaker |
-| 1 | phone |
-| 2 | computer |
-| 3 | gaming, joystick |
-| 4 | keyboard, mouse, input |
-| 5 | anything else |
+| 1 | phone                               |
+| 2 | computer                            |
+| 3 | gaming, joystick                    |
+| 4 | keyboard, mouse, input              |
+| 5 | anything else                       |
 
 Audio first because it is the one you are currently hearing — a headset that has
 dropped to 8% is worth knowing about, while a controller sitting on the table is

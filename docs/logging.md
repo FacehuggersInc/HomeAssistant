@@ -2,13 +2,13 @@
 
 ## Levels
 
-| Level | For |
-|---|---|
-| `debug` | Numbers you would want when something looks wrong on screen. |
-| `info` | Normal lifecycle: loaded, registered, connected, navigated. |
-| `warning` | Something failed and was handled. The app carries on. |
-| `error` | Something failed and a feature is now broken. |
-| `critical` | The app cannot continue. |
+| Level      | For                                                          |
+|------------|--------------------------------------------------------------|
+| `debug`    | Numbers you would want when something looks wrong on screen. |
+| `info`     | Normal lifecycle: loaded, registered, connected, navigated.  |
+| `warning`  | Something failed and was handled. The app carries on.        |
+| `error`    | Something failed and a feature is now broken.                |
+| `critical` | The app cannot continue.                                     |
 
 The distinction that matters is `warning` versus `error`: a warning means the
 degradation is contained, an error means a user will notice something missing.
@@ -39,7 +39,7 @@ where somebody looks for it:
 * **JavaScript on a web page.** Qt's default `javaScriptConsoleMessage` writes
   to stderr with a `js:` prefix. The page object routes it to `client.log()`
   instead, keeping the level the engine reported.
-* **The whisper process.** It is a separate process, so a print there goes to
+* **The speech process.** It is a separate process, so a print there goes to
   whatever stdout it inherited. It sends `host:log:<level>:<message>` over the
   socket it already uses for every other event, and the parent forwards it.
 * **Stray prints** elsewhere in the tree.
@@ -53,7 +53,7 @@ Three exceptions:
 
 `log()` itself, which is what writes the log.
 
-`send_log()` in the whisper process, when the socket is not up yet — the startup
+`send_log()` in the speech process, when the socket is not up yet — the startup
 window is when a failure matters most, and that function **is** the logger, so
 anything else there recurses until the stack gives out.
 

@@ -105,14 +105,14 @@ def poll(self, stop_event):
         stop_event.wait(60)
 ```
 
-| Method | Does |
-|---|---|
-| `create(name, target, *args, **kwargs)` | Register. No-op if one is already running under that name. |
-| `start(name)` | Clear the stop flag and run. Builds a fresh `Thread` each time. |
-| `stop(name)` | Set the stop flag. Does not block. |
-| `is_active(name)` | Whether the thread is alive. |
-| `wait_for_stop(name, timeout=1)` | Join, with a timeout. |
-| `get(name)` | The entry dict, or `None`. |
+| Method                                  | Does                                                            |
+|-----------------------------------------|-----------------------------------------------------------------|
+| `create(name, target, *args, **kwargs)` | Register. No-op if one is already running under that name.      |
+| `start(name)`                           | Clear the stop flag and run. Builds a fresh `Thread` each time. |
+| `stop(name)`                            | Set the stop flag. Does not block.                              |
+| `is_active(name)`                       | Whether the thread is alive.                                    |
+| `wait_for_stop(name, timeout=1)`        | Join, with a timeout.                                           |
+| `get(name)`                             | The entry dict, or `None`.                                      |
 
 Threads are daemons, so they do not hold the process open - but a daemon
 parked in a native call is not unwound cleanly at exit either. Stop yours in
@@ -140,15 +140,15 @@ self.timeout_id = self.client.TIMEOUTS.add(
 self.client.TIMEOUTS.start(self.timeout_id)      # begin counting
 ```
 
-| Method | Does |
-|---|---|
-| `add(seconds, callback, id, autostart=False, transient=False)` | Register, returns the id. |
-| `start(id)` | Start or restart the countdown. |
-| `cancel(id)` | Stop it. The registration stays, so `start()` works again. |
-| `discard(id)` | Cancel and forget the registration entirely. |
-| `remaining(id)` | Seconds left, or `0.0`. |
-| `is_counting(id)` | Whether it is currently armed. |
-| `prune()` | Drop spent `transient` registrations. |
+| Method                                                         | Does                                                       |
+|----------------------------------------------------------------|------------------------------------------------------------|
+| `add(seconds, callback, id, autostart=False, transient=False)` | Register, returns the id.                                  |
+| `start(id)`                                                    | Start or restart the countdown.                            |
+| `cancel(id)`                                                   | Stop it. The registration stays, so `start()` works again. |
+| `discard(id)`                                                  | Cancel and forget the registration entirely.               |
+| `remaining(id)`                                                | Seconds left, or `0.0`.                                    |
+| `is_counting(id)`                                              | Whether it is currently armed.                             |
+| `prune()`                                                      | Drop spent `transient` registrations.                      |
 
 Calling `start()` again restarts from zero, which is how every auto-close in
 the app works: each interaction calls `start()`, and the callback only fires
@@ -183,11 +183,11 @@ map or answering a prompt is doing something.
 
 Opt-in, because not every timeout measures idleness:
 
-| use `idle=True` | leave it off |
-|---|---|
+| use `idle=True`                   | leave it off                  |
+|-----------------------------------|-------------------------------|
 | a page returning to a screensaver | a transient widget's lifetime |
-| a panel closing itself | a periodic sync |
-| a notification timing out | any fixed duration |
+| a panel closing itself            | a periodic sync               |
+| a notification timing out         | any fixed duration            |
 
 The test is whether the timeout would be wrong if somebody were looking at the
 screen the whole time. A night clock returning after twenty seconds of quiet

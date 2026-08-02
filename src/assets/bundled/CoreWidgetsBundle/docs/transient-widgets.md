@@ -18,13 +18,13 @@ that reason does.
 
 The difference is not cosmetic:
 
-| | Ordinary | Transient |
-|---|---|---|
-| Placed by | the person, from the widgets panel | code, in response to something |
-| Position | wherever they dropped it | an exact point, or a free spot in a named region |
-| Saved to `widget_layout.json` | yes | **never** |
-| Survives a restart | yes | no |
-| Delete handle | returns it to the panel | dismisses it, and tells whatever placed it |
+|                               | Ordinary                           | Transient                                        |
+|-------------------------------|------------------------------------|--------------------------------------------------|
+| Placed by                     | the person, from the widgets panel | code, in response to something                   |
+| Position                      | wherever they dropped it           | an exact point, or a free spot in a named region |
+| Saved to `widget_layout.json` | yes                                | **never**                                        |
+| Survives a restart            | yes                                | no                                               |
+| Delete handle                 | returns it to the panel            | dismisses it, and tells whatever placed it       |
 
 **They are deliberately not persisted.** A widget that exists only while its
 reason exists must not come back on the next launch as a ghost with nothing
@@ -41,13 +41,13 @@ Through `sub.home`'s features:
 sub_home.features().show_transient(widget, at="top-right", timeout=120)
 ```
 
-| Argument | Meaning |
-|---|---|
-| `widget` | A `Widget` instance. Build one with `create(..., transient=True)`. |
-| `center` | `(x, y)` in page pixels. The widget is centred there. |
-| `at` | One of the nine positions to land in instead. |
-| `timeout` | Seconds until it dismisses itself. `0` means stay. |
-| `bundle` | Group with transient widgets already up. Default `True`. |
+| Argument  | Meaning                                                            |
+|-----------|--------------------------------------------------------------------|
+| `widget`  | A `Widget` instance. Build one with `create(..., transient=True)`. |
+| `center`  | `(x, y)` in page pixels. The widget is centred there.              |
+| `at`      | One of the nine positions to land in instead.                      |
+| `timeout` | Seconds until it dismisses itself. `0` means stay.                 |
+| `bundle`  | Group with transient widgets already up. Default `True`.           |
 
 The positions are the nine in `POSITIONS` — the corners, the edge centres and
 the middle. `quadrant=` is accepted as the same argument under its older name,
@@ -128,16 +128,16 @@ if client.public.has("timers"):
     timer = client.public.timers["start"](300, name="Eggs")
 ```
 
-| Call | Does |
-|---|---|
-| `start(seconds, name="", quadrant="", center=None)` | Start one. Returns the `Timer`. |
-| `cancel(key)` | Stop one, and take its widget away. |
-| `cancel_all()` | Stop all of them. Returns how many. |
-| `find(name="", seconds=0)` | Timers matching a name, a duration, or both. |
-| `cancel_matching(name="", seconds=0)` | Cancel those, and return them. |
-| `get(key)` | One `Timer`, or `None`. |
-| `running()` | Those still counting. |
-| `all()` | Every timer, finished ones included. |
+| Call                                                | Does                                         |
+|-----------------------------------------------------|----------------------------------------------|
+| `start(seconds, name="", quadrant="", center=None)` | Start one. Returns the `Timer`.              |
+| `cancel(key)`                                       | Stop one, and take its widget away.          |
+| `cancel_all()`                                      | Stop all of them. Returns how many.          |
+| `find(name="", seconds=0)`                          | Timers matching a name, a duration, or both. |
+| `cancel_matching(name="", seconds=0)`               | Cancel those, and return them.               |
+| `get(key)`                                          | One `Timer`, or `None`.                      |
+| `running()`                                         | Those still counting.                        |
+| `all()`                                             | Every timer, finished ones included.         |
 
 A `Timer` carries `key`, `name`, `duration`, `colour`, `remaining()`,
 `fraction()` and `done`.
@@ -193,16 +193,16 @@ delete handle like any other widget, and that stops the real timer.
 
 Three skills, from `coreskillsbundle`:
 
-| Say | Does |
-|---|---|
-| "set a timer for ten minutes" | Starts one. |
-| "create an eggs timer for five minutes" | Starts a named one. |
-| "set a spaghetti timer for one hour" | The same, however you phrase it. |
-| "make a timer called Eggs for five minutes" | Also works. |
-| "how long is left on my timer" | Reads out everything running. |
-| "cancel my timers" | Stops all of them. |
-| "cancel the eggs timer" | Stops one by name. |
-| "cancel the five minute timer" | Stops one by how long it was set for. |
+| Say                                         | Does                                  |
+|---------------------------------------------|---------------------------------------|
+| "set a timer for ten minutes"               | Starts one.                           |
+| "create an eggs timer for five minutes"     | Starts a named one.                   |
+| "set a spaghetti timer for one hour"        | The same, however you phrase it.      |
+| "make a timer called Eggs for five minutes" | Also works.                           |
+| "how long is left on my timer"              | Reads out everything running.         |
+| "cancel my timers"                          | Stops all of them.                    |
+| "cancel the eggs timer"                     | Stops one by name.                    |
+| "cancel the five minute timer"              | Stops one by how long it was set for. |
 
 A name is picked up two ways: after "called" or "named", and **immediately
 before the word "timer"** - which is how people actually say it. Units and
@@ -252,14 +252,14 @@ guessed in advance, and seven minutes is not an unreasonable thing to want.
 
 ## API
 
-| Endpoint | Does |
-|---|---|
+| Endpoint                             | Does                                                                                         |
+|--------------------------------------|----------------------------------------------------------------------------------------------|
 | `GET` or `POST` `/public/timer_form` | **A page** to start one from a phone: presets, hours/minutes/seconds, a name and a position. |
-| `GET /public/timer_start` | Start a timer, for a script. |
-| `GET /public/timer_list` | Every timer the panel is counting. |
-| `GET /public/timer_cancel` | Cancel one, or all of them. |
-| `GET /public/widget_show` | Place a transient widget. |
-| `GET /public/widget_dismiss` | Take one away. |
+| `GET /public/timer_start`            | Start a timer, for a script.                                                                 |
+| `GET /public/timer_list`             | Every timer the panel is counting.                                                           |
+| `GET /public/timer_cancel`           | Cancel one, or all of them.                                                                  |
+| `GET /public/widget_show`            | Place a transient widget.                                                                    |
+| `GET /public/widget_dismiss`         | Take one away.                                                                               |
 
 ```bash
 # seconds, minutes and hours add up

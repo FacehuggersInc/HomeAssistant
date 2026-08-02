@@ -25,6 +25,23 @@ TIMER_NAME_STOPWORDS = [
 
 class CoreSkills(Plugin):
 
+    def _describe(self, seconds) -> str:
+        """
+        A duration as a noun phrase, from whoever owns timers.
+
+        Through the public registry rather than by importing the module it
+        lives in. `plugin.toml` makes `corewidgetsbundle` a dependency, so an
+        import would load - but a dependency is what makes an import legal,
+        not what makes it right: everything else about timers already comes
+        through `client.public.timers`, and one function arriving by a
+        different route is one more thing to keep in step.
+        """
+        try:
+            return self.client.public.timers["describe"](seconds)
+        except Exception:
+            return f"{int(seconds)} seconds"
+
+
     ## CORE
 
     def __init__(self):
@@ -35,7 +52,7 @@ class CoreSkills(Plugin):
     def load(self, carryover=None):
         self.load_skills()
         self.client.subscribe_to_event("on_update", self.update_assistant)
-        self.client.subscribe_to_event("on_assistant_transcribed", self.on_transcribed)
+        self.client.subscribe_to_event("on_assistant_transcribed", self.on_routed)
         self.client.subscribe_to_event("on_transcribing_assistant",
                                        self.on_transcribing)
         self.client.subscribe_to_event("on_transcribed_assistant",
@@ -49,7 +66,7 @@ class CoreSkills(Plugin):
 
     def unload(self, carryover=None):
         self.client.unsubscribe_from_event("on_update", self.update_assistant)
-        self.client.unsubscribe_from_event("on_assistant_transcribed", self.on_transcribed)
+        self.client.unsubscribe_from_event("on_assistant_transcribed", self.on_routed)
         self.client.unsubscribe_from_event("on_transcribing_assistant",
                                            self.on_transcribing)
         self.client.unsubscribe_from_event("on_transcribed_assistant",
@@ -81,7 +98,7 @@ class CoreSkills(Plugin):
 
     def load_voice_bar(self):
         try:
-            if not self.client.SETTINGS.assistant.voice_bar.value:
+            if not self.client.SETTINGS.assistant.feedback.voice_bar.value:
                 return
         except Exception:
             pass
@@ -95,10 +112,20 @@ class CoreSkills(Plugin):
         if self.voice_bar is not None:
             self.client.call_on_ui(lambda: self.voice_bar.anchor(self.client.OVERLAYS))
 
-    def on_transcribed(self, event):
-        # Whisper only emits finished transcripts - it transcribes a completed
-        # speech window, so there is no partial stream to show while talking.
-        # The meter covers "hearing something"; this is "heard this".
+    def on_routed(self, event):
+        """
+        The transcript, after normalising and before it is acted on.
+
+        Named apart from `on_transcribed` deliberately: both were called
+        that, in this class, subscribed to two DIFFERENT events - so the
+        second definition replaced the first and `on_assistant_transcribed`
+        ran the wrong body. The bar cleared its waiting message where it was
+        meant to show the words.
+
+        The transcriber only emits finished transcripts, so there is no
+        partial stream to show while somebody is talking. The meter covers
+        "hearing something"; this is "heard this".
+        """
         if self.voice_bar is None:
             return
         text = event if isinstance(event, str) else str(event or "")
@@ -744,9 +771,8 @@ class CoreSkills(Plugin):
             self._respond("I could not start that timer.")
             return
 
-        from src.assets.bundled.CoreWidgetsBundle.timers import describe
         label = f" for {name}" if name else ""
-        self._respond(f"{describe(seconds)}{label}, starting now.")
+        self._respond(f"{self._describe(seconds)}{label}, starting now.")
 
     def cancel_timers(self, time: str = None, name: str = None):
         """
@@ -789,21 +815,20 @@ class CoreSkills(Plugin):
             else:
                 # "the 30 minutes timer" reads wrong - describe() gives a
                 # noun phrase, not an adjective, so it goes after the noun.
-                from src.assets.bundled.CoreWidgetsBundle.timers import describe
-                self._respond(
-                    f"Stopped the timer set for {describe(timer.duration)}.")
+                        self._respond(
+                    f"Stopped the timer set for {self._describe(timer.duration)}.")
             return
 
         self._respond(f"Stopped {len(matched)} timers.")
 
     def _running_summary(self, running: list) -> str:
         """What is actually on, for when a request matched nothing."""
-        from src.assets.bundled.CoreWidgetsBundle.timers import describe
         if not running:
             return "Nothing is running."
         names = []
         for timer in running:
-            names.append(timer.name if timer.name else describe(timer.duration))
+            names.append(timer.name if timer.name
+                         else self._describe(timer.duration))
         if len(names) == 1:
             return f"The only one running is {names[0]}."
         return "Running: " + ", ".join(names) + "."
@@ -817,8 +842,8 @@ class CoreSkills(Plugin):
             self._respond("There are no timers running.")
             return
 
-        from src.assets.bundled.CoreWidgetsBundle.timers import describe
-        lines = [f"{t.label()}: {describe(t.remaining())} left" for t in running]
+        lines = [f"{t.label()}: {self._describe(t.remaining())} left"
+                 for t in running]
         spoken = "; ".join(lines)
         self.client.answer("mdi.timer-outline",
                            f"{len(running)} timer" + ("s" if len(running) != 1 else ""),

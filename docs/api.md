@@ -32,20 +32,20 @@ revoked on its own.
 
 ## Client control
 
-| Endpoint | Does |
-|---|---|
-| `GET /terminate` | Shut the panel down. |
-| `GET /restart` | Relaunch as-is. |
-| `GET /update` | Download, stage and restart into the newest commit. |
-| `GET /update/check` | Report whether an update exists. Downloads nothing. |
-| `GET /notify?icon=&title=&body=` | Show a notification. No auth. |
-| `POST /access/request?name=` | Ask to be allowed. No auth, by definition. |
-| `GET /access/state?token=` | Whether that request has been answered. |
-| `GET /process?...` | Run an assistant intent. |
-| `GET /pages` | Every registered page key, and which is on screen. |
-| `GET` or `POST` `/goto/<page>` | Switch pages. Query parameters become the page's data. |
-| `GET` or `POST` `/clipboard` | Read the clipboard, or set it with `?text=`. |
-| `GET /clipboard/clear` | Empty it. |
+| Endpoint                         | Does                                                   |
+|----------------------------------|--------------------------------------------------------|
+| `GET /terminate`                 | Shut the panel down.                                   |
+| `GET /restart`                   | Relaunch as-is.                                        |
+| `GET /update`                    | Download, stage and restart into the newest commit.    |
+| `GET /update/check`              | Report whether an update exists. Downloads nothing.    |
+| `GET /notify?icon=&title=&body=` | Show a notification. No auth.                          |
+| `POST /access/request?name=`     | Ask to be allowed. No auth, by definition.             |
+| `GET /access/state?token=`       | Whether that request has been answered.                |
+| `GET /process?...`               | Run an assistant intent.                               |
+| `GET /pages`                     | Every registered page key, and which is on screen.     |
+| `GET` or `POST` `/goto/<page>`   | Switch pages. Query parameters become the page's data. |
+| `GET` or `POST` `/clipboard`     | Read the clipboard, or set it with `?text=`.           |
+| `GET /clipboard/clear`           | Empty it.                                              |
 
 `/update` returns as soon as staging starts - the download and restart happen
 in the background. Poll `/plugins` to tell when the panel is back.
@@ -131,15 +131,15 @@ endpoint returns **500** with the reason rather than hanging the request.
 
 ## Settings
 
-| Endpoint | Does |
-|---|---|
-| `GET /settings/<path>` | Read a setting. |
-| `GET /settings/<path>?v=VALUE` | Write it. |
+| Endpoint                       | Does            |
+|--------------------------------|-----------------|
+| `GET /settings/<path>`         | Read a setting. |
+| `GET /settings/<path>?v=VALUE` | Write it.       |
 
 Paths are dotted, matching the settings tree:
 
 ```
-/settings/assistant.model.value?token=...&v=small.en
+/settings/assistant.speech.model.value?token=...&v=parakeet-v2
 /settings/application.updates.check_interval.value?token=...&v=12
 ```
 
@@ -149,15 +149,15 @@ after it clears a setting rather than reading it.
 
 ## Plugins
 
-| Endpoint | Does |
-|---|---|
-| `GET /plugins` | Everything loaded and pending. |
-| `GET /plugins/<key>/info` | One plugin in detail. |
-| `GET /plugins/<key>/reload` | Reload it. |
-| `GET /plugins/<key>/unload` | Unload it. |
-| `GET /plugins/<key>/load` | Load a pending plugin. |
-| `GET /plugins/<key>/install` | Install its pip requirements, then load it. |
-| `GET /plugins/<key>/uninstall` | Remove its pip requirements. |
+| Endpoint                       | Does                                        |
+|--------------------------------|---------------------------------------------|
+| `GET /plugins`                 | Everything loaded and pending.              |
+| `GET /plugins/<key>/info`      | One plugin in detail.                       |
+| `GET /plugins/<key>/reload`    | Reload it.                                  |
+| `GET /plugins/<key>/unload`    | Unload it.                                  |
+| `GET /plugins/<key>/load`      | Load a pending plugin.                      |
+| `GET /plugins/<key>/install`   | Install its pip requirements, then load it. |
+| `GET /plugins/<key>/uninstall` | Remove its pip requirements.                |
 
 `unload` returns **409** when another plugin depends on this one. Pass
 `?force=1` to do it anyway - unloading underneath a dependant leaves it calling
@@ -310,6 +310,9 @@ index as a button.
 because it includes a `ddcutil detect`, but it is the difference between "it
 is using the overlay" and knowing why.
 
+`GET /users` returns the approved devices, for anything building its own owner
+picker rather than a text field. See [Users](users.md).
+
 ## Writing a page endpoint
 
 Pages served to a phone are plain HTML strings - a form with a handful of
@@ -317,11 +320,11 @@ fields, and a template engine for that is a dependency to maintain for
 something most people open twice. `src/webui.py` holds the parts that kept
 drifting between them:
 
-| From `src.webui` | Gives you |
-|---|---|
-| `chrome_css()` | The palette, field styling and the back button's CSS. |
-| `back_button(token)` | A styled back control, with the token on it. |
-| `escape(text)` | `html.escape` with `quote=True`, for attributes. |
+| From `src.webui`     | Gives you                                             |
+|----------------------|-------------------------------------------------------|
+| `chrome_css()`       | The palette, field styling and the back button's CSS. |
+| `back_button(token)` | A styled back control, with the token on it.          |
+| `escape(text)`       | `html.escape` with `quote=True`, for attributes.      |
 
 `chrome_css()` styles `select` and `option` as well as `input`. Styling only
 `input` is why one page's dropdown was the browser's own white control on an
@@ -331,20 +334,20 @@ otherwise dark page.
 
 Registered like any other plugin endpoint, and served under `/public/`.
 
-| Endpoint | From | Does |
-|---|---|---|
-| `timer_start` | Core Widgets | Start a timer. `seconds=`, `minutes=`, `hours=` add up. |
-| `timer_list` | Core Widgets | Every timer the panel is counting. |
-| `timer_cancel` | Core Widgets | Cancel one by `key=`, or `all=1`. |
-| `widget_show` | Core Widgets | Place a transient widget on the home screen. |
-| `widget_dismiss` | Core Widgets | Take one away. |
-| `sticker_add` | Core Widgets | A page to upload and place stickers from a phone. |
-| `sticker_list` | Core Widgets | The sticker library. |
-| `sticker_place` | Core Widgets | Place one, permanently or for a while. |
-| `sticker_remove` | Core Widgets | Delete one from the library. |
-| `calendar_add` | Calendar | Add an event. |
-| `calendar_upcoming` | Calendar | The next few events. |
-| `calendar_sync` | Calendar | Refresh every subscribed feed. |
+| Endpoint            | From         | Does                                                    |
+|---------------------|--------------|---------------------------------------------------------|
+| `timer_start`       | Core Widgets | Start a timer. `seconds=`, `minutes=`, `hours=` add up. |
+| `timer_list`        | Core Widgets | Every timer the panel is counting.                      |
+| `timer_cancel`      | Core Widgets | Cancel one by `key=`, or `all=1`.                       |
+| `widget_show`       | Core Widgets | Place a transient widget on the home screen.            |
+| `widget_dismiss`    | Core Widgets | Take one away.                                          |
+| `sticker_add`       | Core Widgets | A page to upload and place stickers from a phone.       |
+| `sticker_list`      | Core Widgets | The sticker library.                                    |
+| `sticker_place`     | Core Widgets | Place one, permanently or for a while.                  |
+| `sticker_remove`    | Core Widgets | Delete one from the library.                            |
+| `calendar_add`      | Calendar     | Add an event.                                           |
+| `calendar_upcoming` | Calendar     | The next few events.                                    |
+| `calendar_sync`     | Calendar     | Refresh every subscribed feed.                          |
 
 See each plugin's own documentation for the full argument list.
 
@@ -360,22 +363,62 @@ adding an event, served at
 
 ## Files
 
-| Endpoint | Does |
-|---|---|
-| `GET /upload` | Index of upload keys. |
-| `GET /upload/<key>` | Upload form for one key. |
-| `POST /upload/<key>` | Receive a file. |
-| `GET /asset/<key>` | List assets under a key. |
-| `GET /asset/<key>/<filename>` | Download one. |
+| Endpoint                      | Does                           |
+|-------------------------------|--------------------------------|
+| `GET /upload`                 | Index of upload keys.          |
+| `GET /upload/<key>`           | Upload form for one key.       |
+| `POST /upload/<key>`          | Receive a file.                |
+| `GET /asset/<key>`            | List assets under a key.       |
+| `GET /asset/<key>/<filename>` | Download one.                  |
+| `GET /font/<name>`            | One of the panel's font files. |
+
+`/font` is **not authed**. A typeface is not information, and the pages that
+need it include the approval screen - a browser refused the font renders the
+one page somebody has to read in order to get a token in a fallback face.
+
+
+## Pages rather than data
+
+Some endpoints answer with HTML because the thing asking is a browser rather
+than a script.
+
+| Endpoint                               | Does                                         |
+|----------------------------------------|----------------------------------------------|
+| `GET /`                                | The index. See [The index](#the-index).      |
+| `GET /goto/page`                       | A page switcher for a device with a browser. |
+| `GET /clipboard/page`                  | The clipboard, as a page a phone can open.   |
+| `GET /upload`, `GET /upload/<key>`     | Upload forms, above.                         |
+| `GET /access/wait`, `GET /access/name` | The approval flow. See [Users](users.md).    |
+
+`/goto/page` also matches `/goto/<path:page>`. Werkzeug sorts rules by
+specificity rather than by declaration order, so the static one wins and there
+is no page called `page` to collide with.
+
+
+## Served to the panel's own browser
+
+Three endpoints exist for the built-in web view and are **not authed**,
+because that view has no token and no way to be given one.
+
+| Endpoint                    | Does                               |
+|-----------------------------|------------------------------------|
+| `GET /webhome`              | What the panel's browser opens on. |
+| `GET /bookmark/forget`      | Remove a bookmark, from that page. |
+| `GET /bookmark-icon/<name>` | One saved favicon, served by name. |
+
+None exposes anything a person standing at the panel cannot already see or do.
+The icon is served by NAME with the path stripped to its last component,
+because the folder it comes from is inside the user data directory. See
+[The web page](webpage.md).
 
 
 ## Documentation
 
-| Endpoint | Does |
-|---|---|
-| `GET /docs` | This documentation, rendered. No auth. |
-| `GET /docs/<page>` | One page. |
-| `GET /docs/<page>.md` | The raw markdown. |
+| Endpoint              | Does                                   |
+|-----------------------|----------------------------------------|
+| `GET /docs`           | This documentation, rendered. No auth. |
+| `GET /docs/<page>`    | One page.                              |
+| `GET /docs/<page>.md` | The raw markdown.                      |
 
 
 ## hactl.py
@@ -388,7 +431,7 @@ A single-file CLI at the project root, stdlib only and importing nothing from
 ./hactl.py update --check
 ./hactl.py update --wait
 ./hactl.py plugins list
-./hactl.py settings assistant.model.value small.en
+./hactl.py settings assistant.speech.model.value parakeet-v2
 ```
 
 Pairing happens once per machine and the token is cached in
@@ -398,21 +441,21 @@ Pairing happens once per machine and the token is cached in
 Multiple panels are supported with `-t NAME`; `--host` and `--token` override
 without saving.
 
-| Command | Does |
-|---|---|
-| `hosts list/add/remove/use` | Manage saved panels. |
-| `ping` | `ready`, `starting`, `unauthorized` or `unreachable`. |
-| `update [--check] [--wait]` | Check, or stage and restart. |
-| `restart [--wait]` | Restart. |
-| `terminate [-y]` | Shut down. |
-| `notify ICON TITLE BODY` | Show a notification. |
-| `settings PATH [VALUE]` | Read or write. |
-| `pages` | List pages; a `*` marks the one on screen. |
-| `goto PAGE [k=v ...]` | Switch pages, passing data. |
-| `clipboard` with `get`, `set TEXT` or `clear` | Read, set or empty the clipboard. |
-| `plugins ...` | Everything under `/plugins`. |
-| `public ENDPOINT [k=v ...]` | Call a registered endpoint. |
-| `raw PATH [k=v ...]` | Anything else. |
+| Command                                       | Does                                                  |
+|-----------------------------------------------|-------------------------------------------------------|
+| `hosts list/add/remove/use`                   | Manage saved panels.                                  |
+| `ping`                                        | `ready`, `starting`, `unauthorized` or `unreachable`. |
+| `update [--check] [--wait]`                   | Check, or stage and restart.                          |
+| `restart [--wait]`                            | Restart.                                              |
+| `terminate [-y]`                              | Shut down.                                            |
+| `notify ICON TITLE BODY`                      | Show a notification.                                  |
+| `settings PATH [VALUE]`                       | Read or write.                                        |
+| `pages`                                       | List pages; a `*` marks the one on screen.            |
+| `goto PAGE [k=v ...]`                         | Switch pages, passing data.                           |
+| `clipboard` with `get`, `set TEXT` or `clear` | Read, set or empty the clipboard.                     |
+| `plugins ...`                                 | Everything under `/plugins`.                          |
+| `public ENDPOINT [k=v ...]`                   | Call a registered endpoint.                           |
+| `raw PATH [k=v ...]`                          | Anything else.                                        |
 
 `--json` prints the raw reply. Exit codes are 0 success, 1 refused, 2 usage,
 3 unreachable, so it is usable from a shell script.

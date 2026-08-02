@@ -234,7 +234,6 @@ class Fireflies(Layer):
             painter.setBrush(gradient)
             painter.drawEllipse(QPointF(fly.x, fly.y), radius, radius)
 
-            # Body
             solid = QColor(body)
             solid.setAlpha(int(235 * glow))
             painter.setBrush(solid)

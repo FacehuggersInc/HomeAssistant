@@ -62,6 +62,13 @@ class NighttimeClockPlugin(Plugin):
         # returning to - see _remember_page.
         self._last_page = ""
 
+    def setting_value(self, key: str, default=None):
+        """One of this plugin's own settings, for anything it exposes to."""
+        try:
+            return getattr(self.settings, key).value
+        except Exception:
+            return default
+
     ## CORE
 
     def load(self, carryover=None):
@@ -79,6 +86,12 @@ class NighttimeClockPlugin(Plugin):
         self._remember_page()
 
         self.client.public.expose(self.KEY, "nighttime", {
+            # The page reads these rather than reaching for the plugin
+            # instance. `client.setting()` walks the client's own tree, which
+            # a plugin key never reaches, and going through the manager to
+            # find yourself is a route around the registry that exists for
+            # exactly this.
+            "setting":    self.setting_value,
             "weather":    lambda: dict(self._forced_weather or self.weather),
             "condition":  self.condition,
             "refresh":    self.refresh_weather,
@@ -257,23 +270,28 @@ class NighttimeClockPlugin(Plugin):
 
     ## SETTINGS
 
-    def _setting(self, key: str, default):
+    def _setting(self, path: str, default):
         """
-        Read one of this plugin's own settings.
+        Read one of this plugin's own settings, by dotted path.
 
         From `self.settings` — the object the loader builds from this plugin's
-        settings.json, and the one `_set_enabled` writes to. `client.setting()`
-        walks the CLIENT's tree, which a plugin key never reaches, so a lookup
-        there answers with the default whatever is on disk and whatever the
-        settings page saved.
+        settings.json. `client.setting()` walks the CLIENT's tree, which a
+        plugin key never reaches, so a lookup there answers with the default
+        whatever is on disk and whatever the settings page saved.
+
+        The path includes the sub-heading the setting sits under, the same way
+        the client's own paths do: `scene.fireflies`, not `fireflies`.
         """
         try:
-            return getattr(self.settings, key).value
+            node = self.settings
+            for part in path.split("."):
+                node = getattr(node, part)
+            return node.value
         except Exception:
             return default
 
     def _enabled(self) -> bool:
-        return bool(self._setting("enabled", True))
+        return bool(self._setting("schedule.enabled", True))
 
     def _set_enabled(self, on: bool) -> bool:
         """
@@ -287,7 +305,7 @@ class NighttimeClockPlugin(Plugin):
         the plugin's own file.
         """
         try:
-            self.settings.enabled.value = bool(on)
+            self.settings.schedule.enabled.value = bool(on)
             return True
         except Exception as e:
             self.client.log("warning", f"[Nighttime] Could not set: {e}")
@@ -295,11 +313,11 @@ class NighttimeClockPlugin(Plugin):
 
     def _reload_schedule(self) -> None:
         self.schedule = Schedule(
-            night=self._setting("night_time", "21:00"),
-            day=self._setting("day_time", "07:00"),
-            lead_minutes=self._setting("dim_lead_minutes", 60),
-            night_brightness=self._setting("night_brightness", 12),
-            dim_enabled=self._setting("dim_enabled", True),
+            night=self._setting("schedule.night_time", "21:00"),
+            day=self._setting("schedule.day_time", "07:00"),
+            lead_minutes=self._setting("brightness.dim_lead_minutes", 60),
+            night_brightness=self._setting("brightness.night_brightness", 12),
+            dim_enabled=self._setting("brightness.dim_enabled", True),
         )
 
     def _on_settings(self, event=None) -> None:
@@ -521,7 +539,7 @@ class NighttimeClockPlugin(Plugin):
         self._woken_at = time.time()
         if not self._awake:
             self._awake = True
-            self._set_brightness(self._setting("woken_brightness", 55),
+            self._set_brightness(self._setting("brightness.woken_brightness", 55),
                                  self.WAKE_MS)
             if self._on_night_page():
                 self._goto(self._home_target())
@@ -590,7 +608,7 @@ class NighttimeClockPlugin(Plugin):
     def _wake_now(self) -> None:
         self._awake = True
         self._set_brightness(
-            self._setting("woken_brightness", 55)
+            self._setting("brightness.woken_brightness", 55)
             if self.schedule.is_night(now_minutes()) else 100,
             self.WAKE_MS)
         if self._on_night_page():
@@ -626,7 +644,7 @@ class NighttimeClockPlugin(Plugin):
         except Exception:
             pass
         self._awake = True
-        self._set_brightness(self._setting("woken_brightness", 55),
+        self._set_brightness(self._setting("brightness.woken_brightness", 55),
                              self.WAKE_MS)
         if self._on_night_page():
             self._goto(self._home_target())
@@ -643,7 +661,7 @@ class NighttimeClockPlugin(Plugin):
         if self._on_night_page():
             self._awake = True
             self._set_brightness(
-                self._setting("woken_brightness", 55)
+                self._setting("brightness.woken_brightness", 55)
                 if self.schedule.is_night(now_minutes()) else 100,
                 self.WAKE_MS)
             self._goto(self._home_target())
@@ -668,7 +686,7 @@ class NighttimeClockPlugin(Plugin):
         self._back_to_night()
 
     def _arm_settle(self) -> None:
-        seconds = max(2, int(self._setting("settle_seconds", 20)))
+        seconds = max(2, int(self._setting("brightness.settle_seconds", 20)))
         try:
             # idle: this measures nothing happening, so it is held while a
             # dialog is open. Somebody answering "who is this" is doing
@@ -744,7 +762,7 @@ class NighttimeClockPlugin(Plugin):
         come back to it - but a household that wanders through pages will want
         home, hence the setting.
         """
-        mode = str(self._setting("return_to", "last")).strip().lower()
+        mode = str(self._setting("schedule.return_to", "last")).strip().lower()
         if mode.startswith("h"):
             return self._default_home()
         return self._last_page or self._default_home()

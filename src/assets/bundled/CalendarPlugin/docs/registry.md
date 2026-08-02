@@ -18,14 +18,14 @@ if self.client.public.has("calendar"):
 
 ## Reading events
 
-| Call | Returns |
-|---|---|
-| `on_day(date, include_holidays=True)` | Everything on one day. |
+| Call                                           | Returns                                        |
+|------------------------------------------------|------------------------------------------------|
+| `on_day(date, include_holidays=True)`          | Everything on one day.                         |
 | `in_month(year, month, include_holidays=True)` | `{date: [events]}` — what the grid draws from. |
-| `between(start, end, include_holidays=True)` | Everything in a range. |
-| `upcoming(count=5, source=None, now=None)` | The next `count`, in order. |
-| `get_event(key)` | One event, or `None`. |
-| `holidays(year)` | Every holiday in a year. |
+| `between(start, end, include_holidays=True)`   | Everything in a range.                         |
+| `upcoming(count=5, source=None, now=None)`     | The next `count`, in order.                    |
+| `get_event(key)`                               | One event, or `None`.                          |
+| `holidays(year)`                               | Every holiday in a year.                       |
 
 `source` is `"local"`, `"imported"`, `"subscribed"` or `"holiday"`. Passing it
 to `upcoming` narrows to that kind.
@@ -37,17 +37,17 @@ to `upcoming` narrows to that kind.
 These are the reason the registry exists — the same question asked from a
 widget, a tile, a panel and a voice skill should give the same answer.
 
-| Call | Returns |
-|---|---|
-| `next_event(source=None, now=None)` | The next thing, or `None`. |
-| `next_holiday(now=None)` | The next holiday. |
-| `next_user_event(now=None)` | The next thing a person added, ignoring holidays. |
-| `previous_event(source=None, now=None)` | The most recent one that has finished. |
-| `current_event(now=None)` | Something happening right now, if anything is. |
-| `time_until(event, now=None)` | A `timedelta`, or `None`. |
-| `days_until(event, today=None)` | A whole number of days. |
-| `describe_gap(event, now=None)` | `"in 20 minutes"`, `"tomorrow"`, `"in 6 days"`. |
-| `describe_duration(event)` | `"45 minutes"`, `"2h 30m"`, `"all day"`. |
+| Call                                    | Returns                                           |
+|-----------------------------------------|---------------------------------------------------|
+| `next_event(source=None, now=None)`     | The next thing, or `None`.                        |
+| `next_holiday(now=None)`                | The next holiday.                                 |
+| `next_user_event(now=None)`             | The next thing a person added, ignoring holidays. |
+| `previous_event(source=None, now=None)` | The most recent one that has finished.            |
+| `current_event(now=None)`               | Something happening right now, if anything is.    |
+| `time_until(event, now=None)`           | A `timedelta`, or `None`.                         |
+| `days_until(event, today=None)`         | A whole number of days.                           |
+| `describe_gap(event, now=None)`         | `"in 20 minutes"`, `"tomorrow"`, `"in 6 days"`.   |
+| `describe_duration(event)`              | `"45 minutes"`, `"2h 30m"`, `"all day"`.          |
 
 `describe_gap` switches to days past a day out, because "in 37 hours" is not
 how anyone thinks about Thursday.
@@ -82,26 +82,26 @@ Holidays cannot be added, updated or removed. They are computed, and
 
 ## An event
 
-| Field | Meaning |
-|---|---|
-| `title` | Required. |
-| `day` | `"YYYY-MM-DD"`. Required. |
-| `time`, `end_time` | `"HH:MM"`. Empty `time` means all-day. |
-| `location`, `notes` | Optional text. |
-| `icon` | An `mdi.` name. |
-| `colour` | Hex, or empty to use the colour for its source. |
-| `source` | `local`, `imported`, `subscribed` or `holiday`. Must be listed in `SOURCES` — an unlisted value is rewritten to `local` on load. |
-| `key` | Generated. Stable for the life of the event. |
+| Field               | Meaning                                                                                                                          |
+|---------------------|----------------------------------------------------------------------------------------------------------------------------------|
+| `title`             | Required.                                                                                                                        |
+| `day`               | `"YYYY-MM-DD"`. Required.                                                                                                        |
+| `time`, `end_time`  | `"HH:MM"`. Empty `time` means all-day.                                                                                           |
+| `location`, `notes` | Optional text.                                                                                                                   |
+| `icon`              | An `mdi.` name.                                                                                                                  |
+| `colour`            | Hex, or empty to use the colour for its source.                                                                                  |
+| `source`            | `local`, `imported`, `subscribed` or `holiday`. Must be listed in `SOURCES` — an unlisted value is rewritten to `local` on load. |
+| `key`               | Generated. Stable for the life of the event.                                                                                     |
 
 And derived:
 
-| Property | Meaning |
-|---|---|
-| `date` | A `date`, or `None` if unparseable. |
+| Property               | Meaning                                                    |
+|------------------------|------------------------------------------------------------|
+| `date`                 | A `date`, or `None` if unparseable.                        |
 | `starts_at`, `ends_at` | `datetime`s. An event crossing midnight ends the next day. |
-| `all_day` | Whether `time` is empty. |
-| `editable` | `False` for holidays. |
-| `duration()` | A `timedelta`, or `None` when there is no stated end. |
+| `all_day`              | Whether `time` is empty.                                   |
+| `editable`             | `False` for holidays.                                      |
+| `duration()`           | A `timedelta`, or `None` when there is no stated end.      |
 
 ---
 
@@ -111,11 +111,11 @@ The calendar is reachable from anything on the same network. Everything below
 is served by the client's Flask backend on **port 5000**, and needs the client
 token as `?token=`. Pair a device once and approve it on the panel.
 
-| Address | Does |
-|---|---|
-| `http://<panel-ip>:5000/public/calendar_form?token=...` | A page you can add an event from, on a phone. |
-| `http://<panel-ip>:5000/public/calendar_add?token=...&title=&day=` | Add one directly. GET or POST. |
-| `http://<panel-ip>:5000/public/calendar_upcoming?token=...&count=5` | What is coming up, as JSON. |
+| Address                                                             | Does                                          |
+|---------------------------------------------------------------------|-----------------------------------------------|
+| `http://<panel-ip>:5000/public/calendar_form?token=...`             | A page you can add an event from, on a phone. |
+| `http://<panel-ip>:5000/public/calendar_add?token=...&title=&day=`  | Add one directly. GET or POST.                |
+| `http://<panel-ip>:5000/public/calendar_upcoming?token=...&count=5` | What is coming up, as JSON.                   |
 
 `/public/` is where every plugin-registered endpoint is served — these are
 registered by the Calendar plugin on `client.API` and disappear with
@@ -197,11 +197,11 @@ the authority for what was added on the panel.
 ICS is a real standard, so Google, iCloud and Outlook are one code path. What
 differs is only where the URL comes from.
 
-| Provider | Where |
-|---|---|
-| Google | Settings for that calendar → secret address in iCal format. |
-| Apple / iCloud | Share the calendar publicly → a `webcal://` link. |
-| Outlook / 365 | Publish the calendar → choose ICS. |
+| Provider       | Where                                                       |
+|----------------|-------------------------------------------------------------|
+| Google         | Settings for that calendar → secret address in iCal format. |
+| Apple / iCloud | Share the calendar publicly → a `webcal://` link.           |
+| Outlook / 365  | Publish the calendar → choose ICS.                          |
 
 Treat the URL as a password. Anyone holding it can read that calendar, which
 is why `subscriptions.json` is written `0600`.
@@ -212,13 +212,13 @@ requests. For something immediate, post to `calendar_add` instead.
 
 ### Managing them
 
-| Call | Does |
-|---|---|
-| `subscriptions()` | Every feed being mirrored. |
-| `add_subscription(url, name, colour)` | Start mirroring one. |
-| `remove_subscription(key)` | Stop, and delete its events. |
-| `sync_subscriptions()` | Re-fetch now, off the UI thread. |
-| `reset_subscriptions(key="")` | Clear its events and fetch again from nothing. |
+| Call                                  | Does                                           |
+|---------------------------------------|------------------------------------------------|
+| `subscriptions()`                     | Every feed being mirrored.                     |
+| `add_subscription(url, name, colour)` | Start mirroring one.                           |
+| `remove_subscription(key)`            | Stop, and delete its events.                   |
+| `sync_subscriptions()`                | Re-fetch now, off the UI thread.               |
+| `reset_subscriptions(key="")`         | Clear its events and fetch again from nothing. |
 
 The list appears in two places — **Settings → Calendar → Subscriptions** and
 the subscriptions dialog on the calendar page — and both build their rows from
@@ -228,12 +228,12 @@ where one offered four actions and the other only Remove.
 Each calendar shows who it is for, its event count and last sync — or the
 error, if the last one failed — and four buttons:
 
-| Button | Does |
-|---|---|
-| **Sync** | Fetch now rather than waiting for the timer. |
-| **Tidy** | Remove duplicate rows. Nothing added on the panel is touched. |
-| **Reset** | Delete this feed's events and fetch them all again. |
-| **Remove** | Stop mirroring and delete its events. Confirmed. |
+| Button     | Does                                                          |
+|------------|---------------------------------------------------------------|
+| **Sync**   | Fetch now rather than waiting for the timer.                  |
+| **Tidy**   | Remove duplicate rows. Nothing added on the panel is touched. |
+| **Reset**  | Delete this feed's events and fetch them all again.           |
+| **Remove** | Stop mirroring and delete its events. Confirmed.              |
 
 Reset is for when a feed and the panel have drifted apart. It is cheaper to
 explain than a repair, and there is nothing here worth repairing — every one
@@ -315,13 +315,13 @@ A repeating event is stored **once** and expanded on read. Storing every
 occurrence would mean a weekly event filling the file forever, and no way to
 change "all of them" afterwards.
 
-| Field | Meaning |
-|---|---|
-| `repeat` | `daily`, `weekly`, `monthly`, `yearly`, or empty. |
-| `repeat_until` | Last day the **series** may occur. Empty means forever. |
-| `skip` | Occurrence days that should not appear. |
-| `end_day` | Last day of **one occurrence**, for something spanning more than one. |
-| `hidden` | Silenced without being deleted. |
+| Field          | Meaning                                                               |
+|----------------|-----------------------------------------------------------------------|
+| `repeat`       | `daily`, `weekly`, `monthly`, `yearly`, or empty.                     |
+| `repeat_until` | Last day the **series** may occur. Empty means forever.               |
+| `skip`         | Occurrence days that should not appear.                               |
+| `end_day`      | Last day of **one occurrence**, for something spanning more than one. |
+| `hidden`       | Silenced without being deleted.                                       |
 
 ### `end_day` is not `repeat_until`
 
@@ -356,12 +356,12 @@ the day it starts. An occurrence beginning before the window can still run into
 it, and filtering on the start day alone meant `on_day()` returned nothing for a
 span that `in_month()` was drawing across the whole week.
 
-| Call | Does |
-|---|---|
-| `expand(event, start, end)` | The occurrences in a window. |
-| `skip_occurrence(series_key, date)` | Hide one. |
-| `unskip_occurrence(series_key, date)` | Put it back. |
-| `skip_next(series_key, count)` | Hide the next `count` — "not for three weeks". |
+| Call                                  | Does                                           |
+|---------------------------------------|------------------------------------------------|
+| `expand(event, start, end)`           | The occurrences in a window.                   |
+| `skip_occurrence(series_key, date)`   | Hide one.                                      |
+| `unskip_occurrence(series_key, date)` | Put it back.                                   |
+| `skip_next(series_key, count)`        | Hide the next `count` — "not for three weeks". |
 
 ### Occurrence keys resolve to their series
 
@@ -384,10 +384,10 @@ anyone looking at a calendar they are one event appearing twice, and `_collapse(
 shows only one of them per day — so the duplication is invisible until you try to
 delete it and the calendar clears only as far as the next row's first occurrence.
 
-| Call | Does |
-|---|---|
+| Call                                 | Does                                            |
+|--------------------------------------|-------------------------------------------------|
 | `looks_like(event, ignore_day=True)` | Every stored event recognisably the same thing. |
-| `remove_matching(event)` | Remove all of them. Returns the count. |
+| `remove_matching(event)`             | Remove all of them. Returns the count.          |
 
 Matched on owner, title, start and end time. A different owner is a different
 event — two people can have the same thing at the same time and mean two
@@ -397,9 +397,9 @@ different things.
 events that look alike, `--suspect-spans` finds spans that reach their own next
 occurrence, `--fix-spans` clears them, and `--remove TITLE` removes every copy.
 It reports before it changes anything and backs the file up first.
-| `set_hidden(key, True)` | Silence a whole series, or one holiday. |
-| `hidden_keys()` | What is currently silenced. |
-| `prune(days)` | Drop finished one-off events past a cutoff. |
+| `set_hidden(key, True)` | Silence a whole series, or one holiday.     |
+| `hidden_keys()`         | What is currently silenced.                 |
+| `prune(days)`           | Drop finished one-off events past a cutoff. |
 
 `prune` never touches a series: a weekly thing that started two years ago is
 still that thing, and its first date is not its last. It runs once at startup
@@ -434,16 +434,16 @@ page = client.PAGES.get_entry("#calendar").instance
 page.features("open_day")(date(2026, 8, 14))
 ```
 
-| Feature | Does |
-|---|---|
+| Feature                   | Does                                               |
+|---------------------------|----------------------------------------------------|
 | `show_month(year, month)` | Move the grid to a month without opening anything. |
-| `current_month()` | Which one it is showing, as `(year, month)`. |
-| `open_day(date)` | The day's event list. |
-| `open_month()` | Every event in the month, grouped by day. |
-| `open_jump()` | The year and month picker. |
-| `add_sticker()` | The sticker library, to place one. |
-| `edit_stickers()` | Turn the sticker layer on for arranging. |
-| `sticker_store()` | The `StickerStore` itself — see `stickers.md`. |
+| `current_month()`         | Which one it is showing, as `(year, month)`.       |
+| `open_day(date)`          | The day's event list.                              |
+| `open_month()`            | Every event in the month, grouped by day.          |
+| `open_jump()`             | The year and month picker.                         |
+| `add_sticker()`           | The sticker library, to place one.                 |
+| `edit_stickers()`         | Turn the sticker layer on for arranging.           |
+| `sticker_store()`         | The `StickerStore` itself — see `stickers.md`.     |
 
 ## Settings and storage
 

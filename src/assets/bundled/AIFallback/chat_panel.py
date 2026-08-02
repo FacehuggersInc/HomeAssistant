@@ -323,21 +323,40 @@ class StatusPill(QWidget):
     """
 
     #Colour, and what it says. Keyed by what the assistant reports.
+    #
+    #The colours are the voice bar's, deliberately: the same state should not
+    #be two different colours depending on which pill you are looking at.
     STATES = {
         "SPEAKING":  ("#2ff08e", "Speaking  ·  say the wake word to interrupt"),
         "LISTENING": ("#da091f", "Listening…"),
         "THINKING":  ("#2d6cc0", "Thinking…"),
         "ACTING":    ("#1f7a4d", "Working…"),
+        # Not the same as READY, and saying so matters more than it used to.
+        # The assistant can now legitimately be off - a declined model
+        # download, a missing package - and an unknown status fell through to
+        # READY, so the panel invited somebody to say a wake word that
+        # nothing was listening for.
+        "DORMANT":   ("#8a8a8a", "The voice assistant is off"),
         "READY":     ("#8a8a8a", "Say the wake word to ask another"),
     }
+
+    #Which states the dot breathes in. Anything else is a resting state and
+    #the pill stops repainting entirely.
+    ALIVE = ("LISTENING", "THINKING", "ACTING", "SPEAKING")
 
     HEIGHT = 46
     RADIUS = 23
     BORDER = 3
     DOT = 10
-    #Fast enough that the change from speaking to listening is not noticed as
-    #a delay, slow enough to be nothing on a panel that is already painting.
-    TICK_MS = 200
+    #The animation frame rate, matching the voice bar's. It was 200ms, which
+    #is both the poll AND the pulse - so the dot breathed at five frames a
+    #second, and a state that came and went between two polls was never shown
+    #at all. Transcribing is now under 300ms on this transcriber.
+    TICK_MS = 33
+    #The TTS probe is a call into the backend rather than an attribute read,
+    #so it is asked at something nearer the old rate. Nothing depends on
+    #noticing the exact moment speech ends.
+    SPEAKING_EVERY = 5
 
     def __init__(self, client: "Client"):
         super().__init__()
@@ -348,38 +367,86 @@ class StatusPill(QWidget):
         self._state = "READY"
         self._override = ""
         self._pulse = 0.0
+        self._speaking = False
+        self._ticks = 0
 
         self._timer = QTimer(self)
-        self._timer.timeout.connect(self._read)
+        self._timer.timeout.connect(self._tick)
         self._timer.start(self.TICK_MS)
-        self._read()
+        self._tick()
 
     ## -- state
 
     def set_message(self, text: str) -> None:
         """A message from the plugin, which wins while it is set."""
-        self._override = str(text or "").strip()
+        text = str(text or "").strip()
+        if text == self._override:
+            return
+        self._override = text
         self.update()
 
-    def _read(self) -> None:
-        state = "READY"
+    def _is_speaking(self) -> bool:
+        """
+        Whether the panel is talking right now, asked occasionally.
+
+        Its own method, and its own try. Both this and the status read used to
+        sit inside ONE try that fell back to READY - so a backend that raised
+        on `is_speaking()` did not merely lose the speaking state, it pinned
+        the pill to "say the wake word" while the assistant was listening and
+        thinking behind it. One failure, and the pill stops reporting
+        anything at all, silently.
+        """
         try:
-            speaking = False
             tts = getattr(self.client, "TTS", None)
-            if tts is not None and getattr(tts, "available", False):
-                speaking = bool(tts.is_speaking())
-            if speaking:
-                state = "SPEAKING"
-            else:
-                reported = str(getattr(self.client, "ASSIST_STATUS", "") or "")
-                state = reported if reported in self.STATES else "READY"
+            if tts is None or not getattr(tts, "available", False):
+                return False
+            return bool(tts.is_speaking())
         except Exception:
-            state = "READY"
+            return False
 
-        self._pulse = (self._pulse + 0.16) % 1.0
-        if state != self._state:
-            self._state = state
-        self.update()
+    def _reported(self) -> str:
+        """What the assistant says it is doing."""
+        try:
+            reported = str(getattr(self.client, "ASSIST_STATUS", "") or "")
+        except Exception:
+            return "READY"
+        if reported in self.STATES:
+            return reported
+        # LIVE is the ordinary idle state and has no entry of its own.
+        return "READY"
+
+    def _tick(self) -> None:
+        self._ticks += 1
+        if self._ticks % self.SPEAKING_EVERY == 0:
+            self._speaking = self._is_speaking()
+
+        state = "SPEAKING" if self._speaking else self._reported()
+
+        changed = state != self._state
+        self._state = state
+
+        # Repainting is what costs, so it happens when there is something to
+        # see: a state change, or a dot that is moving. A panel sitting at
+        # READY used to repaint five times a second to draw the same pixels.
+        if state in self.ALIVE:
+            self._pulse = (self._pulse + 0.026) % 1.0
+            self.update()
+        elif changed:
+            self._pulse = 0.0
+            self.update()
+
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        if not self._timer.isActive():
+            self._timer.start(self.TICK_MS)
+        self._tick()
+
+    def hideEvent(self, event) -> None:
+        # A pill nobody is looking at does not need a frame rate. This ticks
+        # thirty times a second now, and the panel is closed far more of the
+        # time than it is open.
+        self._timer.stop()
+        super().hideEvent(event)
 
     ## -- painting
 
@@ -404,7 +471,7 @@ class StatusPill(QWidget):
         # A dot that breathes while something is happening, and sits still
         # when nothing is. Motion is what says "working" from across a room.
         import math
-        alive = self._state in ("LISTENING", "THINKING", "ACTING", "SPEAKING")
+        alive = self._state in self.ALIVE
         swell = (0.5 + 0.5 * math.sin(self._pulse * 2 * math.pi)) if alive else 0.0
         size = self.DOT + int(round(swell * 5))
         middle = self.height() // 2

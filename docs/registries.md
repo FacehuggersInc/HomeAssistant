@@ -71,6 +71,10 @@ self.client.public.my_shared_state
 
 Like the other two, anything exposed under your plugin's key is cleared automatically on unload via `self.client.public.clear(owner)` — you don't need to call `unexpose` yourself during a normal teardown.
 
+That cleanup is keyed on the string you passed as `owner`, so it has to be **your plugin's own key from `plugin.toml`**. Expose under anything else and `clear()` never finds it: the name stays on the registry after your plugin unloads, still bound to an instance that has gone, and `names_for()` reports nothing for you on the plugin details page.
+
+See [Reaching another plugin](plugins.md#reaching-another-plugin) for when to use this rather than an import.
+
 ---
 
 # Reading settings from a thread
@@ -88,7 +92,7 @@ From a background thread -- `on_update`, `on_collection`, a worker of your own
 -- read through the accessor rather than touching `SETTINGS` directly:
 
 ```python
-margin = self.client.setting("home.widget_margin.value", 28)
+margin = self.client.setting("home.layout.widget_margin.value", 28)
 ```
 
 `setting()` takes a dotted path and a default, holds the settings lock, and
@@ -115,17 +119,17 @@ Reads are **scoped to the owner**. A plugin can only read a key it declared:
 key = self.client.SECRETS.get_for("myplugin", "MYSERVICE_KEY", "")
 ```
 
-| Method | Does |
-|---|---|
-| `register(owner, key, label="")` | Declare a key. |
-| `get_for(owner, key, default="")` | Read, scoped. |
-| `set_for(owner, key, value)` | Write to `.env`. |
-| `is_set(key)` | Whether it has a value. |
-| `is_declared(key)` | Whether anything declared it. |
-| `status(key)` | A human-readable state for the Settings page. |
-| `masked(key)` | The value with most of it replaced by asterisks. |
-| `keys_for(owner)` | What an owner declared. |
-| `clear(key)` | Remove it from `.env`. |
+| Method                            | Does                                             |
+|-----------------------------------|--------------------------------------------------|
+| `register(owner, key, label="")`  | Declare a key.                                   |
+| `get_for(owner, key, default="")` | Read, scoped.                                    |
+| `set_for(owner, key, value)`      | Write to `.env`.                                 |
+| `is_set(key)`                     | Whether it has a value.                          |
+| `is_declared(key)`                | Whether anything declared it.                    |
+| `status(key)`                     | A human-readable state for the Settings page.    |
+| `masked(key)`                     | The value with most of it replaced by asterisks. |
+| `keys_for(owner)`                 | What an owner declared.                          |
+| `clear(key)`                      | Remove it from `.env`.                           |
 
 Never log a secret, and never put one in a notification. Use `masked()` when
 you need to show that a key is present.

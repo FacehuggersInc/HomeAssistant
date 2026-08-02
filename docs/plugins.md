@@ -19,10 +19,10 @@ If you find yourself modifying the Client itself, consider whether it should ins
 
 # Where plugins live
 
-| Location | Ships with the app | Survives an update |
-|----------|--------------------|--------------------|
-| `src/assets/bundled/<Name>/` | yes | replaced, but its `settings.json` is merged so your values are kept |
-| `plugins/<Name>/` | no | preserved untouched |
+| Location                     | Ships with the app | Survives an update                                                  |
+|------------------------------|--------------------|---------------------------------------------------------------------|
+| `src/assets/bundled/<Name>/` | yes                | replaced, but its `settings.json` is merged so your values are kept |
+| `plugins/<Name>/`            | no                 | preserved untouched                                                 |
 
 Bundled plugins are part of the app and update with it. `plugins/` is for
 your own work and is never overwritten - put anything you do not want an
@@ -112,6 +112,43 @@ correct, so your code works on the first launch rather than after a reload.
 Core Skills depends on Core Widgets for exactly this reason: timers and the
 weather API.
 
+### Reaching another plugin
+
+Through what it publishes, and nothing else.
+
+| Want                            | Use                                  |
+|---------------------------------|--------------------------------------|
+| Something another plugin offers | `client.public.<name>`               |
+| An API class it registered      | `client.API.get(...)`                |
+| Something a page exposes        | `client.action("page.feature", ...)` |
+| To know whether it is available | `client.public.has(name)`            |
+
+**Not `client.PLUGIN`.** The plugin manager is the loader, not a directory
+that plugins look each other up in. Asking it whether a plugin is loaded
+answers a different question from the one that matters - a plugin can be
+present and not yet have exposed what you want, so it passes the check and
+fails on the call. `public.has(name)` asks about the thing you are about to
+use.
+
+The same goes for reaching your own plugin from a page you registered. A page
+that needs its plugin's settings should be given a reader through
+`client.public`, not go looking for the instance: `client.setting()` walks the
+client's tree and never reaches a plugin key, which is what tempts the detour.
+
+**Importing another plugin's module** is allowed for classes you have to
+subclass or construct, and then `dependencies` in your `plugin.toml` **must**
+list that plugin's key - an import is a hard requirement and the load order
+has to reflect it. It is still the last resort. A dependency is what makes an
+import legal, not what makes it right: if the thing you want is a function or
+a value, ask for it to be exposed instead. Everything arriving by one route is
+one fewer thing to keep in step.
+
+Anything you expose is filed under the owner key you pass, and unload cleans
+up by key - `public.clear(key)`, `API.unregister(key)`. **Pass your own key
+from `plugin.toml`.** A registration filed under any other name survives the
+plugin that made it, still bound to an instance that has gone, and the plugin
+details page shows nothing under it.
+
 ### Files an update should not replace
 
 ```toml
@@ -176,12 +213,12 @@ intent. A plugin that genuinely needs a shared key should declare the same
 name; the registry logs when two plugins declare one, and both then read the
 same value.
 
-| Call | Returns |
-|------|---------|
-| `self.secret(key)` | keys this plugin declared |
-| `self.set_secret(key, value)` | writes keys this plugin declared |
-| `client.secret(key)` | keys the Client declared (`CORE_SECRETS`) |
-| `SECRETS.is_set(key)` / `status(key)` | unrestricted - metadata, never the value |
+| Call                                  | Returns                                   |
+|---------------------------------------|-------------------------------------------|
+| `self.secret(key)`                    | keys this plugin declared                 |
+| `self.set_secret(key, value)`         | writes keys this plugin declared          |
+| `client.secret(key)`                  | keys the Client declared (`CORE_SECRETS`) |
+| `SECRETS.is_set(key)` / `status(key)` | unrestricted - metadata, never the value  |
 
 **Why not just store it in settings.json.** That file is written to disk on
 every save, rendered wholesale in the Settings UI, and carried across updates
@@ -312,41 +349,41 @@ Neither field is required — a plugin with neither still gets its own settings 
 Everything below hangs off `self.client`. This is a map, not a reference — each
 line points at the page that explains it.
 
-| | |
-|---|---|
-| `client.API` | Endpoints and GUI pages — [API](api.md) |
-| `client.AUDIO` | Named sounds — [Registries](registries.md) |
-| `client.BOOKMARKS` | Saved web pages — [Registries](registries.md) |
-| `client.CANCEL` | "Stop" phrases — [Cancel](cancel.md) |
-| `client.PAGES` | Full-screen pages — [Pages](pages.md) |
-| `client.PLAYER` | Media backends — [Player](player.md) |
-| `client.QUICK` | Quick settings buttons — [Quick settings](quick-settings.md) |
-| `client.SKILLS` | Spoken intents — [Skills](skills.md) |
-| `client.USERS` | Approved devices — [Users](users.md) |
-| `client.public` | Names other plugins expose — [Registries](registries.md) |
+|                    |                                                              |
+|--------------------|--------------------------------------------------------------|
+| `client.API`       | Endpoints and GUI pages — [API](api.md)                      |
+| `client.AUDIO`     | Named sounds — [Registries](registries.md)                   |
+| `client.BOOKMARKS` | Saved web pages — [Registries](registries.md)                |
+| `client.CANCEL`    | "Stop" phrases — [Cancel](cancel.md)                         |
+| `client.PAGES`     | Full-screen pages — [Pages](pages.md)                        |
+| `client.PLAYER`    | Media backends — [Player](player.md)                         |
+| `client.QUICK`     | Quick settings buttons — [Quick settings](quick-settings.md) |
+| `client.SKILLS`    | Spoken intents — [Skills](skills.md)                         |
+| `client.USERS`     | Approved devices — [Users](users.md)                         |
+| `client.public`    | Names other plugins expose — [Registries](registries.md)     |
 
 And a few methods worth knowing:
 
-| | |
-|---|---|
-| `simple_notify(icon, title, body, sound=, urgent=, history=)` | [Notifications](notifications.md) |
-| `do_not_disturb()` / `sounds_muted()` | Ask before making noise — [Notifications](notifications.md) |
-| `choose_bookmark(on_chosen)` | The bookmark picker — [Registries](registries.md) |
-| `subscribe_to_event(name, fn)` | Including `on_web_event` — [Events](events.md) |
-| `call_on_ui(fn)` | Anything touching Qt from a worker — [Threading](threading.md) |
-| `self.sibling("api.thing")` | A module from your own folder, by path — see below |
+|                                                               |                                                                |
+|---------------------------------------------------------------|----------------------------------------------------------------|
+| `simple_notify(icon, title, body, sound=, urgent=, history=)` | [Notifications](notifications.md)                              |
+| `do_not_disturb()` / `sounds_muted()`                         | Ask before making noise — [Notifications](notifications.md)    |
+| `choose_bookmark(on_chosen)`                                  | The bookmark picker — [Registries](registries.md)              |
+| `subscribe_to_event(name, fn)`                                | Including `on_web_event` — [Events](events.md)                 |
+| `call_on_ui(fn)`                                              | Anything touching Qt from a worker — [Threading](threading.md) |
+| `self.sibling("api.thing")`                                   | A module from your own folder, by path — see below             |
 
 And the pieces a plugin builds its own surfaces out of:
 
-| | |
-|---|---|
-| `src.ui.widget.POSITIONS` | The nine places a widget goes — [Widgets](widgets.md) |
-| `src.ui.widget.normalise_position(v, fallback)` | Any spelling, folded to one of the nine — [Widgets](widgets.md) |
-| `framework.create(...)` / `place(...)` / `remove(...)` | Making and placing a widget — [Widgets](widgets.md) |
-| `framework.reserve_key(template)` | Name one before the UI thread builds it — [Widgets](widgets.md) |
-| `src.ui.page.HasFeatures` | The features dict both page kinds answer — [Pages](pages.md) |
-| `src.webui.page(...)` | A whole served page — [Styling](styling.md) |
-| `src.webui.position_grid(...)` | The nine positions, as a control — [Styling](styling.md) |
+|                                                        |                                                                 |
+|--------------------------------------------------------|-----------------------------------------------------------------|
+| `src.ui.widget.POSITIONS`                              | The nine places a widget goes — [Widgets](widgets.md)           |
+| `src.ui.widget.normalise_position(v, fallback)`        | Any spelling, folded to one of the nine — [Widgets](widgets.md) |
+| `framework.create(...)` / `place(...)` / `remove(...)` | Making and placing a widget — [Widgets](widgets.md)             |
+| `framework.reserve_key(template)`                      | Name one before the UI thread builds it — [Widgets](widgets.md) |
+| `src.ui.page.HasFeatures`                              | The features dict both page kinds answer — [Pages](pages.md)    |
+| `src.webui.page(...)`                                  | A whole served page — [Styling](styling.md)                     |
+| `src.webui.position_grid(...)`                         | The nine positions, as a control — [Styling](styling.md)        |
 
 ## main.py
 
@@ -411,11 +448,11 @@ class MyPlugin(Plugin):
 Three helpers come from the base class, and are the reason to inherit it rather
 than duplicate them:
 
-| | |
-|---|---|
-| `self.plugin_key()` | This plugin's key from `plugin.toml`. |
-| `self.secret(name)` | A secret **this** plugin declared. Another plugin's returns the default. |
-| `self.set_secret(name, value)` | Writes one. Refused for anything not declared here. |
+|                                |                                                                          |
+|--------------------------------|--------------------------------------------------------------------------|
+| `self.plugin_key()`            | This plugin's key from `plugin.toml`.                                    |
+| `self.secret(name)`            | A secret **this** plugin declared. Another plugin's returns the default. |
+| `self.set_secret(name, value)` | Writes one. Refused for anything not declared here.                      |
 
 Use `self.secret()` rather than `client.SECRETS` or `os.getenv`, so a key edited
 in Settings takes effect without a restart.
@@ -651,7 +688,7 @@ Application and Home while the real settings stay in the plugin's own file.
 read:
 
 ```python
-fmt = self.client.setting("home.time_format.value", "%I:%M %p")
+fmt = self.client.setting("home.clock.time_format.value", "%I:%M %p")
 ```
 
 ## Naming a plugin's folder

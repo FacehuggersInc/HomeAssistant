@@ -19,9 +19,6 @@ def opacity(opaqueness: float, color: str) -> str:
     c.setAlphaF(max(0.0, min(1.0, opaqueness)))
     return c.name(QColor.NameFormat.HexArgb)  # '#aarrggbb'
 
-def hex_to_qcolor(hex_str: str) -> QColor:
-    return QColor(hex_str)
-
 # ── Brand palette ───────────────────────────────────────────────────────────
 
 FONT      = "poppins-light"

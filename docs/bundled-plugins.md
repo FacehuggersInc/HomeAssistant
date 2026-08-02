@@ -8,16 +8,16 @@ cannot, the plugin system would not be finished.
 
 Read them when the documentation runs out. They are the worked examples.
 
-| Key | Name | Provides |
-|---|---|---|
-| `corewidgetsbundle` | Core Widgets Bundle | The home page, sub-pages, and the widget and tile set. |
-| `coreskillsbundle` | Core Skills | Voice skills and the activity bar. |
-| `aifallback` | AI Fallback | Answers phrases no skill matched. |
-| `idletriggers` | Idle Random Triggers | Runs registered callbacks while the panel is idle. |
-| `rssfeeds` | RSS Feeds | Feed fetching, shown through the idle triggers. |
-| `nighttimeclock` | Nighttime Clock | A full-screen clock page for after hours. |
-| `musicplugin` | Music | Playing music by voice, and the now-playing card. |
-| `calendar` | Calendar | Events, holidays, a calendar sub-page, widgets and a tile. |
+| Key                 | Name                 | Provides                                                   |
+|---------------------|----------------------|------------------------------------------------------------|
+| `corewidgetsbundle` | Core Widgets Bundle  | The home page, sub-pages, and the widget and tile set.     |
+| `coreskillsbundle`  | Core Skills          | Voice skills and the activity bar.                         |
+| `aifallback`        | AI Fallback          | Answers phrases no skill matched.                          |
+| `idletriggers`      | Idle Random Triggers | Runs registered callbacks while the panel is idle.         |
+| `rssfeeds`          | RSS Feeds            | Feed fetching, shown through the idle triggers.            |
+| `nighttimeclock`    | Nighttime Clock      | A full-screen clock page for after hours.                  |
+| `musicplugin`       | Music                | Playing music by voice, and the now-playing card.          |
+| `calendar`          | Calendar             | Events, holidays, a calendar sub-page, widgets and a tile. |
 
 
 ## Core Widgets Bundle
@@ -98,6 +98,36 @@ per-session token counts so the cost of a conversation is visible while you
 are having it. Remote images in a reply are fetched and displayed; the panel
 closes on a tap outside it, which also cancels the assistant session.
 
+### The pill in the panel
+
+`StatusPill` says what the assistant is doing at the bottom of the
+conversation. The voice bar lives at the bottom of the SCREEN, which a
+full-screen card covers, so while a panel is open this is the only thing
+saying whether it is listening - same place, same shape, same colours.
+
+It reads `ASSIST_STATUS` rather than being driven by events, because the
+states it shows are the ones that last: the round trip to the model is held
+at THINKING by `client.thinking()` for its whole duration. Three things about
+that reading are worth knowing:
+
+- **It ticks at 33ms**, matching the voice bar. That interval is both the
+  poll and the pulse: at 200ms the dot breathes at five frames a second and a
+  state that comes and goes between two polls is never drawn. See
+  [what the panel shows](assistant.md#what-the-panel-shows) for why a status
+  cannot be polled that slowly.
+- **The speaking probe has its own guard.** Sharing one `try` with the status
+  read, and falling back to READY, means a backend that raises on
+  `is_speaking()` does not merely lose the speaking state - it pins the pill
+  to "say the wake word" while the assistant is listening and thinking behind
+  it. One failure, and the pill silently stops reporting anything.
+- **DORMANT is its own state.** An unknown status falling through to READY
+  leaves a panel where the assistant is off - a declined model download, a
+  missing package - inviting somebody to say a wake word nothing is listening
+  for.
+
+It repaints only while the dot is moving or the state has changed, and stops
+its timer while hidden.
+
 Needs `OPENAI_API_KEY` in `.env`, declared as a `secret` setting. Without it
 the plugin loads and says so rather than failing.
 
@@ -173,12 +203,12 @@ Full detail in [Nighttime Clock](/docs/plugin/nighttimeclock/nighttime).
 
 Ask for a song and it plays.
 
-| | |
-|---|---|
-| Voice | *"play Everlong"*, *"put on some jazz"*, *"stop the music"* |
-| On screen | A now-playing card with cover art, progress, and play/pause |
-| Quick settings | A **Music** button opening what has been played recently |
-| Also shows | Whatever else the machine is playing, through MPRIS |
+|                |                                                             |
+|----------------|-------------------------------------------------------------|
+| Voice          | *"play Everlong"*, *"put on some jazz"*, *"stop the music"* |
+| On screen      | A now-playing card with cover art, progress, and play/pause |
+| Quick settings | A **Music** button opening what has been played recently    |
+| Also shows     | Whatever else the machine is playing, through MPRIS         |
 
 The card is not a music-plugin widget. Everything is published into the player
 registry - see [What is playing](player.md) - so anything showing or

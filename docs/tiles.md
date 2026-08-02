@@ -8,15 +8,15 @@ being clear about:
 > `corewidgetsbundle`. Disable or remove it and these features go with it — the client
 > itself has no tile grid. That is deliberate: see
 > [Bundled plugins](bundled-plugins.md).
-| | Widgets | Tiles |
-|---|---|---|
-| Live on | `sub.home` | `sub.tiles` |
-| Positioned by | Anchors and rows | Grid cells |
-| Size | Free, optionally resizable | Whole cells (`grid_w` x `grid_h`) |
-| Off-screen storage | Widgets panel | Tile panel |
-| Saved as | `widget_layout.json` | Tile positions per grid |
-| Resize | Corner handle, free pixels | Corner handle, whole cells |
-| Remove | Delete handle, back to the panel | Delete handle, back to the panel |
+|                    | Widgets                          | Tiles                             |
+|--------------------|----------------------------------|-----------------------------------|
+| Live on            | `sub.home`                       | `sub.tiles`                       |
+| Positioned by      | Anchors and rows                 | Grid cells                        |
+| Size               | Free, optionally resizable       | Whole cells (`grid_w` x `grid_h`) |
+| Off-screen storage | Widgets panel                    | Tile panel                        |
+| Saved as           | `widget_layout.json`             | Tile positions per grid           |
+| Resize             | Corner handle, free pixels       | Corner handle, whole cells        |
+| Remove             | Delete handle, back to the panel | Delete handle, back to the panel  |
 
 Widgets are for a home screen that looks arranged. Tiles are for a dashboard
 that looks tidy. Both are registered rather than constructed-and-placed, and
@@ -33,9 +33,9 @@ delta is measured from where it already is.
 
 Every way a drag can end puts the tile back on the grid, including the ways
 that are not a release. A move arriving with no button held ends the gesture -
-a touchscreen produces those on a fast flick - and that path used to just clear
-the flags, leaving the tile between two cells, belonging to neither, and
-refusing to move again because the gesture state was gone.
+a touchscreen produces those on a fast flick - and that path has to finish the
+drop rather than only clear the flags, or the tile is left between two cells,
+belonging to neither, and refusing to move again with its gesture state gone.
 
 ## The framework
 
@@ -116,31 +116,31 @@ reading in full at
 
 ### Class attributes
 
-| Attribute | Meaning |
-|---|---|
-| `KEY` | Unique. Required — `add_tile()` raises without it, and it is the key the position is saved under. |
-| `NAME` | Shown in the tile panel. Required by `register_tile()`. |
-| `ICON` | An `mdi.` name for the panel entry. |
+| Attribute  | Meaning                                                                                                                                                     |
+|------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `KEY`      | Unique. Required — `add_tile()` raises without it, and it is the key the position is saved under.                                                           |
+| `NAME`     | Shown in the tile panel. Required by `register_tile()`.                                                                                                     |
+| `ICON`     | An `mdi.` name for the panel entry.                                                                                                                         |
 | `MULTIPLE` | Whether it can be placed more than once. A template stays in the panel and every one placed is a copy with its own key — see the bookmark and action tiles. |
-| `EDITABLE` | Whether it carries a setup worth going back to. Turns on a pencil handle; the tile overrides `edit()` to say what that opens. |
+| `EDITABLE` | Whether it carries a setup worth going back to. Turns on a pencil handle; the tile overrides `edit()` to say what that opens.                               |
 
 ### Constructor arguments
 
-| Argument | Default | Meaning |
-|---|---|---|
-| `grid_w`, `grid_h` | `2`, `2` | Starting size in cells. |
-| `bg_color` | `"#2a2a2a"` | The card fill. |
-| `on_click` | `None` | Called on a tap that was not a drag. |
+| Argument           | Default     | Meaning                              |
+|--------------------|-------------|--------------------------------------|
+| `grid_w`, `grid_h` | `2`, `2`    | Starting size in cells.              |
+| `bg_color`         | `"#2a2a2a"` | The card fill.                       |
+| `on_click`         | `None`      | Called on a tap that was not a drag. |
 
 And on the class, alongside `KEY`/`NAME`/`ICON`:
 
-| Attribute | Default | Meaning |
-|---|---|---|
-| `RESIZABLE` | `True` | Offers a resize handle. |
-| `REMOVABLE` | `True` | Offers a delete handle. |
-| `MIN_GRID_W`, `MIN_GRID_H` | `1`, `1` | Smallest span it can be dragged to. |
-| `MAX_GRID_W`, `MAX_GRID_H` | `8`, `8` | Largest. |
-| `MULTIPLE` | `False` | `True` makes it a template: it stays in the panel and each drag-out places another copy. |
+| Attribute                  | Default  | Meaning                                                                                  |
+|----------------------------|----------|------------------------------------------------------------------------------------------|
+| `RESIZABLE`                | `True`   | Offers a resize handle.                                                                  |
+| `REMOVABLE`                | `True`   | Offers a delete handle.                                                                  |
+| `MIN_GRID_W`, `MIN_GRID_H` | `1`, `1` | Smallest span it can be dragged to.                                                      |
+| `MAX_GRID_W`, `MAX_GRID_H` | `8`, `8` | Largest.                                                                                 |
+| `MULTIPLE`                 | `False`  | `True` makes it a template: it stays in the panel and each drag-out places another copy. |
 
 A `MULTIPLE` tile behaves like a `MULTIPLE` widget. Copies get their own
 generated keys, so each one saves and restores its position independently, and
@@ -164,8 +164,9 @@ to make a small tile bigger, and a tile too small for two handles is exactly
 the one somebody wants to resize.
 
 A press taken by a handle is not also a press on the tile. Delete takes the
-tile away so nothing lands afterwards, but the pencil leaves it there, and the
-release used to find a deselected tile with an `on_click` and run it.
+tile away so nothing lands afterwards, but the pencil leaves it there - so the
+release finds a deselected tile with an `on_click` on it, and without the
+guard it runs.
 
 To clear it, tap the tile again or tap anywhere on the grid background.
 Selecting one tile deselects any other, so only one is ever live.
@@ -361,14 +362,14 @@ Extra `*args` and `**kwargs` are passed to your tile's constructor.
 
 Exposed by `sub.tiles`:
 
-| Feature | Does |
-|---|---|
-| `register_tile(cls, ...)` | As above. |
-| `add_tile(tile, col, row)` | Put an already-constructed tile on the grid. |
-| `remove_tile(key)` | Take it off. |
+| Feature                      | Does                                                                                       |
+|------------------------------|--------------------------------------------------------------------------------------------|
+| `register_tile(cls, ...)`    | As above.                                                                                  |
+| `add_tile(tile, col, row)`   | Put an already-constructed tile on the grid.                                               |
+| `remove_tile(key)`           | Take it off.                                                                               |
 | `return_tile_to_panel(tile)` | Move it back to the panel rather than deleting it, keeping whatever state it had built up. |
-| `get_tile(key)` | The live instance, or `None`. |
-| `tile_grid` | The `TileGrid` itself. |
+| `get_tile(key)`              | The live instance, or `None`.                                                              |
+| `tile_grid`                  | The `TileGrid` itself.                                                                     |
 
 ```python
 tile = sub_tiles.features().get_tile("weather_tile")

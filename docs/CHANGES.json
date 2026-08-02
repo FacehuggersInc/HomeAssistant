@@ -1,6 +1,294 @@
 {
  "log": [
   {
+   "at": 1785682895.1984777,
+   "note": "a shorter assistant page, and settings under headings",
+   "pages": [
+    {
+     "slug": "assistant",
+     "state": "updated"
+    },
+    {
+     "slug": "bundled-plugins",
+     "state": "updated"
+    },
+    {
+     "slug": "when-it-will-not-start",
+     "state": "updated"
+    }
+   ]
+  },
+  {
+   "at": 1785682556.2407722,
+   "note": "settings under headings, and events without the two kinds",
+   "pages": [
+    {
+     "slug": "api",
+     "state": "updated"
+    },
+    {
+     "slug": "assistant",
+     "state": "updated"
+    },
+    {
+     "slug": "events",
+     "state": "updated"
+    },
+    {
+     "slug": "lifecycle",
+     "state": "updated"
+    },
+    {
+     "slug": "notifications",
+     "state": "updated"
+    },
+    {
+     "slug": "pages",
+     "state": "updated"
+    },
+    {
+     "slug": "plugins",
+     "state": "updated"
+    },
+    {
+     "slug": "quick-settings",
+     "state": "updated"
+    },
+    {
+     "slug": "registries",
+     "state": "updated"
+    },
+    {
+     "slug": "settings",
+     "state": "updated"
+    }
+   ]
+  },
+  {
+   "at": 1785680689.8589537,
+   "note": "endpoints checked, plugins reaching each other properly",
+   "pages": [
+    {
+     "slug": "api",
+     "state": "updated"
+    },
+    {
+     "slug": "plugins",
+     "state": "updated"
+    },
+    {
+     "slug": "registries",
+     "state": "updated"
+    }
+   ]
+  },
+  {
+   "at": 1785680032.714002,
+   "note": "current state, present tense, aligned",
+   "pages": [
+    {
+     "slug": "api",
+     "state": "updated"
+    },
+    {
+     "slug": "architecture",
+     "state": "updated"
+    },
+    {
+     "slug": "assistant",
+     "state": "updated"
+    },
+    {
+     "slug": "backlight",
+     "state": "updated"
+    },
+    {
+     "slug": "bluetooth",
+     "state": "updated"
+    },
+    {
+     "slug": "bundled-plugins",
+     "state": "updated"
+    },
+    {
+     "slug": "cancel",
+     "state": "updated"
+    },
+    {
+     "slug": "dialogs",
+     "state": "updated"
+    },
+    {
+     "slug": "events",
+     "state": "updated"
+    },
+    {
+     "slug": "index",
+     "state": "updated"
+    },
+    {
+     "slug": "lifecycle",
+     "state": "updated"
+    },
+    {
+     "slug": "logging",
+     "state": "updated"
+    },
+    {
+     "slug": "mixins",
+     "state": "updated"
+    },
+    {
+     "slug": "notifications",
+     "state": "updated"
+    },
+    {
+     "slug": "pages",
+     "state": "updated"
+    },
+    {
+     "slug": "player",
+     "state": "updated"
+    },
+    {
+     "slug": "plugins",
+     "state": "updated"
+    },
+    {
+     "slug": "quick-settings",
+     "state": "updated"
+    },
+    {
+     "slug": "registries",
+     "state": "updated"
+    },
+    {
+     "slug": "settings",
+     "state": "updated"
+    },
+    {
+     "slug": "skills",
+     "state": "updated"
+    },
+    {
+     "slug": "styling",
+     "state": "updated"
+    },
+    {
+     "slug": "threading",
+     "state": "updated"
+    },
+    {
+     "slug": "tiles",
+     "state": "updated"
+    },
+    {
+     "slug": "updating",
+     "state": "updated"
+    },
+    {
+     "slug": "users",
+     "state": "updated"
+    },
+    {
+     "slug": "webpage",
+     "state": "updated"
+    },
+    {
+     "slug": "when-it-will-not-start",
+     "state": "updated"
+    },
+    {
+     "slug": "widgets",
+     "state": "updated"
+    }
+   ]
+  },
+  {
+   "at": 1785678937.3978188,
+   "note": "one pane at a time, on any screen",
+   "pages": [
+    {
+     "slug": "dialogs",
+     "state": "updated"
+    }
+   ]
+  },
+  {
+   "at": 1785678464.3396952,
+   "note": "a pill that reports at the same rate as the other one",
+   "pages": [
+    {
+     "slug": "bundled-plugins",
+     "state": "updated"
+    }
+   ]
+  },
+  {
+   "at": 1785677999.4071069,
+   "note": "a wake that stays awake until it hears something",
+   "pages": [
+    {
+     "slug": "assistant",
+     "state": "updated"
+    }
+   ]
+  },
+  {
+   "at": 1785677433.7354338,
+   "note": "a message the reader can find the end of",
+   "pages": [
+    {
+     "slug": "assistant",
+     "state": "updated"
+    }
+   ]
+  },
+  {
+   "at": 1785676764.1496363,
+   "note": "openWakeWord and Parakeet, and nothing else",
+   "pages": [
+    {
+     "slug": "assistant",
+     "state": "updated"
+    },
+    {
+     "slug": "lifecycle",
+     "state": "updated"
+    },
+    {
+     "slug": "logging",
+     "state": "updated"
+    },
+    {
+     "slug": "settings",
+     "state": "updated"
+    },
+    {
+     "slug": "skills",
+     "state": "updated"
+    }
+   ]
+  },
+  {
+   "at": 1785675321.8869078,
+   "note": "a download that is asked for once, and checked file by file",
+   "pages": [
+    {
+     "slug": "assistant",
+     "state": "updated"
+    },
+    {
+     "slug": "settings",
+     "state": "updated"
+    },
+    {
+     "slug": "when-it-will-not-start",
+     "state": "updated"
+    }
+   ]
+  },
+  {
    "at": 1785638935.9723463,
    "note": "a download you can see happening",
    "pages": [
@@ -435,56 +723,56 @@
  ],
  "pages": {
   "api": {
-   "at": 1785540425.863844,
-   "hash": "bde1b6864cdd3555",
-   "opened": 1785540425.8638446,
-   "state": "seen"
+   "at": 1785682556.2391026,
+   "hash": "b2c950497e792ffe",
+   "opened": 0,
+   "state": "updated"
   },
   "architecture": {
-   "at": 1785540425.8639035,
-   "hash": "25effd8698091651",
-   "opened": 1785540425.8639038,
-   "state": "seen"
+   "at": 1785680032.7133954,
+   "hash": "e2f7c787752ee35a",
+   "opened": 0,
+   "state": "updated"
   },
   "assistant": {
-   "at": 1785638935.971629,
-   "hash": "e7aaacdcd57be514",
+   "at": 1785682895.1962814,
+   "hash": "c94837a1674f517c",
    "opened": 0,
    "state": "updated"
   },
   "backlight": {
-   "at": 1785540425.8640702,
-   "hash": "d59766cdd38282bf",
-   "opened": 1785540425.8640704,
-   "state": "seen"
+   "at": 1785680032.7134814,
+   "hash": "98603043bca16eac",
+   "opened": 0,
+   "state": "updated"
   },
   "bluetooth": {
-   "at": 1785540425.8641312,
-   "hash": "fdf47cd86dc6e63c",
-   "opened": 1785540425.8641317,
-   "state": "seen"
+   "at": 1785680032.7134945,
+   "hash": "694774b0071c684d",
+   "opened": 0,
+   "state": "updated"
   },
   "bundled-plugins": {
-   "at": 1785540425.864189,
-   "hash": "e167d56cb27b0108",
-   "opened": 1785540425.864189,
-   "state": "seen"
+   "at": 1785682895.196486,
+   "hash": "1b593cec1c45df59",
+   "opened": 0,
+   "state": "updated"
   },
   "cancel": {
-   "at": 1785540425.8642082,
-   "hash": "066445fa1486a3a7",
-   "opened": 1785540425.8642082,
-   "state": "seen"
+   "at": 1785680032.7135284,
+   "hash": "e98eb3d9f5a94ef7",
+   "opened": 0,
+   "state": "updated"
   },
   "dialogs": {
-   "at": 1785635638.237163,
-   "hash": "bc5e80a6d59e83b7",
+   "at": 1785680032.7135534,
+   "hash": "a279a283d76511c0",
    "opened": 0,
    "state": "updated"
   },
   "events": {
-   "at": 1785621374.3567243,
-   "hash": "4baebd665e58eb08",
+   "at": 1785682556.2396154,
+   "hash": "e6c00bb3f322235d",
    "opened": 0,
    "state": "updated"
   },
@@ -495,10 +783,10 @@
    "state": "seen"
   },
   "index": {
-   "at": 1785540425.8645215,
-   "hash": "8118f5db2765bd66",
-   "opened": 1785540425.8645217,
-   "state": "seen"
+   "at": 1785680032.7136004,
+   "hash": "a8b3e6a266e807cf",
+   "opened": 0,
+   "state": "updated"
   },
   "installation": {
    "at": 1785540425.86458,
@@ -513,34 +801,34 @@
    "state": "seen"
   },
   "lifecycle": {
-   "at": 1785540425.8647025,
-   "hash": "0691fddee09324a6",
-   "opened": 1785540425.8647027,
-   "state": "seen"
+   "at": 1785682556.2397447,
+   "hash": "21b27f9942049780",
+   "opened": 0,
+   "state": "updated"
   },
   "logging": {
-   "at": 1785583842.7133877,
-   "hash": "19ded6c3c0833acd",
+   "at": 1785680032.7136455,
+   "hash": "6ee605d8dadb3b92",
    "opened": 0,
    "state": "updated"
   },
   "mixins": {
-   "at": 1785540425.8647895,
-   "hash": "9b0cb1565114d79f",
-   "opened": 1785540425.8647897,
-   "state": "seen"
+   "at": 1785680032.713657,
+   "hash": "e93274e8bcd5e8c8",
+   "opened": 0,
+   "state": "updated"
   },
   "notifications": {
-   "at": 1785540425.864818,
-   "hash": "79acd7649203c1be",
-   "opened": 1785540425.8648183,
-   "state": "seen"
+   "at": 1785682556.2398314,
+   "hash": "45c0e5eb310e3b65",
+   "opened": 0,
+   "state": "updated"
   },
   "pages": {
-   "at": 1785540425.864866,
-   "hash": "59edf5b51495c3c3",
-   "opened": 1785540425.864866,
-   "state": "seen"
+   "at": 1785682556.2398984,
+   "hash": "84da7be0f132ca25",
+   "opened": 0,
+   "state": "updated"
   },
   "philosophy": {
    "at": 1785540425.8648765,
@@ -549,86 +837,86 @@
    "state": "seen"
   },
   "player": {
-   "at": 1785540425.864901,
-   "hash": "404d3e8891811b68",
-   "opened": 1785540425.864901,
-   "state": "seen"
+   "at": 1785680032.7137098,
+   "hash": "de7bb0f1c74b2de4",
+   "opened": 0,
+   "state": "updated"
   },
   "plugins": {
-   "at": 1785540425.864987,
-   "hash": "642108ce29461ad7",
-   "opened": 1785540425.864987,
-   "state": "seen"
+   "at": 1785682556.24008,
+   "hash": "2285e7076fc8026c",
+   "opened": 0,
+   "state": "updated"
   },
   "quick-settings": {
-   "at": 1785540425.8650324,
-   "hash": "03acbdb71128255d",
-   "opened": 1785540425.8650324,
-   "state": "seen"
+   "at": 1785682556.240136,
+   "hash": "2ec3090fbba2595c",
+   "opened": 0,
+   "state": "updated"
   },
   "registries": {
-   "at": 1785540425.8650706,
-   "hash": "586591e8e4d2d5d3",
-   "opened": 1785540425.8650708,
-   "state": "seen"
+   "at": 1785682556.2401776,
+   "hash": "8f1a749cf129bb22",
+   "opened": 0,
+   "state": "updated"
   },
   "settings": {
-   "at": 1785638394.1273658,
-   "hash": "91aac2ed5e7fef88",
+   "at": 1785682556.2402792,
+   "hash": "3655233625c41998",
    "opened": 0,
    "state": "updated"
   },
   "skills": {
-   "at": 1785540425.8651774,
-   "hash": "414a95a299d10392",
-   "opened": 1785540425.8651774,
-   "state": "seen"
+   "at": 1785680032.7138324,
+   "hash": "11fc171e9ffde10a",
+   "opened": 0,
+   "state": "updated"
   },
   "styling": {
-   "at": 1785555485.3330605,
-   "hash": "9e52385474a8196b",
+   "at": 1785680032.713855,
+   "hash": "8d6beb5cb4dbaa19",
    "opened": 0,
    "state": "updated"
   },
   "threading": {
-   "at": 1785540425.865288,
-   "hash": "5d78d6222bf030ec",
-   "opened": 1785540425.865288,
-   "state": "seen"
+   "at": 1785680032.7138705,
+   "hash": "fc24ea81b413df16",
+   "opened": 0,
+   "state": "updated"
   },
   "tiles": {
-   "at": 1785601902.2274435,
-   "hash": "3d4d1b0e8d7f9170",
+   "at": 1785680032.713894,
+   "hash": "08897e82f6708258",
    "opened": 0,
    "state": "updated"
   },
   "updating": {
-   "at": 1785540425.8653836,
-   "hash": "3fb8821924b47bb8",
-   "opened": 1785540425.8653839,
-   "state": "seen"
+   "at": 1785680032.7139063,
+   "hash": "3e72ff1fb7a582d2",
+   "opened": 0,
+   "state": "updated"
   },
   "users": {
-   "at": 1785601212.9631374,
-   "hash": "4eae520019649c96",
+   "at": 1785680032.7139206,
+   "hash": "c797b82d301f8955",
    "opened": 0,
    "state": "updated"
   },
   "webpage": {
-   "at": 1785540425.8654478,
-   "hash": "5197cbc2941fe878",
-   "opened": 1785540425.8654478,
-   "state": "seen"
+   "at": 1785680032.7139354,
+   "hash": "2c38ebbb301ef95f",
+   "opened": 0,
+   "state": "updated"
   },
   "when-it-will-not-start": {
-   "at": 1785540425.8654704,
-   "hash": "b17ad67384a58a4f",
-   "opened": 1785540425.8654704,
-   "state": "seen"
+   "at": 1785682895.1982813,
+   "hash": "2337f153d7196d01",
+   "opened": 0,
+   "state": "updated"
   },
   "widgets": {
-   "at": 1785601902.227531,
-   "hash": "09e2e57f3a442337",
+   "at": 1785680032.7139816,
+   "hash": "b10a799a356a645a",
    "opened": 0,
    "state": "updated"
   },

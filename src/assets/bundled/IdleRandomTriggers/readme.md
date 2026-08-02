@@ -1,5 +1,25 @@
 ### Allows for random triggers/callbacks after the Application goes idle, then will rotate though randomly everything registered to it. Can auto handle panels passed into it and will auto close them.
 
+## What it exposes
+
+Under the key `idletriggers`, on the public registry:
+
+| Name             | Takes                       | Does                               |
+|------------------|-----------------------------|------------------------------------|
+| `add_trigger`    | `owner, builder, **options` | Register a builder. Returns an id. |
+| `remove_trigger` | `id`                        | Drop one.                          |
+
+```python
+if self.client.public.has("add_trigger"):
+    self._trigger = self.client.public.add_trigger(
+        "myplugin", self.build_panel,
+        global_invalid_pages=["#settings"])
+```
+
+`global_invalid_pages` is the first of the two skip routes below. Declare
+`idletriggers` in your `dependencies` so this plugin has loaded and exposed
+before your `load()` runs.
+
 ## Pages that refuse triggers
 
 Two ways a page is skipped:
@@ -11,22 +31,22 @@ Two ways a page is skipped:
   screensaver over a screensaver is nobody's idea of restful.
 
 Both are checked in `check_time_update` **and** in `on_interaction_timeout`.
-Arming in one and unwinding in the other meant a trigger could be built and
-dismissed inside a single frame on a page that never wanted it.
+Arming in one and unwinding in the other lets a trigger be built and dismissed
+inside a single frame on a page that never wanted it.
 
 This is not `blocks_idle`, which stops the idle clock altogether. A page that
 refuses triggers still goes idle and still times out normally.
 
 ## Sprints
 
-Rotating forever meant the panel never settled, which is the one thing an idle
-screen is supposed to do.
+Rotating forever means the panel never settles, which is the one thing an idle
+screen is for.
 
-| Setting | Default | Meaning |
-|---|---|---|
-| `rotate_time` | 60000ms | How long each panel stays up. |
-| `sprint_items` | 4 | How many in a row before a pause. `0` never pauses. |
-| `sprint_break` | 300000ms | How long the screen is left alone between runs. |
+| Setting        | Default  | Meaning                                             |
+|----------------|----------|-----------------------------------------------------|
+| `rotate_time`  | 60000ms  | How long each panel stays up.                       |
+| `sprint_items` | 4        | How many in a row before a pause. `0` never pauses. |
+| `sprint_break` | 300000ms | How long the screen is left alone between runs.     |
 
 A break dismisses whatever is up and stops rotating. When it ends the rotation
 only resumes **if the panel is still idle** - somebody walking past during a

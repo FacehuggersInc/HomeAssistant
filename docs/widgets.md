@@ -18,18 +18,18 @@ register(StickyNote, placed=False)         # starts in the panel
 
 A widget declares what it supports on the class:
 
-| Attribute | Meaning |
-|-----------|---------|
-| `KEY`, `NAME`, `ICON`, `DESCRIPTION` | identity, and how it appears in the panel |
-| `RESIZABLE` | offers a resize handle |
-| `KEEP_ASPECT` | a resize scales both axes together, so a picture is not squashed |
-| `ROTATABLE` | offers a rotate handle |
-| `FLOATABLE` | stays where dropped instead of snapping to an anchor |
-| `REMOVABLE` | `False` pins it to the page - no delete button appears |
-| `MULTIPLE` | `True` makes it a template: it stays in the panel and each **Add** places another copy |
-| `MIN_W/H`, `MAX_W/H` | resize limits |
-| `EDGE_PADDING` | how close to the window edge it may be dragged |
-| `DEFAULT_ANCHOR` | where it lands when nothing has been saved for it |
+| Attribute                            | Meaning                                                                                |
+|--------------------------------------|----------------------------------------------------------------------------------------|
+| `KEY`, `NAME`, `ICON`, `DESCRIPTION` | identity, and how it appears in the panel                                              |
+| `RESIZABLE`                          | offers a resize handle                                                                 |
+| `KEEP_ASPECT`                        | a resize scales both axes together, so a picture is not squashed                       |
+| `ROTATABLE`                          | offers a rotate handle                                                                 |
+| `FLOATABLE`                          | stays where dropped instead of snapping to an anchor                                   |
+| `REMOVABLE`                          | `False` pins it to the page - no delete button appears                                 |
+| `MULTIPLE`                           | `True` makes it a template: it stays in the panel and each **Add** places another copy |
+| `MIN_W/H`, `MAX_W/H`                 | resize limits                                                                          |
+| `EDGE_PADDING`                       | how close to the window edge it may be dragged                                         |
+| `DEFAULT_ANCHOR`                     | where it lands when nothing has been saved for it                                      |
 
 ## Placing and moving
 
@@ -175,10 +175,10 @@ One vocabulary answers "where does this go" for every caller: an anchor zone,
 a sticker dropped from a phone, a timer that places itself. `POSITIONS` in
 `src/ui/widget.py` holds them, read left to right and top to bottom.
 
-| | | |
-|---|---|---|
-| `top-left` | `top-center` | `top-right` |
-| `center-left` | `center` | `center-right` |
+|               |                 |                |
+|---------------|-----------------|----------------|
+| `top-left`    | `top-center`    | `top-right`    |
+| `center-left` | `center`        | `center-right` |
 | `bottom-left` | `bottom-center` | `bottom-right` |
 
 A position means the same thing to both kinds of widget and is spelled the
@@ -254,14 +254,14 @@ The same applies to hit testing, the handle rects and anchor snapping.
 Handles are 44px with another 12px of padding around them, sized for a finger
 rather than a cursor. Which ones appear depends on what the widget declares:
 
-| Handle | Where | Shown when |
-|---|---|---|
-| **commit** — green tick, finishes editing | top-right | always |
-| **resize** — diagonal arrow | bottom-right | `RESIZABLE` |
-| **rotate** — arc on an arm above the widget | top-centre | `ROTATABLE` |
-| **offset** — four-way arrow, nudges off the anchor | bottom-left | anchored or already offset |
-| **reset** — arrow curling back | top-left | the widget has an offset |
-| **delete** — red bin, returns it to the panel | left mid-edge | `REMOVABLE` |
+| Handle                                             | Where         | Shown when                 |
+|----------------------------------------------------|---------------|----------------------------|
+| **commit** — green tick, finishes editing          | top-right     | always                     |
+| **resize** — diagonal arrow                        | bottom-right  | `RESIZABLE`                |
+| **rotate** — arc on an arm above the widget        | top-centre    | `ROTATABLE`                |
+| **offset** — four-way arrow, nudges off the anchor | bottom-left   | anchored or already offset |
+| **reset** — arrow curling back                     | top-left      | the widget has an offset   |
+| **delete** — red bin, returns it to the panel      | left mid-edge | `REMOVABLE`                |
 
 The delete handle flips to the right mid-edge when the left would fall outside
 the view.
@@ -365,19 +365,19 @@ class CountdownWidget(Widget):
 The framework reads these off the **class**, so a widget can be listed in the
 panel without ever being placed.
 
-| Attribute | Meaning |
-|---|---|
-| `KEY` | Unique. How the layout is saved. |
-| `NAME` | Shown in the widgets panel. |
-| `ICON` | An `mdi.` name for the panel entry. |
-| `DESCRIPTION` | One line, shown in the panel. |
-| `RESIZABLE` | Whether the resize handles appear. |
-| `ROTATABLE` | Requires the widget to paint itself — see [Rotation](#rotation). |
-| `FLOATABLE` | Whether it can be dropped anywhere rather than snapped to an anchor. |
-| `REMOVABLE` | Whether a delete handle is offered. |
-| `MULTIPLE` | Template: stays in the panel, and Add makes another copy. |
-| `MIN_W`/`MIN_H`, `MAX_W`/`MAX_H` | Resize bounds. |
-| `DEFAULT_ANCHOR` | Where it lands the first time. |
+| Attribute                        | Meaning                                                              |
+|----------------------------------|----------------------------------------------------------------------|
+| `KEY`                            | Unique. How the layout is saved.                                     |
+| `NAME`                           | Shown in the widgets panel.                                          |
+| `ICON`                           | An `mdi.` name for the panel entry.                                  |
+| `DESCRIPTION`                    | One line, shown in the panel.                                        |
+| `RESIZABLE`                      | Whether the resize handles appear.                                   |
+| `ROTATABLE`                      | Requires the widget to paint itself — see [Rotation](#rotation).     |
+| `FLOATABLE`                      | Whether it can be dropped anywhere rather than snapped to an anchor. |
+| `REMOVABLE`                      | Whether a delete handle is offered.                                  |
+| `MULTIPLE`                       | Template: stays in the panel, and Add makes another copy.            |
+| `MIN_W`/`MIN_H`, `MAX_W`/`MAX_H` | Resize bounds.                                                       |
+| `DEFAULT_ANCHOR`                 | Where it lands the first time.                                       |
 
 `MULTIPLE = True` is what makes a widget a template rather than a singleton.
 `register()` returns `None` for one, because no instance is created — the panel
@@ -450,16 +450,16 @@ is at startup or after a reload. See [Mixins](mixins.md).
 
 ### Features on `sub.home`
 
-| Feature | Does |
-|---|---|
-| `register_widget(cls)` | Declare it. Returns the instance, or `None` for a `MULTIPLE` template. |
-| `add_widgets(...)` | Place an already-constructed widget. |
-| `remove_widget(key)` | Take it off and out of the panel. |
-| `toggle_widget_panel()` | Open or close the panel. |
-| `show_transient(...)` | Place a widget because something happened rather than because somebody arranged it. |
-| `dismiss_transient(key)` | Take one of those away. |
-| `transient_widgets()` | The ones currently up. |
-| `widget_framework` | The `WidgetFramework` itself. |
+| Feature                  | Does                                                                                |
+|--------------------------|-------------------------------------------------------------------------------------|
+| `register_widget(cls)`   | Declare it. Returns the instance, or `None` for a `MULTIPLE` template.              |
+| `add_widgets(...)`       | Place an already-constructed widget.                                                |
+| `remove_widget(key)`     | Take it off and out of the panel.                                                   |
+| `toggle_widget_panel()`  | Open or close the panel.                                                            |
+| `show_transient(...)`    | Place a widget because something happened rather than because somebody arranged it. |
+| `dismiss_transient(key)` | Take one of those away.                                                             |
+| `transient_widgets()`    | The ones currently up.                                                              |
+| `widget_framework`       | The `WidgetFramework` itself.                                                       |
 
 ### Cleaning up
 
@@ -481,11 +481,11 @@ and keeps ticking, from a module that is gone.
 Three methods cover the whole of it. A widget arrives on the page the same way
 whatever put it there.
 
-| | |
-|---|---|
-| `create(template_key, key=None, state=None, transient=False, **kwargs)` | Build one copy of a registered template. |
-| `place(widget, at="", exact=None, save=True, bundle=False)` | Put it on the page at one of the nine positions. |
-| `remove(key)` | Take it off, run its teardown and drop its saved state. |
+|                                                                         |                                                         |
+|-------------------------------------------------------------------------|---------------------------------------------------------|
+| `create(template_key, key=None, state=None, transient=False, **kwargs)` | Build one copy of a registered template.                |
+| `place(widget, at="", exact=None, save=True, bundle=False)`             | Put it on the page at one of the nine positions.        |
+| `remove(key)`                                                           | Take it off, run its teardown and drop its saved state. |
 
 `at` is a position; `exact` is an `(x, y)` centre in page pixels and wins over
 it. Either way a floating widget lands somewhere nothing already occupies. A

@@ -308,7 +308,6 @@ class PluginManager():
 					#Instantiate
 					plugin_instance = attr()
 
-					#Load Config
 					config = self.load_toml(plugin_path, plugin_name)
 					config['path'] = plugin_path / "plugin.toml"
 					if not config: return

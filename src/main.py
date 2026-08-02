@@ -313,7 +313,7 @@ class Client:
         # from another thread landing in that window raises AttributeError.
         # apply_settings()/setting() serialise against that.
         self.SETTINGS_LOCK = RLock()
-        bg_asset = Asset(self.SETTINGS.home.images.value)
+        bg_asset = Asset(self.SETTINGS.home.background.images.value)
         bg_asset.mark_uploadable()
         self.register_asset("background_images", bg_asset, "FOLDER")
 
@@ -346,8 +346,8 @@ class Client:
         self.DIALOG               = DialogManager(self)
         self.NOTIFICATION_MANAGER = NotificationManager(
             self,
-            self.SETTINGS.notifications.notification_duration.value,
-            self.SETTINGS.notifications.notification_queue_delay.value,
+            self.SETTINGS.notifications.toasts.notification_duration.value,
+            self.SETTINGS.notifications.toasts.notification_queue_delay.value,
         )
 
         ## -- PLUGINS
@@ -716,7 +716,7 @@ class Client:
             "bgcolor": COLORS.DARK.BG,
             "height":  90,
             "padding": 10,
-            "anchor":  self.SETTINGS.notifications.notification_position.value,
+            "anchor":  self.SETTINGS.notifications.toasts.notification_position.value,
         })
 
     ##PANELS
@@ -885,7 +885,6 @@ class Client:
         self.window.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
         set_style(self.window, "main", "main-window", object_tag="QMainWindow")
 
-        #register fonts
         fonts_dir = Path("src") / "assets" / "fonts"
         for font_file in fonts_dir.glob("*.ttf"):
             QFontDatabase.addApplicationFont(str(font_file))
@@ -1217,7 +1216,7 @@ class Client:
         disagree.
         """
         try:
-            return bool(self.setting("audio.do_not_disturb.value", False))
+            return bool(self.setting("audio.quiet.do_not_disturb.value", False))
         except Exception:
             return False
 
@@ -1232,15 +1231,15 @@ class Client:
         if self.do_not_disturb():
             return True
         try:
-            return bool(self.setting("audio.mute_sounds.value", False))
+            return bool(self.setting("audio.quiet.mute_sounds.value", False))
         except Exception:
             return False
 
     def set_do_not_disturb(self, on: bool) -> bool:
-        return self._set_quiet("audio.do_not_disturb.value", bool(on))
+        return self._set_quiet("audio.quiet.do_not_disturb.value", bool(on))
 
     def set_sounds_muted(self, on: bool) -> bool:
-        return self._set_quiet("audio.mute_sounds.value", bool(on))
+        return self._set_quiet("audio.quiet.mute_sounds.value", bool(on))
 
     def _set_quiet(self, path: str, on: bool) -> bool:
         try:
@@ -1516,7 +1515,7 @@ class Client:
         """Default wake word for skills. Plugins should read this rather than
         hardcoding one."""
         try:
-            return str(self.SETTINGS.assistant.wake_word.value).strip().lower() or "alexa"
+            return str(self.SETTINGS.assistant.wake.wake_word.value).strip().lower() or "alexa"
         except Exception:
             return "alexa"
 
@@ -1632,8 +1631,8 @@ class Client:
         speaker it had.
         """
         try:
-            for path, direction in (("audio.output_device", "output"),
-                                    ("audio.input_device", "input")):
+            for path, direction in (("audio.devices.output_device", "output"),
+                                    ("audio.devices.input_device", "input")):
                 section, _, name = path.partition(".")
                 setting = getattr(getattr(self.SETTINGS, section), name)
                 found = self.AUDIO.devices(direction)
@@ -1663,30 +1662,32 @@ class Client:
         decide whether it needs restarting."""
         return (
             self.assistant_enabled(),
-            str(self.setting("audio.input_device.value", "") or "").strip(),
-            str(self.setting("assistant.model.value", "tiny.en") or "tiny.en"),
+            str(self.setting("audio.devices.input_device.value", "") or "").strip(),
+            str(self.setting("assistant.speech.model.value", "parakeet-v3")
+                or "parakeet-v3"),
             self.wake_word,
-            int(self.setting("assistant.session_silence.value", 800)),
-            bool(self.setting("audio.tts_enabled.value", True)),
+            int(self.setting("assistant.wake.session_silence.value", 800)),
+            bool(self.setting("audio.speech.tts_enabled.value", True)),
             # The voice settings, so changing one restarts the assistant and
             # the new voice is actually loaded rather than waiting for a manual
             # restart.
-            str(self.setting("audio.tts_backend.value", "auto")),
-            str(self.setting("audio.tts_voice.value", "")),
-            str(self.setting("audio.tts_voice_file.value", "")),
-            str(self.setting("audio.tts_language.value", "")),
+            str(self.setting("audio.speech.tts_backend.value", "auto")),
+            str(self.setting("audio.speech.tts_voice.value", "")),
+            str(self.setting("audio.speech.tts_voice_file.value", "")),
+            str(self.setting("audio.speech.tts_language.value", "")),
             # The microphone profile. Half of what it changes lives in the
             # child process and is fixed when it is spawned - the noise
             # reduction, the VAD aggressiveness, the silence floor - so
             # changing this without a restart left the panel half switched:
             # the guards on this side moved and the audio pipeline did not.
-            str(self.setting("audio.mic_processing.value", "software")),
-            # Loaded in the child at spawn, like the phrase model above it.
-            str(self.setting("assistant.wake_model.value", "tiny.en")),
-            # Baked into transcribe_settings when the child starts.
-            str(self.setting("assistant.beam_size.value", 5)),
-            # Chosen when the child starts - see wake_spotter.py.
-            str(self.setting("assistant.wake_detector.value", "auto")),
+            str(self.setting("audio.devices.mic_processing.value", "software")),
+            # A different set of weights, so a different download and a
+            # different model in the child. Appended rather than inserted:
+            # on_assistant_settings_saved reads index 2 for the model.
+            str(self.setting("assistant.speech.parakeet_precision.value", "int8")),
+            # How long the child waits for a phrase after a wake. Read once,
+            # when it is spawned.
+            str(self.setting("assistant.wake.wake_listen_timeout.value", 12)),
         )
 
     def stop_assistant(self) -> None:
@@ -1714,7 +1715,17 @@ class Client:
             return
 
         was_enabled = self._assistant_config[0] if self._assistant_config else False
+        previous = self._assistant_config
         self._assistant_config = current
+
+        # Index 2 is the phrase model - see assistant_config().
+        #
+        # Choosing a model in Settings is asking for it, so a "Not Now" from
+        # some earlier start does not stand. Without this the decline is
+        # permanent and invisible: re-picking the model does nothing, says
+        # nothing, and quietly runs the fallback.
+        if previous and previous[2] != current[2]:
+            self.forget_declined_model(current[2])
 
         self.log("info", "[Assistant] Settings changed, restarting.")
         self.stop_assistant()
@@ -1738,12 +1749,16 @@ class Client:
             self.log("info", "[Assistant] Disabled in settings.")
             return
 
-        device_name = str(getattr(self.SETTINGS.audio.input_device, "value", "") or "").strip()
+        device_name = str(getattr(self.SETTINGS.audio.devices.input_device, "value", "") or "").strip()
         # "Default" is the dropdown's way of saying no preference, which is
         # what working_input() already means by an empty string.
         if device_name.lower() == "default":
             device_name = ""
-        model = str(getattr(self.SETTINGS.assistant.model, "value", "tiny.en") or "tiny.en")
+        model = str(getattr(self.SETTINGS.assistant.speech.model, "value",
+                            "parakeet-v3") or "parakeet-v3")
+
+        if not self.speech_stack_ready(model):
+            return
 
         ok, reason = audio.available()
         if not ok:
@@ -1772,30 +1787,12 @@ class Client:
         # A listed device is not an openable one, and `default` can point at
         # something that blocks with no error and no end - which froze the panel
         # here, during startup, with nothing in the log after the attempt began.
-        # The weights first, if this is a model that has to fetch them.
-        #
-        # The speech process loads its model before its socket exists, so a
-        # download there is several minutes during which the panel can say
-        # nothing at all - it looks frozen, and the log stops mid-startup with
-        # no clue why. Doing it here means the panel is up, the notification
-        # reaches somebody, and the child then finds the files already there.
-        try:
-            from src.assistant import parakeet
-            if parakeet.is_parakeet(model):
-                if not parakeet.cached(model):
-                    self.simple_notify(
-                        "mdi.cloud-download-outline", "Assistant",
-                        f"Downloading the {model} speech model, about 600MB. "
-                        f"The assistant starts when it finishes.", False)
-                ok, why = parakeet.fetch(model, log=self.log)
-                if not ok:
-                    self.log("warning", f"[Assistant] {why}")
-                    self.simple_notify(
-                        "mdi.alert-outline", "Assistant",
-                        f"Could not set up {model}, so the assistant is "
-                        f"listening with a smaller model instead.")
-        except Exception as e:
-            self.log("warning", f"[Assistant] Parakeet setup skipped: {e}")
+        # The weights are dealt with below, after a microphone is found, by
+        # speech_model_ready(). They used to be fetched here, unconditionally
+        # and on this thread: 600MB pulled without asking, during startup, on
+        # the UI thread - which is the panel frozen for however long the
+        # download takes, doing the one thing the comment underneath it says
+        # it exists to avoid.
 
         # Each candidate is opened in turn until one answers, rather than
         # trusting the one the system calls `default`.
@@ -1839,20 +1836,9 @@ class Client:
             self.simple_notify("microphone", "Assistant",
                                f"Listening through '{chosen}'.")
 
-        self.log("info", f"[Assistant] Checking for the '{model}' model...")
-        if not audio.model_is_cached(model):
-            size = audio.model_size_hint(model)
-            self.confirm(
-                "Download speech model?",
-                f"The voice assistant needs the '{model}' Whisper model, which "
-                f"is not on this machine yet. It downloads once and is reused "
-                f"afterwards.",
-                detail=f"Model: {model}\nApproximate size: {size}",
-                confirm_text="Download",
-                cancel_text="Not Now",
-                on_confirm=lambda: self._launch_assistant(device, model),
-                on_cancel=lambda: self.log("info", "[Assistant] Model download declined."),
-            )
+        if not self.speech_model_ready(model, device):
+            # Asked, declined, or downloading. Whatever happens next happens
+            # from there.
             return
 
         self.log("info", f"[Assistant] Loading '{model}'. The first load on a "
@@ -1875,6 +1861,218 @@ class Client:
             pass
         self._launch_assistant(device, model)
 
+    ## -- SPEECH MODEL DOWNLOADS -----------------------------------------
+    #
+    # One question, asked once: this model is not on disk, download it or
+    # not. It used to be asked on every start and every settings save, and
+    # for a Parakeet it was asked even when the weights WERE on disk, because
+    # the cache check only knew about whisper.
+
+    def speech_stack_ready(self, model: str) -> bool:
+        """
+        Whether the two things the assistant is made of are here.
+
+        openWakeWord spots the word and Parakeet transcribes the phrase.
+        There is no third option and nothing to fall back to, so a missing
+        piece is a dialog naming it rather than a panel that comes up,
+        listens, and never answers.
+        """
+        from src.assistant import parakeet, wake_spotter
+
+        def unavailable(what: str, detail: str) -> bool:
+            self.log("warning", f"[Assistant] {what}: {detail}")
+            self.simple_notify("error", "Assistant", "Voice assistant unavailable.")
+            self.alert("Voice assistant unavailable", what,
+                       detail=detail)
+            return False
+
+        if not parakeet.is_parakeet(model):
+            # The enum only offers Parakeets. Reaching here means a settings
+            # file edited by hand, or one whose migration did not run.
+            return unavailable(
+                f"'{model}' is not a speech model this panel can use.",
+                "assistant.speech.model must be parakeet-v3 or parakeet-v2.")
+
+        ok, why = parakeet.available()
+        if not ok:
+            return unavailable(
+                "The transcriber is not installed.", why)
+
+        ok, why = wake_spotter.available()
+        if not ok:
+            return unavailable(
+                "The wake word spotter is not installed.", why)
+
+        word = str(self.wake_word or "")
+        if not wake_spotter.model_for(word):
+            # Checked here rather than left to the child, which would start,
+            # find no model, and stop again - so the panel would report a
+            # microphone problem for what is a one-dropdown fix.
+            return unavailable(
+                f"There is no wake word model for '{word}'.",
+                "openWakeWord ships models for: alexa, hey jarvis, "
+                "hey mycroft, hey rhasspy. Pick one of those in Settings.")
+
+        return True
+
+    def parakeet_precision(self) -> str:
+        """Which Parakeet weights this panel wants. See the setting."""
+        return str(self.setting("assistant.speech.parakeet_precision.value", "int8")
+                   or "int8").strip().lower()
+
+    def declined_models_path(self) -> Path:
+        return self.DATAPATH / "speech-models.declined"
+
+    def declined_models(self) -> set:
+        """Model names the user has already said no to."""
+        try:
+            return {line.strip() for line
+                    in self.declined_models_path().read_text().splitlines()
+                    if line.strip()}
+        except Exception:
+            return set()
+
+    def note_declined_model(self, model: str) -> None:
+        try:
+            self.declined_models_path().write_text(
+                "\n".join(sorted(self.declined_models() | {model})) + "\n")
+        except Exception as e:
+            # Said out loud. Failing quietly here means the prompt returns on
+            # the next start, which is the behaviour being replaced - and it
+            # would look like the record was never written for a reason
+            # nobody could see.
+            self.log("warning", f"[Assistant] Could not remember that "
+                                f"'{model}' was declined: {e}")
+
+    def forget_declined_model(self, model: str) -> None:
+        """
+        Drop the record, because the question no longer applies.
+
+        Called when the model turns up on disk and when it is chosen afresh
+        in Settings. Without the second, one "Not Now" is permanent: picking
+        the same model again would be met with silence and a quiet fallback,
+        with nothing anywhere saying why.
+        """
+        remaining = self.declined_models() - {model}
+        if remaining == self.declined_models():
+            return
+        try:
+            path = self.declined_models_path()
+            if remaining:
+                path.write_text("\n".join(sorted(remaining)) + "\n")
+            else:
+                path.unlink(missing_ok=True)
+        except Exception as e:
+            self.log("warning", f"[Assistant] Could not clear the declined "
+                                f"record for '{model}': {e}")
+
+    def speech_model_ready(self, model: str, device) -> bool:
+        """
+        Whether the assistant can start on this model now.
+
+        False does not mean failure - it means somebody else starts it: the
+        dialog when it is answered, or the download thread when it finishes.
+        """
+        from src.assistant import audio, parakeet
+
+        precision = self.parakeet_precision()
+        self.log("info", f"[Assistant] Checking for the '{model}' model...")
+        if audio.model_is_cached(model, precision):
+            self.forget_declined_model(model)
+            return True
+
+        if model in self.declined_models():
+            # Nothing to fall back to. The assistant is Parakeet, so no
+            # weights means no assistant - said once here rather than left as
+            # a panel that simply never answers.
+            self.log("info", f"[Assistant] '{model}' is not downloaded and was "
+                             f"declined. The assistant is not starting.")
+            return False
+
+        size = (parakeet.size_hint(precision) if parakeet.is_parakeet(model)
+                else audio.model_size_hint(model))
+        body = (f"The voice assistant needs the '{model}' speech model, which "
+                f"is not on this machine yet. It downloads once and is reused "
+                f"afterwards. Until it is here the assistant cannot listen.")
+
+        self.confirm(
+            "Download speech model?", body,
+            detail=f"Model: {model}\nApproximate size: {size}",
+            confirm_text="Download",
+            cancel_text="Not Now",
+            on_confirm=lambda: self.download_speech_model(model, device),
+            on_cancel=lambda: self.decline_speech_model(model, device),
+        )
+        return False
+
+    def decline_speech_model(self, model: str, device) -> None:
+        """
+        Said no. Remembered, and the assistant does not start.
+
+        There is no smaller model to run instead - the panel transcribes with
+        Parakeet or not at all. Said on screen as well as in the log, because
+        a microphone that is on and an assistant that never answers look
+        identical from across the room.
+        """
+        self.note_declined_model(model)
+        self.log("info", f"[Assistant] '{model}' download declined - "
+                         f"the assistant is off.")
+        self.simple_notify(
+            "assistant", "Assistant",
+            f"The voice assistant is off until the {model} model is "
+            f"downloaded. Change the model in Settings to be asked again.")
+
+    def download_speech_model(self, model: str, device) -> None:
+        """
+        Fetch the weights, then start.
+
+        On a thread, because this is the UI thread and the download is
+        several minutes. And here rather than in the speech process, which
+        loads its model before its socket exists - a download there is time
+        during which the panel can say nothing at all.
+        """
+        from src.assistant import parakeet
+
+        self.forget_declined_model(model)
+
+        if not parakeet.is_parakeet(model):
+            # Not one of ours. Nothing to fetch and nothing to start; the
+            # model enum only offers Parakeets, so this is a settings file
+            # edited by hand or left behind by a migration that did not run.
+            self.log("warning", f"[Assistant] '{model}' is not a Parakeet "
+                                f"model - nothing to download.")
+            return
+
+        precision = self.parakeet_precision()
+        self.simple_notify(
+            "mdi.cloud-download-outline", "Assistant",
+            f"Downloading the {model} speech model, "
+            f"{parakeet.size_hint(precision)}. The assistant starts when it "
+            f"finishes.", False)
+
+        def fetch(stop_event):
+            ok, why = parakeet.fetch(model, log=self.log, precision=precision)
+
+            def finished():
+                if ok:
+                    self.log("info", f"[Assistant] '{model}' is ready.")
+                else:
+                    # Not recorded as a decline. They said yes; the network
+                    # said no. Asking again next start is the right answer to
+                    # a download that failed rather than one refused.
+                    self.log("warning", f"[Assistant] {why}")
+                    self.simple_notify(
+                        "mdi.alert-outline", "Assistant",
+                        f"Could not download {model}, so the voice assistant "
+                        f"is off. It will try again next start.")
+                    return
+                self._launch_assistant(device, model)
+
+            self.call_on_ui(finished)
+
+        self.THREADS.create("__speech_model_download_thread", fetch)
+        self.THREADS.start("__speech_model_download_thread")
+
     def _tts_backends(self) -> list:
         """
         Which backends to try, in order.
@@ -1886,14 +2084,14 @@ class Client:
         """
         from src.assistant.tts_pocket import PocketTTSProcessing
 
-        choice = str(self.setting("audio.tts_backend.value", "auto")
+        choice = str(self.setting("audio.speech.tts_backend.value", "auto")
                      or "auto").strip().lower()
         if choice == "off":
             return []
         return [("Pocket TTS", PocketTTSProcessing)]
 
     def _start_tts(self) -> None:
-        if not self.setting("audio.tts_enabled.value", True):
+        if not self.setting("audio.speech.tts_enabled.value", True):
             self.TTS = None
             self.log("info", "[Assistant] Spoken replies are disabled in settings.")
             return
@@ -1930,10 +2128,14 @@ class Client:
         try:
             self.STT = STTProcessing(
                 self,
+                # Named rather than left to the default, because which
+                # process gets spawned is the single most consequential
+                # thing on this call and it should be readable here.
+                process      = "parakeet",
                 input_device = device,
                 model        = model,
                 wake_words   = [self.wake_word],
-                session_silence_ms = int(self.setting("assistant.session_silence.value", 800)),
+                session_silence_ms = int(self.setting("assistant.wake.session_silence.value", 800)),
             )
             self.STT.start()
             self.log("info", f"[Assistant] Listening on {audio.describe(device)} "
@@ -2228,7 +2430,6 @@ class Client:
 
                     self.call_on_ui(check_size)
 
-                    #auto fullscreen lock
                     auto_lock = self.setting("application.window.auto_lock")
                     if isinstance(auto_lock, dict):
                         auto_lock = auto_lock.get("value")

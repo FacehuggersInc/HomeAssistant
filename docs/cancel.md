@@ -27,12 +27,12 @@ self.client.CANCEL.register(
 )
 ```
 
-| | |
-|---|---|
-| `keywords` | The phrases **this** thing answers to. Normalised on the way in, so case and spacing do not have to be got right. |
-| `is_active` | Whether there is anything to back out of right now. Omitted means always. |
-| `priority` | Highest first. |
-| `stops_listening` | Whether backing out should also stand the assistant down. Default `True`. |
+|                   |                                                                                                                   |
+|-------------------|-------------------------------------------------------------------------------------------------------------------|
+| `keywords`        | The phrases **this** thing answers to. Normalised on the way in, so case and spacing do not have to be got right. |
+| `is_active`       | Whether there is anything to back out of right now. Omitted means always.                                         |
+| `priority`        | Highest first.                                                                                                    |
+| `stops_listening` | Whether backing out should also stand the assistant down. Default `True`.                                         |
 
 Registering with no keywords or no handler is refused with a warning, since
 neither can ever fire.
@@ -47,11 +47,11 @@ next is tried; an `is_active` that raises counts as inactive.
 **Priority is what makes two things at once work.** With an answer panel open
 over playing music:
 
-| Said | What happens |
-|---|---|
-| *stop* | The panel closes — it is in front, at priority 50. |
-| *shut up* | The music stops — the panel does not answer to that word. |
-| *nevermind* | The panel closes. Music never claims that word. |
+| Said        | What happens                                              |
+|-------------|-----------------------------------------------------------|
+| *stop*      | The panel closes — it is in front, at priority 50.        |
+| *shut up*   | The music stops — the panel does not answer to that word. |
+| *nevermind* | The panel closes. Music never claims that word.           |
 
 With only music playing, *nevermind* matches nothing and the assistant simply
 stands down.

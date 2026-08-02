@@ -98,13 +98,13 @@ re-runs it so the new code takes effect immediately.
 
 `app.py` communicates with the launcher through its exit code:
 
-| Code | Meaning |
-|------|---------|
-| 0    | Clean shutdown. Do not relaunch. |
-| 42   | An update is staged. Apply it, then relaunch. |
-| 43   | Relaunch as-is (`client.restart()`). |
-| 44   | *(launcher -> wrapper)* `launcher.py` updated itself; re-run it. |
-| any other | Crash. Handled by the crash policy below. |
+| Code      | Meaning                                                          |
+|-----------|------------------------------------------------------------------|
+| 0         | Clean shutdown. Do not relaunch.                                 |
+| 42        | An update is staged. Apply it, then relaunch.                    |
+| 43        | Relaunch as-is (`client.restart()`).                             |
+| 44        | *(launcher -> wrapper)* `launcher.py` updated itself; re-run it. |
+| any other | Crash. Handled by the crash policy below.                        |
 
 Running `app.py` without the launcher still works -- it detects that nothing
 is supervising it and relaunches itself instead of exiting with a code

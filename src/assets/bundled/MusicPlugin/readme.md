@@ -14,13 +14,13 @@ the title; only one is by the artist.
 
 So results are scored before anything is queued:
 
-| | |
-|---|---|
-| The title matches | up to 1.0 |
-| The artist matches, by channel **or** in the title | up to 1.4 |
-| A "- Topic" channel | +0.6 |
-| "official", "audio", "lyric" | +0.25 |
-| "live", "cover", "remix", "reaction"... | -0.8, once |
+|                                                    |            |
+|----------------------------------------------------|------------|
+| The title matches                                  | up to 1.0  |
+| The artist matches, by channel **or** in the title | up to 1.4  |
+| A "- Topic" channel                                | +0.6       |
+| "official", "audio", "lyric"                       | +0.25      |
+| "live", "cover", "remix", "reaction"...            | -0.8, once |
 
 The artist is weighted highest because it is the part that decides it, and a
 result whose TITLE carries the artist counts as well - that is how uploads are
@@ -40,12 +40,12 @@ the better one counts.
 
 The fuzzy score is then a curve rather than a flat multiplier:
 
-| similar | old | now |
-|---|---|---|
+| similar                    | old  | now      |
+|----------------------------|------|----------|
 | 0.92 (same name, respaced) | 0.64 | **0.85** |
-| 0.75 (loosely alike) | 0.52 | 0.55 |
-| 0.60 (different) | 0.42 | **0.27** |
-| below 0.45 | 0.32 | **0** |
+| 0.75 (loosely alike)       | 0.52 | 0.55     |
+| 0.60 (different)           | 0.42 | **0.27** |
+| below 0.45                 | 0.32 | **0**    |
 
 `ratio * 0.7` punished a perfectly good name as hard as a wrong one, and 0.64
 was not enough to beat a stranger's upload carrying the same title. The curve
@@ -177,11 +177,11 @@ origin being wrong, and a watch page would not fix it.
 
 The IFrame API plays an ID; it cannot find one. `search.py` tries two sources:
 
-| | Needs | Costs |
-|---|---|---|
-| **Data API** | A key in `SECRETS` | 100 of 10,000 daily units per search — about a hundred searches a day |
-| **YouTube results page** | Nothing | Breaks when YouTube changes its markup |
-| **YouTube Music** | Nothing | The same, and where the translated titles are |
+|                          | Needs              | Costs                                                                 |
+|--------------------------|--------------------|-----------------------------------------------------------------------|
+| **Data API**             | A key in `SECRETS` | 100 of 10,000 daily units per search — about a hundred searches a day |
+| **YouTube results page** | Nothing            | Breaks when YouTube changes its markup                                |
+| **YouTube Music**        | Nothing            | The same, and where the translated titles are                         |
 
 The key is tried **twice** — once asking only for embeddable, syndicated
 videos, then plain. A refusal is usually one of the optional filters rather
@@ -361,13 +361,13 @@ still showing a song is not what was asked for.
 
 ## Skills
 
-| Say | Skill |
-|---|---|
-| *play &lt;anything&gt;*, *put on &lt;anything&gt;* | `play-music` |
-| *pause the music* | `pause-music` |
-| *keep playing* | `resume-music` |
-| *skip this song* | `skip-music` |
-| *what is playing* | `whats-playing` |
+| Say                                                | Skill           |
+|----------------------------------------------------|-----------------|
+| *play &lt;anything&gt;*, *put on &lt;anything&gt;* | `play-music`    |
+| *pause the music*                                  | `pause-music`   |
+| *keep playing*                                     | `resume-music`  |
+| *skip this song*                                   | `skip-music`    |
+| *what is playing*                                  | `whats-playing` |
 
 `play-music` declares a [payload](../../../../docs/skills.md), so a title of
 any length arrives whole and does not drag the skill's score down.
@@ -402,12 +402,12 @@ fallen through — comes back to `LIVE` and stays there.
 
 ## Settings
 
-| Key | Default | Meaning |
-|---|---|---|
-| `volume` | 80% | Playback volume. |
-| `duck_on_wake` | on | Quieten while the assistant is listening. |
-| `duck_volume` | 5% | How quiet to go while listening. |
-| `pause_on_wake` | off | Pause outright instead of quietening. |
+| Key             | Default | Meaning                                   |
+|-----------------|---------|-------------------------------------------|
+| `volume`        | 80%     | Playback volume.                          |
+| `duck_on_wake`  | on      | Quieten while the assistant is listening. |
+| `duck_volume`   | 5%      | How quiet to go while listening.          |
+| `pause_on_wake` | off     | Pause outright instead of quietening.     |
 
 The Data API key goes in `SECRETS` under `musicplugin` / `youtube_api_key`.
 Without one, search falls back to scraping.

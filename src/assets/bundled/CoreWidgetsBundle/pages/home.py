@@ -63,7 +63,6 @@ class HomePage(PageFramework):
         self._drag_start: QPoint | None = None
         self._min_swipe = 40   # px
 
-        # Expose features
         self.add_features({
             "add_sub_page":    self.add_sub_page,
             "remove_sub_page": self.remove_sub_page,

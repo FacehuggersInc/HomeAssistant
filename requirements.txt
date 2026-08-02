@@ -14,23 +14,25 @@ spacy
 # "and") and a transcript is untrusted text. See src/assistant/normalize.py
 
 # ── STT ───────────────────────────────────────────────────────────────────────
-faster-whisper
+# The assistant is openWakeWord for the wake word and Parakeet for the
+# phrase. Both are REQUIRED - there is no fallback, and a panel without
+# either says so and does not listen. See docs/assistant.md.
 sounddevice
 # Decoding for the audio registry. Required, and NOT pulled in by anything
 # else - pocket-tts lists it, but pip does not necessarily install it as a
 # transitive dependency, and a panel that got this far without it is silent.
 soundfile
 webrtcvad
-#Optional. Spots the wake word with a model built for it rather than
-#transcribing a fragment and checking the spelling. Without it the
-#assistant falls back to the whisper path and says so once at startup.
+#Spots the wake word with a model built for the job rather than
+#transcribing a fragment of audio and checking the spelling.
 openwakeword
-#Optional. Runs NVIDIA's Parakeet for transcription - more accurate
-#than any whisper size here on English, faster, and it does not
-#invent words out of silence. NeMo is the usual route and brings
-#torch with it; this is four megabytes and loads the same weights.
-#Without it, choosing a parakeet model falls back to whisper.
+#Runs NVIDIA's Parakeet for transcription. NeMo is the usual route and
+#brings torch with it; this is four megabytes and loads the same
+#published weights.
 onnx-asr[cpu,hub]
+#Only for the retained whisper process (src/assistant/whisper-process.py),
+#which nothing starts by default. Drop it if you never intend to run that.
+faster-whisper
 numpy
 torch
 noisereduce

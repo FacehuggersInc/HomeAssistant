@@ -1,13 +1,15 @@
 """
 Setting up what an action tile runs.
 
-Two panes. On the left, what was chosen and how the tile looks - a fixed
-column, because it is read rather than worked in. On the right, the arguments,
-which is where the work happens and where the room is needed.
+A setup panel on the left - what was chosen and how the tile looks, read
+rather than worked in - and beside it three tabs: the arguments, the rules,
+and what the thing answers with.
 
-Big on purpose. This is the one dialog on the panel with a list somebody
-scrolls, a grid they pick from, and a form they fill in, all at once, and a
-wall panel is read from further away than a desk.
+Tabs rather than columns. Three panes side by side needed about 1580px to
+hold their minimums, and the dialog is clamped to the screen; on a smaller one
+they were shrunk past the point of being usable and overlapped. Shrinking
+things only moves where each becomes useless. One pane at a time is a pane
+that always has the room, on any screen, with no breakpoint to get wrong.
 """
 
 from __future__ import annotations
@@ -18,7 +20,7 @@ from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel, QFrame,
     QScrollArea, QSizePolicy, QScroller, QPushButton, QCheckBox,
-    QComboBox,
+    QComboBox, QStackedWidget,
 )
 
 from src.styling import (
@@ -72,20 +74,16 @@ def _one_line(value) -> str:
 class ActionSetupDialog(BaseDialog):
     """One dialog: what it runs, how it looks, and what it is called with."""
 
-    #Wider and taller than an ordinary dialog. Two panes side by side need the
-    #width, and the argument list needs the height to be worth scrolling.
-    WIDTH = 2360
+    #Wider and taller than an ordinary dialog, and no longer as wide as it
+    #was: 2360 was the width three columns needed, and there are two now.
+    WIDTH = 1560
     MAX_HEIGHT = 1400
 
-    #The left column. Fixed, because it holds a fixed set of controls and the
-    #arguments should get every pixel that is left.
+    #The setup panel. Fixed, because it holds a fixed set of controls and the
+    #tabs beside it should get every pixel that is left.
     SIDE_WIDTH = 380
-    #The answer pane. Fixed like the left one: what comes back is read rather
-    #than worked in, and a column that keeps its width is one somebody can
-    #learn the shape of.
-    ANSWER_WIDTH = 620
-    #How tall the two panes are. The argument list is the reason - a list
-    #worth scrolling needs to show enough rows that scrolling it is obviously
+    #How tall the panes are. The argument list is the reason - a list worth
+    #scrolling needs to show enough rows that scrolling it is obviously
     #possible.
     PANE_HEIGHT = 940
 
@@ -129,29 +127,10 @@ class ActionSetupDialog(BaseDialog):
         self.chosen_icon = saved.get("icon") or runnable.icon
         self.label_text = saved.get("label") or runnable.label
 
-        # Three columns, or two with the answer underneath.
-        #
-        # Below about 1580 the three cannot hold their minimums however they
-        # are shrunk - a left pane of icons, a middle of argument rows and an
-        # answer wide enough to read JSON in simply do not fit. Shrinking
-        # them all only moves the point where each becomes useless, so past
-        # it the answer goes under the middle instead, where it still has the
-        # width it needs and gives up height it can afford.
-        self.stacked = self.width() < self.THREE_COLUMN_MIN
-
         panes = QHBoxLayout()
         panes.setSpacing(16)
         panes.addWidget(self._left(), stretch=0)
-
-        if self.stacked:
-            column = QVBoxLayout()
-            column.setSpacing(12)
-            column.addWidget(self._middle(saved), stretch=3)
-            column.addWidget(self._right(saved), stretch=2)
-            panes.addLayout(column, stretch=1)
-        else:
-            panes.addWidget(self._middle(saved), stretch=1)
-            panes.addWidget(self._right(saved), stretch=0)
+        panes.addWidget(self._tabs(saved), stretch=1)
 
         # Asked for on the widget rather than through the layout. The base
         # dialog adds `content` without a stretch and puts a spacer under it,
@@ -183,40 +162,25 @@ class ActionSetupDialog(BaseDialog):
 
     ## -- left: what it is, and how it looks
 
-    #What the middle pane must keep. Below this the argument rows stop being
+    #What the tab area must keep. Below this the argument rows stop being
     #usable - a name, a kind, a value and a delete do not fit in less.
-    MIDDLE_MIN = 520
-    #The narrowest a three-column layout can be: both side panes at full
-    #width, the middle at its minimum, and the gaps between them.
-    THREE_COLUMN_MIN = SIDE_WIDTH + ANSWER_WIDTH + MIDDLE_MIN + 64
+    TABS_MIN = 520
 
     def _share(self, wanted: int) -> int:
-        """
-        A side pane's width, shrunk if the middle would not fit otherwise.
-
-        Both sides give up the same proportion, so they stay balanced rather
-        than one collapsing while the other keeps its size.
-        """
-        if getattr(self, "stacked", False):
-            # Stacked: the answer is under the middle and has the whole width
-            # to itself, so only the left pane is a column and it keeps its
-            # size.
+        """The setup panel's width, given up to the tabs if there is not room."""
+        spare = self.width() - self.TABS_MIN - 48
+        if spare >= wanted:
             return int(wanted)
-        spare = self.width() - self.MIDDLE_MIN - 64
-        both = self.SIDE_WIDTH + self.ANSWER_WIDTH
-        if spare >= both or both <= 0:
-            return int(wanted)
-        # Never below half: a pane squeezed past that is a column of clipped
-        # controls, and at that point the dialog wants a different layout
-        # rather than a narrower one.
-        return max(int(wanted * 0.55), int(wanted * spare / both))
+        # Never below half: a panel squeezed past that is a column of clipped
+        # controls, and at that point it wants a different layout rather than
+        # a narrower one.
+        return max(int(wanted * 0.55), int(spare))
 
     def _left(self) -> QWidget:
         host = QWidget()
         # Narrowed with the dialog rather than held. The dialog is clamped to
-        # the screen, so on a small one the three fixed panes would add up to
-        # more than there is and the middle would be squeezed to nothing -
-        # the middle being the part somebody is actually working in.
+        # the screen, and on a small one a fixed panel plus the tabs' minimum
+        # add up to more than there is.
         host.setFixedWidth(self._share(self.SIDE_WIDTH))
         set_style(host, "common", "transparent")
 
@@ -443,26 +407,112 @@ class ActionSetupDialog(BaseDialog):
 
     ## -- right: what it is called with
 
-    def _middle(self, saved: dict) -> QWidget:
+    ## -- the tabs
+
+    #A button rather than a QTabWidget tab. Nothing here inherits the platform
+    #palette - see action_arguments - and a native tab is a small target on a
+    #screen that is touched.
+    TAB_ON = """
+        QPushButton { background: rgba(255,255,255,26);
+                      border: 1px solid rgba(255,255,255,70);
+                      border-radius: 10px; color: #f0f0f4; padding: 0 18px; }
+    """
+    TAB_OFF = """
+        QPushButton { background: transparent;
+                      border: 1px solid rgba(255,255,255,22);
+                      border-radius: 10px; color: rgba(232,236,244,150);
+                      padding: 0 18px; }
+        QPushButton:hover { color: #e8ecf4;
+                            border-color: rgba(255,255,255,50); }
+    """
+
+    TABS = ("Arguments", "Rules", "Preview")
+
+    def _tabs(self, saved: dict) -> QWidget:
+        """The three working panes, one at a time."""
         host = QWidget()
         set_style(host, "common", "transparent")
+        host.setMinimumWidth(self.TABS_MIN)
 
+        column = QVBoxLayout(host)
+        column.setContentsMargins(0, 0, 0, 0)
+        column.setSpacing(10)
+
+        strip = QHBoxLayout()
+        strip.setSpacing(8)
+        self.tab_buttons = []
+        for index, name in enumerate(self.TABS):
+            button = QPushButton(name)
+            button.setFont(make_font(SIZES.S2, bold=True))
+            button.setFixedHeight(52)
+            button.setCursor(Qt.CursorShape.PointingHandCursor)
+            # `index=index`, because a lambda closing over the loop variable
+            # reads it when it FIRES - so every button would open the last
+            # tab.
+            button.clicked.connect(
+                lambda _checked=False, index=index: self._show_tab(index))
+            strip.addWidget(button, stretch=1)
+            self.tab_buttons.append(button)
+        column.addLayout(strip)
+
+        self.pages = QStackedWidget()
+        set_style(self.pages, "common", "transparent")
+        self.pages.addWidget(self._arguments_page(saved))
+        self.pages.addWidget(self._rules_page(saved))
+        self.pages.addWidget(self._preview_page(saved))
+        column.addWidget(self.pages, stretch=1)
+
+        self._show_tab(0)
+        return host
+
+    def _show_tab(self, index: int) -> None:
+        self.pages.setCurrentIndex(index)
+        for position, button in enumerate(self.tab_buttons):
+            button.setStyleSheet(self.TAB_ON if position == index
+                                 else self.TAB_OFF)
+
+    def _touchable(self, widget: QWidget) -> None:
+        """
+        Dragged rather than only scrolled.
+
+        Every list here is touched, and a scrollbar six pixels wide is not a
+        handle.
+        """
+        for scroll in widget.findChildren(QScrollArea):
+            style_scrollbar(scroll)
+            try:
+                QScroller.grabGesture(
+                    scroll.viewport(),
+                    QScroller.ScrollerGestureType.LeftMouseButtonGesture)
+            except Exception:
+                pass
+
+    def _page(self, title: str, blurb: str = "") -> tuple:
+        """A tab page with its heading. Returns (widget, layout)."""
+        host = QWidget()
+        set_style(host, "common", "transparent")
         column = QVBoxLayout(host)
         column.setContentsMargins(0, 0, 0, 0)
         column.setSpacing(8)
 
-        title = QLabel("Arguments")
-        title.setFont(make_font(SIZES.S2, bold=True))
-        set_style(title, "common", "text-strong")
-        column.addWidget(title)
+        heading = QLabel(title)
+        heading.setFont(make_font(SIZES.S2, bold=True))
+        set_style(heading, "common", "text-strong")
+        column.addWidget(heading)
 
-        blurb = QLabel(
+        if blurb:
+            note = QLabel(blurb)
+            note.setFont(make_font(SIZES.S1))
+            note.setWordWrap(True)
+            set_style(note, "common", "text-muted")
+            column.addWidget(note)
+        return host, column
+
+    def _arguments_page(self, saved: dict) -> QWidget:
+        host, column = self._page(
+            "Arguments",
             "Filled in from what the function declared. A row left at its "
             "default is passed as that default.")
-        blurb.setFont(make_font(SIZES.S1))
-        blurb.setWordWrap(True)
-        set_style(blurb, "common", "text-muted")
-        column.addWidget(blurb)
 
         self.arguments = ArgumentList(
             self.client,
@@ -472,62 +522,36 @@ class ActionSetupDialog(BaseDialog):
         self.arguments.setSizePolicy(QSizePolicy.Policy.Expanding,
                                      QSizePolicy.Policy.Expanding)
         column.addWidget(self.arguments, stretch=1)
+        self._touchable(self.arguments)
+        return host
 
-        rules_title = QLabel("How the tile should look")
-        rules_title.setFont(make_font(SIZES.S2, bold=True))
-        set_style(rules_title, "common", "text-strong")
-        column.addWidget(rules_title)
+    def _rules_page(self, saved: dict) -> QWidget:
+        host, column = self._page(
+            "How the tile should look",
+            "Each rule reads the part of the answer chosen under Preview, and "
+            "the first one that matches decides what the tile shows.")
 
         self.rules = RuleList(self.client, saved.get("rules") or [])
         self.rules.setSizePolicy(QSizePolicy.Policy.Expanding,
                                  QSizePolicy.Policy.Expanding)
         column.addWidget(self.rules, stretch=1)
-
-        # Dragged rather than only scrolled. Every list on this panel is
-        # touched, and a scrollbar six pixels wide is not a handle.
-        for scroll in self.arguments.findChildren(QScrollArea):
-            style_scrollbar(scroll)
-            try:
-                QScroller.grabGesture(
-                    scroll.viewport(),
-                    QScroller.ScrollerGestureType.LeftMouseButtonGesture)
-            except Exception:
-                pass
+        self._touchable(self.rules)
         return host
 
     ## -- trying it
 
-    def _right(self, saved: dict) -> QWidget:
+    def _preview_page(self, saved: dict) -> QWidget:
         """
         Run it, and show what came back with room to read it.
-
-        Its own column rather than a strip under the arguments. The answer is
-        the thing being studied while the rules above it are written - a path
-        is chosen by looking at the shape of what came back - and ninety
-        pixels of it was a keyhole.
 
         There is no dry run and this does not pretend otherwise. Everything is
         written to the tile before the button is pressed, so a test that
         restarts the panel is recoverable rather than lost work.
         """
-        host = QWidget()
-        if self.stacked:
-            # Under the middle now, so it takes the width rather than
-            # claiming a column's worth of it.
-            host.setSizePolicy(QSizePolicy.Policy.Expanding,
-                               QSizePolicy.Policy.Expanding)
-        else:
-            host.setFixedWidth(self._share(self.ANSWER_WIDTH))
-        set_style(host, "common", "transparent")
-
-        column = QVBoxLayout(host)
-        column.setContentsMargins(0, 0, 0, 0)
-        column.setSpacing(8)
-
-        title = QLabel("What it answers with")
-        title.setFont(make_font(SIZES.S2, bold=True))
-        set_style(title, "common", "text-strong")
-        column.addWidget(title)
+        host, column = self._page(
+            "What it answers with",
+            "Run it once, then pick the part of the answer the rules should "
+            "read.")
 
         self.try_button = ActionButton(
             "mdi.play", "Try it for real", self._try, kind="secondary")
@@ -565,14 +589,6 @@ class ActionSetupDialog(BaseDialog):
             "QScrollArea { background: rgba(0,0,0,60);"
             " border: 1px solid rgba(255,255,255,20); border-radius: 10px; }")
         self.answer_scroll.setWidget(self.answer)
-        style_scrollbar(self.answer_scroll)
-        for viewport in (self.answer_scroll.viewport(),):
-            try:
-                QScroller.grabGesture(
-                    viewport,
-                    QScroller.ScrollerGestureType.LeftMouseButtonGesture)
-            except Exception:
-                pass
         column.addWidget(self.answer_scroll, stretch=1)
 
         # What to read out of it. Under the answer, because it is chosen by
@@ -608,6 +624,10 @@ class ActionSetupDialog(BaseDialog):
         #the line below.
         self.last = None
         self._show_path_value()
+        # After the widgets are in it, not before: a QScrollArea is not a
+        # child of `host` until the layout has taken it, so findChildren from
+        # further up this method finds nothing.
+        self._touchable(host)
         return host
 
     def _try(self) -> None:

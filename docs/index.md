@@ -60,51 +60,51 @@ can subscribe to.
 
 ## Contents
 
-| Page | What is in it |
-|---|---|
-| [Installation](installation.md) | Getting it running. |
-| [Application lifecycle](lifecycle.md) | Startup, page switching, default page, shutdown. |
-| [Updating](updating.md) | Update checks, staging, rollback, exit codes. |
-| [Architecture](architecture.md) | How the client, backend and plugins fit together. |
-| [Plugins](plugins.md) | `plugin.toml`, `main.py`, and the full lifecycle. |
-| [Bundled plugins](bundled-plugins.md) | The eight that ship, and what each provides. |
-| [Pages](pages.md) | Registering a page, a full example, sub-pages. |
-| [Widgets](widgets.md) | Writing and registering widgets, layout, persistence. |
-| [Tiles](tiles.md) | Writing and registering tiles, the grid and panel. |
-| [Features](features.md) | Exposing and calling page features. |
-| [Registries](registries.md) | API, page, public, secret and quick access registries. |
-| [Users](users.md) | Device approval, tokens, and identifying a caller. |
-| [The web page](webpage.md) | The built-in browser page and its locks. |
-| [Quick settings](quick-settings.md) | The global controls panel and its registry. |
-| [When it will not start](when-it-will-not-start.md) | Narrowing down a freeze at startup. |
-| [Bluetooth](bluetooth.md) | Devices, pairing, battery, and the quick panel button. |
-| [Wi-Fi](wifi.md) | The network section, joining a network, and throughput. |
-| [What is playing](player.md) | The source-agnostic player contract. |
-| [Cancelling](cancel.md) | What "stop" means, and who decides. |
-| [Screen brightness](backlight.md) | Real backlight control, and the overlay fallback. |
-| [Events](events.md) | Every client event, with examples. |
-| [Settings](settings.md) | Declaring settings, types, migration. |
-| [Threading](threading.md) | `call_on_ui`, background threads, timeouts. |
-| [Logging](logging.md) | Levels, log files, what is worth logging. |
-| [Styling](styling.md) | `set_style`, fonts, colours, stylesheet conventions. |
-| [Notifications, state, assets](notifications.md) | Toasts, shared state, registered files. |
-| [Dialogs and overlays](dialogs.md) | Overlay layers, masks, dialogs, panels. |
-| [On-screen keyboard](keyboard.md) | The touch keyboard. |
-| [Voice assistant](assistant.md) | Intent matching, STT, TTS. |
-| [Writing skills](skills.md) | Skills, Matcher patterns, follow-up questions. |
-| [Mixins](mixins.md) | Extending existing methods from a plugin. |
-| [Backend API](api.md) | Every endpoint, and the `hactl.py` CLI. |
-| [Development philosophy](philosophy.md) | Why it is built the way it is. |
+| Page                                                | What is in it                                           |
+|-----------------------------------------------------|---------------------------------------------------------|
+| [Installation](installation.md)                     | Getting it running.                                     |
+| [Application lifecycle](lifecycle.md)               | Startup, page switching, default page, shutdown.        |
+| [Updating](updating.md)                             | Update checks, staging, rollback, exit codes.           |
+| [Architecture](architecture.md)                     | How the client, backend and plugins fit together.       |
+| [Plugins](plugins.md)                               | `plugin.toml`, `main.py`, and the full lifecycle.       |
+| [Bundled plugins](bundled-plugins.md)               | The eight that ship, and what each provides.            |
+| [Pages](pages.md)                                   | Registering a page, a full example, sub-pages.          |
+| [Widgets](widgets.md)                               | Writing and registering widgets, layout, persistence.   |
+| [Tiles](tiles.md)                                   | Writing and registering tiles, the grid and panel.      |
+| [Features](features.md)                             | Exposing and calling page features.                     |
+| [Registries](registries.md)                         | API, page, public, secret and quick access registries.  |
+| [Users](users.md)                                   | Device approval, tokens, and identifying a caller.      |
+| [The web page](webpage.md)                          | The built-in browser page and its locks.                |
+| [Quick settings](quick-settings.md)                 | The global controls panel and its registry.             |
+| [When it will not start](when-it-will-not-start.md) | Narrowing down a freeze at startup.                     |
+| [Bluetooth](bluetooth.md)                           | Devices, pairing, battery, and the quick panel button.  |
+| [Wi-Fi](wifi.md)                                    | The network section, joining a network, and throughput. |
+| [What is playing](player.md)                        | The source-agnostic player contract.                    |
+| [Cancelling](cancel.md)                             | What "stop" means, and who decides.                     |
+| [Screen brightness](backlight.md)                   | Real backlight control, and the overlay fallback.       |
+| [Events](events.md)                                 | Every client event, with examples.                      |
+| [Settings](settings.md)                             | Declaring settings, types, migration.                   |
+| [Threading](threading.md)                           | `call_on_ui`, background threads, timeouts.             |
+| [Logging](logging.md)                               | Levels, log files, what is worth logging.               |
+| [Styling](styling.md)                               | `set_style`, fonts, colours, stylesheet conventions.    |
+| [Notifications, state, assets](notifications.md)    | Toasts, shared state, registered files.                 |
+| [Dialogs and overlays](dialogs.md)                  | Overlay layers, masks, dialogs, panels.                 |
+| [On-screen keyboard](keyboard.md)                   | The touch keyboard.                                     |
+| [Voice assistant](assistant.md)                     | Intent matching, STT, TTS.                              |
+| [Writing skills](skills.md)                         | Skills, Matcher patterns, follow-up questions.          |
+| [Mixins](mixins.md)                                 | Extending existing methods from a plugin.               |
+| [Backend API](api.md)                               | Every endpoint, and the `hactl.py` CLI.                 |
+| [Development philosophy](philosophy.md)             | Why it is built the way it is.                          |
 
 Pages a bundled plugin ships with itself, listed under **Plugins** in the
 sidebar rather than here:
 
-| Page | From |
-|---|---|
-| [Transient widgets and timers](/docs/plugin/corewidgetsbundle/transient-widgets) | Core Widgets |
-| [Stickers](/docs/plugin/corewidgetsbundle/stickers) | Core Widgets |
-| [Nighttime Clock](/docs/plugin/nighttimeclock/nighttime) | Nighttime Clock |
-| [The calendar registry](/docs/plugin/calendarplugin/registry) | Calendar |
+| Page                                                                             | From            |
+|----------------------------------------------------------------------------------|-----------------|
+| [Transient widgets and timers](/docs/plugin/corewidgetsbundle/transient-widgets) | Core Widgets    |
+| [Stickers](/docs/plugin/corewidgetsbundle/stickers)                              | Core Widgets    |
+| [Nighttime Clock](/docs/plugin/nighttimeclock/nighttime)                         | Nighttime Clock |
+| [The calendar registry](/docs/plugin/calendarplugin/registry)                    | Calendar        |
 
 
 ## Reading these

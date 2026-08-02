@@ -250,9 +250,17 @@ def title_match(wanted: set, found: set, raw_wanted: str, raw_found: str) -> flo
     return max(overlap, close if close > 0.6 else 0.0)
 
 
-def score_result(result, query: str) -> tuple:
+def acceptance_score(result, query: str) -> tuple:
     """
-    (score, comparable) for one result.
+    (score, comparable) for one result, for deciding whether to play it.
+
+    Named apart from `ranking_score` deliberately. Both were called
+    `score_result`, in this one module, with different signatures and
+    different return types - so the second definition replaced the first and
+    `usable()` called it with a query where an artist was expected. Every
+    search raised `missing 1 required positional argument: 'artist'`, which
+    the caller logged as "Search failed" and turned into "Nothing found": a
+    working search engine, results in hand, and nothing ever played.
 
     `comparable` is False when the two titles are written in different
     scripts, which is not a low score - it is no score at all. The caller
@@ -445,9 +453,9 @@ def _closeness(heard: str, found: str) -> float:
     return (loose - FUZZY_FLOOR) / (1.0 - FUZZY_FLOOR)
 
 
-def score_result(result, title: str, artist: str) -> float:
+def ranking_score(result, title: str, artist: str) -> float:
     """
-    How well one search result answers what was asked for.
+    How well one search result answers what was asked for, for ordering.
 
     The artist is the part that decides it. YouTube ranks by popularity and
     recency, so a festival recording of a song by a channel nobody asked for
@@ -503,7 +511,7 @@ def best_match(results: list, title: str, artist: str) -> list:
     if not results:
         return results
     ranked = sorted(results,
-                    key=lambda r: score_result(r, title, artist),
+                    key=lambda r: ranking_score(r, title, artist),
                     reverse=True)
     return ranked
 
@@ -537,7 +545,7 @@ def usable(results: list, query: str, floor: float = MIN_TITLE_MATCH,
 
     kept, unknown = [], []
     for index, result in enumerate(results or []):
-        score, could_compare = score_result(result, query)
+        score, could_compare = acceptance_score(result, query)
 
         if not could_compare:
             # A title in another script. Kept if the artist agrees, and
@@ -716,6 +724,28 @@ def _music_artist(columns: list) -> str:
     return cleaned[0] if cleaned else ""
 
 
+#Keys the API has already refused as invalid, for this session.
+#
+#An exhausted quota is worth retrying - it comes back tomorrow, and giving up
+#on the API for the rest of the day over one busy hour would be wrong. A key
+#the API calls INVALID is different: it fails identically on every search
+#forever, and each search pays two round trips and two warnings before it
+#reaches the scrapers that were going to answer anyway.
+_REFUSED_KEYS = set()
+
+#What the Data API says when the key itself is the problem, rather than one
+#of the optional filters. Deliberately not "badRequest", which is also what a
+#rejected filter returns - and retrying without filters is the whole reason
+#that path exists.
+_KEY_REFUSALS = ("api key not valid", "keyinvalid", "api key expired",
+                 "api_key_invalid")
+
+
+def _key_was_refused(problem) -> bool:
+    lowered = str(problem).lower()
+    return any(reason in lowered for reason in _KEY_REFUSALS)
+
+
 def search(query: str, key: str = "", limit: int = 10, log=None) -> list:
     """
     Whatever works. Returns [] rather than raising.
@@ -732,6 +762,12 @@ def search(query: str, key: str = "", limit: int = 10, log=None) -> list:
     asked = build_query(query)
     if log and asked != query:
         log("debug", f"[Music] Searching for {asked!r}")
+
+    if key and key in _REFUSED_KEYS:
+        # Already established, once, out loud. Saying it again on every
+        # search would bury the log in a problem nobody is going to fix from
+        # a warning they have read forty times.
+        key = ""
 
     if key:
         # Restricted first, then plain. A refusal is usually one of the
@@ -751,6 +787,17 @@ def search(query: str, key: str = "", limit: int = 10, log=None) -> list:
                     log("debug", f"[Music] The Data API returned nothing"
                                  f"{' with filters' if restrict else ''}.")
             except Exception as e:
+                if _key_was_refused(e):
+                    # Not the filters, and not going to get better. Retrying
+                    # unfiltered would fail the same way, and so would every
+                    # search after this one.
+                    _REFUSED_KEYS.add(key)
+                    if log:
+                        log("warning",
+                            f"[Music] The YouTube Data API key is not valid "
+                            f"({e}). Searching YouTube directly instead, and "
+                            f"not asking the API again until restart.")
+                    break
                 if log:
                     log("warning", f"[Music] Data API search failed ({e})"
                                    f"{' - retrying unfiltered' if restrict else ''}.")

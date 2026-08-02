@@ -347,7 +347,6 @@ class SettingBlock(QFrame):
             outer.addWidget(content)
             return
 
-        # Header
         header = QHBoxLayout()
         header.setSpacing(12)
         header.setContentsMargins(0, 0, 0, 0)
@@ -1110,7 +1109,6 @@ class SettingsPage(PageFramework):
         # QScroller has the viewport and a drag anywhere in it works.
         bl.setSpacing(0)
 
-        # Nav panel
         nav_panel = QWidget()
         nav_panel.setFixedWidth(NAV_W)
         set_style(nav_panel, "settings", "settings-nav-panel")
@@ -1153,7 +1151,6 @@ class SettingsPage(PageFramework):
         nl.addWidget(nav_scroll)
         bl.addWidget(nav_panel)
 
-        # Content scroll
         self._content_scroll = QScrollArea()
         self._content_scroll.setWidgetResizable(True)
         self._content_scroll.setHorizontalScrollBarPolicy(

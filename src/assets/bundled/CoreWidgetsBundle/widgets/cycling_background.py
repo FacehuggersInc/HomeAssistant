@@ -24,9 +24,9 @@ class CyclingBackground(QWidget):
 
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
 
-        self._animation_ms = int(client.SETTINGS.home.background_fade_duration.value)
-        self._cycle_delay  = int(client.SETTINGS.home.background_cycle_interval.value)
-        self._images_path  = Path(client.SETTINGS.home.images.value)
+        self._animation_ms = int(client.SETTINGS.home.background.background_fade_duration.value)
+        self._cycle_delay  = int(client.SETTINGS.home.background.background_cycle_interval.value)
+        self._images_path  = Path(client.SETTINGS.home.background.images.value)
         self._used:    set  = set()    # shown since the pool was last exhausted
         self._recent:  list = []       # ordered tail of _used, for the window
         self._history: set  = set()    # _recent as a set, for O(1) lookups
@@ -156,11 +156,11 @@ class CyclingBackground(QWidget):
     def toggle_pin(self, event=None) -> None:
         if self._pinned:
             self._pinned = False
-            self.client.SETTINGS.home.pinned.value = ""
+            self.client.SETTINGS.home.layout.pinned.value = ""
             self.client.simple_notify(Icons.PIN, "Home", "Wallpaper un-pinned")
         else:
             self._pinned = True
-            self.client.SETTINGS.home.pinned.value = self._last_path
+            self.client.SETTINGS.home.layout.pinned.value = self._last_path
             self.client.simple_notify(
                 Icons.PIN, "Home",
                 f"Wallpaper '{Path(self._last_path).stem}' pinned"
@@ -209,7 +209,7 @@ class CyclingBackground(QWidget):
 
     def _check_initial_pin(self) -> None:
         try:
-            pinned = self.client.SETTINGS.home.pinned.value
+            pinned = self.client.SETTINGS.home.layout.pinned.value
             if pinned and Path(pinned).exists():
                 self._pinned = True
         except Exception:
@@ -246,7 +246,7 @@ class CyclingBackground(QWidget):
 
     def _get_next_image_path(self) -> str:
         try:
-            pinned = self.client.SETTINGS.home.pinned.value
+            pinned = self.client.SETTINGS.home.layout.pinned.value
             if pinned and Path(pinned).exists():
                 return pinned
         except Exception:
@@ -280,11 +280,11 @@ class CyclingBackground(QWidget):
 
     def _sync_settings(self) -> None:
         try:
-            new_dur = int(self.client.SETTINGS.home.background_fade_duration.value)
+            new_dur = int(self.client.SETTINGS.home.background.background_fade_duration.value)
             if new_dur != self._animation_ms:
                 self._animation_ms = new_dur
                 self._anim.setDuration(new_dur)
-            new_delay = int(self.client.SETTINGS.home.background_cycle_interval.value)
+            new_delay = int(self.client.SETTINGS.home.background.background_cycle_interval.value)
             if new_delay != self._cycle_delay:
                 self._cycle_delay = new_delay
                 self._cycle_timer.setInterval(new_delay * 1000)

@@ -85,10 +85,10 @@ fails is cached as empty for the same period rather than retried constantly.
 Two settings on **IdleRandomTriggers**, since they govern every idle builder
 and not only this one:
 
-| Setting | Default | Meaning |
-|---|---|---|
-| `sprint_items` | 4 | How many panels in a row before pausing. `0` never pauses. |
-| `sprint_break` | 300000ms | How long the screen is left alone between runs. |
+| Setting        | Default  | Meaning                                                    |
+|----------------|----------|------------------------------------------------------------|
+| `sprint_items` | 4        | How many panels in a row before pausing. `0` never pauses. |
+| `sprint_break` | 300000ms | How long the screen is left alone between runs.            |
 
 Rotating forever meant the panel never settled, which is the one thing an idle
 screen is supposed to do. A break dismisses whatever is up and stops rotating;

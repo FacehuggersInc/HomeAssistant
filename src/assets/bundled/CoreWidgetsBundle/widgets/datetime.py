@@ -83,7 +83,7 @@ class DateTimeWidget(Widget):
         self._date_qfont = make_font(self._date_size, bold=False,
                                      family=self._date_font)
 
-        self._time_fmt = str(client.setting("home.time_format.value", "%I:%M %p"))
+        self._time_fmt = str(client.setting("home.clock.time_format.value", "%I:%M %p"))
         self.client.subscribe_to_event("on_settings_saved", self._on_settings_saved)
 
         self._time_text = ""
@@ -99,7 +99,7 @@ class DateTimeWidget(Widget):
     def _on_settings_saved(self, event=None) -> None:
         try:
             self._time_fmt = str(
-                self.client.setting("home.time_format.value", "%I:%M %p"))
+                self.client.setting("home.clock.time_format.value", "%I:%M %p"))
             self._recompute()
             self._resize_to_content()
             self.update()
@@ -110,7 +110,7 @@ class DateTimeWidget(Widget):
         """
         "Tuesday, July 28" - the full day, the month, the day number.
 
-        Written out rather than taken from home.date_format, which defaults to
+        Written out rather than taken from home.clock.date_format, which defaults to
         the abbreviated "%a, %b %d". The setting still drives the clock tile
         and anything else reading it; this widget is deliberately the long
         form, because it is the one with room for it.

@@ -89,10 +89,6 @@ def available() -> tuple[bool, str]:
     return True, ""
 
 
-def error_detail() -> str:
-    return _SD_ERROR or ""
-
-
 ## -- DEVICES ----------------------------------------------------------------
 
 def input_devices(include_helpers: bool = False) -> list[dict]:
@@ -143,10 +139,6 @@ def default_input() -> Optional[dict]:
         if d["is_default"]:
             return d
     return devices[0] if devices else None
-
-
-def device_names() -> list[str]:
-    return [d["name"] for d in input_devices()]
 
 
 def resolve(name: str = "") -> tuple[Optional[int], str]:
@@ -351,16 +343,35 @@ def _hf_cache_dir() -> Path:
     return Path.home() / ".cache" / "huggingface" / "hub"
 
 
-def model_is_cached(model: str) -> bool:
+def model_is_cached(model: str, precision: str = "") -> bool:
     """
-    Whether faster-whisper already has this model on disk.
+    Whether this speech model is already on disk, whichever family it is.
 
     Used to decide whether starting the assistant would trigger a download,
     so the user gets asked first rather than the app silently pulling several
     hundred MB on a metered connection.
+
+    Whisper-only, it answered False for every Parakeet name forever - there
+    is no `models--Systran--faster-whisper-parakeet-v3` and there never will
+    be. The caller read that as "not downloaded", so the download prompt came
+    back on every start and every settings save, and its Download button led
+    to a path that downloads nothing.
     """
     if os.path.isdir(model):
         return True
+
+    try:
+        from src.assistant import parakeet
+        if parakeet.is_parakeet(model):
+            # `precision` decides which files count as "the model" - the
+            # int8 export and the full-size one are different downloads.
+            return parakeet.cached(model, precision)
+    except Exception:
+        # No loader, so nothing to look for. False is the honest answer and
+        # the assistant falls back to whisper - see WakeWhisper.
+        if str(model or "").strip().lower().startswith("parakeet"):
+            return False
+
     cache = _hf_cache_dir()
     if not cache.is_dir():
         return False
@@ -379,4 +390,5 @@ def model_size_hint(model: str) -> str:
         "tiny.en": "~75 MB", "tiny": "~75 MB",
         "base.en": "~145 MB", "base": "~145 MB",
         "small.en": "~490 MB", "small": "~490 MB",
+        "parakeet-v3": "~600 MB", "parakeet-v2": "~600 MB",
     }.get(model, "a few hundred MB")

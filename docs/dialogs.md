@@ -25,15 +25,15 @@ self.client.choose(
 )
 ```
 
-| Method | Purpose |
-|--------|---------|
-| `alert(title, body, ...)` | Message with one dismiss button |
-| `confirm(title, body, on_confirm=..., destructive=False)` | Yes/no |
-| `prompt(title, body, on_submit=..., numeric=False, password=False)` | Text entry |
-| `choose(title, body, options, on_choose=...)` | Pick one from a list |
-| `progress(title, body)` | Status line, no buttons; returns the dialog |
-| `dialog(widget)` | Show any `BaseDialog` you built yourself |
-| `close_dialog()` | Close the topmost dialog |
+| Method                                                              | Purpose                                     |
+|---------------------------------------------------------------------|---------------------------------------------|
+| `alert(title, body, ...)`                                           | Message with one dismiss button             |
+| `confirm(title, body, on_confirm=..., destructive=False)`           | Yes/no                                      |
+| `prompt(title, body, on_submit=..., numeric=False, password=False)` | Text entry                                  |
+| `choose(title, body, options, on_choose=...)`                       | Pick one from a list                        |
+| `progress(title, body)`                                             | Status line, no buttons; returns the dialog |
+| `dialog(widget)`                                                    | Show any `BaseDialog` you built yourself    |
+| `close_dialog()`                                                    | Close the topmost dialog                    |
 
 Callbacks fire **after** the dialog closes, so a callback is free to open
 another dialog without fighting the one it came from.
@@ -70,14 +70,18 @@ style guards: they look safe and are exactly the thing that overflows.
 
 ### When a layout stops fitting
 
-Shrinking every column only moves the point at which each becomes useless. The
-action setup dialog needs a left pane of icons, a middle of argument rows and
-an answer pane wide enough to read JSON in - about 1580px between them - and
-below that it puts the answer UNDER the middle instead, where it keeps the
-width it needs and gives up height it can afford.
+Shrinking every column only moves the point at which each becomes useless.
 
-Two shapes, one threshold, rather than three columns that get gradually
-unusable.
+The action setup dialog needed a left pane of icons, a middle of argument rows
+and an answer pane wide enough to read JSON in - about 1580px between them.
+Below that it re-stacked, putting the answer under the middle. That was one
+threshold to get right on every screen the dialog might be clamped to, and on
+a screen near it the panes overlapped.
+
+It is a setup panel and three TABS now - arguments, rules, preview. One pane
+at a time always has the room it needs, on any screen, and there is no
+breakpoint left to be wrong about. Reach for that before a second layout: a
+dialog that needs two shapes usually needs fewer things visible at once.
 
 ## Taking the room over
 
@@ -182,18 +186,18 @@ If you build an overlay widget of your own, register it with
 Before writing one, check whether it exists. Every one below is in
 `src/ui/dialogs.py` unless noted, and all take the client first.
 
-| | |
-|---|---|
-| `AlertDialog(client, title, body)` | Something to read and dismiss |
-| `ConfirmDialog(client, title, body, on_confirm)` | Yes or no |
-| `InputDialog(client, title, body, on_submit)` | One line of text |
-| `ChoiceDialog(client, title, body, options, on_choose)` | A short list to pick from |
-| `ItemGridDialog(client, title, items, on_chosen)` | A **searchable** grid — `src/ui/grid_dialog.py` |
-| `DurationPickerDialog(client, title, body, seconds, on_chosen)` | A length of time, as steppers |
-| `ActionSheet(client, title, items)` | A row's actions, big enough to hit |
-| `ProgressDialog(client, title, body)` | Something is happening |
-| `DependencyDialog(client, pending)` | A plugin needs another one |
-| `KeyboardDialog(client, target, mode)` | On-screen text entry — `src/ui/keyboard.py` |
+|                                                                 |                                                 |
+|-----------------------------------------------------------------|-------------------------------------------------|
+| `AlertDialog(client, title, body)`                              | Something to read and dismiss                   |
+| `ConfirmDialog(client, title, body, on_confirm)`                | Yes or no                                       |
+| `InputDialog(client, title, body, on_submit)`                   | One line of text                                |
+| `ChoiceDialog(client, title, body, options, on_choose)`         | A short list to pick from                       |
+| `ItemGridDialog(client, title, items, on_chosen)`               | A **searchable** grid — `src/ui/grid_dialog.py` |
+| `DurationPickerDialog(client, title, body, seconds, on_chosen)` | A length of time, as steppers                   |
+| `ActionSheet(client, title, items)`                             | A row's actions, big enough to hit              |
+| `ProgressDialog(client, title, body)`                           | Something is happening                          |
+| `DependencyDialog(client, pending)`                             | A plugin needs another one                      |
+| `KeyboardDialog(client, target, mode)`                          | On-screen text entry — `src/ui/keyboard.py`     |
 
 ```python
 from src.ui.dialogs import ConfirmDialog
@@ -361,17 +365,17 @@ panel.add_content(my_widget)
 panel.open_panel()
 ```
 
-| Argument | Default | Meaning |
-|---|---|---|
-| `edge` | `"right"` | `"left"`, `"right"`, `"top"` or `"bottom"`. |
-| `width` | 680 for left/right | `None` fills the axis less the margin. |
-| `height` | `None` | Set it for a panel that does not reach the far edge. |
-| `margin` | `0` | Inset from the screen edges. Non-zero makes it float. |
-| `radius` | `None` | CSS border-radius. Floating panels default to `14px`. |
-| `blur_radius` | 28 | Backdrop blur strength. |
-| `animation_speed` | 220 | Slide duration in ms. |
-| `key` | `None` | Identifier, for `client.create_panel()`. |
-| `destroy_on_close` | `False` | Whether closing deletes it. |
+| Argument           | Default            | Meaning                                               |
+|--------------------|--------------------|-------------------------------------------------------|
+| `edge`             | `"right"`          | `"left"`, `"right"`, `"top"` or `"bottom"`.           |
+| `width`            | 680 for left/right | `None` fills the axis less the margin.                |
+| `height`           | `None`             | Set it for a panel that does not reach the far edge.  |
+| `margin`           | `0`                | Inset from the screen edges. Non-zero makes it float. |
+| `radius`           | `None`             | CSS border-radius. Floating panels default to `14px`. |
+| `blur_radius`      | 28                 | Backdrop blur strength.                               |
+| `animation_speed`  | 220                | Slide duration in ms.                                 |
+| `key`              | `None`             | Identifier, for `client.create_panel()`.              |
+| `destroy_on_close` | `False`            | Whether closing deletes it.                           |
 
 With `margin=0` a panel is flush to its edge and spans the full cross axis.
 With a margin it floats as a card, and gets a border all the way round rather

@@ -47,7 +47,6 @@ class NotificationHistoryItem(QFrame):
             icon_lbl.setPixmap(resolve_icon("bell", color="white").pixmap(24, 24))
         layout.addWidget(icon_lbl)
 
-        # Text
         text_col = QVBoxLayout()
         text_col.setSpacing(2)
         text_col.setContentsMargins(0, 0, 0, 0)
@@ -84,7 +83,6 @@ class NotificationHistoryItem(QFrame):
         text_col.addWidget(body_lbl)
         layout.addLayout(text_col)
 
-        # Dismiss button
         dismiss_btn = QPushButton("✕")
         dismiss_btn.setFixedSize(24, 24)
         set_style(dismiss_btn, "notification", "notification-dismiss")
@@ -205,7 +203,6 @@ class NotificationCenterWidget(Widget):
         self._btn.move(0, 0)
         self._btn.resize(self.SIZE, self.SIZE)
 
-        # Blue dot
         self._dot = QWidget(self)
         self._dot.setGeometry(self.SIZE - 18, 5, 13, 13)
         set_style(self._dot, "notification", "notification-dot")

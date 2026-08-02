@@ -60,7 +60,7 @@ class SubTilesPage(SubPageFramework):
 
         ## -- TILE GRID
 
-        margin = int(client.SETTINGS.home.widget_margin.value)
+        margin = int(client.SETTINGS.home.layout.widget_margin.value)
         self.tile_grid = TileGrid(client, cols=16, rows=10)
         self.tile_grid.setParent(self)
         self.tile_grid.setGeometry(0, 0, w, h)

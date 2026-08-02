@@ -359,13 +359,13 @@ class QuickSettings(Panel):
         """
         How tall to open, from the setting or from the window.
 
-        `home.quick_settings_height` is a share of the window rather than a
+        `home.layout.quick_settings_height` is a share of the window rather than a
         pixel count, so one value suits every display the panel might be on -
         and 0 means "use the default share".
         """
         try:
             share = float(client.setting(
-                "home.quick_settings_height.value", 0) or 0)
+                "home.layout.quick_settings_height.value", 0) or 0)
         except Exception:
             share = 0.0
         if not (0.15 <= share <= 0.9):

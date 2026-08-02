@@ -136,37 +136,37 @@ Full reference: <https://spacy.io/usage/rule-based-matching>, and the API at
 
 The ones worth knowing:
 
-| Key | Matches | Example |
-|---|---|---|
-| `LOWER` | The lowercased text. | `{"LOWER": "timer"}` |
-| `ORTH` / `TEXT` | The exact text, case-sensitive. | `{"ORTH": "AM"}` |
-| `LEMMA` | The dictionary form, so one spec covers inflections. | `{"LEMMA": "set"}` matches set/sets/setting |
-| `POS` | Coarse part of speech. | `{"POS": "NOUN"}` |
-| `TAG` | Fine-grained tag. | `{"TAG": "NNP"}` |
-| `DEP` | Dependency label. | `{"DEP": "dobj"}` |
-| `SHAPE` | Orthographic shape. | `{"SHAPE": "dddd"}` matches `2026` |
-| `ENT_TYPE` | Named entity type. | `{"ENT_TYPE": "TIME"}` |
-| `IS_ALPHA` | Letters only. | `{"IS_ALPHA": True}` |
-| `IS_DIGIT` | Digits only. | `{"IS_DIGIT": True}` matches `10`, not `ten` |
-| `IS_PUNCT` | Punctuation. | `{"IS_PUNCT": True}` |
-| `IS_STOP` | A stop word. | `{"IS_STOP": False}` |
-| `LIKE_NUM` | Anything numeric. | `{"LIKE_NUM": True}` matches `10` **and** `ten` |
-| `LIKE_URL` / `LIKE_EMAIL` | Looks like one. | `{"LIKE_URL": True}` |
+| Key                       | Matches                                              | Example                                         |
+|---------------------------|------------------------------------------------------|-------------------------------------------------|
+| `LOWER`                   | The lowercased text.                                 | `{"LOWER": "timer"}`                            |
+| `ORTH` / `TEXT`           | The exact text, case-sensitive.                      | `{"ORTH": "AM"}`                                |
+| `LEMMA`                   | The dictionary form, so one spec covers inflections. | `{"LEMMA": "set"}` matches set/sets/setting     |
+| `POS`                     | Coarse part of speech.                               | `{"POS": "NOUN"}`                               |
+| `TAG`                     | Fine-grained tag.                                    | `{"TAG": "NNP"}`                                |
+| `DEP`                     | Dependency label.                                    | `{"DEP": "dobj"}`                               |
+| `SHAPE`                   | Orthographic shape.                                  | `{"SHAPE": "dddd"}` matches `2026`              |
+| `ENT_TYPE`                | Named entity type.                                   | `{"ENT_TYPE": "TIME"}`                          |
+| `IS_ALPHA`                | Letters only.                                        | `{"IS_ALPHA": True}`                            |
+| `IS_DIGIT`                | Digits only.                                         | `{"IS_DIGIT": True}` matches `10`, not `ten`    |
+| `IS_PUNCT`                | Punctuation.                                         | `{"IS_PUNCT": True}`                            |
+| `IS_STOP`                 | A stop word.                                         | `{"IS_STOP": False}`                            |
+| `LIKE_NUM`                | Anything numeric.                                    | `{"LIKE_NUM": True}` matches `10` **and** `ten` |
+| `LIKE_URL` / `LIKE_EMAIL` | Looks like one.                                      | `{"LIKE_URL": True}`                            |
 
-`LIKE_NUM` over `IS_DIGIT` almost always. Whisper writes numbers either way
+`LIKE_NUM` over `IS_DIGIT` almost always. The transcriber writes numbers either way
 depending on how they were said, and normalisation converts most but not all.
 
 ### Value operators
 
 A value can be a dict instead of a literal:
 
-| Operator | Means | Example |
-|---|---|---|
-| `IN` | One of a list. | `{"LOWER": {"IN": ["minute", "minutes", "min"]}}` |
-| `NOT_IN` | None of a list. | `{"LOWER": {"NOT_IN": ["not", "cancel"]}}` |
-| `REGEX` | Matches a pattern. | `{"LOWER": {"REGEX": "^colou?r$"}}` |
-| `FUZZY` | Approximate, for mishearings. | `{"LOWER": {"FUZZY": "notifications"}}` |
-| `>=`, `<=`, `>`, `<`, `==` | Numeric comparison on a numeric attribute. | `{"LENGTH": {">=": 4}}` |
+| Operator                   | Means                                      | Example                                           |
+|----------------------------|--------------------------------------------|---------------------------------------------------|
+| `IN`                       | One of a list.                             | `{"LOWER": {"IN": ["minute", "minutes", "min"]}}` |
+| `NOT_IN`                   | None of a list.                            | `{"LOWER": {"NOT_IN": ["not", "cancel"]}}`        |
+| `REGEX`                    | Matches a pattern.                         | `{"LOWER": {"REGEX": "^colou?r$"}}`               |
+| `FUZZY`                    | Approximate, for mishearings.              | `{"LOWER": {"FUZZY": "notifications"}}`           |
+| `>=`, `<=`, `>`, `<`, `==` | Numeric comparison on a numeric attribute. | `{"LENGTH": {">=": 4}}`                           |
 
 `IN` is the workhorse. It is how you accept singular and plural, or a handful
 of synonyms, without writing an alternative for each.
@@ -175,15 +175,15 @@ of synonyms, without writing an alternative for each.
 
 `OP` says how many of the preceding token spec to match:
 
-| `OP` | Means |
-|---|---|
-| `"?"` | Zero or one — an optional token. |
-| `"*"` | Zero or more. |
-| `"+"` | One or more. |
-| `"!"` | Exactly zero — assert this token is *not* here. |
-| `"{2,3}"` | Between two and three. |
-| `"{2}"` | Exactly two. |
-| `"{2,}"` | Two or more. |
+| `OP`      | Means                                           |
+|-----------|-------------------------------------------------|
+| `"?"`     | Zero or one — an optional token.                |
+| `"*"`     | Zero or more.                                   |
+| `"+"`     | One or more.                                    |
+| `"!"`     | Exactly zero — assert this token is *not* here. |
+| `"{2,3}"` | Between two and three.                          |
+| `"{2}"`   | Exactly two.                                    |
+| `"{2,}"`  | Two or more.                                    |
 
 ```python
 # "for 10 minutes" / "10 minutes" - the preposition is optional
@@ -233,11 +233,11 @@ examples explain, so words no example contains lower it — and a title is
 nothing but such words. Scored that way, the more distinctive the title the
 *less* likely it routes:
 
-| Said | Score against `play a song` |
-|---|---|
-| `play yesterday` | 0.57 |
-| `play everlong` | 0.40 |
-| `play never gonna give you up` | 0.20 |
+| Said                           | Score against `play a song` |
+|--------------------------------|-----------------------------|
+| `play yesterday`               | 0.57                        |
+| `play everlong`                | 0.40                        |
+| `play never gonna give you up` | 0.20                        |
 
 **And it gets trimmed.** `arguments` strips leading determiners, verbs and
 prepositions, which is right for `"call it Eggs"` and ruinous for a title:
@@ -400,7 +400,7 @@ two. `goodnight` scores 0 against `good` (the prefix rule) and 0 against `night`
 (too different in length), and the phrase matches nothing — even with
 `"good night"` listed as an example.
 
-Whisper writes compounds either way depending on the sentence, so before the
+The transcriber writes compounds either way depending on the sentence, so before the
 per-token loop the whole phrase is compared with the spaces removed:
 
 ```python

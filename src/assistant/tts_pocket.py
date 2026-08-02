@@ -142,11 +142,11 @@ class PocketTTSProcessing:
         """
         try:
             clone = str(self.client.setting(
-                "audio.tts_voice_file.value", "") or "").strip()
+                "audio.speech.tts_voice_file.value", "") or "").strip()
             if clone:
                 return clone
             value = str(self.client.setting(
-                "audio.tts_voice.value", "") or "").strip()
+                "audio.speech.tts_voice.value", "") or "").strip()
         except Exception:
             value = ""
         return value or self.DEFAULT_VOICE_NAME
@@ -162,7 +162,7 @@ class PocketTTSProcessing:
         """
         try:
             value = str(self.client.setting(
-                "audio.tts_language.value", "") or "").strip().lower()
+                "audio.speech.tts_language.value", "") or "").strip().lower()
         except Exception:
             return ""
         return "" if value in ("", "default", "auto") else value
@@ -324,13 +324,13 @@ class PocketTTSProcessing:
             channels = 1 if data.ndim == 1 else data.shape[1]
             rate = self._playback_rate()
             # The chosen output, like every other sound the panel makes -
-            # see audio.output_device. Without this the assistant speaks
+            # see audio.devices.output_device. Without this the assistant speaks
             # through whatever was plugged in last while notification sounds
             # go where they were told, which is worse than either.
             chosen = None
             try:
                 chosen = self.client.AUDIO.device_index(
-                    str(self.client.setting("audio.output_device.value", "")),
+                    str(self.client.setting("audio.devices.output_device.value", "")),
                     "output")
             except Exception:
                 chosen = None
@@ -406,7 +406,7 @@ class PocketTTSProcessing:
     def _padding_ms(self) -> int:
         try:
             return max(0, min(1000, int(self.client.setting(
-                "audio.tts_padding_ms.value", 140) or 0)))
+                "audio.speech.tts_padding_ms.value", 140) or 0)))
         except Exception:
             return 140
 
@@ -443,7 +443,7 @@ class PocketTTSProcessing:
         is one.
         """
         try:
-            rate = float(self.client.setting("audio.tts_rate.value", 1.0)
+            rate = float(self.client.setting("audio.speech.tts_rate.value", 1.0)
                          or 1.0)
         except Exception:
             rate = 1.0

@@ -25,13 +25,13 @@ be pressed while the layer is up.
 
 ## What it can be stuck to
 
-| Stuck to | Comes back on |
-|---|---|
-| a day | that date, and only that one |
-| a holiday | that holiday, every year, wherever it falls |
-| an event that repeats yearly and never ends | that day, every year |
-| an event running across several days | the last of those days |
-| any other event | wherever that event is |
+| Stuck to                                    | Comes back on                               |
+|---------------------------------------------|---------------------------------------------|
+| a day                                       | that date, and only that one                |
+| a holiday                                   | that holiday, every year, wherever it falls |
+| an event that repeats yearly and never ends | that day, every year                        |
+| an event running across several days        | the last of those days                      |
+| any other event                             | wherever that event is                      |
 
 A holiday is its own case because holidays are computed rather than stored: the
 key carries the year, so following the key follows one year only. Many of them
@@ -51,12 +51,12 @@ next occurrence.
 Four controls appear on a selected sticker, and two of them are on the one
 being placed as well.
 
-| Control | Does |
-|---|---|
-| right of it | Sizes it |
-| left of it | Turns it |
-| top right | Removes it |
-| top left | Frees it |
+| Control     | Does       |
+|-------------|------------|
+| right of it | Sizes it   |
+| left of it  | Turns it   |
+| top right   | Removes it |
+| top left    | Frees it   |
 
 The size and turn controls sit **outside** the picture rather than on its
 corners. A sticker in a day box is about forty pixels across and a control is
@@ -87,14 +87,20 @@ nothing like the shape of a card with an event's name across it.
 
 Two more controls sit in the header beside the sticker buttons.
 
-| Control | Does |
-|---|---|
-| list | Everything on this month, grouped by day |
+| Control   | Does                                        |
+|-----------|---------------------------------------------|
+| list      | Everything on this month, grouped by day    |
 | magnifier | A year, then a month - two taps to anywhere |
 
 Paging a month at a time suits next week and nothing further. The jump dialog
-is a year stepper over the twelve months, with a line naming which month is
-current and which is on screen.
+is chevrons over a year, then twelve evenly sized months in a four by three
+grid, with a line naming which is current and which is on screen. Single
+chevrons step a year, double step ten.
+
+It is shaped like `DatePickerDialog` in `pickers.py` on purpose - the same
+question, so the same layout, and nothing to learn twice. Both size to a
+fraction of the screen rather than inheriting `_WideDialog`'s 0.86, which is
+right for a month of events and turns twelve buttons into a wall.
 
 ## The library
 

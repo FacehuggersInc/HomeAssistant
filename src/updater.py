@@ -147,17 +147,75 @@ def is_install_once(rel_path: str, patterns: list) -> bool:
 #Entries stay here forever. An install can be any age, and one skipping three
 #versions has to make the same journey as one skipping a single version.
 MOVED_SETTINGS = {
-    "assistant.tts_enabled":     "audio.tts_enabled",
-    "assistant.tts_backend":     "audio.tts_backend",
-    "assistant.tts_voice":       "audio.tts_voice",
-    "assistant.tts_language":    "audio.tts_language",
-    "assistant.tts_voice_file":  "audio.tts_voice_file",
-    "assistant.tts_padding_ms":  "audio.tts_padding_ms",
-    "assistant.tts_rate":        "audio.tts_rate",
-    "assistant.input_device":    "audio.input_device",
-    "assistant.mic_processing":  "audio.mic_processing",
-    "accessibility.do_not_disturb": "audio.do_not_disturb",
-    "accessibility.mute_sounds":    "audio.mute_sounds",
+    "assistant.tts_enabled":     "audio.speech.tts_enabled",
+    "assistant.tts_backend":     "audio.speech.tts_backend",
+    "assistant.tts_voice":       "audio.speech.tts_voice",
+    "assistant.tts_language":    "audio.speech.tts_language",
+    "assistant.tts_voice_file":  "audio.speech.tts_voice_file",
+    "assistant.tts_padding_ms":  "audio.speech.tts_padding_ms",
+    "assistant.tts_rate":        "audio.speech.tts_rate",
+    "assistant.input_device":    "audio.devices.input_device",
+    "assistant.mic_processing":  "audio.devices.mic_processing",
+    "accessibility.do_not_disturb": "audio.quiet.do_not_disturb",
+    "accessibility.mute_sounds":    "audio.quiet.mute_sounds",
+
+    #Sub-headings within a category. The keys did not change, only the group
+    #they sit in - but `merge_values` matches by PATH, so a heading is the
+    #same kind of move as a category change and needs the same carry.
+    "assistant.greet_on_start":        "assistant.feedback.greet_on_start",
+    "assistant.model":                 "assistant.speech.model",
+    "assistant.parakeet_precision":    "assistant.speech.parakeet_precision",
+    "assistant.session_silence":       "assistant.wake.session_silence",
+    "assistant.voice_bar":             "assistant.feedback.voice_bar",
+    "assistant.voice_bar_hold":        "assistant.feedback.voice_bar_hold",
+    "assistant.wake_listen_timeout":   "assistant.wake.wake_listen_timeout",
+    "assistant.wake_word":             "assistant.wake.wake_word",
+    "audio.do_not_disturb":            "audio.quiet.do_not_disturb",
+    "audio.input_device":              "audio.devices.input_device",
+    "audio.mic_processing":            "audio.devices.mic_processing",
+    "audio.mute_sounds":               "audio.quiet.mute_sounds",
+    "audio.output_device":             "audio.devices.output_device",
+    "audio.tts_backend":               "audio.speech.tts_backend",
+    "audio.tts_enabled":               "audio.speech.tts_enabled",
+    "audio.tts_language":              "audio.speech.tts_language",
+    "audio.tts_padding_ms":            "audio.speech.tts_padding_ms",
+    "audio.tts_rate":                  "audio.speech.tts_rate",
+    "audio.tts_voice":                 "audio.speech.tts_voice",
+    "audio.tts_voice_file":            "audio.speech.tts_voice_file",
+    "home.background_cycle_interval":  "home.background.background_cycle_interval",
+    "home.background_fade_duration":   "home.background.background_fade_duration",
+    "home.date_format":                "home.clock.date_format",
+    "home.images":                     "home.background.images",
+    "home.media_player_position":      "home.media.media_player_position",
+    "home.pinned":                     "home.layout.pinned",
+    "home.quick_settings_height":      "home.layout.quick_settings_height",
+    "home.show_normal_media_player":   "home.media.show_normal_media_player",
+    "home.show_whats_playing":         "home.media.show_whats_playing",
+    "home.time_format":                "home.clock.time_format",
+    "home.widget_margin":              "home.layout.widget_margin",
+    "notifications.notification_duration": "notifications.toasts.notification_duration",
+    "notifications.notification_position": "notifications.toasts.notification_position",
+    "notifications.notification_queue_delay": "notifications.toasts.notification_queue_delay",
+
+    #The Nighttime Clock's own settings.json. Plugin files are merged with the
+    #same function, and their paths have no category above them - so a plugin
+    #move is written bare, and a key common enough to collide with another
+    #plugin's does not belong here.
+    "day_time":                          "schedule.day_time",
+    "dim_enabled":                       "brightness.dim_enabled",
+    "dim_lead_minutes":                  "brightness.dim_lead_minutes",
+    "enabled":                           "schedule.enabled",
+    "fireflies":                         "scene.fireflies",
+    "firefly_count":                     "scene.firefly_count",
+    "night_brightness":                  "brightness.night_brightness",
+    "night_time":                        "schedule.night_time",
+    "return_to":                         "schedule.return_to",
+    "settle_seconds":                    "brightness.settle_seconds",
+    "show_moon":                         "scene.show_moon",
+    "show_sun":                          "scene.show_sun",
+    "sky_events":                        "scene.sky_events",
+    "weather_effects":                   "scene.weather_effects",
+    "woken_brightness":                  "brightness.woken_brightness",
 }
 
 
@@ -196,6 +254,25 @@ def carry_moved(shipped, installed):
     return installed
 
 
+def keep_valid(shipped, value):
+    """
+    The user's value, unless the shipped structure no longer allows it.
+
+    An enum whose OPTIONS changed is not a new key and not a dropped one, so
+    the merge below carries the old value across happily and leaves the panel
+    set to something the dropdown no longer offers. Nothing reads as more
+    broken than a setting that shows a value it will not let you pick again -
+    and code reading it gets a string no branch handles.
+
+    The shipped default is the only answer that leaves a working panel.
+    """
+    options = shipped.get("options")
+    if shipped.get("type") == "enum" and isinstance(options, list) and options:
+        if value not in options:
+            return shipped.get("default", options[0])
+    return value
+
+
 def merge_values(shipped, installed):
     """
     Structure and new keys from `shipped`, user values from `installed`.
@@ -217,7 +294,7 @@ def merge_values(shipped, installed):
         installed = carry_moved(shipped, installed)
     if "value" in shipped and "value" in installed:
         if type(shipped["value"]) is type(installed["value"]):
-            shipped["value"] = installed["value"]
+            shipped["value"] = keep_valid(shipped, installed["value"])
         return shipped
     for key, value in shipped.items():
         if key in installed:

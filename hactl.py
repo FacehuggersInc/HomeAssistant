@@ -8,7 +8,7 @@ no checkout of the project at all.
 
     ./hactl.py update --wait
     ./hactl.py plugins list
-    ./hactl.py settings set assistant.model.value small.en
+    ./hactl.py settings set assistant.speech.model.value small.en
 
 Pairing happens once per machine: `hosts add` asks the panel for access, then
 somebody standing at it allows or denies the request. The token that comes back
@@ -380,6 +380,56 @@ def cmd_ping(args, config):
     return EXIT_OK if state == "ready" else EXIT_FAILED
 
 
+def cmd_speech_model(args, config):
+    """
+    Whether the chosen speech model is downloaded.
+
+    Answered locally, without touching the panel. A 600MB download that has
+    not finished looks exactly like a panel that will not start, and the
+    difference is worth being able to check from a terminal while it is
+    happening.
+    """
+    import json as _json
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    try:
+        from src.assistant import parakeet
+        from src.constants import get_data_dir
+    except Exception as e:
+        print(f"Could not look: {e}")
+        return EXIT_FAILED
+
+    try:
+        data = _json.loads((get_data_dir() / "data.json").read_text())
+        chosen = str(data["assistant"]["model"]["value"])
+    except Exception:
+        chosen = "parakeet-v3"
+
+    try:
+        precision = str(data["assistant"]["parakeet_precision"]["value"])
+    except Exception:
+        precision = ""
+
+    if not parakeet.is_parakeet(chosen):
+        print(f"{chosen} is a whisper model - nothing to download.")
+        return EXIT_OK
+
+    ok, why = parakeet.available()
+    if not ok:
+        print(f"{chosen}: {why}")
+        return EXIT_FAILED
+    absent = parakeet.missing(chosen, precision)
+    if not absent:
+        print(f"{chosen} is downloaded and ready "
+              f"({parakeet.quantization(precision) or 'full precision'}).")
+        return EXIT_OK
+    # Named, because "not downloaded" and "downloaded except for the 2GB of
+    # weights the encoder keeps beside it" look identical from the panel and
+    # want different things done about them.
+    print(f"{chosen} is NOT ready - the assistant is waiting on: "
+          f"{', '.join(absent)}")
+    return EXIT_FAILED
+
+
 def cmd_backlight(args, config):
     """
     What is driving the screen brightness, and what else could.
@@ -608,6 +658,8 @@ def build_parser() -> argparse.ArgumentParser:
     use.add_argument("name")
 
     sub.add_parser("ping", help="check whether the panel is up and built")
+    sub.add_parser("speech-model",
+                   help="whether the chosen speech model is downloaded")
 
     backlight = sub.add_parser(
         "backlight", help="what is driving the screen brightness")
@@ -634,7 +686,7 @@ def build_parser() -> argparse.ArgumentParser:
     notify.add_argument("body")
 
     settings = sub.add_parser("settings", help="read or write a setting")
-    settings.add_argument("path", help="dotted path, e.g. assistant.model.value")
+    settings.add_argument("path", help="dotted path, e.g. assistant.speech.model.value")
     settings.add_argument("value", nargs="?", help="omit to read")
 
     plugins = sub.add_parser("plugins", help="inspect and manage plugins")
@@ -686,6 +738,7 @@ def build_parser() -> argparse.ArgumentParser:
 HANDLERS = {
     "hosts": cmd_hosts,
     "ping": cmd_ping,
+    "speech-model": cmd_speech_model,
     "backlight": cmd_backlight,
     "update": cmd_update,
     "restart": cmd_restart,

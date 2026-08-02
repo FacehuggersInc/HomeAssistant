@@ -1,8 +1,8 @@
 # Events
 
-Events let any part of the application — Client, plugins, pages — react to things happening elsewhere without being directly wired together.
-
-There are two kinds.
+Events let any part of the application — Client, plugins, pages — react to
+things happening elsewhere without being directly wired together. Subscribe to
+a name, and whatever fires it does not need to know you exist.
 
 ## An event has to exist before anything subscribes
 
@@ -25,32 +25,32 @@ declared.
 
 A fixed set of built-in events the Client fires itself, at predictable moments.
 
-| Event | Fires when | `event` is |
-|---|---|---|
-| `initialized` | Once, after every plugin's `built()` has run. | `None` |
-| `on_visit` | A page has been shown. | `{"page": {"name", "data"}}` |
-| `on_leave` | A page is about to be torn down. | `{"from": {...}, "to": {...}}` |
-| `on_update` | Every client tick. | `None` |
-| `on_collection` | Periodically, for plugins to clean up after themselves. | `None` |
-| `on_focus` | The window gained focus. | The Qt event |
-| `on_un_focus` | The window lost focus. | The Qt event |
-| `on_minimize` | The window was minimised. | The Qt event |
-| `on_maximize` | The window was maximised. | The Qt event |
-| `on_fullscreen` | Fullscreen was entered or left. | The Qt event |
-| `on_close` | The window is closing. | The Qt event |
-| `on_key` | A key was pressed. | The Qt event |
-| `on_web_event` | Something happened in the web page. | `{"kind", "url", "title", ...}` |
-| `on_state_change` | `set_state()` changed a value. | The state name |
-| `on_settings_saved` | The Settings page was saved. | `None` |
-| `on_interaction` | Any mouse or touch interaction. | The raw Qt event |
-| `on_fresh_interaction` | Interaction resumed after idleness. | The raw Qt event |
-| `on_interaction_timeout` | Idleness began. | `None` |
-| `on_woke_assistant` | The wake word was heard. | The wake word |
-| `on_assistant_transcribed` | A phrase was transcribed. | The transcript |
-| `on_assistant_cancelled` | The user cancelled mid-conversation. | `None` |
-| `on_assistant_fallback` | A phrase matched no skill. | The transcript |
-| `on_plugin_reloading` | A plugin is about to reload. | The plugin key |
-| `on_plugin_unload` | A plugin is unloading. | The plugin key |
+| Event                      | Fires when                                              | `event` is                      |
+|----------------------------|---------------------------------------------------------|---------------------------------|
+| `initialized`              | Once, after every plugin's `built()` has run.           | `None`                          |
+| `on_visit`                 | A page has been shown.                                  | `{"page": {"name", "data"}}`    |
+| `on_leave`                 | A page is about to be torn down.                        | `{"from": {...}, "to": {...}}`  |
+| `on_update`                | Every client tick.                                      | `None`                          |
+| `on_collection`            | Periodically, for plugins to clean up after themselves. | `None`                          |
+| `on_focus`                 | The window gained focus.                                | The Qt event                    |
+| `on_un_focus`              | The window lost focus.                                  | The Qt event                    |
+| `on_minimize`              | The window was minimised.                               | The Qt event                    |
+| `on_maximize`              | The window was maximised.                               | The Qt event                    |
+| `on_fullscreen`            | Fullscreen was entered or left.                         | The Qt event                    |
+| `on_close`                 | The window is closing.                                  | The Qt event                    |
+| `on_key`                   | A key was pressed.                                      | The Qt event                    |
+| `on_web_event`             | Something happened in the web page.                     | `{"kind", "url", "title", ...}` |
+| `on_state_change`          | `set_state()` changed a value.                          | The state name                  |
+| `on_settings_saved`        | The Settings page was saved.                            | `None`                          |
+| `on_interaction`           | Any mouse or touch interaction.                         | The raw Qt event                |
+| `on_fresh_interaction`     | Interaction resumed after idleness.                     | The raw Qt event                |
+| `on_interaction_timeout`   | Idleness began.                                         | `None`                          |
+| `on_woke_assistant`        | The wake word was heard.                                | The wake word                   |
+| `on_assistant_transcribed` | A phrase was transcribed.                               | The transcript                  |
+| `on_assistant_cancelled`   | The user cancelled mid-conversation.                    | `None`                          |
+| `on_assistant_fallback`    | A phrase matched no skill.                              | The transcript                  |
+| `on_plugin_reloading`      | A plugin is about to reload.                            | The plugin key                  |
+| `on_plugin_unload`         | A plugin is unloading.                                  | The plugin key                  |
 
 Subscribe with `subscribe_to_event` / unsubscribe with `unsubscribe_from_event`:
 
@@ -345,15 +345,15 @@ def _on_web_event(self, payload=None):
     url = payload.get("url", "")
 ```
 
-| `kind` | Sent when |
-|---|---|
-| `loaded` | A page finished loading. `ok` says whether it worked. |
-| `error` | A page failed to load. |
-| `changed` | The address changed, including from a link. |
-| `home` | The home button was pressed. |
-| `refreshed` | The page was reloaded. |
-| `bookmarked` | The star was pressed on a page that was not saved. |
-| `unbookmarked` | The star was pressed on one that was. |
+| `kind`         | Sent when                                             |
+|----------------|-------------------------------------------------------|
+| `loaded`       | A page finished loading. `ok` says whether it worked. |
+| `error`        | A page failed to load.                                |
+| `changed`      | The address changed, including from a link.           |
+| `home`         | The home button was pressed.                          |
+| `refreshed`    | The page was reloaded.                                |
+| `bookmarked`   | The star was pressed on a page that was not saved.    |
+| `unbookmarked` | The star was pressed on one that was.                 |
 
 Every payload carries `kind`, `url` and `title`. A kind not in
 `Client.WEB_EVENTS` is refused rather than delivered, so a typo is a log line

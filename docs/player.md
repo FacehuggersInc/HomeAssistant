@@ -58,14 +58,14 @@ self.client.PLAYER.publish("youtube", NowPlaying(
 ))
 ```
 
-| Field | Meaning |
-|---|---|
-| `title`, `artist`, `album` | What it is. Blank is fine. |
-| `art_url` | Fetched once per URL by anything showing it. |
-| `state` | `playing`, `paused`, `loading` or `stopped`. |
-| `position`, `duration` | Seconds. A duration of 0 means unknown, and progress reads 0. |
-| `track_id`, `source` | Identity, so a new track can be told from a position tick. |
-| `can_seek` | Whether a scrub would work. |
+| Field                      | Meaning                                                       |
+|----------------------------|---------------------------------------------------------------|
+| `title`, `artist`, `album` | What it is. Blank is fine.                                    |
+| `art_url`                  | Fetched once per URL by anything showing it.                  |
+| `state`                    | `playing`, `paused`, `loading` or `stopped`.                  |
+| `position`, `duration`     | Seconds. A duration of 0 means unknown, and progress reads 0. |
+| `track_id`, `source`       | Identity, so a new track can be told from a position tick.    |
+| `can_seek`                 | Whether a scrub would work.                                   |
 
 `NowPlaying` is a value object rather than a dict, so a backend that forgets a
 field gets a sensible default instead of a `KeyError` inside a paint method. An

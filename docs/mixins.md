@@ -84,31 +84,31 @@ are the ones that exist:
 
 ### Client
 
-| Target | When it runs |
-|---|---|
-| `client.__init__` | The client is constructed. Registries exist; no UI does. |
-| `client.build` | The window is built and shown. |
-| `client.build.setup` | Inside `build`, before quick settings and the page host are raised. |
-| `client.configure` | The window is configured or reconfigured. |
-| `client.goto` | Any page navigation. |
-| `client.update` | The client tick. |
-| `client.start_update` | An app update begins staging. |
-| `client.load` | Any JSON read through the client. |
-| `client.dump` | Any JSON write through the client. |
-| `client.cleanup` | Shutdown, before plugins are unloaded. |
+| Target                | When it runs                                                        |
+|-----------------------|---------------------------------------------------------------------|
+| `client.__init__`     | The client is constructed. Registries exist; no UI does.            |
+| `client.build`        | The window is built and shown.                                      |
+| `client.build.setup`  | Inside `build`, before quick settings and the page host are raised. |
+| `client.configure`    | The window is configured or reconfigured.                           |
+| `client.goto`         | Any page navigation.                                                |
+| `client.update`       | The client tick.                                                    |
+| `client.start_update` | An app update begins staging.                                       |
+| `client.load`         | Any JSON read through the client.                                   |
+| `client.dump`         | Any JSON write through the client.                                  |
+| `client.cleanup`      | Shutdown, before plugins are unloaded.                              |
 
 ### Pages
 
-| Target | When it runs |
-|---|---|
-| `home.__init__` | The home page is built. |
-| `sub.home.__init__` | The widget sub-page is built. |
-| `sub.tiles.__init__` | The tile sub-page is built. |
-| `settings.__init__` | The settings page is built. |
-| `settings.setup.tab.generation` | The settings navigation is built. |
-| `settings.setup.setting.generation` | Settings widgets are generated. |
-| `settings.timeout` | Settings idles back to the home page. |
-| `settings.save` | Settings are saved. |
+| Target                              | When it runs                          |
+|-------------------------------------|---------------------------------------|
+| `home.__init__`                     | The home page is built.               |
+| `sub.home.__init__`                 | The widget sub-page is built.         |
+| `sub.tiles.__init__`                | The tile sub-page is built.           |
+| `settings.__init__`                 | The settings page is built.           |
+| `settings.setup.tab.generation`     | The settings navigation is built.     |
+| `settings.setup.setting.generation` | Settings widgets are generated.       |
+| `settings.timeout`                  | Settings idles back to the home page. |
+| `settings.save`                     | Settings are saved.                   |
 
 The page targets are the ones plugins reach for most. `sub.home.__init__` and
 `sub.tiles.__init__` are how widgets and tiles get registered, because they

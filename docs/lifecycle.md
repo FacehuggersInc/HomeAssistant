@@ -69,7 +69,7 @@ No default page set — showing RootPage
 Default page '#myhome' not registered — showing RootPage
 ```
 
-`RootPage`, the settings page and `#webpage` are registered by the client
+`#root`, `#settings` and `#webpage` are registered by the client
 itself, not by a plugin. That is the guarantee: **with no plugins at all, the app still starts,
 still shows a page, and still reaches Settings.** A plugin that fails to load
 cannot leave you with a blank screen and no way in.
@@ -135,12 +135,12 @@ signalled, the log is flushed and closed.
 
 The exit code is the message to the launcher:
 
-| Code | Means |
-|---|---|
-| `0` | Clean exit. Do not relaunch. |
+| Code | Means                                                |
+|------|------------------------------------------------------|
+| `0`  | Clean exit. Do not relaunch.                         |
 | `42` | A staged update is waiting. Apply it, then relaunch. |
-| `43` | Relaunch as-is. |
-| `44` | Rollback requested. |
+| `43` | Relaunch as-is.                                      |
+| `44` | Rollback requested.                                  |
 
 `client.RESTART = True` produces `EXIT_RESTART` (43). `client.UPDATE = True`
 produces `EXIT_UPDATE` (42). Both then call `stop()`; the flag is what decides
@@ -153,13 +153,13 @@ update grace period.
 
 ## What runs where
 
-| Runs on | What |
-|---|---|
-| UI thread | `built()`, page construction, `tick()`, timeout callbacks, anything through `call_on_ui` |
-| Plugin load thread | `load()`, `unload()` |
-| Worker threads | Skill functions, API calls, `THREADS` entries |
-| Separate process | The Whisper STT process |
-| Separate thread | The Flask backend |
+| Runs on            | What                                                                                     |
+|--------------------|------------------------------------------------------------------------------------------|
+| UI thread          | `built()`, page construction, `tick()`, timeout callbacks, anything through `call_on_ui` |
+| Plugin load thread | `load()`, `unload()`                                                                     |
+| Worker threads     | Skill functions, API calls, `THREADS` entries                                            |
+| Separate process   | The speech process (`parakeet-process.py`)                                               |
+| Separate thread    | The Flask backend                                                                        |
 
 `load()` runs before the UI exists; `built()` runs after. That distinction is
 the source of most "my widget did not appear" problems.

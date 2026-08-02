@@ -41,9 +41,9 @@ class ClockTile(Tile):
         self.client.subscribe_to_event("on_settings_saved", self._on_settings_saved)
 
     def _read_formats(self) -> None:
-        self._time_format = str(self.client.setting("home.time_format.value",
+        self._time_format = str(self.client.setting("home.clock.time_format.value",
                                                     ClockTile._time_format))
-        self._date_format = str(self.client.setting("home.date_format.value",
+        self._date_format = str(self.client.setting("home.clock.date_format.value",
                                                     ClockTile._date_format))
 
     def _on_settings_saved(self, event=None) -> None:

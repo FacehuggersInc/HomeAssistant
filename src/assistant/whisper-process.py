@@ -1,3 +1,11 @@
+# Annotations as strings, not evaluated at definition time.
+#
+# `def __stream_loop(self, stream:sd.InputStream)` is read when the class body
+# runs, and the defensive import below sets `sd = None` when PortAudio is
+# missing - so the module died on an AttributeError at import, which is
+# exactly the traceback that block exists to avoid.
+from __future__ import annotations
+
 from threading import Thread, Lock, Event as ThreadEvent
 import re
 import os
@@ -10,6 +18,31 @@ import json
 import numpy as np
 from socket import socket, AF_INET, SOCK_STREAM, SOL_SOCKET, SO_REUSEADDR
 import sys, traceback
+from pathlib import Path
+
+# This file is spawned as a standalone script (see STTProcessing.start), so
+# sys.path[0] is src/assistant/ and the project root is not on the path at
+# all. Every `from src.` import below - the Parakeet loader, the wake spotter
+# - fails without this, and both fail the same quiet way: a warning, a feature
+# silently off, and a panel that starts and looks fine.
+#
+# Walked rather than counted. `parents[2]` is the answer today, but it is the
+# kind of constant that is wrong the first time this file moves and wrong in a
+# way nothing catches.
+def _add_project_root() -> None:
+    here = Path(__file__).resolve()
+    for folder in here.parents:
+        if (folder / "src" / "assistant").is_dir():
+            if str(folder) not in sys.path:
+                sys.path.insert(0, str(folder))
+            return
+    # Nothing recognisable. The counted answer, so a layout this does not
+    # understand is no worse off than before.
+    fallback = str(here.parents[2]) if len(here.parents) > 2 else ""
+    if fallback and fallback not in sys.path:
+        sys.path.insert(0, fallback)
+
+_add_project_root()
 
 try:
     import psutil
@@ -210,6 +243,8 @@ class WakeWhisper:
 		wake_speech_after_timeout_extension:float = 1.0,
 		max_wake_speech_extensions:int = 2,
 		wake_model:str = "",
+		#Which Parakeet weights, when the phrase model is one. See parakeet.py.
+		parakeet_precision:str = "",
 		#"auto", "openwakeword" or "whisper" - see __start_spotter.
 		wake_detector:str = "auto",
 		#How many candidate transcriptions the model weighs. See the setting.
@@ -223,6 +258,14 @@ class WakeWhisper:
 		override_limits:bool = False,
 		initial_mode : str = "wake" # "wake" or "passthrough"
 	):
+		#Where send_log() sends. Set before anything else in this constructor,
+		#so everything that reports during setup reports through the socket.
+		#Set down with the model, it was assigned AFTER __start_spotter() ran
+		#- so every reason openWakeWord did not start went to stdout instead
+		#of to the panel, which is why they only ever showed up in the
+		#terminal.
+		self._log_sink = log
+
 		if torch is not None:
 			torch.set_num_threads(5)
 
@@ -323,9 +366,6 @@ class WakeWhisper:
 		self.max_wake_speech_extensions = max_wake_speech_extensions
 
 		# Transcribing Model
-		#Where send_log() sends. Set before anything else, so a failure
-		#during setup still has somewhere to go.
-		self._log_sink = log
 		self.model_name = model_name
 		self.device = device
 		self.compute_type = compute_type
@@ -333,20 +373,20 @@ class WakeWhisper:
 		# and different tradeoffs - see parakeet.py. The wake word is checked
 		# by the small Whisper model either way, because Parakeet has no
 		# equivalent and openWakeWord is better than both at that.
-		self.parakeet = None
-		try:
-			from src.assistant.parakeet import load as load_parakeet
-			self.parakeet = load_parakeet(self.model_name, log=self.send_log)
-		except Exception as exc:
+		#
+		# One place answers "am I using Parakeet", one place answers "what is
+		# model_name". Split in two, the case where the loader could not be
+		# REACHED left `parakeet` as None - indistinguishable from "a whisper
+		# size was asked for" - and `model_name` still holding a name that
+		# WhisperModel has never heard of.
+		self.parakeet_precision = parakeet_precision
+		self.parakeet, unusable = self.__load_parakeet(self.model_name)
+		if unusable:
+			# Asked for and not usable, for whatever reason. Whisper rather
+			# than nothing, said once at startup where somebody looking will
+			# find it.
 			self.send_log("warning",
-				f"[Whisper]: Could not reach the Parakeet loader: {exc}")
-
-		if self.parakeet is not None and not self.parakeet.ready:
-			# Asked for and not usable. Whisper rather than nothing, and said
-			# once at startup where somebody looking will find it.
-			self.send_log("warning",
-				f"[Whisper]: {self.parakeet.reason}. Using '{self.FALLBACK_MODEL}'.")
-			self.parakeet = None
+				f"[Whisper]: {unusable} Using '{self.FALLBACK_MODEL}'.")
 			self.model_name = self.FALLBACK_MODEL
 
 		if self.parakeet is not None:
@@ -418,6 +458,42 @@ class WakeWhisper:
 						   else self._model_lock)
 
 
+	def __load_parakeet(self, name:str):
+		"""
+		The Parakeet for this model name, and why there is not one.
+
+		Returns `(parakeet, unusable)`. `unusable` is a sentence when a
+		Parakeet was asked for and cannot be had, whatever the cause - the
+		loader unreachable, the weights not downloaded, the model failing to
+		start - and the caller turns that into the fallback model. `(None,
+		"")` is the ordinary "a whisper size was asked for" answer.
+
+		The three causes are answered the same way on purpose. Handling only
+		the ones that can be described from inside the loader is what left
+		`model_name` set to a Parakeet name with no Parakeet behind it.
+		"""
+		wanted = str(name or "").strip().lower()
+		try:
+			from src.assistant.parakeet import is_parakeet, load as load_parakeet
+		except Exception as exc:
+			# Judged on the name, not on the loader - the loader is the thing
+			# that could not be reached. A whisper size asked for on a machine
+			# where this import fails is not a problem and says nothing.
+			if wanted.startswith("parakeet"):
+				return None, f"Could not reach the Parakeet loader: {exc}."
+			return None, ""
+
+		if not is_parakeet(wanted):
+			return None, ""
+
+		parakeet = load_parakeet(wanted, log=self.send_log,
+								 precision=self.parakeet_precision)
+		if parakeet is None:
+			return None, f"'{name}' is not a model the Parakeet loader knows."
+		if not parakeet.ready:
+			return None, f"{parakeet.reason}."
+		return parakeet, ""
+
 	## CORE
 	def start(self):
 		if self.stop_event.is_set():
@@ -453,13 +529,6 @@ class WakeWhisper:
 	## UTIL
 	def clean_text(self, text: str) -> str:
 		return ''.join(ch for ch in text if ch not in string.punctuation).strip()
-
-	def contains_wake_word(self, text: str) -> str | None:
-		t = text.lower()
-		for w in self.wake_words:
-			if w in t:
-				return w
-		return None
 
 	def is_too_quiet(self, audio_bytes, threshold_db=-35, sample_rate=16000):
 		audio = np.frombuffer(audio_bytes, dtype=np.int16).astype(np.float32)
@@ -1304,6 +1373,7 @@ class STTServer:
 			# before the person finishes speaking.
 			wake_model = str(config.get("wake_model") or "tiny.en"),
 			wake_detector = str(config.get("wake_detector") or "auto"),
+			parakeet_precision = str(config.get("parakeet_precision") or "int8"),
 			beam_size = int(config.get("beam_size") or 5),
 			# Aggressive either way, and deliberately so.
 			#
@@ -1372,7 +1442,7 @@ class STTServer:
 		if self.connections.get("data"):
 			try:
 				self.connections["data"].sendall(
-					f"host:log:{level}:{text}".encode("utf-8"))
+					f"host:log:{level}:{text}\n".encode("utf-8"))
 				return
 			except Exception:
 				self.__close_connection("data")
@@ -1384,7 +1454,7 @@ class STTServer:
 		if self.connections["data"]:
 			try:
 				self.connections["data"].sendall(
-					f"host:voice_activity:{level:.3f}".encode("utf-8")
+					f"host:voice_activity:{level:.3f}\n".encode("utf-8")
 				)
 			except Exception:
 				self.send_log("warning", "[STTServer]: Lost transcript connection.")
@@ -1395,7 +1465,7 @@ class STTServer:
 		if self.connections["data"]:
 			try:
 				self.connections["data"].sendall(
-					f"host:audio_error:{message}".encode("utf-8")
+					f"host:audio_error:{message}\n".encode("utf-8")
 				)
 			except Exception:
 				self.__close_connection("data")
@@ -1404,7 +1474,7 @@ class STTServer:
 		if self.connections["data"]:
 			try:
 				self.connections["data"].sendall(
-					f"host:woke:{wake_word}".encode("utf-8")
+					f"host:woke:{wake_word}\n".encode("utf-8")
 				)
 			except Exception:
 				self.send_log("warning", "[STTServer]: Lost transcript connection.")
@@ -1414,7 +1484,7 @@ class STTServer:
 		"""Tell the host that audio is captured and the model is running."""
 		if self.connections["data"]:
 			try:
-				self.connections["data"].sendall(b"host:transcribing:1")
+				self.connections["data"].sendall(b"host:transcribing:1\n")
 			except Exception:
 				self.send_log("warning", "[STTServer]: Lost transcript connection.")
 				self.__close_connection("data")
@@ -1423,7 +1493,7 @@ class STTServer:
 		"""Tell the host the model has finished, whatever it decided."""
 		if self.connections["data"]:
 			try:
-				self.connections["data"].sendall(b"host:transcribed:1")
+				self.connections["data"].sendall(b"host:transcribed:1\n")
 			except Exception:
 				self.send_log("warning", "[STTServer]: Lost transcript connection.")
 				self.__close_connection("data")
@@ -1432,7 +1502,7 @@ class STTServer:
 		if self.connections["data"]:
 			try:
 				self.connections["data"].sendall(
-					f"host:wait:{type}".encode("utf-8")
+					f"host:wait:{type}\n".encode("utf-8")
 				)
 			except Exception:
 				self.send_log("warning", "[STTServer]: Lost transcript connection.")
@@ -1442,7 +1512,7 @@ class STTServer:
 		if self.connections["data"] and transcribed.strip():
 			try:
 				self.connections["data"].sendall(
-					f"host:transcribe:{transcribed.lower()}".encode("utf-8")
+					f"host:transcribe:{transcribed.lower()}\n".encode("utf-8")
 				)
 			except Exception:
 				self.send_log("warning", "[STTServer]: Lost transcript connection.")
@@ -1524,7 +1594,7 @@ class STTServer:
 				self.send_log("debug", f"[STTServer]: Data connection from {addr}")
 				self.connections["data"] = conn
 				try:
-					conn.sendall(b"host:notify:Ready!")
+					conn.sendall(b"host:notify:Ready!\n")
 				except Exception:
 					self.__close_connection("data")
 

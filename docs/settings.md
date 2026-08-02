@@ -64,10 +64,10 @@ update that only reorganised a menu.
 
 ### What counts as a change
 
-The migration used to run only when a KEY was added or removed. A new option
-in an existing dropdown is neither - so the installed file kept its old list
-forever, and the panel builds every dropdown from that file rather than from
-the template. Adding a model to `assistant.model` did nothing at all on any
+A migration that runs only when a KEY is added or removed misses this. A new
+option in an existing dropdown is neither - so the installed file keeps its
+list forever, and the panel builds every dropdown from that file rather than
+from the template. Adding a model to `assistant.speech.model` then does nothing on any
 panel that had already been started once.
 
 `structure_differs()` answers the wider question: has anything but a user's
@@ -85,7 +85,7 @@ versions has to make the same journey as one skipping a single version.
 ## Reading and writing
 
 ```python
-value = self.client.setting("assistant.model.value", "tiny.en")
+value = self.client.setting("assistant.speech.model.value", "parakeet-v3")
 ```
 
 Always pass a default. A read that misses returns it rather than raising,
@@ -112,6 +112,31 @@ your own `settings.json` and keeps you out of the client's tree.
 Writes are not thread-safe. Do them on the UI thread, or hold
 `client.SETTINGS_LOCK`. See [Threading](threading.md).
 
+
+## Sub-headings
+
+A key whose value is a dict of *other settings* rather than a
+`{"type", "value"}` leaf becomes a heading on the page, with its children
+under it:
+
+```json
+"assistant": {
+  "enabled": { "type": "bool", "default": true, "value": true },
+  "speech": {
+    "model":              { "type": "enum", "...": "..." },
+    "parakeet_precision": { "type": "enum", "...": "..." }
+  }
+}
+```
+
+That renders as a bare toggle, then a **SPEECH** rule with two settings under
+it. Nest as deep as you like; anything left at the top of a category appears
+above the first heading.
+
+The heading becomes part of the path, so `assistant.model.value` above is
+`assistant.speech.model.value`. Moving an existing setting under a heading is
+a **move**, and needs an entry in `MOVED_SETTINGS` like any other - see
+[Settings that move](#settings-that-move).
 
 ## Declaring a setting
 
@@ -144,16 +169,16 @@ them*, not what it sets.
 
 ### Types
 
-| Type | Widget |
-|---|---|
-| `bool` | Toggle. |
-| `int`, `float` | Numeric field, opens the numpad. |
-| `string` | Text field, opens the QWERTY keyboard. |
-| `body` | Multi-line text field. |
-| `enum` | Dropdown. Requires an `options` list. |
-| `path` | Text field with a Browse button. |
-| `secret` | Masked field backed by `.env`. Requires an `env` key. |
-| `list[int]`, `list[float]` | Comma-separated numeric field. |
+| Type                       | Widget                                                |
+|----------------------------|-------------------------------------------------------|
+| `bool`                     | Toggle.                                               |
+| `int`, `float`             | Numeric field, opens the numpad.                      |
+| `string`                   | Text field, opens the QWERTY keyboard.                |
+| `body`                     | Multi-line text field.                                |
+| `enum`                     | Dropdown. Requires an `options` list.                 |
+| `path`                     | Text field with a Browse button.                      |
+| `secret`                   | Masked field backed by `.env`. Requires an `env` key. |
+| `list[int]`, `list[float]` | Comma-separated numeric field.                        |
 
 `hidden: true` stores a value without rendering a field for it:
 
@@ -173,13 +198,19 @@ as any other — it simply has no field. Pair it with a block added through
 
 ### `enum`
 
+An enum's `options` are shipped structure, not a user value, so they follow
+the template on every update. A saved value that the new list does not offer
+falls back to the shipped `default` - see `keep_valid()` in `updater.py`.
+Carrying it across regardless is how a panel ends up displaying a setting it
+will not let you pick again, with code reading a string no branch handles.
+
 ```json
 "model": {
   "type": "enum",
-  "default": "tiny.en",
-  "value": "tiny.en",
-  "options": ["tiny.en", "base.en", "small.en"],
-  "description": "Larger is more accurate and slower."
+  "default": "parakeet-v3",
+  "value": "parakeet-v3",
+  "options": ["parakeet-v3", "parakeet-v2"],
+  "description": "v2 is English-only and slightly faster."
 }
 ```
 
@@ -206,70 +237,84 @@ read secrets it declared.
 Generated from `src/assets/data/new-template.json`. A plugin's own
 settings live in its `settings.json` and are documented with the plugin.
 
-### `accessibility`
-
-| Key | Type | Default | What it does |
-|---|---|---|---|
-
 ### `application`
 
-| Key | Type | Default | What it does |
-|---|---|---|---|
-| `application.interaction_timeout` | int | `60000` ms | Time of inactivity (no clicks/touches anywhere) before Client fires on_interaction_timeout. Used in the settings page to go home when no interaction has happened for a while. |
-| `application.updates.check_interval` | int | `6` hrs | How often to ask GitHub whether a newer version exists. This is a single small request, not a download - nothing is fetched until you choose to update. Set to 0 to never check automatically. |
-| `application.updates.crash_window` | int | `120` sec | If the app ran longer than this before crashing, the restart counter resets. A long-lived session that later dies is not a boot loop. |
-| `application.updates.max_restart_attempts` | int | `5` | How many times in a row the launcher will restart after a crash before giving up. Prevents a boot loop when something is genuinely broken. |
-| `application.updates.restart_on_crash` | bool | `on` | Whether the launcher automatically restarts the app if it crashes. Turn this off to have a crash simply stop the app. |
-| `application.updates.update_grace_period` | int | `60` sec | If a freshly-applied update crashes within this window, the launcher rolls back to the previous version and relaunches it. |
-| `application.window.auto_lock` | bool | `on` | Whether the app will automatically on startup, position at X and Y, then fullscreen |
-| `application.window.position` | list[int] | `1074 x 1701` ['px', 'px'] | Where the window will position itself on startup |
-| `application.window.size` | list[float] | `1920.0 x 1080.0` ['px', 'px'] | Set the size of the window. NOTE: this doesn't effect the actual size, its a reference |
+| Key                                        | Type        | Default                        | What it does                                                                                                                                                                                   |
+|--------------------------------------------|-------------|--------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `application.window.size`                  | list[float] | `1920.0 x 1080.0` ['px', 'px'] | Set the size of the window. NOTE: this doesn't effect the actual size, its a reference                                                                                                         |
+| `application.window.position`              | list[int]   | `1074 x 1701` ['px', 'px']     | Where the window will position itself on startup                                                                                                                                               |
+| `application.window.auto_lock`             | bool        | `on`                           | Whether the app will automatically on startup, position at X and Y, then fullscreen                                                                                                            |
+| `application.interaction_timeout`          | int         | `60000` ms                     | Time of inactivity (no clicks/touches anywhere) before Client fires on_interaction_timeout. Used in the settings page to go home when no interaction has happened for a while.                 |
+| `application.updates.check_interval`       | int         | `6` hrs                        | How often to ask GitHub whether a newer version exists. This is a single small request, not a download - nothing is fetched until you choose to update. Set to 0 to never check automatically. |
+| `application.updates.restart_on_crash`     | bool        | `on`                           | Whether the launcher automatically restarts the app if it crashes. Turn this off to have a crash simply stop the app.                                                                          |
+| `application.updates.max_restart_attempts` | int         | `5`                            | How many times in a row the launcher will restart after a crash before giving up. Prevents a boot loop when something is genuinely broken.                                                     |
+| `application.updates.crash_window`         | int         | `120` sec                      | If the app ran longer than this before crashing, the restart counter resets. A long-lived session that later dies is not a boot loop.                                                          |
+| `application.updates.update_grace_period`  | int         | `60` sec                       | If a freshly-applied update crashes within this window, the launcher rolls back to the previous version and relaunches it.                                                                     |
 
 ### `assistant`
 
-| Key | Type | Default | What it does |
-|---|---|---|---|
-| `assistant.enabled` | bool | `on` | Whether the voice assistant runs at all. Turn this off to stop the speech-to-text process entirely. |
-| `assistant.input_device` | string | `(empty)` | Name of the microphone to listen on. Leave empty to use the system default. Available devices are listed in the Assistant section of the log at startup. |
-| `assistant.model` | enum | `tiny.en` | Whisper model used for transcription. Larger is more accurate and slower; the '.en' variants are English-only and faster. Downloaded on first use. |
-| `assistant.session_silence` | int | `800` ms | How long a pause ends your sentence once the assistant is in a conversation. Lower reacts faster; too low and a breath mid-sentence is treated as the end, which splits one question into several and sends each of them separately. 800ms suits normal speech. |
-| `assistant.tts_enabled` | bool | `on` | Whether the assistant speaks its replies. Requires a voice backend in your .env file; skills stay usable without it, they just do not talk back. |
-| `assistant.voice_bar` | bool | `on` | Show the thin activity bar along the bottom of the screen while the assistant is listening. |
-| `assistant.voice_bar_hold` | int | `6` sec | Minimum time the activity bar keeps a transcript on screen. Longer transcripts are held longer than this automatically. |
-| `assistant.wake_listen_timeout` | int | `12` sec | How long the panel keeps listening after the wake word before giving up. Too short and it stops mid-thought; too long and it sits listening to the room. |
-| `assistant.wake_word` | string | `alexa` | The word that wakes the assistant. Plugins use this as the default wake word for their skills. Requires a restart of the assistant. |
+| Key                                   | Type | Default       | What it does                                                                                                                                                                                                                                                                                              |
+|---------------------------------------|------|---------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `assistant.enabled`                   | bool | `on`          | Whether the voice assistant runs at all. Turn this off to stop the speech-to-text process entirely.                                                                                                                                                                                                       |
+| `assistant.speech.model`              | enum | `parakeet-v3` | Which Parakeet transcribes the phrase, run through `onnx-asr`. `parakeet-v3` covers 25 European languages; `parakeet-v2` is English-only and slightly faster. Downloaded on first use, after being asked.                                                                                                 |
+| `assistant.speech.parakeet_precision` | enum | `int8`        | Which Parakeet weights to fetch and load. `int8` is about 700MB; `float32` is the full-size export at about 2.5GB and several times the memory, and is only more accurate on audio far longer than anything said to a panel. Changing it downloads the other set.                                         |
+| `assistant.wake.wake_word`            | enum | `alexa`       | The word that wakes the assistant, spotted by openWakeWord. One of `alexa`, `hey jarvis`, `hey mycroft`, `hey rhasspy` - the words it ships models for; anything else would need a model trained for it. Plugins use this as the default wake word for their skills. Requires a restart of the assistant. |
+| `assistant.wake.wake_listen_timeout`  | int  | `12` sec      | How long the panel keeps listening after the wake word before giving up. Too short and it stops mid-thought; too long and it sits listening to the room.                                                                                                                                                  |
+| `assistant.wake.session_silence`      | int  | `800` ms      | How long a pause ends your sentence once the assistant is in a conversation. Lower reacts faster; too low and a breath mid-sentence is treated as the end, which splits one question into several and sends each of them separately. 800ms suits normal speech.                                           |
+| `assistant.feedback.voice_bar`        | bool | `on`          | Show the thin activity bar along the bottom of the screen while the assistant is listening.                                                                                                                                                                                                               |
+| `assistant.feedback.voice_bar_hold`   | int  | `6` sec       | Minimum time the activity bar keeps a transcript on screen. Longer transcripts are held longer than this automatically.                                                                                                                                                                                   |
+
+### `audio`
+
+Everything the panel does with sound, in one category: which devices it uses,
+how it speaks, and whether it makes any noise at all.
+
+| Key                            | Type   | Default    | What it does                                                                                                                                                                                |
+|--------------------------------|--------|------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `audio.devices.output_device`  | enum   | `Default`  | Which output speech and sounds are played through.                                                                                                                                          |
+| `audio.devices.input_device`   | enum   | `Default`  | Which microphone to listen on. A dropdown of real hardware, filled at startup; `Default` follows the system.                                                                                |
+| `audio.devices.mic_processing` | enum   | `software` | Whether the microphone cleans its own audio. `hardware` for an array that runs its own AEC and noise suppression, which shortens the self-hearing guards and turns off a second noise pass. |
+| `audio.speech.tts_enabled`     | bool   | `on`       | Whether the assistant speaks its replies. Skills stay usable without it; they just do not talk back.                                                                                        |
+| `audio.speech.tts_backend`     | enum   | `auto`     | Which voice backend speaks, or `off`.                                                                                                                                                       |
+| `audio.speech.tts_voice`       | enum   | `alba`     | Which Pocket TTS voice speaks.                                                                                                                                                              |
+| `audio.speech.tts_language`    | enum   | `default`  | Which language weights Pocket TTS loads.                                                                                                                                                    |
+| `audio.speech.tts_voice_file`  | string | `(empty)`  | A wav to clone instead of a listed voice.                                                                                                                                                   |
+| `audio.speech.tts_padding_ms`  | int    | `140` ms   | Silence added either side of a spoken reply.                                                                                                                                                |
+| `audio.speech.tts_rate`        | float  | `1.0`      | Playback speed, which also moves the pitch.                                                                                                                                                 |
+| `audio.quiet.do_not_disturb`   | bool   | `off`      | Hold notifications back.                                                                                                                                                                    |
+| `audio.quiet.mute_sounds`      | bool   | `off`      | Silence the panel's own sounds.                                                                                                                                                             |
 
 ### `home`
 
-| Key | Type | Default | What it does |
-|---|---|---|---|
-| `home.background_cycle_interval` | int | `75` sec | The amount of time in seconds before the background cycles to a new Wallpaper |
-| `home.background_fade_duration` | int | `1200` ms | How long the fade animation should be when a Wallpaper cycles |
-| `home.date_format` | string | `%a, %b %d` | - |
-| `home.images` | path | `C:\Home\Images` | Home Background's Path for Cycling Images |
-| `home.media_player_position` | enum | `bottom-right` | Where should the media controls / player be positioned |
-| `home.pinned` | path | ` ` | The Path to your Pinned Image for the Home Background |
-| `home.show_normal_media_player` | bool | `off` | If the normal Media Player should show (The black box with Play / Pause, Next, and Previous) |
-| `home.show_whats_playing` | bool | `off` | If the title of whats playing should show. This will be positioned above or below the media controls and will show if the media controls aren't showing |
-| `home.time_format` | string | `%I:%M %p` | - |
-| `home.widget_margin` | int | `28` | The Outer Margin of Widgets on the Home Page |
+| Key                                         | Type   | Default          | What it does                                                                                                                                            |
+|---------------------------------------------|--------|------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `home.layout.widget_margin`                 | int    | `28`             | The Outer Margin of Widgets on the Home Page                                                                                                            |
+| `home.layout.pinned`                        | path   | ` `              | The Path to your Pinned Image for the Home Background                                                                                                   |
+| `home.clock.time_format`                    | string | `%I:%M %p`       | -                                                                                                                                                       |
+| `home.clock.date_format`                    | string | `%a, %b %d`      | -                                                                                                                                                       |
+| `home.background.images`                    | path   | `C:\Home\Images` | Home Background's Path for Cycling Images                                                                                                               |
+| `home.background.background_cycle_interval` | int    | `75` sec         | The amount of time in seconds before the background cycles to a new Wallpaper                                                                           |
+| `home.background.background_fade_duration`  | int    | `1200` ms        | How long the fade animation should be when a Wallpaper cycles                                                                                           |
+| `home.media.show_normal_media_player`       | bool   | `off`            | If the normal Media Player should show (The black box with Play / Pause, Next, and Previous)                                                            |
+| `home.media.show_whats_playing`             | bool   | `off`            | If the title of whats playing should show. This will be positioned above or below the media controls and will show if the media controls aren't showing |
+| `home.media.media_player_position`          | enum   | `bottom-right`   | Where should the media controls / player be positioned                                                                                                  |
 
 ### `notifications`
 
-| Key | Type | Default | What it does |
-|---|---|---|---|
-| `notifications.notification_duration` | float | `4.5` sec | How long a notification stays on screen |
-| `notifications.notification_position` | enum | `bottom-right` | Where should notifications appear |
-| `notifications.notification_queue_delay` | float | `0.4` sec | The delay in seconds between notifications in queue |
+| Key                                             | Type  | Default        | What it does                                        |
+|-------------------------------------------------|-------|----------------|-----------------------------------------------------|
+| `notifications.toasts.notification_duration`    | float | `4.5` sec      | How long a notification stays on screen             |
+| `notifications.toasts.notification_queue_delay` | float | `0.4` sec      | The delay in seconds between notifications in queue |
+| `notifications.toasts.notification_position`    | enum  | `bottom-right` | Where should notifications appear                   |
 
 ### `plugins`
 
-| Key | Type | Default | What it does |
-|---|---|---|---|
-| `plugins.media.username` | string | `colin.a.bond` | Your Username for your music API |
-| `plugins.weather.latitude` | float | `41.2619` deg. | The Latitude of your city |
-| `plugins.weather.longitude` | float | `-95.8608` deg. | The Longitude of your city |
-| `plugins.weather.timezone` | string | `America/Chicago` | The timezone you're in |
+| Key                         | Type   | Default           | What it does                     |
+|-----------------------------|--------|-------------------|----------------------------------|
+| `plugins.media.username`    | string | `colin.a.bond`    | Your Username for your music API |
+| `plugins.weather.timezone`  | string | `America/Chicago` | The timezone you're in           |
+| `plugins.weather.latitude`  | float  | `41.2619` deg.    | The Latitude of your city        |
+| `plugins.weather.longitude` | float  | `-95.8608` deg.   | The Longitude of your city       |
 
 ## Buttons
 
@@ -305,12 +350,12 @@ that differs, not the size.
 
 `kind` picks the **meaning**, and the palette follows from it:
 
-| | |
-|---|---|
-| `primary` | the thing this row is for — Join, Connect, Save |
-| `secondary` | a reasonable alternative — Disconnect, Rename |
-| `destructive` | loses something — Forget, Revoke |
-| `quiet` | navigation and toggles that change nothing |
+|               |                                                 |
+|---------------|-------------------------------------------------|
+| `primary`     | the thing this row is for — Join, Connect, Save |
+| `secondary`   | a reasonable alternative — Disconnect, Rename   |
+| `destructive` | loses something — Forget, Revoke                |
+| `quiet`       | navigation and toggles that change nothing      |
 
 Turning something off is `secondary`, not `destructive`: it is reversible.
 
@@ -496,13 +541,13 @@ and changing the update check interval restarts the checker.
 A plugin can add its own content to a settings category rather than only
 declaring fields. The Settings page exposes these:
 
-| Feature | Does |
-|---|---|
-| `new_category(name, ...)` | A top-level category. `system=True` puts it with the panel's own rather than among the plugins. |
+| Feature                                        | Does                                                                                            |
+|------------------------------------------------|-------------------------------------------------------------------------------------------------|
+| `new_category(name, ...)`                      | A top-level category. `system=True` puts it with the panel's own rather than among the plugins. |
 | `new_subcategory(parent, name, controls, ...)` | A subcategory under one that already exists. Warns and does nothing if the parent is not there. |
-| `insert_block(...)` | A card of your own inside a category. |
-| `insert_plugin_block(...)` | The same, keyed to a plugin so it goes when the plugin does. |
-| `new_settings_list(...)` | The builder, for declaring fields from a list. |
+| `insert_block(...)`                            | A card of your own inside a category.                                                           |
+| `insert_plugin_block(...)`                     | The same, keyed to a plugin so it goes when the plugin does.                                    |
+| `new_settings_list(...)`                       | The builder, for declaring fields from a list.                                                  |
 
 ```python
 settings = client.PAGES.get_entry("#settings").instance

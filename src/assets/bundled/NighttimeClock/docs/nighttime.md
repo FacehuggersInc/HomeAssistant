@@ -25,11 +25,11 @@ Kept apart because they are much easier to reason about that way:
 
 ## The cycle
 
-| Phase | When | Brightness |
-|---|---|---|
-| **Day** | Between the day time and the start of the fade | 100% |
-| **Dimming** | The lead time before night | Fades 100% → night level |
-| **Night** | Between the night time and the day time | The night level |
+| Phase       | When                                           | Brightness               |
+|-------------|------------------------------------------------|--------------------------|
+| **Day**     | Between the day time and the start of the fade | 100%                     |
+| **Dimming** | The lead time before night                     | Fades 100% → night level |
+| **Night**   | Between the night time and the day time        | The night level          |
 
 Defaults are **21:00** and **07:00**, with a **60 minute** fade down to
 **12%**.
@@ -156,18 +156,18 @@ once — overcast *and* raining *and* blowing a gale — so `layers_for()` retur
 a stack drawn back to front, and picking only one of them would throw away the
 two that make it look like weather.
 
-| Layer | When | What |
-|---|---|---|
-| **Stars** | Cloud cover below ~85% | Still points that twinkle. The count falls away with cloud, which is most of what makes an overcast night look overcast. |
-| **Clouds** | Cover ≥ 25%, or any precipitation | Soft dark masses drifting across the top. Radial gradients — a cloud with an outline reads as a stain. |
-| **Rain** | `rain`, `showers`, or a drizzle/thunder code | Streaks **angled by the real wind**, drawn as a line from where a drop is to where it was, so the trail costs one call. |
-| **Snow** | `snowfall > 0` | Six-armed flakes with barbed tips, each with its own sway and rotation. Below ~2px they fall back to dots — arms on a two-pixel flake are three draw calls producing one grey pixel. |
-| **Hail** | WMO 96, 99 or 77 | Small, hard, fast, and it **bounces** once off a floor just above the screen edge. The bounce is what makes it read as hail rather than pale rain. |
-| **Lightning** | WMO 95, 96 or 99 | Mostly the whole sky flashing, sometimes a drawn bolt. See below. |
-| **Fog** | WMO code 45 or 48 only | Drifting banks of haze, low on the screen. Never guessed from cloud cover — a panel claiming fog on a clear cold night is worse than one that never mentions it. Code 48 is rime fog, drawn thicker. |
-| **Moon** | Cover below 75%, no precipitation | Tonight's moon at tonight's phase, drawn behind everything because everything else is nearer than it is. |
-| **Frost** | At or below freezing, not raining | A sparkle around the edges only — glitter across a clock somebody is reading would be unbearable at 3am. |
-| **Fireflies** | Clear-ish, dry nights above 45°F | See below. |
+| Layer         | When                                         | What                                                                                                                                                                                                 |
+|---------------|----------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| **Stars**     | Cloud cover below ~85%                       | Still points that twinkle. The count falls away with cloud, which is most of what makes an overcast night look overcast.                                                                             |
+| **Clouds**    | Cover ≥ 25%, or any precipitation            | Soft dark masses drifting across the top. Radial gradients — a cloud with an outline reads as a stain.                                                                                               |
+| **Rain**      | `rain`, `showers`, or a drizzle/thunder code | Streaks **angled by the real wind**, drawn as a line from where a drop is to where it was, so the trail costs one call.                                                                              |
+| **Snow**      | `snowfall > 0`                               | Six-armed flakes with barbed tips, each with its own sway and rotation. Below ~2px they fall back to dots — arms on a two-pixel flake are three draw calls producing one grey pixel.                 |
+| **Hail**      | WMO 96, 99 or 77                             | Small, hard, fast, and it **bounces** once off a floor just above the screen edge. The bounce is what makes it read as hail rather than pale rain.                                                   |
+| **Lightning** | WMO 95, 96 or 99                             | Mostly the whole sky flashing, sometimes a drawn bolt. See below.                                                                                                                                    |
+| **Fog**       | WMO code 45 or 48 only                       | Drifting banks of haze, low on the screen. Never guessed from cloud cover — a panel claiming fog on a clear cold night is worse than one that never mentions it. Code 48 is rime fog, drawn thicker. |
+| **Moon**      | Cover below 75%, no precipitation            | Tonight's moon at tonight's phase, drawn behind everything because everything else is nearer than it is.                                                                                             |
+| **Frost**     | At or below freezing, not raining            | A sparkle around the edges only — glitter across a clock somebody is reading would be unbearable at 3am.                                                                                             |
+| **Fireflies** | Clear-ish, dry nights above 45°F             | See below.                                                                                                                                                                                           |
 
 ### The moon and the sun
 
@@ -246,7 +246,7 @@ Cloud cover and temperature tint the background gradient. A freezing night
 reads bluer, a warm one warmer, and an overcast sky is never as black as a
 clear one.
 
-`weather_effects` turns the whole thing off and leaves the fireflies.
+`scene.weather_effects` turns the whole thing off and leaves the fireflies.
 
 ### Fireflies
 
@@ -277,23 +277,23 @@ at 20fps for eight hours.
 
 ## Settings
 
-| Key | Default | Meaning |
-|---|---|---|
-| `enabled` | on | The whole thing, including the dimming. Off restores full brightness and leaves the clock. |
-| `night_time` | `21:00` | When the night clock takes over. |
-| `day_time` | `07:00` | When it hands back. |
-| `dim_enabled` | on | Fade down as night approaches. |
-| `dim_lead_minutes` | 60 | How long the fade takes. |
-| `night_brightness` | 12% | Level once it is night and nobody is about. |
-| `woken_brightness` | 55% | Level after somebody touches it at night. |
-| `settle_seconds` | 20 | Quiet needed before it dims again. |
-| `fireflies` | on | The drifting lights. |
-| `weather_effects` | on | Rain, snow, hail, cloud, stars and fog, from the weather already fetched. |
-| `sky_events` | on | Shooting stars and constellations on a clear night. |
-| `show_moon` | on | Tonight's moon at tonight's phase. |
-| `show_sun` | on | How long until the next sunrise or sunset. |
-| `return_to` | `last` | Where touching it at night goes: `last` or `home`. |
-| `firefly_count` | 16 | How many. |
+| Key                           | Default | Meaning                                                                                    |
+|-------------------------------|---------|--------------------------------------------------------------------------------------------|
+| `schedule.enabled`            | on      | The whole thing, including the dimming. Off restores full brightness and leaves the clock. |
+| `schedule.night_time`         | `21:00` | When the night clock takes over.                                                           |
+| `schedule.day_time`           | `07:00` | When it hands back.                                                                        |
+| `schedule.return_to`          | `last`  | Where touching it at night goes: `last` or `home`.                                         |
+| `brightness.dim_enabled`      | on      | Fade down as night approaches.                                                             |
+| `brightness.dim_lead_minutes` | 60      | How long the fade takes.                                                                   |
+| `brightness.night_brightness` | 12%     | Level once it is night and nobody is about.                                                |
+| `brightness.woken_brightness` | 55%     | Level after somebody touches it at night.                                                  |
+| `brightness.settle_seconds`   | 20      | Quiet needed before it dims again.                                                         |
+| `scene.fireflies`             | on      | The drifting lights.                                                                       |
+| `scene.firefly_count`         | 16      | How many.                                                                                  |
+| `scene.weather_effects`       | on      | Rain, snow, hail, cloud, stars and fog, from the weather already fetched.                  |
+| `scene.sky_events`            | on      | Shooting stars and constellations on a clear night.                                        |
+| `scene.show_moon`             | on      | Tonight's moon at tonight's phase.                                                         |
+| `scene.show_sun`              | on      | How long until the next sunrise or sunset.                                                 |
 
 Times are 24 hour, `HH:MM`. Anything unparseable falls back to the default
 rather than raising — a panel that refuses to start because of `9pm` in the
@@ -334,7 +334,7 @@ brightness.
 
 This plugin drives `client.DIMMER`, which uses **real backlight control**
 where the machine allows it and falls back to a black wash over the window
-where it does not — see [Screen brightness](backlight.md). Run
+where it does not — see the panel's own `docs/backlight.md`. Run
 `hactl.py backlight --survey` to find out which route your panel got.
 
 On a wall panel that route is usually DDC/CI over the HDMI cable, which is

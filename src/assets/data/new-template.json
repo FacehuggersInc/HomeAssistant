@@ -1,235 +1,251 @@
 {
  "home": {
-  "widget_margin": {
-   "type": "int",
-   "default": 28,
-   "value": 28,
-   "description": "The Outer Margin of Widgets on the Home Page"
+  "layout": {
+   "widget_margin": {
+    "type": "int",
+    "default": 28,
+    "value": 28,
+    "description": "The Outer Margin of Widgets on the Home Page"
+   },
+   "quick_settings_height": {
+    "type": "float",
+    "default": 0.34,
+    "value": 0.34,
+    "description": "How much of the screen height the quick settings panel takes. A share rather than a pixel count, so one value suits any display. A third is tight on 1080; 0.45 gives the System side room without scrolling. Clamped to 0.15-0.9."
+   },
+   "pinned": {
+    "type": "path",
+    "default": " ",
+    "value": " ",
+    "description": "The Path to your Pinned Image for the Home Background"
+   }
   },
-  "time_format": {
-   "type": "string",
-   "default": "%I:%M %p",
-   "value": "%I:%M %p"
+  "clock": {
+   "time_format": {
+    "type": "string",
+    "default": "%I:%M %p",
+    "value": "%I:%M %p"
+   },
+   "date_format": {
+    "type": "string",
+    "default": "%a, %b %d",
+    "value": "%a, %b %d"
+   }
   },
-  "date_format": {
-   "type": "string",
-   "default": "%a, %b %d",
-   "value": "%a, %b %d"
+  "background": {
+   "images": {
+    "type": "path",
+    "default": "C:\\Home\\Images",
+    "value": "C:\\Home\\Images",
+    "description": "Home Background's Path for Cycling Images"
+   },
+   "background_cycle_interval": {
+    "type": "int",
+    "default": 75,
+    "value": 75,
+    "suffix": "sec",
+    "description": "The amount of time in seconds before the background cycles to a new Wallpaper"
+   },
+   "background_fade_duration": {
+    "type": "int",
+    "default": 1200,
+    "value": 1200,
+    "suffix": "ms",
+    "description": "How long the fade animation should be when a Wallpaper cycles"
+   }
   },
-  "background_cycle_interval": {
-   "type": "int",
-   "default": 75,
-   "value": 75,
-   "suffix": "sec",
-   "description": "The amount of time in seconds before the background cycles to a new Wallpaper"
-  },
-  "background_fade_duration": {
-   "type": "int",
-   "default": 1200,
-   "value": 1200,
-   "suffix": "ms",
-   "description": "How long the fade animation should be when a Wallpaper cycles"
-  },
-  "images": {
-   "type": "path",
-   "default": "C:\\Home\\Images",
-   "value": "C:\\Home\\Images",
-   "description": "Home Background's Path for Cycling Images"
-  },
-  "pinned": {
-   "type": "path",
-   "default": " ",
-   "value": " ",
-   "description": "The Path to your Pinned Image for the Home Background"
-  },
-  "show_normal_media_player": {
-   "type": "bool",
-   "default": false,
-   "value": false,
-   "description": "If the normal Media Player should show (The black box with Play / Pause, Next, and Previous)"
-  },
-  "show_whats_playing": {
-   "type": "bool",
-   "default": false,
-   "value": false,
-   "description": "If the title of whats playing should show. This will be positioned above or below the media controls and will show if the media controls aren't showing"
-  },
-  "media_player_position": {
-   "type": "enum",
-   "default": "bottom-right",
-   "value": "bottom-right",
-   "options": [
-    "top-left",
-    "top-center",
-    "top-right",
-    "bottom-left",
-    "bottom-center",
-    "bottom-right"
-   ],
-   "description": "Where should the media controls / player be positioned"
-  },
-  "quick_settings_height": {
-   "type": "float",
-   "default": 0.34,
-   "value": 0.34,
-   "description": "How much of the screen height the quick settings panel takes. A share rather than a pixel count, so one value suits any display. A third is tight on 1080; 0.45 gives the System side room without scrolling. Clamped to 0.15-0.9."
+  "media": {
+   "show_normal_media_player": {
+    "type": "bool",
+    "default": false,
+    "value": false,
+    "description": "If the normal Media Player should show (The black box with Play / Pause, Next, and Previous)"
+   },
+   "show_whats_playing": {
+    "type": "bool",
+    "default": false,
+    "value": false,
+    "description": "If the title of whats playing should show. This will be positioned above or below the media controls and will show if the media controls aren't showing"
+   },
+   "media_player_position": {
+    "type": "enum",
+    "default": "bottom-right",
+    "value": "bottom-right",
+    "options": [
+     "top-left",
+     "top-center",
+     "top-right",
+     "bottom-left",
+     "bottom-center",
+     "bottom-right"
+    ],
+    "description": "Where should the media controls / player be positioned"
+   }
   }
  },
  "audio": {
-  "output_device": {
-   "type": "enum",
-   "options": [
-    "Default"
-   ],
-   "default": "Default",
-   "value": "Default",
-   "description": "Where the panel plays sound. 'Default' follows whatever the system is using, which changes when a USB device is plugged in - a microphone array with a speaker jack will take the output as well as the input unless it is named here."
+  "devices": {
+   "output_device": {
+    "type": "enum",
+    "options": [
+     "Default"
+    ],
+    "default": "Default",
+    "value": "Default",
+    "description": "Where the panel plays sound. 'Default' follows whatever the system is using, which changes when a USB device is plugged in - a microphone array with a speaker jack will take the output as well as the input unless it is named here."
+   },
+   "input_device": {
+    "type": "enum",
+    "default": "Default",
+    "value": "Default",
+    "description": "Which microphone the assistant listens with. 'Default' follows the system.",
+    "options": [
+     "Default"
+    ]
+   },
+   "mic_processing": {
+    "type": "enum",
+    "options": [
+     "software",
+     "hardware"
+    ],
+    "default": "software",
+    "value": "software",
+    "description": "What the microphone does for itself. 'software' assumes a plain mic and cleans the audio here. 'hardware' is for arrays that already do it - the ReSpeaker XVF3800 and similar - and turns off the second pass, because cleaning already-clean audio is what makes speech sound underwater. Set this to hardware only if the device really does the work; on a plain mic it will hear far less."
+   }
   },
-  "input_device": {
-   "type": "enum",
-   "default": "Default",
-   "value": "Default",
-   "description": "Which microphone the assistant listens with. 'Default' follows the system.",
-   "options": [
-    "Default"
-   ]
+  "speech": {
+   "tts_enabled": {
+    "type": "bool",
+    "default": true,
+    "value": true,
+    "description": "Whether the assistant speaks its replies. Uses Kyutai Pocket TTS, which runs locally on the CPU and needs no key. A skill that would have spoken shows its answer instead when this is off."
+   },
+   "tts_backend": {
+    "type": "enum",
+    "default": "auto",
+    "value": "auto",
+    "options": [
+     "auto",
+     "pocket",
+     "off"
+    ],
+    "description": "Whether to speak replies. 'auto' and 'pocket' both use Kyutai Pocket TTS - local, no key, CPU only. 'off' silences them."
+   },
+   "tts_voice": {
+    "type": "enum",
+    "default": "alba",
+    "value": "alba",
+    "description": "Pocket TTS voice. 21 English, plus estelle (fr), giovanni (it), juergen (de), lola (es), rafael (pt). Overridden by Tts Voice File when that is set.",
+    "options": [
+     "alba",
+     "anna",
+     "azelma",
+     "bill_boerst",
+     "caro_davy",
+     "charles",
+     "cosette",
+     "eponine",
+     "eve",
+     "fantine",
+     "george",
+     "jane",
+     "jean",
+     "javert",
+     "marius",
+     "mary",
+     "michael",
+     "paul",
+     "peter_yearsley",
+     "stuart_bell",
+     "vera",
+     "estelle",
+     "giovanni",
+     "juergen",
+     "lola",
+     "rafael"
+    ]
+   },
+   "tts_language": {
+    "type": "enum",
+    "default": "default",
+    "value": "default",
+    "options": [
+     "default",
+     "english",
+     "french",
+     "german",
+     "portuguese",
+     "italian",
+     "spanish"
+    ],
+    "description": "Pocket TTS language weights. 'default' uses the model's own."
+   },
+   "tts_voice_file": {
+    "type": "str",
+    "default": "",
+    "value": "",
+    "description": "A wav to clone instead of a listed voice - a local path or an hf:// URL. Overrides Tts Voice. The sample's audio quality is reproduced, so a clean recording matters more than a long one."
+   },
+   "tts_padding_ms": {
+    "type": "int",
+    "default": 140,
+    "value": 140,
+    "suffix": "ms",
+    "description": "Silence added either side of a spoken reply. The model stops when the sentence stops, so a one-line answer otherwise begins and ends hard. Also covers the moment a Bluetooth speaker takes to wake, which eats the first syllable. Pocket TTS only."
+   },
+   "tts_rate": {
+    "type": "float",
+    "default": 1.0,
+    "value": 1.0,
+    "description": "Playback speed. Pocket TTS has no rate control, so this changes the sample rate instead - which moves the PITCH with the speed. 0.95 is audibly less hurried and hard to notice; below about 0.9 it sounds like a slowed recording. Pocket TTS only."
+   }
   },
-  "mic_processing": {
-   "type": "enum",
-   "options": [
-    "software",
-    "hardware"
-   ],
-   "default": "software",
-   "value": "software",
-   "description": "What the microphone does for itself. 'software' assumes a plain mic and cleans the audio here. 'hardware' is for arrays that already do it - the ReSpeaker XVF3800 and similar - and turns off the second pass, because cleaning already-clean audio is what makes speech sound underwater. Set this to hardware only if the device really does the work; on a plain mic it will hear far less."
-  },
-  "tts_enabled": {
-   "type": "bool",
-   "default": true,
-   "value": true,
-   "description": "Whether the assistant speaks its replies. Uses Kyutai Pocket TTS, which runs locally on the CPU and needs no key. A skill that would have spoken shows its answer instead when this is off."
-  },
-  "tts_backend": {
-   "type": "enum",
-   "default": "auto",
-   "value": "auto",
-   "options": [
-    "auto",
-    "pocket",
-    "off"
-   ],
-   "description": "Whether to speak replies. 'auto' and 'pocket' both use Kyutai Pocket TTS - local, no key, CPU only. 'off' silences them."
-  },
-  "tts_voice": {
-   "type": "enum",
-   "default": "alba",
-   "value": "alba",
-   "description": "Pocket TTS voice. 21 English, plus estelle (fr), giovanni (it), juergen (de), lola (es), rafael (pt). Overridden by Tts Voice File when that is set.",
-   "options": [
-    "alba",
-    "anna",
-    "azelma",
-    "bill_boerst",
-    "caro_davy",
-    "charles",
-    "cosette",
-    "eponine",
-    "eve",
-    "fantine",
-    "george",
-    "jane",
-    "jean",
-    "javert",
-    "marius",
-    "mary",
-    "michael",
-    "paul",
-    "peter_yearsley",
-    "stuart_bell",
-    "vera",
-    "estelle",
-    "giovanni",
-    "juergen",
-    "lola",
-    "rafael"
-   ]
-  },
-  "tts_language": {
-   "type": "enum",
-   "default": "default",
-   "value": "default",
-   "options": [
-    "default",
-    "english",
-    "french",
-    "german",
-    "portuguese",
-    "italian",
-    "spanish"
-   ],
-   "description": "Pocket TTS language weights. 'default' uses the model's own."
-  },
-  "tts_voice_file": {
-   "type": "str",
-   "default": "",
-   "value": "",
-   "description": "A wav to clone instead of a listed voice - a local path or an hf:// URL. Overrides Tts Voice. The sample's audio quality is reproduced, so a clean recording matters more than a long one."
-  },
-  "tts_padding_ms": {
-   "type": "int",
-   "default": 140,
-   "value": 140,
-   "suffix": "ms",
-   "description": "Silence added either side of a spoken reply. The model stops when the sentence stops, so a one-line answer otherwise begins and ends hard. Also covers the moment a Bluetooth speaker takes to wake, which eats the first syllable. Pocket TTS only."
-  },
-  "tts_rate": {
-   "type": "float",
-   "default": 1.0,
-   "value": 1.0,
-   "description": "Playback speed. Pocket TTS has no rate control, so this changes the sample rate instead - which moves the PITCH with the speed. 0.95 is audibly less hurried and hard to notice; below about 0.9 it sounds like a slowed recording. Pocket TTS only."
-  },
-  "do_not_disturb": {
-   "type": "bool",
-   "default": false,
-   "value": false,
-   "description": "Hold back notifications and every sound the panel makes. They are still written to the notification history - the point is not to be interrupted, not to lose what happened."
-  },
-  "mute_sounds": {
-   "type": "bool",
-   "default": false,
-   "value": false,
-   "description": "Silence the panel's own sounds and its spoken replies, while leaving notifications on screen. Do not disturb implies this; this does not imply do not disturb."
+  "quiet": {
+   "do_not_disturb": {
+    "type": "bool",
+    "default": false,
+    "value": false,
+    "description": "Hold back notifications and every sound the panel makes. They are still written to the notification history - the point is not to be interrupted, not to lose what happened."
+   },
+   "mute_sounds": {
+    "type": "bool",
+    "default": false,
+    "value": false,
+    "description": "Silence the panel's own sounds and its spoken replies, while leaving notifications on screen. Do not disturb implies this; this does not imply do not disturb."
+   }
   }
  },
  "notifications": {
-  "notification_duration": {
-   "type": "float",
-   "default": 4.5,
-   "value": 4.5,
-   "suffix": "sec",
-   "description": "How long a notification stays on screen"
-  },
-  "notification_queue_delay": {
-   "type": "float",
-   "default": 0.4,
-   "value": 0.4,
-   "suffix": "sec",
-   "description": "The delay in seconds between notifications in queue"
-  },
-  "notification_position": {
-   "type": "enum",
-   "default": "bottom-right",
-   "value": "bottom-right",
-   "options": [
-    "top-left",
-    "top-center",
-    "top-right",
-    "bottom-left",
-    "bottom-center",
-    "bottom-right"
-   ],
-   "description": "Where should notifications appear"
+  "toasts": {
+   "notification_duration": {
+    "type": "float",
+    "default": 4.5,
+    "value": 4.5,
+    "suffix": "sec",
+    "description": "How long a notification stays on screen"
+   },
+   "notification_queue_delay": {
+    "type": "float",
+    "default": 0.4,
+    "value": 0.4,
+    "suffix": "sec",
+    "description": "The delay in seconds between notifications in queue"
+   },
+   "notification_position": {
+    "type": "enum",
+    "default": "bottom-right",
+    "value": "bottom-right",
+    "options": [
+     "top-left",
+     "top-center",
+     "top-right",
+     "bottom-left",
+     "bottom-center",
+     "bottom-right"
+    ],
+    "description": "Where should notifications appear"
+   }
   }
  },
  "plugins": {
@@ -391,93 +407,76 @@
    "value": true,
    "description": "Whether the voice assistant runs at all. Turn this off to stop the speech-to-text process entirely."
   },
-  "wake_word": {
-   "type": "string",
-   "default": "alexa",
-   "value": "alexa",
-   "description": "The word that wakes the assistant. Plugins use this as the default wake word for their skills. Requires a restart of the assistant."
+  "speech": {
+   "model": {
+    "type": "enum",
+    "default": "parakeet-v3",
+    "value": "parakeet-v3",
+    "options": [
+     "parakeet-v3",
+     "parakeet-v2"
+    ],
+    "description": "What transcribes the phrase you said.\n\nparakeet-v3 is NVIDIA's, run through onnx-asr. It covers 25 European languages, and unlike whisper it does not invent words out of silence - which is why nothing here has to filter its output. parakeet-v2 is English-only and slightly faster.\n\nThe weights download once on first use, after you are asked. See 'parakeet_precision' for how large that is."
+   },
+   "parakeet_precision": {
+    "type": "enum",
+    "options": [
+     "int8",
+     "float32"
+    ],
+    "default": "int8",
+    "value": "int8",
+    "description": "Which Parakeet weights to use. Ignored on the whisper models.\n\n'int8' is 700MB, loads faster and runs faster on a panel with no GPU. 'float32' is the full-size export - 2.5GB to download and several times the memory - and is more accurate on long audio, which a phrase said to a wall panel is not. Change this and the new weights download the next time the assistant starts."
+   }
   },
-  "wake_detector": {
-   "type": "enum",
-   "options": [
-    "auto",
-    "openwakeword",
-    "whisper"
-   ],
-   "default": "auto",
-   "value": "auto",
-   "description": "How the wake word is spotted. 'openwakeword' uses a model built for the job - far faster and steadier than transcribing a fragment of audio and checking the spelling - but only for the words it ships: alexa, jarvis, mycroft, rhasspy. 'whisper' works with any word. 'auto' uses openWakeWord when there is a model for your wake word and whisper otherwise, which is the right answer for almost everybody."
+  "wake": {
+   "wake_word": {
+    "type": "enum",
+    "default": "alexa",
+    "value": "alexa",
+    "description": "The word that wakes the assistant, spotted by openWakeWord - a model trained for the job rather than a transcription that gets read.\n\nThe list is the words openWakeWord ships models for. Anything else would need a model trained for it, which is a real piece of work and not something the panel can do.\n\nPlugins use this as the default wake word for their skills. Requires a restart of the assistant.",
+    "options": [
+     "alexa",
+     "hey jarvis",
+     "hey mycroft",
+     "hey rhasspy"
+    ]
+   },
+   "wake_listen_timeout": {
+    "type": "int",
+    "default": 12,
+    "value": 12,
+    "suffix": "sec",
+    "description": "How long the panel keeps listening after the wake word before giving up. Too short and it stops mid-thought; too long and it sits listening to the room."
+   },
+   "session_silence": {
+    "type": "int",
+    "default": 800,
+    "value": 800,
+    "suffix": "ms",
+    "description": "How long a pause ends your sentence once the assistant is in a conversation. Lower reacts faster; too low and a breath mid-sentence is treated as the end, which splits one question into several and sends each of them separately. 800ms suits normal speech."
+   }
   },
-  "model": {
-   "type": "enum",
-   "default": "tiny.en",
-   "value": "tiny.en",
-   "options": [
-    "tiny.en",
-    "tiny",
-    "base.en",
-    "base",
-    "small.en",
-    "small",
-    "parakeet-v3",
-    "parakeet-v2"
-   ],
-   "description": "What transcribes the phrase you said. This is the one that decides how long the panel takes to answer - the wake word is checked separately with a small one.\n\nThe whisper sizes are larger = more accurate and slower; '.en' is English-only and faster.\n\nparakeet-v3 is NVIDIA's, and on English it is both more accurate and faster than any whisper size here - it also almost never invents words out of silence, which whisper does constantly. It covers 25 European languages rather than 99, needs 'onnx-asr' installed, and downloads about 600MB the first time. parakeet-v2 is English-only and slightly faster."
-  },
-  "wake_model": {
-   "type": "enum",
-   "options": [
-    "tiny.en",
-    "tiny",
-    "base.en"
-   ],
-   "default": "tiny.en",
-   "value": "tiny.en",
-   "description": "The model that checks for the wake word. Small on purpose: it runs on every fragment of speech and answers one question, so mishearing an ordinary word costs nothing. Only used when the phrase model above is bigger than this one - otherwise that one does both jobs."
-  },
-  "beam_size": {
-   "type": "enum",
-   "options": [
-    "1",
-    "3",
-    "5"
-   ],
-   "default": "5",
-   "value": "5",
-   "description": "How many transcriptions the model considers before choosing. 5 is the most accurate and roughly three times the work of 1. Beam search helps least on short clear commands, which is most of what a panel hears - so if a bigger model hears you correctly but takes too long, drop this to 1 before dropping the model."
-  },
-  "voice_bar": {
-   "type": "bool",
-   "default": true,
-   "value": true,
-   "description": "Show the thin activity bar along the bottom of the screen while the assistant is listening."
-  },
-  "greet_on_start": {
-   "type": "bool",
-   "default": false,
-   "value": false,
-   "description": "Whether the assistant says hello out loud when it starts listening. The notification appears either way; this is only whether it is spoken. Off by default - a panel that restarts itself at four in the morning should not announce it."
-  },
-  "voice_bar_hold": {
-   "type": "int",
-   "default": 6,
-   "value": 6,
-   "suffix": "sec",
-   "description": "Minimum time the activity bar keeps a transcript on screen. Longer transcripts are held longer than this automatically."
-  },
-  "session_silence": {
-   "type": "int",
-   "default": 800,
-   "value": 800,
-   "suffix": "ms",
-   "description": "How long a pause ends your sentence once the assistant is in a conversation. Lower reacts faster; too low and a breath mid-sentence is treated as the end, which splits one question into several and sends each of them separately. 800ms suits normal speech."
-  },
-  "wake_listen_timeout": {
-   "type": "int",
-   "default": 12,
-   "value": 12,
-   "suffix": "sec",
-   "description": "How long the panel keeps listening after the wake word before giving up. Too short and it stops mid-thought; too long and it sits listening to the room."
+  "feedback": {
+   "voice_bar": {
+    "type": "bool",
+    "default": true,
+    "value": true,
+    "description": "Show the thin activity bar along the bottom of the screen while the assistant is listening."
+   },
+   "voice_bar_hold": {
+    "type": "int",
+    "default": 6,
+    "value": 6,
+    "suffix": "sec",
+    "description": "Minimum time the activity bar keeps a transcript on screen. Longer transcripts are held longer than this automatically."
+   },
+   "greet_on_start": {
+    "type": "bool",
+    "default": false,
+    "value": false,
+    "description": "Whether the assistant says hello out loud when it starts listening. The notification appears either way; this is only whether it is spoken. Off by default - a panel that restarts itself at four in the morning should not announce it."
+   }
   }
  },
  "debug": {

@@ -89,7 +89,13 @@ class CoreWidgetsBundle(Plugin):
         if "on_timer_finished" not in self.client.EVENTS["on_call"]:
             self.client.create_on_call_event("on_timer_finished")
 
+        from src.assets.bundled.CoreWidgetsBundle.timers import describe
+
         self.client.public.expose("corewidgetsbundle", "timers", {
+            # A duration as a noun phrase - "half an hour", "ninety seconds".
+            # Exposed so a plugin reading a timer can also say it, without
+            # importing this module to get one function.
+            "describe":    describe,
             "start":       self.timers.start,
             "cancel":      self.timers.cancel,
             "cancel_all":  self.timers.cancel_all,
@@ -100,7 +106,6 @@ class CoreWidgetsBundle(Plugin):
             "all":         self.timers.all_timers,
         })
 
-        #Register API
         api_endpoint, registered_flag = self.client.API.register(
             "corewidgetsbundle",
             "test",

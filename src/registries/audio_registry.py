@@ -464,9 +464,9 @@ class AudioRegistry:
             # The chosen output, or the system's. A microphone array with a
             # speaker jack takes the default output when it is plugged in,
             # which is how the panel ends up playing through a device nobody
-            # chose - see audio.output_device.
+            # chose - see audio.devices.output_device.
             chosen = self.device_index(
-                str(self.client.setting("audio.output_device.value", "")),
+                str(self.client.setting("audio.devices.output_device.value", "")),
                 "output")
             stream = sounddevice.OutputStream(samplerate=rate,
                                               device=chosen,

@@ -10,6 +10,19 @@ from retry_requests import retry
 
 
 class OpenMeteoAPI:
+    def coordinates(self) -> tuple:
+        """
+        Where the panel thinks it is, as (latitude, longitude).
+
+        Here so nothing else has to read this plugin's settings file. A
+        plugin's settings are its own - `client.setting()` walks the CLIENT's
+        tree and never reaches a plugin key, so a path like
+        `corewidgetsbundle.weather.latitude.value` silently answers with the
+        caller's default and the caller has no way to tell.
+        """
+        weather = self.plugin.settings.weather
+        return float(weather.latitude.value or 0), float(weather.longitude.value or 0)
+
     def __init__(self, plugin, client):
         self.plugin = plugin
         self.client = client

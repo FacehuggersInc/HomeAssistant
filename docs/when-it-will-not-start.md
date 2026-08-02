@@ -7,16 +7,25 @@ merely the last thing that got a chance to run.
 ## Narrow it down in one run
 
 ```
-HA_SAFE_MODE=1 python app.py
+HA_SAFE_MODE=1 python app.py          # Linux, macOS
 ```
+
+```
+set HA_SAFE_MODE=1 && python app.py   :: Windows, cmd
+$env:HA_SAFE_MODE=1; python app.py    # Windows, PowerShell
+```
+
+The `VAR=value command` form is a shell feature, not a Python one, and neither
+cmd nor PowerShell has it. Set the variable first on Windows, and remember it
+stays set for the rest of that terminal session.
 
 Bluetooth, the voice assistant and the embedded browser are all skipped. If it
 starts, one of the three is responsible — turn them back on one at a time:
 
-| | |
-|---|---|
-| `HA_NO_BLUETOOTH=1` | No D-Bus, no adapter lookup |
-| `HA_NO_ASSISTANT=1` | No microphone, no speech model |
+|                     |                                            |
+|---------------------|--------------------------------------------|
+| `HA_NO_BLUETOOTH=1` | No D-Bus, no adapter lookup                |
+| `HA_NO_ASSISTANT=1` | No microphone, no speech model             |
 | `HA_NO_WEBENGINE=1` | No hidden player page, no embedded browser |
 
 Whatever is switched off is logged as a **warning** at startup. A panel started
@@ -29,11 +38,10 @@ Most startup work either succeeds or raises. Three do neither:
 
 **Opening the microphone.** This is the one that has actually happened.
 
-`sd.InputStream(...)` calls PortAudio, which calls ALSA. On a machine whose
-`default` points at something wedged or exclusively held, that open **blocks with
-no error and no end** — there is nothing to catch and nothing to time out
-against, so the wait has to be imposed from outside. The panel froze on the line
-before the attempt and printed nothing more.
+`sd.InputStream(...)` calls PortAudio, which on Linux calls ALSA. On a machine
+whose `default` points at something wedged or exclusively held, that open
+**blocks with no error and no end** — there is nothing to catch and nothing to
+time out against, so the wait has to be imposed from outside.
 
 Two things follow from that:
 
@@ -54,6 +62,13 @@ If nothing opens at all, that is a message and the panel starts anyway.
 
 **Loading the speech model.** The first load on a cold cache reaches the network.
 
+A Parakeet's weights are fetched by the panel rather than the speech process,
+and on a worker thread — `download_speech_model` starts it and `call_on_ui`
+finishes it, so neither the UI thread nor a child process without a socket is
+holding a download. `python3 hactl.py speech-model` answers locally while it
+is happening, and names the files still missing. See
+[the assistant](assistant.md#asked-once).
+
 **The embedded browser.** QtWebEngine is the largest thing in the process and
 starts a second one. A line like
 
@@ -66,10 +81,22 @@ means it could not use the normal GPU path. That fallback is where hangs and
 `SIGTRAP` aborts tend to come from, and it is worth ruling out early:
 
 ```
-QTWEBENGINE_CHROMIUM_FLAGS="--disable-gpu" python app.py
+QTWEBENGINE_CHROMIUM_FLAGS="--disable-gpu" python app.py   # Linux, macOS
+```
+
+```
+set QTWEBENGINE_CHROMIUM_FLAGS=--disable-gpu && python app.py   :: Windows, cmd
 ```
 
 If that starts cleanly, the problem is graphics, not the panel.
+
+## A note on platforms
+
+The safe-mode switches work anywhere. The specific failures above are mostly
+Linux ones: ALSA and `pipewire` are what PortAudio talks to there, `ddcutil`
+and `brightnessctl` are Linux-only, and the GBM/Vulkan line comes from
+Chromium on a Linux GPU stack. On Windows and macOS the same stages exist and
+can still hang; the names in the logs differ.
 
 ## Why environment variables
 

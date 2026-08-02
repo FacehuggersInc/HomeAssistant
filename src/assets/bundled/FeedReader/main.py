@@ -80,14 +80,19 @@ class RSSFeedsPlugin(Plugin):
 
         self._load_feed_files()
 
-        if self.client.PLUGIN.has_plugin("idletriggers"):
-            if self.client.public.has( "add_trigger" ):
-                id = self.client.public.add_trigger(
-                    "rssfeeds",
-                    self.build_new_feed_panel,
-                    global_invalid_pages = ["#settings"]
-                )
-                self.__builder_idletriggers_id = id
+        # Asked of the public registry, not of the plugin manager.
+        #
+        # "Is that plugin loaded" and "is the thing it offers available" are
+        # different questions, and only the second one matters here: a plugin
+        # that is present but has not exposed `add_trigger` yet would pass the
+        # first and fail on the call. `plugin.toml` lists `idletriggers` as a
+        # dependency, so by the time this runs it has loaded and exposed.
+        if self.client.public.has("add_trigger"):
+            self.__builder_idletriggers_id = self.client.public.add_trigger(
+                "rssfeeds",
+                self.build_new_feed_panel,
+                global_invalid_pages=["#settings"],
+            )
 
     def unload(self):
         # Endpoints and API classes both, in one call.

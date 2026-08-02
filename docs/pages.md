@@ -26,13 +26,13 @@ The key is what `client.goto()` takes, and the display name is what appears
 anywhere pages are listed. Pages are dropped from the registry when their
 owning plugin unloads.
 
-| Call | Does |
-|---|---|
-| `client.goto(key)` | Navigate. Tears the old page down, builds the new one. |
-| `client.has_page(key)` | Whether anything has registered it. |
-| `client.get_page(key)` | The registry entry, not the live widget. |
-| `client.get_pages()` | Every registered key. |
-| `client.PAGE` | The page currently on screen. |
+| Call                   | Does                                                   |
+|------------------------|--------------------------------------------------------|
+| `client.goto(key)`     | Navigate. Tears the old page down, builds the new one. |
+| `client.has_page(key)` | Whether anything has registered it.                    |
+| `client.get_page(key)` | The registry entry, not the live widget.               |
+| `client.get_pages()`   | Every registered key.                                  |
+| `client.PAGE`          | The page currently on screen.                          |
 
 Only one page is instantiated at a time. `client.PAGE` is the live widget;
 everything else in the registry is a class waiting to be built.
@@ -149,14 +149,15 @@ Four things in there are the whole pattern:
 
 ## Sub-pages
 
-> **`HomePage` and its sub-pages come from `corewidgetsbundle`.** A plugin
-> adding a sub-page depends on that plugin being loaded, and should degrade
-> rather than raise when it is not. `RootPage` and the settings page are the
-> only two the client registers itself — see
+> **`#cwb_home_page` and its sub-pages come from `corewidgetsbundle`.** A
+> plugin adding a sub-page depends on that plugin being loaded, and should
+> degrade rather than raise when it is not. `#root` and `#settings` are the
+> only two pages the client registers itself — see
 > [Application lifecycle](lifecycle.md).
 
 
-A page can own a grid of sub-pages navigated by swiping. `HomePage` does this:
+A page can own a grid of sub-pages navigated by swiping. `#cwb_home_page`
+does this:
 each sub-page has a coordinate, and a swipe moves to whatever sits in that
 direction.
 
@@ -199,16 +200,19 @@ module that no longer exists.
 
 ### Adding one to your own page
 
-Any page can host sub-pages — `HomePage` is not special. Copy its pattern:
+Any page can host sub-pages — `#cwb_home_page` is not special. Copy its
+pattern:
 keep a dict of sub-pages by key, give each a `coord`, position them at
 `coord * page size`, and move the container on swipe.
 
 The features to expose are `add_sub_page` and `remove_sub_page`, named exactly
-that, so a plugin written against `HomePage` works against yours unchanged.
+that, so a plugin written against `#cwb_home_page` works against yours
+unchanged.
 
 ### The page map
 
-Holding on empty space on `HomePage` opens a map of its sub-pages. Tapping one
+Holding on empty space on `#cwb_home_page` opens a map of its sub-pages.
+Tapping one
 jumps straight to it rather than swiping there a page at a time.
 
 Dragging a page onto another swaps them; dragging onto an empty slot moves it.
@@ -283,12 +287,12 @@ twice over.
 `src/ui/page.py`, so a plugin asks either kind of page the same four
 questions.
 
-| | |
-|---|---|
+|                            |                                              |
+|----------------------------|----------------------------------------------|
 | `add_features({name: fn})` | Publish callables. An existing name is kept. |
-| `has_feature(name)` | Whether one is published. |
-| `features()` | The whole dict. |
-| `features(name, *args)` | Call one by name and answer with its result. |
+| `has_feature(name)`        | Whether one is published.                    |
+| `features()`               | The whole dict.                              |
+| `features(name, *args)`    | Call one by name and answer with its result. |
 
 ```python
 class MyPage(PageFramework):
@@ -359,9 +363,9 @@ client and reachable from every page.
 ## The web page resumes where it was
 
 `goto()` destroys the outgoing page, so a `#webpage` returned to is a **new
-instance** — and one built from `data["url"]`, which is whatever the original
-caller passed. Coming back from the night clock therefore reopened the address it
-started on, at the top, whatever had been read in between.
+instance**, built from `data["url"]` - whatever the original caller passed.
+On its own that means coming back from the night clock reopens the address the
+page started on, at the top, whatever was read in between.
 
 The URL and scroll position are kept on the **client**, keyed on the browsing
 context (`lock_base` plus the home URL) rather than on the page, since anything

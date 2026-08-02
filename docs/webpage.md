@@ -19,12 +19,12 @@ self.client.goto("#webpage", data={
 })
 ```
 
-| Key in `data` | Meaning |
-|---|---|
-| `url` | What to load. |
-| `home` | Where the home button goes. Defaults to `url`. |
-| `lock_address` | `True` stops the address bar being edited. |
-| `lock_base` | A prefix every navigation must start with. |
+| Key in `data`  | Meaning                                        |
+|----------------|------------------------------------------------|
+| `url`          | What to load.                                  |
+| `home`         | Where the home button goes. Defaults to `url`. |
+| `lock_address` | `True` stops the address bar being edited.     |
+| `lock_base`    | A prefix every navigation must start with.     |
 
 The two locks answer different questions and are usually set together.
 `lock_address` is about who may *type* an address; `lock_base` is about where
@@ -51,11 +51,11 @@ it.
 
 And as features, for code that already has the page:
 
-| Feature | Does |
-|---|---|
+| Feature         | Does                                                 |
+|-----------------|------------------------------------------------------|
 | `navigate(url)` | Load something. A missing scheme becomes `https://`. |
-| `set_home(url)` | Change where home goes. |
-| `current()` | The address currently loaded. |
+| `set_home(url)` | Change where home goes.                              |
+| `current()`     | The address currently loaded.                        |
 
 ## Built for a panel
 

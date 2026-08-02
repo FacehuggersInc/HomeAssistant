@@ -22,7 +22,7 @@ full every time it opens, so an uncapped history is both memory that never
 comes back and a build on the UI thread that grows with the uptime of the
 panel.
 
-Position comes from `notifications.notification_position` in Settings, so do
+Position comes from `notifications.toasts.notification_position` in Settings, so do
 not assume a corner.
 
 Safe to call from any thread.
@@ -60,11 +60,11 @@ Closes itself after 30 seconds, and on a tap.
 A notification **reports**; an answer panel **answers**. The test is whether
 there is anything to read.
 
-| Use a panel | Use a notification |
-|---|---|
-| The reply has parts — a time, a place, a length | The reply is one fact |
-| A list: today's events, the next few hours | Something happened in the background |
-| Somebody asked a question and is standing there | Nothing is waiting on it |
+| Use a panel                                     | Use a notification                   |
+|-------------------------------------------------|--------------------------------------|
+| The reply has parts — a time, a place, a length | The reply is one fact                |
+| A list: today's events, the next few hours      | Something happened in the background |
+| Somebody asked a question and is standing there | Nothing is waiting on it             |
 
 The weather skill is a panel: six lines, and a toast goes past before anyone
 has read the second one. Clearing notifications is a notification: the action
@@ -160,10 +160,10 @@ path.mkdir(parents=True, exist_ok=True)
 
 Two, and they are not the same thing.
 
-| | |
-|---|---|
-| `accessibility.do_not_disturb` | No notifications, no sounds, no speech |
-| `accessibility.mute_sounds` | No sounds and no speech; notifications still appear |
+|                              |                                                     |
+|------------------------------|-----------------------------------------------------|
+| `audio.quiet.do_not_disturb` | No notifications, no sounds, no speech              |
+| `audio.quiet.mute_sounds`    | No sounds and no speech; notifications still appear |
 
 Do not disturb implies silence. Silence does not imply do not disturb — a quiet
 panel that still shows what happened is the common case on a desk.

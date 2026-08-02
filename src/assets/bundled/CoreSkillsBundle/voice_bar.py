@@ -86,10 +86,6 @@ class VoiceBar(QWidget):
         self._slide.setDuration(260)
         self._slide.setEasingCurve(QEasingCurve.Type.OutCubic)
 
-        # The third argument is the PARENT. Without it the animation belongs
-        # to nothing, outlives the widget it animates, and fires `finished`
-        # into an object that has gone - which inside a Qt signal aborts the
-        # process rather than raising.
         self._fade = QPropertyAnimation(self, b"bar_opacity", self)
         self._fade.setDuration(240)
         self._fade.setEasingCurve(QEasingCurve.Type.InOutQuad)
@@ -161,7 +157,7 @@ class VoiceBar(QWidget):
     def hold_ms(self, text: str) -> int:
         """How long to keep a transcript up, from the user floor and its length."""
         try:
-            floor = float(self.client.setting("assistant.voice_bar_hold.value", 6)) * 1000
+            floor = float(self.client.setting("assistant.feedback.voice_bar_hold.value", 6)) * 1000
         except Exception:
             floor = 6000
         estimate = self.HOLD_BASE_MS + len(text) * self.HOLD_PER_CHAR_MS

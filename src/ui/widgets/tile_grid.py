@@ -170,7 +170,7 @@ class TileGrid(QWidget):
         # which this recomputes - so the cache is dropped here rather than at
         # each call site.
         self._dot_cache = None
-        margin = int(self.client.SETTINGS.home.widget_margin.value)
+        margin = int(self.client.SETTINGS.home.layout.widget_margin.value)
         self.margin = margin
 
         #minimum gap before anything else — keeps cells from touching

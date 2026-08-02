@@ -23,9 +23,8 @@ if TYPE_CHECKING:
 SENTENCE_END_TOKENS = {'.', '!', '?', ';'}
 
 _HERE = Path(__file__).resolve().parent
-PROCESS_REALTIMESTT = str(_HERE / "realtimestt-process.py")
-PROCESS_VOSK        = str(_HERE / "vosk-process.py")
 PROCESS_WHISPER     = str(_HERE / "whisper-process.py")
+PROCESS_PARAKEET    = str(_HERE / "parakeet-process.py")
 
 _CANCELLED = object()
 
@@ -123,7 +122,7 @@ class Session():
 
 
 class STTProcessing():
-	def __init__(self, client, process:str = "whisper",
+	def __init__(self, client, process:str = "parakeet",
 				 input_device=None, model:str = "tiny.en", wake_words=None,
 				 session_silence_ms:int = 800):
 		self.client = client
@@ -140,7 +139,8 @@ class STTProcessing():
 		self.__process_path = None
 		match self.process_type:
 			case "whisper": self.__process_path = PROCESS_WHISPER
-			case _: self.__process_path = PROCESS_WHISPER
+			case "parakeet": self.__process_path = PROCESS_PARAKEET
+			case _: self.__process_path = PROCESS_PARAKEET
 
 		#Process & Socket
 		self.process = None
@@ -152,6 +152,11 @@ class STTProcessing():
 		}
 
 		self.processing : bool = False
+
+		#Longest a single message off the socket may be before it is treated
+		#as a protocol failure rather than a slow arrival. Transcripts are the
+		#big ones and they are a sentence.
+		self.MAX_MESSAGE = 64 * 1024
 
 		self.woke_with : str = None
 		# When the wake word was heard, so a wake nobody followed up on can be
@@ -251,9 +256,6 @@ class STTProcessing():
 		return text[match.end():].strip() if match else text.strip()
 
 	## PROCESSING
-	def limit_words( self, limit:int, phrase:str ):
-		" ".join( phrase.split(" ")[:limit] )
-
 	def clean_text(self, text:str) -> str:
 		text = ''.join(ch for ch in text if ch not in string.punctuation).strip()
 		return text
@@ -683,7 +685,7 @@ class STTProcessing():
 		)
 
 		try:
-			if bool(self.client.setting("assistant.greet_on_start.value", False)):
+			if bool(self.client.setting("assistant.feedback.greet_on_start.value", False)):
 				self.client.say(greeting)
 		except Exception as e:
 			self.client.log("debug", f"[STTProcessing] Could not greet: {e}")
@@ -725,9 +727,6 @@ class STTProcessing():
 				f"[STTProcessing] Could not stop monitoring: {e}")
 		self.client.log("info", "[STTProcessing] Monitoring ended.")
 
-	def is_monitoring(self) -> bool:
-		return bool(self._monitoring)
-
 	def add_listener(self, callback) -> None:
 		"""
 		Watch every transcript, without taking it.
@@ -767,28 +766,11 @@ class STTProcessing():
 	#word costs nothing because only the wake word is being looked for.
 	WAKE_MODEL = "tiny.en"
 
-	def wake_model_name(self) -> str:
-		"""
-		The model the wake check uses.
-
-		The phrase model, when that is already small enough - loading two
-		copies of tiny.en to run them separately would be pure waste.
-		"""
-		phrase = str(self.model or "tiny.en")
-		if phrase.startswith("tiny"):
-			return phrase
-		if phrase.startswith("parakeet"):
-			# Parakeet has no small sibling and is not built to transcribe a
-			# fragment, so the wake check keeps its own whisper either way.
-			return self.WAKE_MODEL
-		return str(self.client.setting(
-			"assistant.wake_model.value", self.WAKE_MODEL) or self.WAKE_MODEL)
-
 	def mic_processing(self) -> str:
 		"""Whether the microphone cleans its own audio."""
 		try:
 			mode = str(self.client.setting(
-				"audio.mic_processing.value", "software")).strip().lower()
+				"audio.devices.mic_processing.value", "software")).strip().lower()
 		except Exception:
 			mode = "software"
 		return "hardware" if mode == "hardware" else "software"
@@ -823,13 +805,9 @@ class STTProcessing():
 		"""How long to stay listening after a wake with nothing said."""
 		try:
 			return max(3.0, float(self.client.setting(
-				"assistant.wake_listen_timeout.value", 12)))
+				"assistant.wake.wake_listen_timeout.value", 12)))
 		except Exception:
 			return 12.0
-
-	def note_not_listening(self) -> None:
-		"""Drop the listening anchor. Called whenever the status leaves it."""
-		self.listening_since = 0.0
 
 	def check_wake_timeout(self) -> None:
 		"""
@@ -967,108 +945,151 @@ class STTProcessing():
 							time.sleep(0.5)
 
 					#If Connections, Data Receive loop
+					#
+					# Buffered, and split on newlines.
+					#
+					# `recv` hands back whatever bytes have arrived, not one
+					# message: two sendall calls a moment apart come back in
+					# ONE read, and the old `raw.split(":", 2)` then read the
+					# first message and swallowed the second into its payload.
+					#
+					# `host:transcribe:...` immediately followed by
+					# `host:transcribed:1` arrives as one string, so the
+					# transcript was acted on and the panel was never told the
+					# model had finished - it sat at THINKING forever. The
+					# same read also ate `transcribing` off the end of the
+					# voice_activity stream, which is every 30ms while
+					# somebody is speaking.
+					#
+					# It was survivable with whisper, where seconds in the
+					# model spaced the messages out by accident. It is not
+					# with a transcriber that answers in 300ms.
+					buffer = ""
 					while self.listening:
-						raw = sock.recv(1024 * 5).decode("utf-8")
-						if not raw:
+						chunk = sock.recv(1024 * 5).decode("utf-8")
+						if not chunk:
 							break
-						
-						try:
-							to, command, data = raw.split(":", 2)
-							if not to == "host": continue
-							match command:
-								case "notify":
-									if self.client.ASSIST_STATUS == "DORMANT":
+						buffer += chunk
+
+						# A message that never terminates would otherwise grow
+						# this without limit. Dropped loudly rather than
+						# silently: it means the two sides disagree about the
+						# protocol, which is worth knowing.
+						if len(buffer) > self.MAX_MESSAGE and "\n" not in buffer:
+							self.client.log("warning",
+								"[STTProcessing] Dropped an oversized message "
+								"from the speech process.")
+							buffer = ""
+							continue
+
+						while "\n" in buffer:
+							raw, _, buffer = buffer.partition("\n")
+							raw = raw.strip()
+							if not raw:
+								continue
+							try:
+								to, command, data = raw.split(":", 2)
+								if not to == "host": continue
+								match command:
+									case "notify":
+										if self.client.ASSIST_STATUS == "DORMANT":
+											self.listening_since = 0.0
+											self.client.ASSIST_STATUS = "LIVE"
+											self.greet()
+									case "log":
+										# The child process talking. It has no
+										# logger of its own - it is a different
+										# process - so its messages arrive here
+										# and go out through the panel's.
+										level, _, body = data.partition(":")
+										if body:
+											# No prefix added. The child
+											# already names itself, and
+											# "[Whisper] [Parakeet]: Ready."
+											# is what hard-coding one gets you
+											# once there is more than one
+											# process.
+											self.client.log(
+												level.strip() or "debug",
+												body)
+
+									case "transcribe":
+										# Anything watching gets it raw, before
+										# normalising, wake matching or routing.
+										# That is the point of watching: to tell
+										# "the microphone heard nothing" apart
+										# from "the wake word did not match".
+										self._tell_listeners(data)
+										if self._monitoring:
+											# Monitoring is listening without
+											# acting. Routing here would run a
+											# skill for every sentence said in
+											# the room while the test page is
+											# open, which is worse than useless.
+											continue
+										self.pre_processing(data)
+
+									case "voice_activity": #Will Get Used A Lot
+										if not self.woke_with and not self.client.ASSIST_STATUS == "LISTENING": continue
+										try:
+											level = float(data)
+											level = min(level * 3, 1.0)
+											level = round(level, 2)
+											self.client.ASSIST_VOICE_ACTIVITY_LEVEL = level
+										except:
+											self.client.ASSIST_VOICE_ACTIVITY_LEVEL = 0.2
+
+									case "woke":
+										# Refreshed rather than ignored while already
+										# listening. Ignoring it meant that once the
+										# panel was stuck in LISTENING, saying the wake
+										# word again did nothing at all - which is
+										# exactly what a person does when it looks like
+										# it did not hear them.
+										self.woke_with = data.strip()
+										self.woke_at = time.time()
+										self.client.ASSIST_STATUS = "LISTENING"
+
+									case "transcribing":
+										# Audio captured, the model is running.
+										# On a big model that is seconds, and
+										# without this the panel stands down after
+										# the wake and says nothing until the text
+										# arrives - a pill that fades, then an
+										# answer out of nowhere.
+										self.client.ASSIST_STATUS = "THINKING"
+										self.client.iterate_event_callables(
+											"on_transcribing_assistant", None)
+
+									case "transcribed":
+										# The model finished, whatever it decided.
+										# Five paths in the child end without a
+										# transcript - too quiet, an error, a
+										# hallucination, a repetition, nothing
+										# usable - and without this the panel sat
+										# at "thinking" forever on every one of
+										# them. Silence is the common case.
+										if self.client.ASSIST_STATUS == "THINKING":
+											if not self.processing:
+												self.listening_since = 0.0
+												self.client.ASSIST_STATUS = (
+													"LISTENING" if self.woke_with
+													else "LIVE")
+										self.client.iterate_event_callables(
+											"on_transcribed_assistant", None)
+
+									case "wait":
 										self.listening_since = 0.0
 										self.client.ASSIST_STATUS = "LIVE"
-										self.greet()
-								case "log":
-									# The child process talking. It has no
-									# logger of its own - it is a different
-									# process - so its messages arrive here
-									# and go out through the panel's.
-									level, _, body = data.partition(":")
-									if body:
-										self.client.log(
-											level.strip() or "debug",
-											f"[Whisper] {body}")
+										self.processing = False
+										self.woke_at = 0.0
+										if self.woke_with: self.woke_with = None
 
-								case "transcribe":
-									# Anything watching gets it raw, before
-									# normalising, wake matching or routing.
-									# That is the point of watching: to tell
-									# "the microphone heard nothing" apart
-									# from "the wake word did not match".
-									self._tell_listeners(data)
-									if self._monitoring:
-										# Monitoring is listening without
-										# acting. Routing here would run a
-										# skill for every sentence said in
-										# the room while the test page is
-										# open, which is worse than useless.
-										continue
-									self.pre_processing(data)
-
-								case "voice_activity": #Will Get Used A Lot
-									if not self.woke_with and not self.client.ASSIST_STATUS == "LISTENING": continue
-									try:
-										level = float(data)
-										level = min(level * 3, 1.0)
-										level = round(level, 2)
-										self.client.ASSIST_VOICE_ACTIVITY_LEVEL = level
-									except:
-										self.client.ASSIST_VOICE_ACTIVITY_LEVEL = 0.2
-
-								case "woke":
-									# Refreshed rather than ignored while already
-									# listening. Ignoring it meant that once the
-									# panel was stuck in LISTENING, saying the wake
-									# word again did nothing at all - which is
-									# exactly what a person does when it looks like
-									# it did not hear them.
-									self.woke_with = data.strip()
-									self.woke_at = time.time()
-									self.client.ASSIST_STATUS = "LISTENING"
-
-								case "transcribing":
-									# Audio captured, the model is running.
-									# On a big model that is seconds, and
-									# without this the panel stands down after
-									# the wake and says nothing until the text
-									# arrives - a pill that fades, then an
-									# answer out of nowhere.
-									self.client.ASSIST_STATUS = "THINKING"
-									self.client.iterate_event_callables(
-										"on_transcribing_assistant", None)
-
-								case "transcribed":
-									# The model finished, whatever it decided.
-									# Five paths in the child end without a
-									# transcript - too quiet, an error, a
-									# hallucination, a repetition, nothing
-									# usable - and without this the panel sat
-									# at "thinking" forever on every one of
-									# them. Silence is the common case.
-									if self.client.ASSIST_STATUS == "THINKING":
-										if not self.processing:
-											self.listening_since = 0.0
-											self.client.ASSIST_STATUS = (
-												"LISTENING" if self.woke_with
-												else "LIVE")
-									self.client.iterate_event_callables(
-										"on_transcribed_assistant", None)
-
-								case "wait":
-									self.listening_since = 0.0
-									self.client.ASSIST_STATUS = "LIVE"
-									self.processing = False
-									self.woke_at = 0.0
-									if self.woke_with: self.woke_with = None
-
-								case "audio_error":
-									self.handle_audio_error(data)
+									case "audio_error":
+										self.handle_audio_error(data)
 
 									
-						except: pass
+							except: pass
 			
 			except Exception as ex:
 				self.client.simple_notify(
@@ -1122,29 +1143,46 @@ class STTProcessing():
 			if not words:
 				words = [self.client.wake_word]
 
-			config = json.dumps({
+			settings = {
 				"wake_words":   words,
 				"input_device": self.input_device,
 				"model":        self.model,
 				"session_silence_ms": self.session_silence_ms,
 				# What the microphone does for itself - see mic_profile().
 				"mic_processing": self.mic_processing(),
-				# The wake word is checked with a small model whatever the
-				# phrase model is. See the constructor in whisper-process.
-				"wake_model": self.wake_model_name(),
-				# What spots the wake word - see wake_spotter.py.
-				"wake_detector": str(self.client.setting(
-					"assistant.wake_detector.value", "auto") or "auto"),
-				# Accuracy against speed - see the setting. The wake check
-				# always uses 1 whatever this says.
-				"beam_size": int(self.client.setting(
-					"assistant.beam_size.value", 5) or 5),
+				# Which Parakeet weights. The child has to be told: it checks
+				# the cache for itself before loading, and int8 and full
+				# precision are different files.
+				"parakeet_precision": str(self.client.setting(
+					"assistant.speech.parakeet_precision.value", "int8") or "int8"),
+				# How long the child keeps waiting for a phrase after a wake
+				# before standing down on its own.
+				"wake_listen_timeout": self.wake_timeout_seconds(),
 				# So the process can notice the client dying without a STOP and
 				# leave on its own, instead of surviving as an orphan holding
 				# the microphone and both ports.
 				"parent_pid":   os.getpid(),
-			})
-			self.client.log("info", f"[STTProcessing] Starting STT: model={self.model} "
+			}
+
+			# The whisper process's own settings, sent only to it.
+			#
+			# They were sent to whatever was spawned, which was fine while
+			# there was one process and is not now: `wake_model` and
+			# `beam_size` describe a second small model and a beam width,
+			# and the parakeet process has neither. Reading them here would
+			# also mean reading settings that no longer exist.
+			# Fixed values, not settings. The whisper process is kept for
+			# reference and nothing starts it, so its knobs are not offered
+			# in Settings - and reading paths that are not in the template
+			# would answer with these defaults anyway, silently.
+			if self.process_type == "whisper":
+				settings["wake_model"] = self.WAKE_MODEL
+				settings["wake_detector"] = "auto"
+				settings["beam_size"] = 5
+
+			config = json.dumps(settings)
+			self.client.log("info", f"[STTProcessing] Starting {self.process_type}: "
+									f"model={self.model} "
 									f"device={self.input_device} wake={words}")
 			self.process = subprocess.Popen([sys.executable, self.__process_path, config])
 

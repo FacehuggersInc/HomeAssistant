@@ -12,13 +12,13 @@ quick panel.
 bindings that have to match the interpreter. BlueZ already exposes everything
 worth asking:
 
-| | |
-|---|---|
-| `Adapter1.Powered` | on and off |
-| `Adapter1.StartDiscovery` | look for what is in range |
-| `Device1.Paired` / `Trusted` | seen before, or new |
-| `Device1.Connect` / `Disconnect` | use it |
-| `Battery1.Percentage` | what is left in it |
+|                                  |                           |
+|----------------------------------|---------------------------|
+| `Adapter1.Powered`               | on and off                |
+| `Adapter1.StartDiscovery`        | look for what is in range |
+| `Device1.Paired` / `Trusted`     | seen before, or new       |
+| `Device1.Connect` / `Disconnect` | use it                    |
+| `Battery1.Percentage`            | what is left in it        |
 
 So the work here is asking properly rather than reimplementing any of it.
 

@@ -24,12 +24,12 @@ obvious.
 
 Tried in this order, first one that answers wins.
 
-| Route | Reaches | Needs |
-|---|---|---|
-| `sysfs` | Laptop panels, some others | Write access to `/sys/class/backlight/<dev>/brightness`, usually via a udev rule granting the `video` group. |
-| `logind` | The same devices | `busctl`, and an **active seat session**. No root, no suid helper. |
-| `brightnessctl`, `light` | Whatever they handle | The tool installed. |
-| `ddcutil` | **External monitors**, over DDC/CI | The `i2c-dev` module, and read/write on `/dev/i2c-*`. |
+| Route                    | Reaches                            | Needs                                                                                                        |
+|--------------------------|------------------------------------|--------------------------------------------------------------------------------------------------------------|
+| `sysfs`                  | Laptop panels, some others         | Write access to `/sys/class/backlight/<dev>/brightness`, usually via a udev rule granting the `video` group. |
+| `logind`                 | The same devices                   | `busctl`, and an **active seat session**. No root, no suid helper.                                           |
+| `brightnessctl`, `light` | Whatever they handle               | The tool installed.                                                                                          |
+| `ddcutil`                | **External monitors**, over DDC/CI | The `i2c-dev` module, and read/write on `/dev/i2c-*`.                                                        |
 
 **`brightnessctl` and `light` are gated on there actually being a backlight
 device.** Left to choose, `brightnessctl` takes the first device it finds — and
@@ -142,12 +142,12 @@ sudo ddcutil detect    # 4. does the monitor answer, as root?
 ddcutil detect         # 5. and as you?
 ```
 
-| What you see | What it means |
-|---|---|
-| `sudo` works, plain does not | **Permissions.** The `usermod` above fixes it; check with `groups` after logging back in. |
-| No `/dev/i2c-*` | **Module.** `sudo modprobe i2c-dev` and look again. Some GPU drivers do not expose the buses until it is loaded. |
-| Buses exist, `detect` finds nothing | Either the monitor does not implement DDC/CI, or **it is switched off in the monitor's own menu**. Look under Settings / Others / System for "DDC/CI" — it ships disabled on some Dell and BenQ models. |
-| `detect` works but this program does not | Restart the panel. Backends are probed once at startup. |
+| What you see                             | What it means                                                                                                                                                                                           |
+|------------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `sudo` works, plain does not             | **Permissions.** The `usermod` above fixes it; check with `groups` after logging back in.                                                                                                               |
+| No `/dev/i2c-*`                          | **Module.** `sudo modprobe i2c-dev` and look again. Some GPU drivers do not expose the buses until it is loaded.                                                                                        |
+| Buses exist, `detect` finds nothing      | Either the monitor does not implement DDC/CI, or **it is switched off in the monitor's own menu**. Look under Settings / Others / System for "DDC/CI" — it ships disabled on some Dell and BenQ models. |
+| `detect` works but this program does not | Restart the panel. Backends are probed once at startup.                                                                                                                                                 |
 
 ### Checking it by hand
 
@@ -172,11 +172,11 @@ will still glow.
 
 ## Settings
 
-| Key | Default | Meaning |
-|---|---|---|
-| `application.backlight.mode` | `auto` | `auto`, `overlay` to never touch the hardware, or a route by name. |
+| Key                            | Default   | Meaning                                                                                      |
+|--------------------------------|-----------|----------------------------------------------------------------------------------------------|
+| `application.backlight.mode`   | `auto`    | `auto`, `overlay` to never touch the hardware, or a route by name.                           |
 | `application.backlight.device` | *(blank)* | A `/sys/class/backlight` name or a ddcutil display number. Blank picks the first that works. |
-| `application.backlight.floor` | `0` | Below this the overlay takes over. |
+| `application.backlight.floor`  | `0`       | Below this the overlay takes over.                                                           |
 
 ### The floor
 

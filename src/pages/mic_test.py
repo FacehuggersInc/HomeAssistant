@@ -271,7 +271,7 @@ class MicTestPage(QWidget):
     def _hardware(self) -> bool:
         try:
             return str(self.client.setting(
-                "audio.mic_processing.value", "software")) == "hardware"
+                "audio.devices.mic_processing.value", "software")) == "hardware"
         except Exception:
             return False
 

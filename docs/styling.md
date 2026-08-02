@@ -134,11 +134,11 @@ label.setFont(make_font(SIZES.M1, bold=True))
 
 The scale, in pixels:
 
-| | | | |
-|---|---|---|---|
-| `S1` 16 | `S2` 18 | `S3` 20 | |
-| `M1` 25 | `M2` 28 | `M3` 31 | |
-| `L1` 35 | `L2` 45 | `L3` 60 | |
+|         |         |         |  |
+|---------|---------|---------|--|
+| `S1` 16 | `S2` 18 | `S3` 20 |  |
+| `M1` 25 | `M2` 28 | `M3` 31 |  |
+| `L1` 35 | `L2` 45 | `L3` 60 |  |
 
 Use the scale rather than raw numbers. The panel is read from across a room,
 and a one-off `QFont("Poppins", 14)` is the thing that looks wrong on a
@@ -169,12 +169,12 @@ for headings and body text.
 
 From `common.css`:
 
-| Class | Use |
-|---|---|
-| `text-strong` | Primary text. |
-| `text-muted` | Labels, captions, secondary text. |
-| `transparent` | A container that should paint nothing. |
-| `page-background` | The standard page fill. |
+| Class             | Use                                    |
+|-------------------|----------------------------------------|
+| `text-strong`     | Primary text.                          |
+| `text-muted`      | Labels, captions, secondary text.      |
+| `transparent`     | A container that should paint nothing. |
+| `page-background` | The standard page fill.                |
 
 
 ## Backgrounds that do not paint
@@ -283,16 +283,16 @@ def render_page(token, message=""):
     )
 ```
 
-| Argument | Meaning |
-|---|---|
-| `title` | The browser tab. |
-| `body` | The page's own markup. |
-| `token` | The caller's token, for the back control. |
-| `heading` / `blurb` | The `h1` and the line under it. |
-| `message` / `bad` | The status banner, and whether it reads as a failure. |
-| `css` | Rules this page needs that the chrome does not carry. |
-| `script` | JavaScript, placed at the end of the body. |
-| `back` / `back_label` / `back_href` | The back control, on by default. |
+| Argument                            | Meaning                                               |
+|-------------------------------------|-------------------------------------------------------|
+| `title`                             | The browser tab.                                      |
+| `body`                              | The page's own markup.                                |
+| `token`                             | The caller's token, for the back control.             |
+| `heading` / `blurb`                 | The `h1` and the line under it.                       |
+| `message` / `bad`                   | The status banner, and whether it reads as a failure. |
+| `css`                               | Rules this page needs that the chrome does not carry. |
+| `script`                            | JavaScript, placed at the end of the body.            |
+| `back` / `back_label` / `back_href` | The back control, on by default.                      |
 
 ### Style plain elements, not classes
 
@@ -306,25 +306,25 @@ is genuinely its own — a grid of sticker tiles, a row of duration presets. A
 rule that restates `body`, `section`, `input` or the back control is a second
 copy of a decision made once.
 
-| Class | Use |
-|---|---|
+| Class     | Use                                         |
+|-----------|---------------------------------------------|
 | `.banner` | The status strip. Add `.bad` for a failure. |
-| `.card` | A bordered block. |
-| `.hint` | Small muted text under a field. |
-| `.empty` | What a list says when it has nothing in it. |
-| `.row` | Fields side by side. |
-| `.where` | The nine-position picker — see below. |
+| `.card`   | A bordered block.                           |
+| `.hint`   | Small muted text under a field.             |
+| `.empty`  | What a list says when it has nothing in it. |
+| `.row`    | Fields side by side.                        |
+| `.where`  | The nine-position picker — see below.       |
 
 ### The palette
 
-| | |
-|---|---|
-| `--bg` `--card` `--card2` | Backgrounds, darkest first |
-| `--line` | Borders |
-| `--text` `--muted` | Foreground |
-| `--accent` `--accent2` | Green and blue; gradients run between them |
-| `--warm` `--bad` | Amber for a held state, red for destructive |
-| `--glow` | The shadow under a primary button |
+|                           |                                             |
+|---------------------------|---------------------------------------------|
+| `--bg` `--card` `--card2` | Backgrounds, darkest first                  |
+| `--line`                  | Borders                                     |
+| `--text` `--muted`        | Foreground                                  |
+| `--accent` `--accent2`    | Green and blue; gradients run between them  |
+| `--warm` `--bad`          | Amber for a held state, red for destructive |
+| `--glow`                  | The shadow under a primary button           |
 
 `color-scheme: dark` is declared in the palette, so any page carrying the
 chrome has it. Chromium runs with `forceDarkModeEnabled` so that ordinary
