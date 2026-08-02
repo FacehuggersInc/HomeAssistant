@@ -78,6 +78,11 @@ Two rules follow:
 - **Content takes leftover height, it does not claim it.** `expand_content()`
   drops the trailing spacer and gives the stretch to `content`. That is the
   supported way to say "the content is the point".
+- **A column of unknown height scrolls.** A panel whose content is text
+  somebody else wrote - a name, a source, a description from a plugin - has no
+  height this dialog can predict. Fixed, a long one squeezes everything under
+  it until the whole column clips; scrolled, it gives up what it does not have
+  and the panes beside it are unaffected.
 - **A floor goes on the DIALOG, bounded by its own maximum.**
   `expand_content()` hands over what is spare but asks for nothing, and
   `center()` shrinks to the size hint - so a card whose panes can all scroll
@@ -99,6 +104,18 @@ It is a setup panel and three TABS now - arguments, rules, preview. One pane
 at a time always has the room it needs, on any screen, and there is no
 breakpoint left to be wrong about. Reach for that before a second layout: a
 dialog that needs two shapes usually needs fewer things visible at once.
+
+### Text that has to wrap is not a button
+
+`QPushButton` does not word-wrap. It elides, and in a narrow column it simply
+clips - with no ellipsis and nothing to say that it did. Anything showing text
+of a length you do not control, and that also has to be pressable, wants a
+label with `setWordWrap(True)` and a `mousePressEvent`, styled to look like
+what it is.
+
+Where an icon sits beside such a label, align the icon to the **top** of the
+row. Centred against text that has grown to three lines, a fixed 44px square
+floats in the middle with space either side of it.
 
 ## Taking the room over
 

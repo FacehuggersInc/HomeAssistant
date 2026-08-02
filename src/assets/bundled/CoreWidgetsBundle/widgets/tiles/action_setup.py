@@ -59,6 +59,30 @@ ICONS = [
 ]
 
 
+class _TappableLabel(QLabel):
+    """
+    A label that can be pressed, for text that has to wrap.
+
+    A `QPushButton` cannot wrap: it elides, or on a narrow pane simply clips.
+    The name of an action is the one thing here somebody reads to know what
+    they are setting up, and it is whatever a plugin registered - which is
+    routinely longer than the panel beside it.
+    """
+
+    def __init__(self, text: str, on_press: Callable):
+        super().__init__(text)
+        self._on_press = on_press
+        self.setWordWrap(True)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setSizePolicy(QSizePolicy.Policy.Preferred,
+                           QSizePolicy.Policy.Minimum)
+
+    def mousePressEvent(self, event) -> None:
+        if callable(self._on_press):
+            self._on_press()
+        event.accept()
+
+
 def _one_line(value) -> str:
     """
     A value as a single line, for a row that has one.
@@ -106,9 +130,9 @@ class ActionSetupDialog(BaseDialog):
                                        border-color: #2ff08e; }
     """
     NAME_CSS = """
-        QPushButton { background: transparent; border: none;
-                      color: #f0f0f4; text-align: left; padding: 0; }
-        QPushButton:hover { color: #6fa8e0; }
+        QLabel { background: transparent; border: none;
+                 color: #f0f0f4; padding: 0; }
+        QLabel:hover { color: #6fa8e0; }
     """
     PATH_CSS = """
         QPushButton { background: rgba(255,255,255,14);
@@ -194,14 +218,19 @@ class ActionSetupDialog(BaseDialog):
         return max(int(wanted * 0.55), int(spare))
 
     def _left(self) -> QWidget:
-        host = QWidget()
-        # Narrowed with the dialog rather than held. The dialog is clamped to
-        # the screen, and on a small one a fixed panel plus the tabs' minimum
-        # add up to more than there is.
-        host.setFixedWidth(self._share(self.SIDE_WIDTH))
-        set_style(host, "common", "transparent")
+        """
+        What was chosen, how it looks, and how often it runs.
 
-        column = QVBoxLayout(host)
+        Scrolled, because the height of it is not this dialog's to know. The
+        summary card is sized by text a plugin wrote - a name, a source, a
+        description - and on a long one a fixed column squeezes the swatches
+        and the icon grid under it until both clip. Scrolling is what a column
+        of unknown height does; the panes beside it keep the width either way.
+        """
+        inner = QWidget()
+        set_style(inner, "common", "transparent")
+
+        column = QVBoxLayout(inner)
         column.setContentsMargins(0, 0, 0, 0)
         column.setSpacing(12)
 
@@ -213,6 +242,21 @@ class ActionSetupDialog(BaseDialog):
         column.addWidget(self._heading("Keeping it up to date"))
         column.addWidget(self._polling())
         column.addStretch()
+
+        host = QScrollArea()
+        # Narrowed with the dialog rather than held. The dialog is clamped to
+        # the screen, and on a small one a fixed panel plus the tabs' minimum
+        # add up to more than there is.
+        host.setFixedWidth(self._share(self.SIDE_WIDTH))
+        host.setWidgetResizable(True)
+        host.setFrameShape(QFrame.Shape.NoFrame)
+        host.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        # No floor. Giving up height is what a scroll area is for, and a
+        # minimum on one is what stops a clamped dialog fitting.
+        host.setMinimumHeight(0)
+        set_style(host, "common", "transparent")
+        host.setWidget(inner)
+        self._touchable(host)
         return host
 
     #How often a polling tile runs. Offered rather than typed: the useful
@@ -306,12 +350,14 @@ class ActionSetupDialog(BaseDialog):
         # Pressed to rename. What a tile is called is the one thing on it a
         # person reads from across a room, and the registered name is rarely
         # what they would call it.
-        self.name_button = QPushButton(self.label_text)
+        self.name_button = _TappableLabel(self.label_text, self._rename)
         self.name_button.setFont(make_font(SIZES.S3, bold=True))
-        self.name_button.setCursor(Qt.CursorShape.PointingHandCursor)
         self.name_button.setStyleSheet(self.NAME_CSS)
-        self.name_button.clicked.connect(self._rename)
         top.addWidget(self.name_button, stretch=1)
+        # Top, not centre. The icon is one line tall and the name may be
+        # three; centred against it, a long name sits low and the row grows
+        # around a 44px square with space either side of it.
+        top.setAlignment(self.preview, Qt.AlignmentFlag.AlignTop)
         column.addLayout(top)
 
         where = QLabel(self.runnable.source)
@@ -364,6 +410,9 @@ class ActionSetupDialog(BaseDialog):
     def _took_name(self, text: str) -> None:
         self.label_text = str(text or "").strip() or self.runnable.label
         self.name_button.setText(self.label_text)
+        # The card is sized to its text and the text just changed. Without
+        # this a longer name is clipped until something else forces a layout.
+        self.name_button.adjustSize()
 
     def _draw_preview(self) -> None:
         try:
@@ -494,8 +543,15 @@ class ActionSetupDialog(BaseDialog):
 
         Every list here is touched, and a scrollbar six pixels wide is not a
         handle.
+
+        The widget ITSELF counts. `findChildren` does not include the thing it
+        is called on, so handing this a scroll area directly - as the left
+        column does - would have styled nothing and grabbed no gesture.
         """
-        for scroll in widget.findChildren(QScrollArea):
+        found = list(widget.findChildren(QScrollArea))
+        if isinstance(widget, QScrollArea):
+            found.append(widget)
+        for scroll in found:
             style_scrollbar(scroll)
             try:
                 QScroller.grabGesture(

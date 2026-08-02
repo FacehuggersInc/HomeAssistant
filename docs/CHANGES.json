@@ -1,6 +1,16 @@
 {
  "log": [
   {
+   "at": 1785686858.3768957,
+   "note": "text that wraps, columns that scroll",
+   "pages": [
+    {
+     "slug": "dialogs",
+     "state": "updated"
+    }
+   ]
+  },
+  {
    "at": 1785686430.3312643,
    "note": "a minimum beats a maximum",
    "pages": [
@@ -815,8 +825,8 @@
    "state": "updated"
   },
   "dialogs": {
-   "at": 1785686430.3301227,
-   "hash": "0308e60a31e4ea21",
+   "at": 1785686858.3756442,
+   "hash": "1c1c907ecb3d50d0",
    "opened": 0,
    "state": "updated"
   },
