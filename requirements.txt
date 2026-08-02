@@ -25,6 +25,12 @@ webrtcvad
 #transcribing a fragment and checking the spelling. Without it the
 #assistant falls back to the whisper path and says so once at startup.
 openwakeword
+#Optional. Runs NVIDIA's Parakeet for transcription - more accurate
+#than any whisper size here on English, faster, and it does not
+#invent words out of silence. NeMo is the usual route and brings
+#torch with it; this is four megabytes and loads the same weights.
+#Without it, choosing a parakeet model falls back to whisper.
+onnx-asr[cpu,hub]
 numpy
 torch
 noisereduce

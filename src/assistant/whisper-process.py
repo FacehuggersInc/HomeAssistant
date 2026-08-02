@@ -329,7 +329,34 @@ class WakeWhisper:
 		self.model_name = model_name
 		self.device = device
 		self.compute_type = compute_type
-		self.model = WhisperModel(self.model_name, device=self.device, compute_type=self.compute_type)
+		# Parakeet or Whisper for the phrase. Two models with the same job
+		# and different tradeoffs - see parakeet.py. The wake word is checked
+		# by the small Whisper model either way, because Parakeet has no
+		# equivalent and openWakeWord is better than both at that.
+		self.parakeet = None
+		try:
+			from src.assistant.parakeet import load as load_parakeet
+			self.parakeet = load_parakeet(self.model_name, log=self.send_log)
+		except Exception as exc:
+			self.send_log("warning",
+				f"[Whisper]: Could not reach the Parakeet loader: {exc}")
+
+		if self.parakeet is not None and not self.parakeet.ready:
+			# Asked for and not usable. Whisper rather than nothing, and said
+			# once at startup where somebody looking will find it.
+			self.send_log("warning",
+				f"[Whisper]: {self.parakeet.reason}. Using '{self.FALLBACK_MODEL}'.")
+			self.parakeet = None
+			self.model_name = self.FALLBACK_MODEL
+
+		if self.parakeet is not None:
+			# Whisper is still loaded, small, for the wake check. That path
+			# needs a transcription and Parakeet is not built to give one for
+			# 360ms of audio.
+			self.model = WhisperModel(self.FALLBACK_MODEL, device=self.device,
+									  compute_type=self.compute_type)
+		else:
+			self.model = WhisperModel(self.model_name, device=self.device, compute_type=self.compute_type)
 
 		# A second, small model for the wake word only.
 		#
@@ -446,6 +473,10 @@ class WakeWhisper:
 		self.mode = mode
 		self.switching = True
 
+	#What to fall back to, and what the wake check uses when the phrase model
+	#is a Parakeet. Small on purpose - see wake_model_name in stt.py.
+	FALLBACK_MODEL = "tiny.en"
+
 	def transcribe(self, audio, wake: bool = False):
 		"""
 		Locked transcribe, returning cleaned text or ''.
@@ -453,6 +484,12 @@ class WakeWhisper:
 		`wake=True` uses the small model - see the constructor for why the two
 		jobs do not want the same one.
 		"""
+		if not wake and self.parakeet is not None:
+			# The phrase, on Parakeet. Its own lock is inside onnx-asr; this
+			# one is Whisper's and holding it here would block the wake check
+			# for no reason.
+			return self.parakeet.transcribe(audio)
+
 		model = self.wake_model if wake else self.model
 		lock = self._wake_lock if wake else self._model_lock
 		settings = dict(self.transcribe_settings)
@@ -1150,19 +1187,32 @@ class WakeWhisper:
 				return True
 
 			#Transcribe Audio
-			try:
-				# Locked: the wake-word check transcribes on its own thread and
-				# WhisperModel is not documented as thread-safe.
-				with self._model_lock:
-					segments, info = self.model.transcribe(speech, **self.transcribe_settings)
-					segments = list(segments)
-			except Exception as exc:
-				self.send_log("warning", f"[Whisper]: Transcription error: {exc}")
-				return True
-			
-			#Build
 			final_text_pieces = []
 			final_timestamps = []
+			segments = []
+
+			if self.parakeet is not None:
+				# Parakeet answers with text and no segments.
+				#
+				# It has no word timings to give, so none are invented. The
+				# only consumer of those is `multi_phrase_check`, which is
+				# looking for a transcript that repeats itself - a Whisper
+				# failure mode that Parakeet does not have.
+				text = self.parakeet.transcribe(speech)
+				if not text:
+					return True
+				final_text_pieces.append(text)
+			else:
+				try:
+					# Locked: the wake-word check transcribes on its own
+					# thread and WhisperModel is not documented as
+					# thread-safe.
+					with self._model_lock:
+						segments, info = self.model.transcribe(speech, **self.transcribe_settings)
+						segments = list(segments)
+				except Exception as exc:
+					self.send_log("warning", f"[Whisper]: Transcription error: {exc}")
+					return True
 
 			#Build Timestamps
 			for seg in segments:

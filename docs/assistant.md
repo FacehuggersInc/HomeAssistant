@@ -254,6 +254,36 @@ is worse than one more retry.
 Only the wake word is fuzzy. What follows it is passed on as heard, because a
 skill's arguments are not a known short list to match against.
 
+## What transcribes the phrase
+
+`assistant.model` takes a whisper size or a Parakeet.
+
+**Parakeet** is NVIDIA's, run through `onnx-asr` rather than NeMo - NeMo is
+the usual route and brings torch and several gigabytes with it, while onnx-asr
+is four megabytes and loads the same published weights. On English it is more
+accurate than whisper large-v3 at a quarter of the size, and it almost never
+invents words out of silence, which whisper does constantly.
+
+That last part matters here more than the accuracy does. `is_hallucination`,
+`strip_hallucination` and `EDGE_NOISE` all exist because whisper writes "thank
+you for watching" out of room tone. On Parakeet they mostly have nothing to do.
+
+It covers 25 European languages against whisper's 99, which is why this is a
+choice rather than a replacement. The weights are about 600MB, downloaded on
+first use.
+
+**It falls back rather than failing.** No library, no weights, a model that
+will not load - none of those should leave a panel that cannot transcribe, so
+any of them logs once and uses `tiny.en`.
+
+**The wake word keeps its own whisper** whatever the phrase model is. Parakeet
+has no small sibling and is not built to transcribe 360ms of audio, and
+openWakeWord is better than either at that job anyway - see above.
+
+Parakeet answers with text and no segments, so no word timings are invented.
+The only consumer of those is `multi_phrase_check`, which looks for a
+transcript that repeats itself: a whisper failure mode Parakeet does not have.
+
 ## Two models, not one
 
 The wake word and the phrase are transcribed by different models, and they

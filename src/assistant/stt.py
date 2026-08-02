@@ -777,6 +777,10 @@ class STTProcessing():
 		phrase = str(self.model or "tiny.en")
 		if phrase.startswith("tiny"):
 			return phrase
+		if phrase.startswith("parakeet"):
+			# Parakeet has no small sibling and is not built to transcribe a
+			# fragment, so the wake check keeps its own whisper either way.
+			return self.WAKE_MODEL
 		return str(self.client.setting(
 			"assistant.wake_model.value", self.WAKE_MODEL) or self.WAKE_MODEL)
 

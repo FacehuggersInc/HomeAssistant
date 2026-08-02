@@ -418,9 +418,11 @@
     "base.en",
     "base",
     "small.en",
-    "small"
+    "small",
+    "parakeet-v3",
+    "parakeet-v2"
    ],
-   "description": "Whisper model used to transcribe what you said. Larger is more accurate and slower; the '.en' variants are English-only and faster. This is the one that decides how long the panel takes to answer - the wake word is checked separately with a small one. Downloaded on first use."
+   "description": "What transcribes the phrase you said. This is the one that decides how long the panel takes to answer - the wake word is checked separately with a small one.\n\nThe whisper sizes are larger = more accurate and slower; '.en' is English-only and faster.\n\nparakeet-v3 is NVIDIA's, and on English it is both more accurate and faster than any whisper size here - it also almost never invents words out of silence, which whisper does constantly. It covers 25 European languages rather than 99, needs 'onnx-asr' installed, and downloads about 600MB the first time. parakeet-v2 is English-only and slightly faster."
   },
   "wake_model": {
    "type": "enum",
