@@ -30,6 +30,29 @@ Discouraged words are matched on **whole words**. Substring matching punished
 "Live Forever" for containing "live" and "Mixtape" for containing "mix"; both
 are the song rather than a video of one.
 
+### Where a name breaks into words is not a difference
+
+The single most common thing a speech engine gets wrong about a name is the
+spacing. "okay good night" and "OK GOODNIGHT" are the same name - word by word
+they are 0.62 similar, squashed together they are 0.92. Judging on the worse
+reading of the same string is judging on the wrong one, so both are tried and
+the better one counts.
+
+The fuzzy score is then a curve rather than a flat multiplier:
+
+| similar | old | now |
+|---|---|---|
+| 0.92 (same name, respaced) | 0.64 | **0.85** |
+| 0.75 (loosely alike) | 0.52 | 0.55 |
+| 0.60 (different) | 0.42 | **0.27** |
+| below 0.45 | 0.32 | **0** |
+
+`ratio * 0.7` punished a perfectly good name as hard as a wrong one, and 0.64
+was not enough to beat a stranger's upload carrying the same title. The curve
+is kinder to real matches and stricter on noise at the same time - unrelated
+names routinely score 0.3-0.4 against each other simply for sharing letters,
+and those are now zero.
+
 **Sorted, never filtered.** A low score is a guess about relevance, and the
 queue behind the first result is the fallback for getting it wrong - somebody
 who gets the wrong song presses next, which only works if the rest are still

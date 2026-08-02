@@ -379,6 +379,12 @@ IS_THE_SONG = (
 )
 
 
+#How similar two strings must be before they are a match at all. Below this
+#is noise: unrelated names routinely score 0.3-0.4 against each other simply
+#for sharing letters.
+FUZZY_FLOOR = 0.45
+
+
 def _plain(text: str) -> str:
     """A string reduced to the letters and digits somebody actually said."""
     return " ".join(re.sub(r"[^a-z0-9 ]+", " ", str(text or "").lower()).split())
@@ -404,7 +410,39 @@ def _closeness(heard: str, found: str) -> float:
         return 0.75 + 0.25 * (len(want) / len(got))
     if got in want:
         return 0.6 * (len(got) / len(want))
-    return difflib.SequenceMatcher(None, want, got).ratio() * 0.7
+
+    # Compared with the spaces taken out as well.
+    #
+    # Where a name breaks into words is the single most common thing a
+    # speech engine gets wrong, and it is not a real difference: "okay good
+    # night" and "OK GOODNIGHT" are the same name, and word-by-word they
+    # score 0.62 while squashed they score 0.92. Judging on the worse of two
+    # readings of the same string is judging on the wrong one.
+    squashed_want, squashed_got = want.replace(" ", ""), got.replace(" ", "")
+    if squashed_want == squashed_got:
+        return 0.95
+    if squashed_want in squashed_got:
+        return 0.72 + 0.23 * (len(squashed_want) / len(squashed_got))
+    if squashed_got in squashed_want:
+        return 0.58 * (len(squashed_got) / len(squashed_want))
+
+    loose = max(
+        difflib.SequenceMatcher(None, want, got).ratio(),
+        difflib.SequenceMatcher(None, squashed_want, squashed_got).ratio(),
+    )
+    # A curve, not a flat multiplier.
+    #
+    # `ratio * 0.7` punished a name that is the same but spaced differently
+    # exactly as hard as one that is genuinely different - "okay good night"
+    # against "OK GOODNIGHT" is 0.92 similar and scored 0.64, which is not
+    # enough to beat a stranger's upload carrying the same title.
+    #
+    # Below FUZZY_FLOOR is not a match at all; above it, scaled up to 1. That
+    # is both kinder to real matches and stricter on noise than the flat
+    # version was.
+    if loose <= FUZZY_FLOOR:
+        return 0.0
+    return (loose - FUZZY_FLOOR) / (1.0 - FUZZY_FLOOR)
 
 
 def score_result(result, title: str, artist: str) -> float:
