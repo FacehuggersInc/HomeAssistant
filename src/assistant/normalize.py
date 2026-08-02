@@ -335,6 +335,18 @@ def strip_hallucination(text: str) -> str:
     return " ".join(words)
 
 
+def flatten(text: str) -> str:
+    """
+    Lower case, letters and digits and single spaces, nothing else.
+
+    For comparing two pieces of text that went different ways round - one
+    written, one through a microphone and a transcriber - where punctuation
+    and casing say nothing about whether they are the same words.
+    """
+    stripped = re.sub(r"[^a-z0-9 ]+", " ", str(text or "").lower())
+    return " ".join(stripped.split())
+
+
 def is_hallucination(text: str) -> bool:
     """
     Whether an utterance is the transcriber inventing something.

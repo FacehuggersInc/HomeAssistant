@@ -194,6 +194,10 @@ class ParakeetListener:
         self.mode = initial_mode if initial_mode in ("wake", "passthrough") else "wake"
         self.switching = False
 
+        # Bumped on every mode switch. A queued phrase carries the generation
+        # it was captured under, and one from before a switch is dropped.
+        self.generation = 0
+
         # Armed means a wake fired and the phrase is expected. Only ever true
         # in wake mode; passthrough is permanently listening.
         self.armed = False
@@ -341,8 +345,25 @@ class ParakeetListener:
             pass
 
     def switch_mode(self, mode: str) -> None:
+        """
+        Change what the child is listening for, and abandon what it had.
+
+        The generation is bumped and the queue drained, so audio captured
+        under the old mode is not transcribed and announced under the new
+        one. Without it, closing a conversation leaves whatever was already
+        finalised to arrive afterwards: each one announces `transcribing`,
+        the panel flashes THINKING, nothing is woken so nothing comes of it,
+        and it stands back down. Three queued phrases is three flashes on a
+        panel nobody is talking to.
+        """
         self.mode = mode if mode in ("wake", "passthrough") else "wake"
         self.switching = True
+        self.generation += 1
+        while True:
+            try:
+                self.audio_queue.get_nowait()
+            except queue.Empty:
+                break
 
     ## -- LISTENING -----------------------------------------------------
 
@@ -541,7 +562,8 @@ class ParakeetListener:
         # being transcribed cannot be stood down halfway through.
         self.waiting_since = time.time()
         try:
-            self.audio_queue.put_nowait((b"".join(phrase), time.time()))
+            self.audio_queue.put_nowait(
+                (b"".join(phrase), time.time(), self.generation))
         except queue.Full:
             # Dropped loudly. Silently is how a panel ends up ignoring
             # somebody with no indication that it ever heard them.
@@ -580,7 +602,15 @@ class ParakeetListener:
         if item is None:
             return False
 
-        raw, finalised_at = item
+        raw, finalised_at, generation = item
+        if generation != self.generation:
+            # Captured under a mode that has since been left. Dropped before
+            # the announcement, so there is no "transcribing" to pair with.
+            self.send_log("debug",
+                          "[Parakeet]: Dropped a phrase from before the mode "
+                          "switch.")
+            return True
+
         queued_ms = int((time.time() - finalised_at) * 1000)
 
         # Announced before the model runs, not after. Otherwise the panel

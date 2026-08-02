@@ -325,6 +325,10 @@ class Client:
         self._thinking_depth             = 0
         self._thinking_was               = "DORMANT"
         self._thinking_lock              = RLock()
+        #What the panel last said, and when. Read from the STT thread to tell
+        #a reply coming back through the microphone from a real question.
+        self._spoken: tuple = ("", 0.0)
+        self._spoken_lock                = RLock()
         self.SKILLS = SkillIntentEngine(self)
         self.STT    = None
         self.TTS    = None
@@ -1585,6 +1589,16 @@ class Client:
                     if getattr(self, "ASSIST_STATUS", "") == "THINKING":
                         self.ASSIST_STATUS = self._thinking_was or "LIVE"
 
+    def note_spoken(self, text: str) -> None:
+        """What the panel last said, and when it started saying it."""
+        with self._spoken_lock:
+            self._spoken = (str(text or ""), time.time())
+
+    def last_spoken(self) -> tuple:
+        """`(text, when)` for the last thing said. `("", 0.0)` if nothing."""
+        with self._spoken_lock:
+            return self._spoken
+
     def say(self, text: str, thread: bool = True) -> bool:
         """
         Speak. Returns whether a person actually heard it.
@@ -1606,6 +1620,12 @@ class Client:
         # too. The question this answers is whether a person heard it.
         if self.sounds_muted():
             return False
+        # Remembered before it is spoken, not after.
+        #
+        # The microphone is recording while the panel talks, so a fragment of
+        # the reply can be finalised and transcribed before `play()` returns.
+        # See STTProcessing.echoed().
+        self.note_spoken(text)
         try:
             # The pill stays up while the audio is made. A local voice takes a
             # second or two on a long reply, and a silent panel in that gap

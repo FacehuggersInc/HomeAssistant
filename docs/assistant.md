@@ -244,6 +244,12 @@ Commands are `server:<name>`: `STOP`, `START_WAKE`, `START_PASSTHROUGH`.
 **Passthrough** transcribes everything with no wake word. A session uses it,
 and so does the microphone test page.
 
+A mode switch bumps a **generation** and drains the queue. A phrase carries
+the generation it was captured under, and one from before a switch is dropped
+before it is announced. Otherwise closing a conversation leaves whatever was
+already finalised to arrive afterwards - each announcing `transcribing`, the
+panel flashing THINKING with nothing woken, then standing back down.
+
 
 ## Where the time goes
 
@@ -313,6 +319,35 @@ the specific reason when there is none.
 Playback is written in tenth-of-a-second pieces so a stop lands where it was
 asked for. The stream is **stopped** before it is closed - closing directly
 discards pending buffers and every reply loses its final syllables.
+
+### Hearing itself
+
+Two guards, answering different questions.
+
+`heard_itself()` asks **was the panel talking**. It covers audio captured
+during speech, and holds for `self_hearing_grace()` afterwards.
+
+`echoed()` asks **is this what I just said**. That is the one a conversation
+needs: a session holds the microphone open while a long reply is read into it,
+and the fragments are finalised on the pauses and transcribed *after* speech
+ends - so the first guard has already expired. Each fragment is then a phrase
+the session asks the model about, and the answer is spoken, and it goes round
+again.
+
+`client.say()` records the text before speaking it. A transcript is compared
+against that:
+
+|                 |                                                                       |
+|-----------------|-----------------------------------------------------------------------|
+| Window          | `ECHO_WINDOW`, 15s after speech ends, or any time it is speaking      |
+| Shortest judged | `ECHO_MIN_WORDS`, 3 - below that it is "yes" or "stop"                |
+| Match           | `ECHO_RATIO`, 0.8, on WORDS against a same-length window of the reply |
+
+Words rather than characters. On characters "turn the bedroom lights off"
+scores 0.87 against "turned the kitchen lights off", so asking about a
+different room reads as the panel repeating itself.
+
+The check runs after the wake word, so interrupting mid-reply still works.
 
 ### Speaking over a reply
 
