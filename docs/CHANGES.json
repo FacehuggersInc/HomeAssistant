@@ -1,6 +1,16 @@
 {
  "log": [
   {
+   "at": 1785686080.5005496,
+   "note": "cleaning the transcript where it is made",
+   "pages": [
+    {
+     "slug": "assistant",
+     "state": "updated"
+    }
+   ]
+  },
+  {
    "at": 1785685781.844735,
    "note": "not recording while it talks",
    "pages": [
@@ -765,8 +775,8 @@
    "state": "updated"
   },
   "assistant": {
-   "at": 1785685781.8433616,
-   "hash": "ad80129dcb180fcb",
+   "at": 1785686080.4990954,
+   "hash": "d43ac4764e966fac",
    "opened": 0,
    "state": "updated"
   },

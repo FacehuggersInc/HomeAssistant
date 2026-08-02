@@ -206,9 +206,19 @@ a socket write to a slow parent, a model run - drops audio, and dropped audio
 truncates whatever is said next. Transcription happens on its own thread, off
 a queue.
 
-There is no hallucination list, no repetition check and no noise-reduction
-pass. All three are defences against a transcriber that writes confident text
-out of room tone.
+There is no noise-reduction pass. Parakeet was trained on noisy speech, and
+de-noising a whole utterance costs a large fraction of a core to make clean
+audio sound underwater.
+
+The transcript IS cleaned before it is sent - `__clean()` drops an invented
+utterance and trims invented edges off a real one, through `normalize`. Doing
+it here as well as on the client is the point: a transcript that reaches the
+panel has already been drawn on the voice bar and handed to every listener,
+and only then does routing decide it was nothing. A phrase dropped in the
+child was never said.
+
+`normalize` is imported defensively. Without it the panel still hears, it just
+sends the occasional invented phrase for the client to drop.
 
 ### Points worth knowing if you change it
 
@@ -429,6 +439,42 @@ written as words, filler at the edges, spacing. See
 
 When nothing matches, `on_assistant_fallback` fires. The AI fallback plugin
 subscribes to it.
+
+### What the transcriber makes up
+
+A transcriber handed room tone rather than speech writes boilerplate - sign-
+offs, subtitle credits, one word repeated - confidently. It also appends its
+habits to the end of a real phrase asked with a pause after it, so both of
+these arrive as one utterance with an invented half in it:
+
+```
+i like that what is the weather
+what is the weather thanks for watching
+```
+
+Two functions, two questions:
+
+|                             |                                                  |
+|-----------------------------|--------------------------------------------------|
+| `is_hallucination(text)`    | Is the WHOLE utterance invented. Drops it.       |
+| `strip_hallucination(text)` | Takes known filler off either END of a real one. |
+
+Both run in the speech process before a transcript is sent, and again in
+`pre_processing()` for anything that did not come from the microphone.
+
+Two rules keep the trim from doing harm:
+
+- **Only the ends.** Cutting from the middle would take real speech with it.
+- **Its own list** (`EDGE_NOISE`), not `HALLUCINATIONS`. That one holds single
+  common words - "you", "music", "right" - fine to reject as a whole
+  utterance and ruinous at the edge of one: "who are you" becomes "who are",
+  and "what is that music" loses the music.
+
+A phrase that is entirely boilerplate is `is_hallucination`'s answer to give;
+taking an edge off "i like that" would leave "i". The test for adding to
+`EDGE_NOISE` is whether anybody would say it as the first or last words of an
+instruction, and it is stricter at the front - "i like that idea, remind me
+later" is a sentence somebody could plausibly say.
 
 
 ## Testing the microphone on its own

@@ -232,6 +232,7 @@ class ParakeetListener:
         self.vad = webrtcvad.Vad(vad_aggressiveness) if webrtcvad else None
         self.spotter = None
         self.parakeet = None
+        self.normalize = None
         # Set by start(); a reason here means the process has nothing to
         # offer and should say so rather than listen to no purpose.
         self.reason = ""
@@ -285,6 +286,7 @@ class ParakeetListener:
             self.reason = f"the audio stack is unavailable ({_IMPORT_ERROR})"
             return False
 
+        self._load_normalizer()
         if not self._load_spotter():
             return False
         return self._load_parakeet()
@@ -314,6 +316,23 @@ class ParakeetListener:
             return False
         self.spotter = spotter
         return True
+
+    def _load_normalizer(self) -> None:
+        """
+        The transcript cleaner, if it can be reached.
+
+        Optional on purpose: without it the panel still hears, it just sends
+        the odd invented phrase for the client to drop. `normalize` is stdlib
+        only, so this is a path problem or nothing.
+        """
+        try:
+            from src.assistant import normalize
+            self.normalize = normalize
+        except Exception as exc:
+            self.normalize = None
+            self.send_log("warning",
+                          f"[Parakeet]: No transcript cleaning ({exc}). The "
+                          f"client still checks what arrives.")
 
     def _load_parakeet(self) -> bool:
         try:
@@ -633,6 +652,35 @@ class ParakeetListener:
 
     ## -- TRANSCRIBING --------------------------------------------------
 
+    def __clean(self, text: str) -> str:
+        """
+        Drop an invented phrase, and trim invented edges off a real one.
+
+        Here as well as on the client, because a transcript that reaches the
+        panel has already been shown: the voice bar draws it and every
+        listener sees it, and only then does routing decide it was nothing.
+        A phrase dropped here was never said.
+
+        Two different questions. `is_hallucination` is about the WHOLE
+        utterance - boilerplate a transcriber produces from room tone, or the
+        same words repeated. `strip_hallucination` takes known filler off the
+        ends of a real phrase, which is what a question asked with a pause
+        after it collects.
+        """
+        text = str(text or "").strip()
+        if not text or self.normalize is None:
+            return text
+
+        if self.normalize.is_hallucination(text):
+            self.send_log("debug",
+                          f"[Parakeet]: Discarded {text!r} - nothing was said.")
+            return ""
+
+        trimmed = self.normalize.strip_hallucination(text)
+        if trimmed != text:
+            self.send_log("debug", f"[Parakeet]: Trimmed {text!r} -> {trimmed!r}")
+        return trimmed
+
     def __processing_loop(self) -> None:
         while not self.stop_event.is_set():
             try:
@@ -689,6 +737,7 @@ class ParakeetListener:
         audio = np.frombuffer(raw, dtype=np.int16).astype(np.float32) / 32768.0
         text = self.parakeet.transcribe(audio)
         model_ms = int((time.time() - began) * 1000)
+        text = self.__clean(text)
 
         if not text:
             # STILL ARMED. This is the important half of a wake that produced
