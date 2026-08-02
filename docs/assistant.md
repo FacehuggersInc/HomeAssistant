@@ -66,6 +66,13 @@ no model for the word - rather than letting the child start and stop again.
 The spotter is fed every 30ms window in order. It is a streaming model, so a
 skipped frame describes audio that is not adjacent to what follows.
 
+**In both modes**, and while muted. A conversation runs in passthrough, and a
+panel saying "say the wake word to ask something else" with no detector
+running means the word has to survive being transcribed, matched as text, and
+passed by every self-hearing guard first. It is skipped in one case only:
+while a phrase is being captured in wake mode, where a re-fire would restart
+the capture of the sentence it is already taking.
+
 
 ## What happens when it wakes
 
@@ -239,7 +246,15 @@ Two ports: `65432` for commands in, `65433` for events out. Messages are
 | `host:audio_error:<text>`   | Microphone trouble. Empty means recovered. |
 | `host:log:<level>:<text>`   | Anything the child would have printed.     |
 
-Commands are `server:<name>`: `STOP`, `START_WAKE`, `START_PASSTHROUGH`.
+Commands are `server:<name>`:
+
+| Command             | Does                                        |
+|---------------------|---------------------------------------------|
+| `STOP`              | Shut the process down.                      |
+| `START_WAKE`        | Wait for the wake word again.               |
+| `START_PASSTHROUGH` | Transcribe everything.                      |
+| `MUTE`              | Capture nothing. The spotter keeps running. |
+| `UNMUTE`            | Capture again.                              |
 
 **Passthrough** transcribes everything with no wake word. A session uses it,
 and so does the microphone test page.
@@ -322,17 +337,27 @@ discards pending buffers and every reply loses its final syllables.
 
 ### Hearing itself
 
-Two guards, answering different questions.
+**Nothing is captured while the panel is speaking.** `client.say()` sends
+`MUTE` before playing and `note_speech_ended()` sends `UNMUTE` when the
+backend reports it has finished. While muted the child runs the spotter and
+captures no phrases, so a reply read into a live microphone is never
+transcribed and never routed.
+
+That is the guard that holds. The two below are text comparisons and can be
+argued with - a reply the voice cut short, a transcriber that heard it
+differently - so they are the fallback for when the command does not arrive.
+
+The mute lifts itself after `MUTE_DEADLINE` (120s). Releasing it depends on a
+message from another process, and a client that died mid-reply would
+otherwise leave a panel that never records anything again.
 
 `heard_itself()` asks **was the panel talking**. It covers audio captured
 during speech, and holds for `self_hearing_grace()` afterwards.
 
-`echoed()` asks **is this what I just said**. That is the one a conversation
-needs: a session holds the microphone open while a long reply is read into it,
-and the fragments are finalised on the pauses and transcribed *after* speech
-ends - so the first guard has already expired. Each fragment is then a phrase
-the session asks the model about, and the answer is spoken, and it goes round
-again.
+`echoed()` asks **is this what I just said**: a session holds the microphone
+open while a long reply is read into it, and the fragments are finalised on
+the pauses and transcribed *after* speech ends - so the first guard has
+already expired.
 
 `client.say()` records the text before speaking it, keeping the last
 `SPOKEN_MEMORY` (4) replies. A transcript is compared against all of them:

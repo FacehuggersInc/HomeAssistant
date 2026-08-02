@@ -147,6 +147,11 @@ class ParakeetListener:
     # nothing off the front of their question. It just cannot START a phrase.
     WAKE_TAIL_MS = 250
 
+    # A mute that is never lifted is a deaf panel, and the lift depends on a
+    # message arriving from another process. Two minutes is longer than any
+    # reply and shorter than somebody wondering what is wrong.
+    MUTE_DEADLINE = 120.0
+
     # One level report per this many speech windows - about ten a second,
     # which is faster than the eye and a third of the traffic.
     LEVEL_EVERY = 3
@@ -197,6 +202,11 @@ class ParakeetListener:
         # Bumped on every mode switch. A queued phrase carries the generation
         # it was captured under, and one from before a switch is dropped.
         self.generation = 0
+
+        # Set while the panel is speaking. Nothing is captured, so a reply
+        # read into a live microphone cannot come back as a question.
+        self._muted = False
+        self._muted_at = 0.0
 
         # Armed means a wake fired and the phrase is expected. Only ever true
         # in wake mode; passthrough is permanently listening.
@@ -344,6 +354,31 @@ class ParakeetListener:
         except queue.Full:
             pass
 
+    @property
+    def muted(self) -> bool:
+        """
+        Whether capture is held off because the panel is talking.
+
+        Lifts itself after `MUTE_DEADLINE`. The unmute arrives as a message
+        from the client, and a client that crashed mid-reply would otherwise
+        leave this process listening to a room it never records.
+        """
+        if self._muted and (time.time() - self._muted_at) > self.MUTE_DEADLINE:
+            self.send_log("warning",
+                          "[Parakeet]: Mute expired without an UNMUTE - "
+                          "capturing again.")
+            self._muted = False
+        return self._muted
+
+    def set_muted(self, value: bool) -> None:
+        value = bool(value)
+        if value == self._muted:
+            return
+        self._muted = value
+        self._muted_at = time.time()
+        self.send_log("debug",
+                      f"[Parakeet]: Capture {'held' if value else 'resumed'}.")
+
     def switch_mode(self, mode: str) -> None:
         """
         Change what the child is listening for, and abandon what it had.
@@ -436,22 +471,44 @@ class ParakeetListener:
                               f"[Parakeet]: Mode -> {self.mode}, state reset.")
                 continue
 
-            listening = self.mode == "passthrough" or self.armed
-
-            # WAITING FOR THE WORD.
+            # THE SPOTTER, IN BOTH MODES.
             #
-            # The spotter is fed every window, in order and without gaps: it
-            # is a streaming model, so each frame builds on the one before
-            # and a skipped frame describes audio that is not adjacent to
-            # what follows. Nothing else happens in this state - no capture,
-            # no VAD, no level - because there is nothing yet to capture.
-            if not listening:
+            # It is a streaming model - each frame builds on the one before -
+            # so it is fed in order and without gaps. Skipped only while a
+            # phrase is being captured in wake mode, where a re-fire would
+            # restart the capture of the sentence it is already taking.
+            #
+            # Fed during PASSTHROUGH as well, which is the whole reason the
+            # wake word works during a conversation. Left out, a panel saying
+            # "say the wake word to ask something else" has no detector
+            # running: the word would have to survive being transcribed,
+            # matched as text, and passed by every self-hearing guard first.
+            if self.mode == "passthrough" or not self.armed:
                 try:
                     if self.spotter.feed(window) is not None:
                         self.__woke()
+                        if self.mode == "wake":
+                            reset_phrase()
+                            continue
+                        # In passthrough the word is an interruption. The
+                        # client stops whatever is speaking; capture carries
+                        # on, because what follows the word is the question.
                         reset_phrase()
                 except Exception as exc:
                     self.send_log("warning", f"[Parakeet]: Spotting failed: {exc}")
+
+            # CAPTURE.
+            #
+            # Muted while the panel is speaking, so a reply read into a live
+            # microphone is never captured, never transcribed and never
+            # matched against anything. The spotter above still runs, so the
+            # wake word still interrupts.
+            capturing = (self.mode == "passthrough" or self.armed) and not self.muted
+            if not capturing:
+                if in_speech or phrase:
+                    reset_phrase()
+                if self.mode == "wake" and self.armed and not self.muted:
+                    self.__check_listen_timeout(reset_phrase)
                 continue
 
             is_speech = False
@@ -509,16 +566,20 @@ class ParakeetListener:
             pre_context.append(window)
 
             # ARMED, AND NOBODY SAID ANYTHING.
-            if (self.mode == "wake" and self.armed
-                    and time.time() - self.waiting_since >= self.listen_timeout):
-                self.armed = False
-                reset_phrase()
-                if self.spotter is not None:
-                    self.spotter.reset()
-                self.send_log("debug",
-                              "[Parakeet]: Woke, but nothing was said.")
-                if callable(self.on_timeout):
-                    self.on_timeout("wake_timeout")
+            if self.mode == "wake" and self.armed:
+                self.__check_listen_timeout(reset_phrase)
+
+    def __check_listen_timeout(self, reset_phrase) -> None:
+        """Stand down a wake nobody followed up on."""
+        if time.time() - self.waiting_since < self.listen_timeout:
+            return
+        self.armed = False
+        reset_phrase()
+        if self.spotter is not None:
+            self.spotter.reset()
+        self.send_log("debug", "[Parakeet]: Woke, but nothing was said.")
+        if callable(self.on_timeout):
+            self.on_timeout("wake_timeout")
 
     def __woke(self) -> None:
         """
@@ -830,6 +891,10 @@ class ParakeetServer:
                         elif command == "START_PASSTHROUGH":
                             self.listener.switch_mode("passthrough")
                             self.send_log("debug", "[Parakeet]: Mode -> PASSTHROUGH.")
+                        elif command == "MUTE":
+                            self.listener.set_muted(True)
+                        elif command == "UNMUTE":
+                            self.listener.set_muted(False)
                     except Exception as e:
                         self.send_log("warning", f"[Parakeet]: Command error: {e}")
 

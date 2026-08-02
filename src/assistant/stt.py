@@ -607,9 +607,32 @@ class STTProcessing():
 		self.client.ASSIST_STATUS = "LISTENING"
 		return True
 
+	def hold_capture(self, held: bool) -> None:
+		"""
+		Stop the child capturing phrases while the panel is speaking.
+
+		The reliable half of not answering itself. `echoed()` compares text
+		and can be argued with - a reply the TTS cut short, a transcriber
+		that heard it differently - but audio that is never captured cannot
+		come back as a question at all.
+
+		The spotter keeps running in the child, so the wake word still
+		interrupts. Best effort: a command that does not arrive leaves the
+		text guards, which is where this started.
+		"""
+		if self.process is None or not self.listening:
+			return
+		try:
+			self.send_command("MUTE" if held else "UNMUTE", retries=2)
+		except Exception as e:
+			self.client.log("debug",
+				f"[STTProcessing] Could not {'hold' if held else 'resume'} "
+				f"capture: {e}")
+
 	def note_speech_ended(self) -> None:
 		"""Called when the panel finishes a spoken reply."""
 		self.spoke_until = time.time()
+		self.hold_capture(False)
 
 	def submit(self, phrase: str) -> bool:
 		"""

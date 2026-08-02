@@ -1639,6 +1639,14 @@ class Client:
         # the reply can be finalised and transcribed before `play()` returns.
         # See STTProcessing.echoed().
         self.note_spoken(text)
+        # Capture held for the duration, and released by note_speech_ended()
+        # when the backend reports it has finished. Audio never captured
+        # cannot come back as a question.
+        try:
+            if self.STT is not None:
+                self.STT.hold_capture(True)
+        except Exception:
+            pass
         try:
             # The pill stays up while the audio is made. A local voice takes a
             # second or two on a long reply, and a silent panel in that gap
@@ -1647,6 +1655,13 @@ class Client:
                 self.TTS.play(text, thread=thread)
             return True
         except Exception as e:
+            # Released here too. The backend reports the end of speech, and a
+            # backend that raised is not going to.
+            try:
+                if self.STT is not None:
+                    self.STT.hold_capture(False)
+            except Exception:
+                pass
             self.log("warning", f"[Assistant] TTS failed: {e}")
             return False
 
