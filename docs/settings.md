@@ -62,6 +62,19 @@ one key dropped and another added: the old value goes and the new one arrives
 at its default. Somebody who had chosen a TTS voice would find it reset by an
 update that only reorganised a menu.
 
+### What counts as a change
+
+The migration used to run only when a KEY was added or removed. A new option
+in an existing dropdown is neither - so the installed file kept its old list
+forever, and the panel builds every dropdown from that file rather than from
+the template. Adding a model to `assistant.model` did nothing at all on any
+panel that had already been started once.
+
+`structure_differs()` answers the wider question: has anything but a user's
+own `value` changed. Options, type, description, defaults - all of that is
+shipped structure and should follow the template. A settled install still
+migrates nothing, and a person changing a value is not a structure change.
+
 `MOVED_SETTINGS` in `updater.py` maps old path to new. The value is copied
 into the new location in the installed tree **before** the merge, so the merge
 finds it where it now expects it and needs to know nothing about any of this.

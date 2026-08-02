@@ -2470,7 +2470,7 @@ class Client:
         silently did nothing, since every read was guarded and fell back to a
         default.
         """
-        from src.updater import merge_values, added_paths
+        from src.updater import merge_values, added_paths, structure_differs
         from src.settings import scrub_secrets
 
         try:
@@ -2482,7 +2482,15 @@ class Client:
 
         added = added_paths(shipped, installed)
         removed = added_paths(installed, shipped)
-        if not added and not removed:
+        # Not just added and removed keys.
+        #
+        # An existing setting whose OPTIONS changed is the other way a file
+        # goes stale - a new model in a dropdown is not a new key, and the
+        # panel builds every dropdown from the file rather than the template.
+        # Without this, adding one to the template did nothing on any install
+        # that already existed.
+        changed = structure_differs(shipped, installed)
+        if not added and not removed and not changed:
             return
 
         backup = self.DATA.with_suffix(".json.bak")

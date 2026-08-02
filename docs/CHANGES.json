@@ -1,6 +1,16 @@
 {
  "log": [
   {
+   "at": 1785638394.1276386,
+   "note": "a new dropdown option reaching an existing install",
+   "pages": [
+    {
+     "slug": "settings",
+     "state": "updated"
+    }
+   ]
+  },
+  {
    "at": 1785637949.1047404,
    "note": "a model that does not invent words out of silence",
    "pages": [
@@ -553,8 +563,8 @@
    "state": "seen"
   },
   "settings": {
-   "at": 1785634864.1673145,
-   "hash": "ce61482ea1ad3ad7",
+   "at": 1785638394.1273658,
+   "hash": "91aac2ed5e7fef88",
    "opened": 0,
    "state": "updated"
   },

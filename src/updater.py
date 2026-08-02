@@ -225,6 +225,37 @@ def merge_values(shipped, installed):
     return shipped
 
 
+def structure_differs(shipped, installed) -> bool:
+    """
+    Whether anything but a user's own values has changed.
+
+    `added_paths` answers "were keys added or removed", which misses the other
+    way a settings file goes stale: an existing key whose OPTIONS, type or
+    description changed. A new model in a dropdown is not a new key, and an
+    install that only migrates on added keys never sees it - the file keeps
+    its old list forever, and every dropdown the panel draws comes from the
+    file rather than the template.
+
+    Only `value` is the user's. Everything else is the shipped structure and
+    should follow it.
+    """
+    if isinstance(shipped, dict) and isinstance(installed, dict):
+        if "value" in shipped or "value" in installed:
+            for key in set(shipped) | set(installed):
+                if key == "value":
+                    continue
+                if shipped.get(key) != installed.get(key):
+                    return True
+            return False
+        for key in set(shipped) | set(installed):
+            if key not in shipped or key not in installed:
+                return True
+            if structure_differs(shipped[key], installed[key]):
+                return True
+        return False
+    return shipped != installed
+
+
 def added_paths(shipped, installed, prefix=""):
     """Dotted paths present in `shipped` but not `installed`. For logging."""
     out = []
