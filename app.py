@@ -14,11 +14,20 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 # forceDarkModeEnabled inverts a light page rather than asking it for a dark
 # theme, which is why the image policy matters: without it, photographs come
 # out as negatives. Selective leaves images alone and darkens the rest.
+#
+# MediaSessionService is what puts a Chromium page on the system's media
+# controls - MPRIS, here. The panel has a hidden page playing music, and a
+# page that announces itself there is announced to the panel's own reader of
+# it: the music card hands back to the system source, the system source finds
+# the page still holding the track, and the card opens again showing what it
+# just closed. Nothing needs it - the player is driven by JavaScript, not by
+# media keys.
 os.environ.setdefault("QTWEBENGINE_CHROMIUM_FLAGS", " ".join([
     "--blink-settings="
     "forceDarkModeEnabled=true,"
     "forceDarkModeImagePolicy=1,"
     "forceDarkModeInversionAlgorithm=4",
+    "--disable-features=MediaSessionService,SystemMediaControls",
 ]))
 
 from src.constants import (

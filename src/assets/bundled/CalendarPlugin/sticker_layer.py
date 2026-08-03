@@ -33,7 +33,7 @@ if TYPE_CHECKING:
 CHROME = 34
 CHROME_GAP = 6
 #How far a press has to travel before it counts as a drag rather than a tap.
-DRAG_SLOP = 6
+DRAG_DISTANCE = 6
 #How far outside the Done control still counts as pressing it.
 DONE_PAD = 14
 
@@ -685,7 +685,7 @@ class StickerLayer(QWidget):
             return
         if not self._dragging:
             travelled = (point - self._press).manhattanLength()
-            if travelled < DRAG_SLOP:
+            if travelled < DRAG_DISTANCE:
                 return
             self._dragging = True
 

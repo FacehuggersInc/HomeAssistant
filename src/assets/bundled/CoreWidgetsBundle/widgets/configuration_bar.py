@@ -161,9 +161,14 @@ class ConfigurationBar(Widget):
         second to redraw an icon that cannot have changed is a bar that costs
         something for nothing.
         """
+        # Only when it changes. Every show runs this, and setting a
+        # visibility that is already set still invalidates the layout above
+        # this widget - which on a page mid-drag is work in the middle of a
+        # gesture.
         available = self._wallpaper("cycle") is not None
-        self._wallpaper_btn.setVisible(available)
-        self._pin_btn.setVisible(available)
+        for button in (self._wallpaper_btn, self._pin_btn):
+            if button.isVisible() != available:
+                button.setVisible(available)
         if not available:
             return
 

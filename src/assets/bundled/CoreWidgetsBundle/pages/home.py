@@ -164,6 +164,17 @@ class HomePage(PageFramework):
             self._drag_start = event.globalPosition().toPoint()
             self._hold.start()
 
+    def mouseMoveEvent(self, event) -> None:
+        # A swipe is not a hold. Without this the map timer runs from the
+        # press and nothing but the release stops it, so any drag across
+        # empty space lasting longer than the interval opens the map on top
+        # of whatever was being done.
+        if self._drag_start is None:
+            return
+        moved = event.globalPosition().toPoint() - self._drag_start
+        if max(abs(moved.x()), abs(moved.y())) > 14:
+            self._hold.stop()
+
     def mouseReleaseEvent(self, event) -> None:
         self._hold.stop()
         if self._drag_start is None:

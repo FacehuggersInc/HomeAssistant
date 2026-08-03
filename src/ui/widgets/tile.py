@@ -17,6 +17,8 @@ class Tile(QWidget):
 
     DRAG_THRESHOLD = 8
     HOLD_MS        = 400     # press-and-wait before the handles appear
+    #How many button-less moves in a row mean the release really was lost.
+    LOST_RELEASE_MOVES = 3
     #Whether this tile has a setup worth going back to. Off by default: most
     #tiles are what they are, and a pencil on one with nothing to edit is a
     #control that does nothing.
@@ -69,6 +71,10 @@ class Tile(QWidget):
         self.bg_color  = QColor(bg_color)
         self.radius    = 10
         self.dragging  = False
+        #Consecutive moves that arrived with no button held. See
+        #mouseMoveEvent - one of these is Qt talking to itself, several in a
+        #row is a release that never arrived.
+        self._no_button = 0
         self.drag_start: Optional[QPoint] = None
         #Whether the press was taken by a handle. See mouseReleaseEvent.
         self._handled = False
@@ -475,13 +481,37 @@ class Tile(QWidget):
             # the drag on the first move that started it, which reads as the
             # tile stopping dead under a finger that is still down.
             #
-            # QApplication.mouseButtons() asks what is held right now.
+            # QApplication.mouseButtons() asks what is held right now - but
+            # only about a MOUSE. A touchscreen delivers synthesised mouse
+            # events, and on some platforms nothing is holding a button
+            # during one, so this answers "released" all the way through a
+            # drag somebody is still making with their finger.
+            #
+            # So the count, not the single event. Qt emits one synthetic move
+            # when the raise at the start of a drag re-stacks the tile; a
+            # release that genuinely went astray leaves the pointer moving
+            # over the tile and produces them steadily. Waiting for a few in
+            # a row tells those two apart without asking the platform a
+            # question it cannot answer.
             if QApplication.mouseButtons() & Qt.MouseButton.LeftButton:
+                self._no_button = 0
                 return
-            if self.resizing or self.dragging or self.drag_start is not None:
-                self._end_gesture()
-                self.update()
+            if not (self.resizing or self.dragging
+                    or self.drag_start is not None):
+                self._no_button = 0
+                return
+
+            self._no_button += 1
+            if self._no_button < self.LOST_RELEASE_MOVES:
+                return
+            self.client.log("debug",
+                            f"[Tiles] {self.KEY}: no button held for "
+                            f"{self._no_button} moves - ending the gesture.")
+            self._end_gesture()
+            self.update()
             return
+
+        self._no_button = 0
 
         if self.resizing:
             self._drag_resize(event.globalPosition().toPoint())

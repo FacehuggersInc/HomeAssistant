@@ -28,7 +28,7 @@ class HistoryCard(QWidget):
 
     ART = 52
     HEIGHT = 68
-    DRAG_SLOP = 14
+    DRAG_DISTANCE = 14
 
     def __init__(self, client: "Client", entry: dict, on_pressed):
         super().__init__()
@@ -98,7 +98,7 @@ class HistoryCard(QWidget):
             return
         if start is not None:
             moved = event.globalPosition().toPoint() - start
-            if max(abs(moved.x()), abs(moved.y())) > self.DRAG_SLOP:
+            if max(abs(moved.x()), abs(moved.y())) > self.DRAG_DISTANCE:
                 return      # a scroll of the list, not a tap on a row
         self.on_pressed(self.entry)
 

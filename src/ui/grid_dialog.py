@@ -115,7 +115,7 @@ class _Tile(QFrame):
     """One cell: a preview with its name under it."""
 
     #how far a finger may travel and still count as a tap rather than a scroll
-    DRAG_SLOP = 12
+    DRAG_DISTANCE = 12
 
     def __init__(self, item: GridItem, size: int, on_pick: Callable,
                  lines: int = 1):
@@ -256,7 +256,7 @@ class _Tile(QFrame):
         start, self._press = self._press, None
         if start is not None:
             moved = event.globalPosition().toPoint() - start
-            if max(abs(moved.x()), abs(moved.y())) > self.DRAG_SLOP:
+            if max(abs(moved.x()), abs(moved.y())) > self.DRAG_DISTANCE:
                 # A scroll, not a tap. Selecting here is what made flicking
                 # through the grid pick whatever was under your finger.
                 event.ignore()
@@ -316,7 +316,7 @@ class _Row(QFrame):
 
     HEIGHT = 66
     PREVIEW = 44
-    DRAG_SLOP = 12
+    DRAG_DISTANCE = 12
 
     def __init__(self, item: GridItem, on_pick: Callable):
         super().__init__()
@@ -420,7 +420,7 @@ class _Row(QFrame):
         if start is None:
             return
         moved = event.globalPosition().toPoint() - start
-        if max(abs(moved.x()), abs(moved.y())) <= self.DRAG_SLOP:
+        if max(abs(moved.x()), abs(moved.y())) <= self.DRAG_DISTANCE:
             self.on_pick(self)
 
 

@@ -73,6 +73,20 @@ several players; failing that `busctl` is queried directly, and that ships with
 systemd. A player that is **playing** is preferred over one that is merely
 open, so a paused browser tab does not outrank music.
 
+**Nothing this process owns counts as system audio.** The panel plays through a
+hidden browser page, and a browser page can put itself on the bus like any
+other player — so a panel that read the bus indiscriminately would find its own
+playback there, hand the card over to itself and reopen what it had just
+closed. Ownership is decided by **process**: the pid printed beside the name by
+`busctl list`, or the `.instance<pid>` a browser puts on the end of its bus
+name when only `playerctl` is installed. Not by name — the name belongs to
+whichever engine is embedded, and would have to be guessed at.
+
+The page is also started with `MediaSessionService` disabled, so it does not
+announce itself in the first place. Both, because
+`QTWEBENGINE_CHROMIUM_FLAGS` is only a default and an environment that sets its
+own replaces it entirely.
+
 **YouTube takes over** the moment something is played here, and hands back when
 it stops. Handing back only happens from a genuinely stopped state — otherwise
 a paused Spotify would show over music that is still going.

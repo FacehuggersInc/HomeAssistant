@@ -56,7 +56,7 @@ class QuickAccessButton(QWidget):
     """
 
     #how far a finger may travel and still count as a tap
-    DRAG_SLOP = 14
+    DRAG_DISTANCE = 14
 
     def __init__(self, client: "Client", entry, on_pressed):
         super().__init__()
@@ -135,7 +135,7 @@ class QuickAccessButton(QWidget):
             return
         if start is not None:
             moved = event.globalPosition().toPoint() - start
-            if max(abs(moved.x()), abs(moved.y())) > self.DRAG_SLOP:
+            if max(abs(moved.x()), abs(moved.y())) > self.DRAG_DISTANCE:
                 return      # a scroll of the card, not a tap on the tile
         self.on_pressed(self.entry)
 

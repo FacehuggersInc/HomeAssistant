@@ -98,6 +98,10 @@ def split_position(value):
     return vertical, horizontal
 
 HOLD_MS = 450
+#How far a finger may wander during the hold and still be holding. Past this
+#the gesture belongs to the page - somebody swiping between sub-pages starts
+#that swipe on top of whatever widget happens to be under their thumb.
+HOLD_DISTANCE = 14
 # Sized for a finger. 22px was fine with a cursor and fiddly without one.
 HANDLE = 44
 HANDLE_HIT_PAD = 12
@@ -705,6 +709,7 @@ class WidgetFramework(QWidget):
         self._start_vector = 0.0
         self._moved = False
         self._pressed: Optional[Widget] = None
+        self._press_point = QPoint()
         self._was_anchored = ""
         self._drop_anchor = ""       # anchor a drag would land in
         self._drop_slot = 0          # position within that anchor's row
@@ -1412,6 +1417,7 @@ class WidgetFramework(QWidget):
 
         self._pressed = widget
         self._moved = False
+        self._press_point = point
         self._grab_offset = point - self._frame_pos(widget)
         self._hold.start()
         event.accept()
@@ -1452,6 +1458,18 @@ class WidgetFramework(QWidget):
         # the page cannot be swiped to change sub-pages. The framework covers
         # the whole page, so anything it swallows is lost.
         if self.active is None or not (event.buttons() & Qt.MouseButton.LeftButton):
+            # A hold that has been dragged out from under is not a hold.
+            #
+            # The timer runs from the press and nothing else cancels it, so a
+            # swipe that starts on a widget stays armed: it fires part way
+            # through, selects the widget the finger has already left, and the
+            # widget jumps to a grab offset measured where the finger WAS.
+            # From the outside that is a drag that ignores you and then snaps.
+            if (self._pressed is not None
+                    and (event.pos() - self._press_point).manhattanLength()
+                    > HOLD_DISTANCE):
+                self._hold.stop()
+                self._pressed = None
             event.ignore()
             super().mouseMoveEvent(event)
             return

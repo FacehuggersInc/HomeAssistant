@@ -138,7 +138,7 @@ class _TintedWidget(Widget):
         from .sticker_layer import draw_beside
         draw_beside(painter, pixmap, self.rect())
 
-    DRAG_SLOP = 12
+    DRAG_DISTANCE = 12
 
     def mousePressEvent(self, event) -> None:
         self._press = event.globalPosition().toPoint()
@@ -155,7 +155,7 @@ class _TintedWidget(Widget):
         # so trusting super() to have "claimed" it meant every reposition
         # ended by opening the event that had just been moved.
         moved = (event.globalPosition().toPoint() - start).manhattanLength()
-        if moved >= self.DRAG_SLOP:
+        if moved >= self.DRAG_DISTANCE:
             return
 
         # And not while the framework has it lifted for editing - a tap to

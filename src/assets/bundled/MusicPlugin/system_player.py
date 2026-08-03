@@ -8,6 +8,13 @@ them knowing this panel exists.
 This is the default source. It shows what is already playing, and a plugin that
 plays something itself takes over while it does.
 
+**Nothing this process owns counts.** The panel plays music through a hidden
+browser page, and a browser page can put itself on the bus like any other
+player - so without a check the panel reads its own playback back as
+somebody else's, hands the card over to itself and reopens what it just
+closed. Ownership is decided by process, not by name: the name belongs to
+whichever engine is embedded and would have to be guessed at.
+
 `playerctl` is used when it is installed, because it already solves picking
 between several players. Failing that, `busctl` is queried directly - it ships
 with systemd, so on the machines this panel runs on it is always there.
@@ -15,9 +22,11 @@ with systemd, so on the machines this panel runs on it is always there.
 
 from __future__ import annotations
 
+import os
 import re
 import shutil
 import subprocess
+from pathlib import Path
 from typing import Optional
 
 from src.registries.player_registry import (
@@ -26,6 +35,11 @@ from src.registries.player_registry import (
 
 
 CALL_TIMEOUT = 3.0
+
+#How long the list of this process's own children is trusted for. Renderer
+#processes come and go, and re-reading /proc on every poll is a few hundred
+#file reads for an answer that rarely changes.
+OWN_PIDS_TTL = 10.0
 
 MPRIS_PREFIX = "org.mpris.MediaPlayer2."
 PLAYER_IFACE = "org.mpris.MediaPlayer2.Player"
@@ -57,6 +71,8 @@ class SystemPlayer:
         self._bus = ""
         self._have_playerctl = bool(shutil.which("playerctl"))
         self._have_busctl = bool(shutil.which("busctl"))
+        self._own_pids: set = set()
+        self._own_pids_at = 0.0
 
     @property
     def available(self) -> bool:
@@ -68,6 +84,75 @@ class SystemPlayer:
         if self._have_busctl:
             return "busctl"
         return "unavailable"
+
+    ## -- what belongs to this process
+
+    def own_pids(self) -> set:
+        """
+        This process and everything it has spawned.
+
+        Read from `/proc` rather than asked of Qt: the pid on the bus belongs
+        to whichever process actually registered, which for an embedded
+        browser is sometimes this one and sometimes a child of it, and both
+        answers have to count as ours.
+        """
+        import time
+        if self._own_pids and time.time() - self._own_pids_at < OWN_PIDS_TTL:
+            return self._own_pids
+
+        mine = os.getpid()
+        children: dict = {}
+        try:
+            for entry in Path("/proc").iterdir():
+                if not entry.name.isdigit():
+                    continue
+                try:
+                    status = (entry / "status").read_text(encoding="utf-8",
+                                                          errors="replace")
+                except OSError:
+                    continue    # it exited between the listing and the read
+                for line in status.splitlines():
+                    if line.startswith("PPid:"):
+                        parent = line.split()[-1]
+                        if parent.isdigit():
+                            children.setdefault(int(parent), []).append(
+                                int(entry.name))
+                        break
+        except OSError:
+            # No /proc worth reading. Own pid alone is better than nothing,
+            # and covers the common case where the engine registers in-process.
+            self._own_pids = {mine}
+            self._own_pids_at = time.time()
+            return self._own_pids
+
+        found, queue = {mine}, [mine]
+        while queue:
+            for child in children.get(queue.pop(), []):
+                if child not in found:
+                    found.add(child)
+                    queue.append(child)
+
+        self._own_pids = found
+        self._own_pids_at = time.time()
+        return found
+
+    #`org.mpris.MediaPlayer2.chromium.instance1234`
+    _INSTANCE = re.compile(r"\.instance(\d+)$")
+
+    def is_ours(self, name: str, pid: str = "") -> bool:
+        """
+        Whether this player is the panel's own hidden page.
+
+        Two ways of telling, because only one of them is always available.
+        The pid beside the name in `busctl list` is definitive; the
+        `.instance<pid>` a browser puts on the end of its bus name is what
+        there is to go on when only playerctl is installed.
+        """
+        own = self.own_pids()
+        if str(pid).isdigit() and int(pid) in own:
+            return True
+        found = self._INSTANCE.search(str(name or ""))
+        return bool(found) and int(found.group(1)) in own
 
     ## -- finding a player
 
@@ -87,9 +172,14 @@ class SystemPlayer:
 
         names = []
         for line in out.splitlines():
-            name = line.split()[0] if line.split() else ""
-            if name.startswith(MPRIS_PREFIX):
-                names.append(name)
+            fields = line.split()
+            if not fields or not fields[0].startswith(MPRIS_PREFIX):
+                continue
+            # `busctl list` prints NAME then PID, which is the one answer
+            # about ownership that needs no guessing.
+            if self.is_ours(fields[0], fields[1] if len(fields) > 1 else ""):
+                continue
+            names.append(fields[0])
         if not names:
             return ""
 
@@ -115,23 +205,36 @@ class SystemPlayer:
             return self._read_busctl()
         return None
 
+    #What one line of `playerctl -a metadata` carries. `-a` prints a line per
+    #player, which is one subprocess for every player rather than one each.
+    PLAYERCTL_FORMAT = ("{{playerName}}\x1f{{status}}\x1f{{title}}\x1f{{artist}}"
+                        "\x1f{{album}}\x1f{{mpris:artUrl}}\x1f{{mpris:length}}"
+                        "\x1f{{position}}")
+
     def _read_playerctl(self) -> Optional[NowPlaying]:
-        ok, status = _run(["playerctl", "status"])
-        if not ok or not status:
+        # Every player at once, so this process's own can be dropped before
+        # one is chosen. Asking playerctl for "the" player picks it first and
+        # gives no way to say the pick was wrong.
+        ok, out = _run(["playerctl", "-a", "metadata",
+                        "--format", self.PLAYERCTL_FORMAT])
+        if not ok or not out.strip():
             return None
 
-        # One call rather than one per field: playerctl starts a process each
-        # time, and this is polled.
-        ok, out = _run([
-            "playerctl", "metadata", "--format",
-            "{{title}}\x1f{{artist}}\x1f{{album}}\x1f{{mpris:artUrl}}"
-            "\x1f{{mpris:length}}\x1f{{position}}\x1f{{playerName}}"
-        ])
-        if not ok:
+        theirs = []
+        for line in out.splitlines():
+            parts = (line.split("\x1f") + [""] * 8)[:8]
+            if not parts[0].strip() or self.is_ours(parts[0].strip()):
+                continue
+            theirs.append(parts)
+        if not theirs:
             return None
 
-        parts = (out.split("\x1f") + [""] * 7)[:7]
-        title, artist, album, art, length, position, player = parts
+        # Something playing, over something merely open: a paused browser tab
+        # and a playing Spotify are both on the bus.
+        chosen = next((p for p in theirs
+                       if p[1].strip().lower() == "playing"), theirs[0])
+        player, status, title, artist, album, art, length, position = chosen
+
         return NowPlaying(
             title    = title,
             artist   = artist,
@@ -141,7 +244,7 @@ class SystemPlayer:
             # MPRIS is microseconds.
             duration = self._number(length) / 1_000_000.0,
             position = self._number(position) / 1_000_000.0,
-            source   = f"system:{player or 'mpris'}",
+            source   = f"system:{player.strip() or 'mpris'}",
             track_id = f"{title}|{artist}",
         )
 

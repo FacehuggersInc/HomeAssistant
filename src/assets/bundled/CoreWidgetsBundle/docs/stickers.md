@@ -209,7 +209,7 @@ first:
 * **Dragging scrolls.** `QScroller` on the viewport, as everywhere else in this
   app.
 * **A drag is not a tap.** A tile only selects if the finger moved less than
-  `DRAG_SLOP` pixels, or flicking through the grid picks whatever was under it.
+  `DRAG_DISTANCE` pixels, or flicking through the grid picks whatever was under it.
 
 ## How big?
 

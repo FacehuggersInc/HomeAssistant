@@ -33,7 +33,7 @@ class DayCell(QWidget):
     time is both slower and harder to keep from clipping at small sizes.
     """
 
-    DRAG_SLOP = 14
+    DRAG_DISTANCE = 14
 
     def __init__(self, page: "CalendarPage"):
         super().__init__()
@@ -216,7 +216,7 @@ class DayCell(QWidget):
             return
         moved = (event.globalPosition().toPoint() - start).manhattanLength()
         # A drag is a swipe and belongs to the page; only a tap opens the day.
-        if moved >= self.DRAG_SLOP:
+        if moved >= self.DRAG_DISTANCE:
             return
         if not self.page.taps_open_days():
             return
