@@ -128,11 +128,12 @@ about what to play next. An explicit press clears the hold.
 
 **Pressing play after the end replays what finished**, by loading that ID
 again rather than by calling `playVideo()`. Resuming through the page hands the
-decision to the page, which by then is showing its end screen — so play gave you
-whatever that screen was offering. For the same reason the card's **metadata is
-frozen** once a track finishes: `getVideoData()` starts answering about the end
-screen's suggestion, and the panel sat there stopped while the title quietly
-changed to a song nobody had asked for. Loading a real track clears both.
+decision to the page, which by then is showing its end screen — so play gives
+you whatever that screen is offering. For the same reason the card's
+**metadata is frozen** once a track finishes: `getVideoData()` starts answering
+about the end screen's suggestion, and the card would change to a song nobody
+asked for while the player sits there stopped. Loading a real track clears
+both.
 
 **A track the embed refuses is played anyway**, on its own watch page. See
 below.
@@ -183,29 +184,28 @@ origin being wrong, and a watch page would not fix it.
 
 ## Finding something to play
 
-The IFrame API plays an ID; it cannot find one. `search.py` tries two sources:
+The IFrame API plays an ID; it cannot find one. `search.py` asks two places,
+in this order, and neither needs a key:
 
-|                          | Needs              | Costs                                                                 |
-|--------------------------|--------------------|-----------------------------------------------------------------------|
-| **Data API**             | A key in `SECRETS` | 100 of 10,000 daily units per search — about a hundred searches a day |
-| **YouTube results page** | Nothing            | Breaks when YouTube changes its markup                                |
-| **YouTube Music**        | Nothing            | The same, and where the translated titles are                         |
+|                          | Has                                                    | Costs                                     |
+|--------------------------|--------------------------------------------------------|-------------------------------------------|
+| **YouTube Music**        | An artist and a track, the uploader in its own column  | Breaks when the markup changes            |
+| **YouTube results page** | Everything Music does not, under any name              | The same                                  |
 
-The key is tried **twice** — once asking only for embeddable, syndicated
-videos, then plain. A refusal is usually one of the optional filters rather
-than the key, and giving up on the API entirely would drop to scraping for the
-rest of the session. Only then does it fall through to the results page, so an
-exhausted quota does not mean the music stops working for the day.
+Music is asked **first** because the uploader is a field there rather than a
+channel name to be guessed from, and who made something is the question this
+search keeps getting wrong. YouTube is second because it has what a catalogue
+does not: uploads never released as music, and tracks under a name no
+catalogue knows.
 
-A failure reports **what the API objected to**, not just the status: the body
-names the parameter and the reason, and `400 Bad Request` on its own gives
-nothing to act on. Both run on a worker: this arrives from a spoken request, and a
-network round trip on the UI thread would freeze the panel mid-sentence.
+Neither needs a key, an account or a quota, which is why there is no third
+source: an authenticated one buys a few hundred searches a day and answers
+with the same page ranked the same way, knowing nothing about an uploader
+beyond the channel's name.
 
-Searches ask for `videoEmbeddable=true` — a result that cannot be embedded
-loads, errors, and gets skipped, which looks like a broken queue. They do
-**not** ask for the Music category: a great deal of music is not filed under
-it, and the restriction loses more than it saves.
+A result that cannot be embedded loads, errors, and gets skipped, which looks
+like a broken queue — so the player opens that one on its own watch page
+instead of moving on. See above.
 
 ### The query
 
@@ -238,28 +238,28 @@ still counts.
 ### Asking every source before settling
 
 When the request **names an artist**, each source is asked in turn with that
-artist as a *condition* rather than a quarter of the score — the Data API, then
-YouTube, then YouTube Music. The first source that has that artist wins and the
-rest are never asked.
+artist as a *condition* rather than a quarter of the score — YouTube Music,
+then YouTube. The first source that has that artist wins and the other is
+never asked.
 
-The condition is the **channel**, not the title. Their name in a title means
-only that a title mentions them: *"Rising by Jeff Williams"* returned *"RWBY
-Volume 6 Intro Rising - Jeff Williams (Lyrics)"* uploaded by *"Nightcore WR"*,
-which carries the name perfectly and is not by him — and because it passed on
-the first site asked, the site that had the real recording was never asked at
-all. A title carrying one of the `NOT_THE_SONG` markers is dropped from this
-pass for the same reason: a nightcore edit is a version of the song, and the
-whole point of the pass is to leave it and go and ask the next source.
+The condition is the **channel**, not the title. A name in a title means only
+that a title mentions it: *"Rising by Jeff Williams"* matches *"RWBY Volume 6
+Intro Rising - Jeff Williams (Lyrics)"* uploaded by *"Nightcore WR"* perfectly,
+and that is not by him. Accepting it would end the search on the first site
+asked, leaving the site that has the real recording unasked. A title carrying
+one of the `NOT_THE_SONG` markers is dropped for the same reason: a nightcore
+edit is a version of the song, and the point of the pass is to leave it and go
+on to the next source.
 
 Both are only conditions *here*. In the pooled pass a title match still counts,
 because by then the question is no longer "is this them" but "what is closest".
 
-That first pass is the fix for the search that kept finding the wrong person.
 Under the ordinary weighting a strong title carries a result whoever uploaded
-it, which is the right answer eventually — a cover beats silence — but it is the
-wrong *first* answer, because it means the search stops at the first site with a
-matching title and never asks the next one whether the real artist is on it. A
-cover on YouTube beat the artist's own upload one site over.
+it. That is the right answer eventually — a cover beats silence — and the wrong
+*first* answer, because it lets the search stop at the first site with a
+matching title without ever asking the next one whether the real artist is
+there. A cover on one site would win over the artist's own upload on the
+other.
 
 If no source has that artist, everything found is **pooled and ranked as one
 list**, with the artist back to being a quarter of the score. A result that was
@@ -459,9 +459,6 @@ fallen through — comes back to `LIVE` and stays there.
 | `duck_on_wake`  | on      | Quieten while the assistant is listening. |
 | `duck_volume`   | 5%      | How quiet to go while listening.          |
 | `pause_on_wake` | off     | Pause outright instead of quietening.     |
-
-The Data API key goes in `SECRETS` under `musicplugin` / `youtube_api_key`.
-Without one, search falls back to scraping.
 
 ## When nothing is playing
 

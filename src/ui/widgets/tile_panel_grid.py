@@ -1,11 +1,11 @@
 """
 The tile panel's own grid, and the packing behind it.
 
-The panel used to be a column - one entry per row, every row as tall as the
-tallest thing in it. Twenty-two entries made it several screens tall, and
-finding a one-cell switch meant scrolling past everything bigger than it.
+A column would be several screens tall at twenty-two entries - one per row,
+every row as tall as the tallest thing in it - and finding a one-cell switch
+would mean scrolling past everything bigger than it.
 
-This is a grid instead, and **it is the same grid**. Cells are the real
+So it is a grid, and **it is the same grid**. Cells are the real
 `TileGrid`'s cells, the space between them is its gap, and the dots behind
 them are drawn the same way - so the panel reads as a corner of the dashboard
 holding the tiles that are not on it yet. An entry is the pixel size it will
@@ -13,9 +13,8 @@ be once it is out, which is what makes dragging one out change nothing about
 it.
 
 **Nothing is named.** A label over every entry costs a line of text per tile
-and pushes the grid apart into rows of cards, which is the layout this
-replaced. The tile draws its own face, and its face is what somebody is
-choosing between.
+and pushes the grid back apart into rows of cards. The tile draws its own
+face, and its face is what somebody is choosing between.
 
 `pack()` and `pack_groups()` have no Qt in them. Packing is arithmetic, and
 arithmetic gets things wrong in ways that are invisible on a screen nobody is

@@ -637,13 +637,12 @@ leave no way back into the panel - but it is `FLOATABLE`, so it can be moved
 anywhere. It embeds the real `NotificationCenterWidget` rather than
 reimplementing it, so history, the unread dot and the panel keep working.
 
-**The wallpaper controls are here rather than in quick settings** because the
-cycling background only exists while `sub.home` is built. In a panel reachable
-from every page they were hidden on most of them; on a widget that lives on
-that page they are there whenever they mean anything. Each press looks the
-functions up again through `cwb_wallpaper` rather than holding a reference:
-this widget is built by the same mixin that publishes them and can run first,
-and the page can be torn down and rebuilt underneath it.
+**The wallpaper controls sit here** because the cycling background only exists
+while `sub.home` is built, and this bar is on that page. In a panel reachable
+from every page they would be hidden on all but one of them. Each press looks
+the functions up again through `cwb_wallpaper` rather than holding a
+reference: this widget is built by the same mixin that publishes them and can
+run first, and the page can be torn down and rebuilt underneath it.
 
 ## The sticky note
 

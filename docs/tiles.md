@@ -109,9 +109,8 @@ Whatever was touched scrolls the panel itself rather than letting the viewport
 do it. The entries swallow their presses so a tile's own handlers do not also
 run, and the grid behind them swallows the rest for the same reason - so the
 scroll area never sees a gesture at all, and both call `TilePanel.scroll_by()`
-on their own behalf. Wiring only the entries is the half-right version of this,
-and leaves a panel that can be scrolled from a tile but not from the space
-around one.
+on their own behalf. **Both**, or the panel scrolls from a tile and not from
+the space around one.
 
 A gesture that scrolled is not also a tap. `_on_tile_release` returns early,
 or letting go after a flick would run whatever the tile does.
@@ -372,9 +371,8 @@ same way. The panel reads as a corner of the dashboard holding the tiles that
 are not on it yet.
 
 **Nothing is named.** A label over every entry costs a line of text per tile
-and pushes the grid apart into rows of cards — which is the layout this
-replaced. The tile draws its own face, and its face is what somebody is
-choosing between.
+and pushes the grid apart into rows of cards. The tile draws its own face, and
+its face is what somebody is choosing between.
 
 Placement is a skyline: each entry goes at the lowest row it fits, and valleys
 get filled by whatever comes along small enough to sit in them.

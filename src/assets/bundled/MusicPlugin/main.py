@@ -285,12 +285,6 @@ class MusicPlugin(Plugin):
         except Exception:
             return 20
 
-    def _api_key(self) -> str:
-        try:
-            return str(self.client.SECRETS.get(self.KEY, "youtube_api_key") or "")
-        except Exception:
-            return ""
-
     ## DUCKING
 
     #the assistant is dealing with somebody while it is in one of these
@@ -642,7 +636,7 @@ class MusicPlugin(Plugin):
 
     def search_now(self, query: str) -> list:
         """Search on this thread. For callers that already have one."""
-        results = search(query, key=self._api_key(), log=self.client.log)
+        results = search(query, log=self.client.log)
         self._results = results
         return results
 

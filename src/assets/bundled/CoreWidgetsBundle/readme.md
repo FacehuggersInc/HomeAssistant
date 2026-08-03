@@ -202,9 +202,9 @@ the other a storm.
 
 **There is no icon.** The background draws the weather, so a glyph on top of
 a picture of the same thing is the same fact twice - in the space the
-temperature wants. What the icon used to say, the sky says. A scrim is laid under the readout on anything larger than
-1x1 - white-on-cloud is the one combination that stops being readable, and
-the drawing is behind numbers now.
+temperature wants. What an icon would say, the sky says. A scrim is laid under
+the readout on anything larger than 1x1: white-on-cloud is the one combination
+that stops being readable, and the drawing sits behind numbers.
 
 **The stats are meters, not rows.** Anything with a scale worth drawing gets
 a bar under its value, so the tile answers "a lot or a little" before a

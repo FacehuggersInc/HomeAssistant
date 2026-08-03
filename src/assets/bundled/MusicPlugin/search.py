@@ -1,13 +1,19 @@
 """
 Turning "play everlong" into something with an ID.
 
-The IFrame Player API plays a video; it cannot find one. Two ways to get from
-a phrase to an ID, and the plugin will use whichever it can:
+The IFrame Player API plays a video; it cannot find one. Two places to look,
+both scraped and neither needing a key:
 
-* the **Data API**, with a key. Ordered, documented, and it returns the
-  channel and the artwork alongside the ID.
-* **scraping the results page**, with no key. It works, and it breaks whenever
-  YouTube changes its markup, so it is the fallback rather than the default.
+* **YouTube Music**, which files things as an artist and a track, with the
+  uploader in a column of its own rather than guessed from a channel name.
+* the **YouTube results page**, which has everything Music does not - the
+  uploads that were never released as music, and the ones under a name no
+  catalogue knows.
+
+Neither needs a key, and there is deliberately no third source that does: an
+authenticated one buys a few hundred searches a day and answers with the same
+page ranked the same way, knowing nothing about an uploader beyond the
+channel's name.
 
 Both run on a worker: this is called from a spoken request and a network round
 trip on the UI thread would freeze the panel mid-sentence.
@@ -23,7 +29,6 @@ import urllib.parse
 import urllib.request
 
 
-API = "https://www.googleapis.com/youtube/v3/search"
 RESULTS = "https://www.youtube.com/results"
 #YouTube Music. Worth having as its own source rather than as a nicer YouTube:
 #a track is often filed under a translated or romanised title there and only
@@ -33,11 +38,6 @@ MUSIC = "https://music.youtube.com/search"
 
 USER_AGENT = ("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
               "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
-
-#a search costs 100 of the 10,000 daily quota units, so roughly a hundred
-#searches a day on a free key
-QUOTA_PER_SEARCH = 100
-
 
 class Result:
     """One thing that could be played."""
@@ -89,47 +89,6 @@ def _fetch(url: str, timeout: float = 8.0, headers: dict = None) -> str:
 def _unescape(text: str) -> str:
     from html import unescape
     return unescape(str(text or "")).strip()
-
-
-def search_api(query: str, key: str, limit: int = 10,
-               restrict: bool = True) -> list:
-    """
-    The Data API. Raises on failure so the caller can fall back.
-
-    `restrict` asks only for embeddable music. It is worth having - a result
-    that cannot be embedded loads, errors, and gets skipped - but the extra
-    parameters are also what a fussy key or a region rejects, so a refusal
-    is retried without them rather than treated as the API being unavailable.
-    """
-    fields = {
-        "part": "snippet",
-        "q": query,
-        "type": "video",
-        "maxResults": max(1, min(25, int(limit))),
-        "key": key,
-    }
-    if restrict:
-        fields["videoEmbeddable"] = "true"
-        # Deliberately NOT videoCategoryId: a great deal of music is not
-        # filed under Music, and the restriction loses more than it saves.
-        fields["videoSyndicated"] = "true"
-
-    payload = json.loads(_fetch(f"{API}?{urllib.parse.urlencode(fields)}"))
-
-    results = []
-    for item in payload.get("items", []):
-        video_id = (item.get("id") or {}).get("videoId")
-        snippet = item.get("snippet") or {}
-        if not video_id:
-            continue
-        thumbs = snippet.get("thumbnails") or {}
-        art = ((thumbs.get("high") or thumbs.get("medium")
-                or thumbs.get("default") or {}).get("url") or "")
-        results.append(Result(video_id,
-                              title=_unescape(snippet.get("title")),
-                              artist=_unescape(snippet.get("channelTitle")),
-                              art_url=art))
-    return results
 
 
 #the results page embeds its data as one JSON blob
@@ -802,28 +761,6 @@ def _music_artist(columns: list) -> str:
     return cleaned[0] if cleaned else ""
 
 
-#Keys the API has already refused as invalid, for this session.
-#
-#An exhausted quota is worth retrying - it comes back tomorrow, and giving up
-#on the API for the rest of the day over one busy hour would be wrong. A key
-#the API calls INVALID is different: it fails identically on every search
-#forever, and each search pays two round trips and two warnings before it
-#reaches the scrapers that were going to answer anyway.
-_REFUSED_KEYS = set()
-
-#What the Data API says when the key itself is the problem, rather than one
-#of the optional filters. Deliberately not "badRequest", which is also what a
-#rejected filter returns - and retrying without filters is the whole reason
-#that path exists.
-_KEY_REFUSALS = ("api key not valid", "keyinvalid", "api key expired",
-                 "api_key_invalid")
-
-
-def _key_was_refused(problem) -> bool:
-    lowered = str(problem).lower()
-    return any(reason in lowered for reason in _KEY_REFUSALS)
-
-
 def _pool(*batches) -> list:
     """Every result once, in the order the sources returned them."""
     seen, merged = set(), []
@@ -835,15 +772,15 @@ def _pool(*batches) -> list:
     return merged
 
 
-def search(query: str, key: str = "", limit: int = 10, log=None) -> list:
+def search(query: str, limit: int = 10, log=None) -> list:
     """
     Whatever works. Returns [] rather than raising.
 
 Two passes, and the order is the point.
 
-    1. **Each source on its own, with the named artist required.** The Data
-       API if there is a key, then YouTube, then YouTube Music. A source that
-       has the right artist wins immediately and the rest are never asked.
+    1. **Each source on its own, with the named artist required.** YouTube
+       Music, then YouTube. A source that has the right artist wins
+       immediately and the other is never asked.
     2. **Everything pooled and ranked together**, with the artist back to
        being a quarter of the score. Nobody had that artist, so the question
        becomes which of all the results is closest - and a result that was
@@ -857,9 +794,8 @@ Two passes, and the order is the point.
     were judged alone, and the best answer of the two was whichever site
     happened to be asked first.
 
-    The key is tried first when there is one, and a failure falls through to
-    scraping rather than leaving somebody with silence - an exhausted quota
-    should not mean the music stops working for the rest of the day.
+    Neither source needs a key and neither is trusted over the other: a source
+    that raises is logged and the next one is asked.
     """
     query = str(query or "").strip()
     if not query:
@@ -872,50 +808,20 @@ Two passes, and the order is the point.
 
     _title, wanted_artist = split_request(query)
 
-    if key and key in _REFUSED_KEYS:
-        # Already established, once, out loud. Saying it again on every
-        # search would bury the log in a problem nobody is going to fix from
-        # a warning they have read forty times.
-        key = ""
-
-    def from_api() -> list:
-        if not key:
-            return []
-        # Restricted first, then plain. A refusal is usually one of the
-        # optional filters rather than the key, and giving up on the API
-        # entirely would drop to scraping for the rest of the session.
-        for restrict in (True, False):
-            try:
-                results = search_api(asked, key, limit, restrict=restrict)
-                if results:
-                    return results
-                if log:
-                    log("debug", f"[Music] The Data API returned nothing"
-                                 f"{' with filters' if restrict else ''}.")
-            except Exception as e:
-                if _key_was_refused(e):
-                    # Not the filters, and not going to get better. Retrying
-                    # unfiltered would fail the same way, and so would every
-                    # search after this one.
-                    _REFUSED_KEYS.add(key)
-                    if log:
-                        log("warning",
-                            f"[Music] The YouTube Data API key is not valid "
-                            f"({e}). Searching YouTube directly instead, and "
-                            f"not asking the API again until restart.")
-                    break
-                if log:
-                    log("warning", f"[Music] Data API search failed ({e})"
-                                   f"{' - retrying unfiltered' if restrict else ''}.")
-        return []
-
-    # YouTube and YouTube Music are both asked, rather than one: a track is
-    # often filed under a translated or romanised title on Music and only its
-    # original title on YouTube, so a search for the English name finds
+    # Music first, then YouTube.
+    #
+    # YouTube Music files things as an artist and a track: the uploader is a
+    # column of its own rather than a channel name to be guessed from, which
+    # is the whole question this search keeps getting wrong. YouTube is asked
+    # second because it has everything Music does not - the uploads that were
+    # never released as music, and the ones under a name no catalogue knows.
+    #
+    # Both are asked whenever the first has nothing by the named artist. A
+    # track is often filed under a translated or romanised title on one and
+    # its original title on the other, so a search for the English name finds
     # nothing on one and everything on the other.
-    sources = [("the Data API", from_api),
-               ("YouTube", lambda: search_scrape(asked, limit)),
-               ("YouTube Music", lambda: search_music(asked, limit))]
+    sources = [("YouTube Music", lambda: search_music(asked, limit)),
+               ("YouTube", lambda: search_scrape(asked, limit))]
 
     found: dict = {}
     for name, finder in sources:

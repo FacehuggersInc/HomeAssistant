@@ -477,10 +477,10 @@ class QuickSettings(Panel):
 
         # The controls that used to sit in every page's drawer.
         self._btn_update    = IconButton(Icons.DOWNLOAD, self._show_update, size=24)
-        # The wallpaper controls used to sit here. They act on the cycling
-        # background, which only exists on sub.home - so they spent most of
-        # their life hidden, in a panel reachable from everywhere. They live
-        # on the configuration bar now, which is on that page.
+        # Nothing here acts on one page in particular. A control that only
+        # means something on sub.home - the wallpaper - belongs on that page
+        # rather than in a panel reachable from every other one, where it
+        # would be hidden almost everywhere it could be reached from.
         self._btn_full      = IconButton(Icons.FULLSCREEN, self._toggle_fullscreen, size=24)
         self._btn_docs      = IconButton("mdi.book-open-variant", self._open_docs, size=24)
         self._btn_settings  = IconButton(Icons.SETTINGS, self._open_settings, size=24)

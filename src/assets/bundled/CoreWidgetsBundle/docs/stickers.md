@@ -229,10 +229,10 @@ that is a seventh of the width, the same size "large" looks and nothing like the
 word. The ceiling was the other half of it: at 640px every choice above
 "normal" hit the same limit on a large panel.
 
-Names rather than the fractions because the two ranges **overlap**: the old
-values ran 0.5 to 2 and a share runs 0.02 to 0.95, so `0.5` could mean either
-the old "small" or half the screen. A number therefore keeps its old meaning
-exactly, and the page sends a word.
+Names rather than the fractions because the two ranges **overlap**: a stored
+multiplier runs 0.5 to 2 and a share of the screen runs 0.02 to 0.95, so `0.5`
+could mean either "small" or half the screen. A number is therefore always read
+as a multiplier, and the page sends a word instead.
 
 `Exact size…` is read **only when it is the choice**, and is clamped — the page
 is HTML anyone can post to. Not "whenever a number arrives": the pixel field is

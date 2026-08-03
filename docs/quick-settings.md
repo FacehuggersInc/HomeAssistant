@@ -49,11 +49,11 @@ fit whatever happens to be registered.
 
 Header controls, left to right: update, fullscreen, docs, settings, quit.
 
-The two wallpaper buttons used to sit here and now live on the
-[configuration bar](widgets.md#the-configuration-bar). They act on the cycling
-background, which only exists while `sub.home` is built - so in a panel
-reachable from every page they spent most of their life hidden. On a widget
-that is on that page, they are always there when they mean anything.
+Nothing here acts on one page in particular. A control that only means
+something on `sub.home` - the wallpaper, for instance - belongs on that page
+rather than in a panel reachable from every other one, where it would be
+hidden almost everywhere it could be reached from. See the
+[configuration bar](widgets.md#the-configuration-bar).
 
 
 ## Registering a quick access button

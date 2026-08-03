@@ -223,9 +223,11 @@ Titles arrive whole because `play-music` uses a
 rather than scored word by word, so a long title is not truncated into a
 search for its first two words.
 
-**Finding a track.** The YouTube Data API when a key is set, the results page
-when it is not, and YouTube Music when neither answers. A result too unlike
-what was asked for is rejected rather than played; when a retry succeeds, the
+**Finding a track.** YouTube Music first — the uploader is a field there rather
+than a channel name to be guessed from — then the YouTube results page for
+everything a catalogue does not carry. No key, and when an artist is named, a
+source that has not got them is left for the next one. A result too unlike what
+was asked for is rejected rather than played; when a retry succeeds, the
 panel asks *"Did you mean X?"* and remembers the answer, so a name it
 mishears once stops being a name it mishears.
 

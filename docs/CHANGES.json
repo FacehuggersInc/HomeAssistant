@@ -1,6 +1,34 @@
 {
  "log": [
   {
+   "at": 1785723863.3219125,
+   "note": "the docs describe what is there rather than what changed",
+   "pages": [
+    {
+     "slug": "quick-settings",
+     "state": "updated"
+    },
+    {
+     "slug": "tiles",
+     "state": "updated"
+    },
+    {
+     "slug": "widgets",
+     "state": "updated"
+    }
+   ]
+  },
+  {
+   "at": 1785723555.86349,
+   "note": "the music search dropped to two scraped sources, YouTube Music first",
+   "pages": [
+    {
+     "slug": "bundled-plugins",
+     "state": "updated"
+    }
+   ]
+  },
+  {
    "at": 1785720266.82345,
    "note": "scrolling the tile panel from the empty grid, and a unique-tile count",
    "pages": [
@@ -1097,8 +1125,8 @@
    "state": "updated"
   },
   "bundled-plugins": {
-   "at": 1785719646.4938622,
-   "hash": "ff699d60840ee9af",
+   "at": 1785723555.8620312,
+   "hash": "07b88d0892dc8f7d",
    "opened": 0,
    "state": "updated"
   },
@@ -1193,8 +1221,8 @@
    "state": "updated"
   },
   "quick-settings": {
-   "at": 1785719646.4945621,
-   "hash": "173e8ce552c1c1ef",
+   "at": 1785723863.3212175,
+   "hash": "320721f075bafa27",
    "opened": 0,
    "state": "updated"
   },
@@ -1229,8 +1257,8 @@
    "state": "updated"
   },
   "tiles": {
-   "at": 1785720266.821626,
-   "hash": "c8b76d662dde6819",
+   "at": 1785723863.3216064,
+   "hash": "147fd282b465280b",
    "opened": 0,
    "state": "updated"
   },
@@ -1259,8 +1287,8 @@
    "state": "updated"
   },
   "widgets": {
-   "at": 1785719646.4952104,
-   "hash": "063b6603e75bf1b7",
+   "at": 1785723863.3218668,
+   "hash": "7c7a9576c60322c1",
    "opened": 0,
    "state": "updated"
   },
