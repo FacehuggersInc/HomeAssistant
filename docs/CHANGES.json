@@ -1,6 +1,16 @@
 {
  "log": [
   {
+   "at": 1785720266.82345,
+   "note": "scrolling the tile panel from the empty grid, and a unique-tile count",
+   "pages": [
+    {
+     "slug": "tiles",
+     "state": "updated"
+    }
+   ]
+  },
+  {
    "at": 1785719646.495249,
    "note": "tiles ordered small to large, a count on the panel, full-size bookmark icons, and the wallpaper controls moved to the configuration bar",
    "pages": [
@@ -1219,8 +1229,8 @@
    "state": "updated"
   },
   "tiles": {
-   "at": 1785719646.4949687,
-   "hash": "35760e76a5a05daf",
+   "at": 1785720266.821626,
+   "hash": "c8b76d662dde6819",
    "opened": 0,
    "state": "updated"
   },

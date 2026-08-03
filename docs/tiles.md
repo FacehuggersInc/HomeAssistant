@@ -99,11 +99,19 @@ everything that is mostly vertical.
 | Leftward, by `LEFT_BIAS` (1.2x) over vertical    | Dragging the tile out                  |
 | Anything else                                    | Scrolling the panel                    |
 | Held `HOLD_MS` (260ms) first, then any direction | Dragging - waiting says what was meant |
+| Anywhere on the empty grid, any direction        | Scrolling the panel                    |
 
-The item scrolls the panel itself rather than letting the viewport do it. The
-items swallow the press so a tile's own handlers do not also run, which means
-the scroll area never sees the gesture - so whichever item was touched moves
-the scrollbar on its behalf.
+The last row needs no threshold and no direction: there is no tile under the
+finger to pull out, so the only thing a drag on empty grid can mean is moving
+the panel.
+
+Whatever was touched scrolls the panel itself rather than letting the viewport
+do it. The entries swallow their presses so a tile's own handlers do not also
+run, and the grid behind them swallows the rest for the same reason - so the
+scroll area never sees a gesture at all, and both call `TilePanel.scroll_by()`
+on their own behalf. Wiring only the entries is the half-right version of this,
+and leaves a panel that can be scrolled from a tile but not from the space
+around one.
 
 A gesture that scrolled is not also a tap. `_on_tile_release` returns early,
 or letting go after a flick would run whatever the tile does.
@@ -383,9 +391,9 @@ A tile's sizes stay together: each group is packed on its own first and the
 rectangle it comes out as is packed with the others. That buys variants that
 are always adjacent.
 
-The line under the panel's title counts the **tiles** waiting, not the entries.
-A tile offered at three sizes is one thing you can place, and counting it three
-times would say the panel holds twenty-two when it holds fourteen.
+The line under the panel's title counts the **unique tiles** waiting, not the
+entries. A tile offered at three sizes is one thing you can place, and counting
+it three times would say the panel holds twenty-two when it holds fourteen.
 
 ### Rendered, not grabbed
 

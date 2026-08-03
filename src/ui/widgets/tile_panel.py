@@ -245,12 +245,8 @@ class TilePanelItem(QWidget):
         return True   #swallow — Tile's own mouseReleaseEvent must not also run
 
     def _scroll_by(self, pixels: int) -> None:
-        """Move the panel's list, on behalf of the item that was touched."""
-        try:
-            bar = self.panel.scroll.verticalScrollBar()
-        except Exception:
-            return
-        bar.setValue(bar.value() + int(pixels))
+        """Move the panel, on behalf of the entry that was touched."""
+        self.panel.scroll_by(pixels)
 
     def start_real_drag(self) -> None:
         page = self.panel.page
@@ -385,6 +381,23 @@ class TilePanel(Panel):
 
     ## -- entries
 
+    def scroll_by(self, pixels: int) -> None:
+        """
+        Move the panel by this many pixels.
+
+        Here rather than on the entry, because the background needs it too.
+        The entries swallow their presses so a tile's own handlers do not also
+        run, which means the scroll area never sees a gesture that started on
+        one - and the grid behind them swallows the rest for the same reason,
+        so it never sees any gesture at all. Both scroll this on their own
+        behalf.
+        """
+        try:
+            bar = self.scroll.verticalScrollBar()
+        except Exception:
+            return
+        bar.setValue(bar.value() + int(pixels))
+
     def refresh_count(self) -> None:
         """
         Say how many tiles are in here.
@@ -397,10 +410,10 @@ class TilePanel(Panel):
         if not count:
             text = "Every tile is on the grid."
         elif count == 1:
-            text = "1 tile waiting. Drag it left onto the grid to place it."
+            text = "1 unique tile waiting. Drag it left onto the grid to place it."
         else:
-            text = (f"{count} tiles waiting. Drag one left onto the grid to "
-                    f"place it.")
+            text = (f"{count} unique tiles waiting. Drag one left onto the "
+                    f"grid to place it.")
         try:
             self.sub_lbl.setText(text)
         except RuntimeError:

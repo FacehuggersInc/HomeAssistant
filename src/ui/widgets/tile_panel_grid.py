@@ -27,7 +27,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Optional
 
 from PyQt6.QtWidgets import QWidget
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QPoint
 from PyQt6.QtGui import QPainter, QColor, QBrush, QPixmap
 
 from src.styling import set_style
@@ -189,6 +189,8 @@ class TilePanelGrid(QWidget):
         #reasoning as TileGrid, where drawing them per paint was what made
         #dragging feel heavy.
         self._dot_cache: Optional[QPixmap] = None
+        #Where a scroll of the background is being measured from, or None.
+        self._scroll_from: Optional[QPoint] = None
         set_style(self, "common", "transparent")
 
     ## -- metrics
@@ -325,6 +327,34 @@ class TilePanelGrid(QWidget):
             showing.append(keep)
             rescued.append(keep)
         return rescued
+
+    ## -- input
+
+    def mousePressEvent(self, event) -> None:
+        """
+        A press on the background, which is a scroll and nothing else.
+
+        There is no tile here to pull out, so unlike an entry this needs no
+        threshold and no direction: the only thing a drag on empty grid can
+        mean is moving the panel. Without it the panel could only be scrolled
+        by starting on a tile, which is most of the panel but not the part
+        somebody reaches for when they are trying not to disturb one.
+        """
+        if event.button() != Qt.MouseButton.LeftButton:
+            event.ignore()
+            return
+        self._scroll_from = event.globalPosition().toPoint()
+
+    def mouseMoveEvent(self, event) -> None:
+        if self._scroll_from is None:
+            event.ignore()
+            return
+        point = event.globalPosition().toPoint()
+        self.panel.scroll_by(self._scroll_from.y() - point.y())
+        self._scroll_from = point
+
+    def mouseReleaseEvent(self, event) -> None:
+        self._scroll_from = None
 
     ## -- painting
 
