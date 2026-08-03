@@ -220,6 +220,8 @@ class TileGrid(QWidget):
         return QRect(int(x), int(y), int(w), int(h))
 
     def place_tile(self, tile: Tile, col: int, row: int, animate: bool = False) -> None:
+        self._trace("PLACE", tile=tile.KEY, to=f"({col},{row})",
+                    animate=animate, dragging=tile.dragging)
         # Spans change during a resize drag, so a position that fitted a moment
         # ago may not now.
         col = max(0, min(col, max(0, self.cols - tile.grid_w)))
@@ -379,6 +381,17 @@ class TileGrid(QWidget):
                     return col, row
         return None
 
+    def _trace(self, what: str, **facts) -> None:
+        """TEMPORARY. See TRACE in tile.py."""
+        from src.ui.widgets.tile import TRACE
+        if not TRACE:
+            return
+        detail = " ".join(f"{k}={v}" for k, v in facts.items())
+        try:
+            self.client.log("info", f"[TileTrace] GRID {what} {detail}")
+        except Exception:
+            pass
+
     def snap_tile(self, tile: Tile) -> None:
         if self.hover_col >= 0 and self.hover_row >= 0:
             col = max(0, min(self.hover_col, self.cols - tile.grid_w))
@@ -402,6 +415,10 @@ class TileGrid(QWidget):
                 # the first free block is better than dropping it on a neighbour.
                 col, row = self._first_free(tile) or (tile.grid_col, tile.grid_row)
 
+        self._trace("SNAP", tile=tile.KEY, to=f"({col},{row})",
+                    hover=f"({self.hover_col},{self.hover_row})",
+                    origin=str(getattr(tile, "drag_origin", None)),
+                    at=f"({tile.x()},{tile.y()})")
         self.place_tile(tile, col, row, animate=True)
         self.dragging_tile = None
         self.hover_col     = -1
@@ -411,6 +428,8 @@ class TileGrid(QWidget):
     def mousePressEvent(self, event) -> None:
         # A press that reaches the grid landed on empty space, not on a tile -
         # which is the natural "I am done with that one" gesture.
+        self._trace("PRESS-REACHED-GRID (no tile took it)",
+                    at=f"({event.pos().x()},{event.pos().y()})")
         self.deselect_all()
         event.ignore()
 

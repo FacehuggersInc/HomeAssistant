@@ -9,6 +9,12 @@ if TYPE_CHECKING:
     from src.main import Client
 
 
+#TEMPORARY. Every gesture event, so a drag that misbehaves says where it went
+#instead of being reasoned about. Grep the log for "[TileTrace]"; set this to
+#False, or delete this block and every _trace call, to take it back out.
+TRACE = True
+
+
 class Tile(QWidget):
 
     move_requested   = pyqtSignal(object, int, int)
@@ -17,6 +23,9 @@ class Tile(QWidget):
 
     DRAG_THRESHOLD = 8
     HOLD_MS        = 400     # press-and-wait before the handles appear
+    #Whether anything inside this tile is meant to be pressed in its own
+    #right. Off by default - see _pass_mouse_through.
+    INTERACTIVE_CONTENT = False
     #How many button-less moves in a row mean the release really was lost.
     LOST_RELEASE_MOVES = 3
     #Whether this tile has a setup worth going back to. Off by default: most
@@ -227,7 +236,37 @@ class Tile(QWidget):
             self._content = None
         if widget is not None:
             self._content = widget
+            self._pass_mouse_through(widget)
             self.content_layout.addWidget(widget)
+
+    def _pass_mouse_through(self, widget: QWidget) -> None:
+        """
+        Nothing inside a tile takes a press. The tile does.
+
+        A tile is a thing on a grid: press and hold selects it, press and
+        drag moves it, and a tap runs `on_click`. All three need the press to
+        arrive HERE. Most content is labels, which ignore a press and let it
+        through - but anything built from a control does not. A scroll area
+        is the one that bites, because it looks like decoration and behaves
+        like a button: `WeatherTile` at 3x3 and above fills itself with one,
+        and a press anywhere on that area was swallowed by its viewport. The
+        tile never learned it had been touched, so it could not be selected,
+        could not be dragged, and appeared to ignore the finger entirely.
+
+        Set on the whole subtree rather than on the one widget that swallowed
+        it: a viewport is a child of the area, and a control nested three
+        deep swallows a press just as well as one at the top.
+
+        A tile that genuinely wants a control inside it sets
+        `INTERACTIVE_CONTENT` and takes on the whole gesture problem itself -
+        including how somebody is then meant to move it.
+        """
+        if self.INTERACTIVE_CONTENT:
+            return
+        widget.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        for child in widget.findChildren(QWidget):
+            child.setAttribute(
+                Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
 
     def variant_key(self) -> Optional[tuple[int, int]]:
         return self._variant_key
@@ -331,6 +370,7 @@ class Tile(QWidget):
         return ""
 
     def _select(self) -> None:
+        self._trace("HOLD-ELAPSED (selected)")
         self.selected = True
         self._selected_now = True
         grid = self.parent()
@@ -403,7 +443,27 @@ class Tile(QWidget):
             self._paint_handles(p)
 
 
+    def _trace(self, what: str, **facts) -> None:
+        """TEMPORARY. See TRACE at the top of this module."""
+        if not TRACE:
+            return
+        detail = " ".join(f"{k}={v}" for k, v in facts.items())
+        try:
+            self.client.log("info", f"[TileTrace] {self.KEY} {what} "
+                                    f"span={self.grid_w}x{self.grid_h} "
+                                    f"cell=({self.grid_col},{self.grid_row}) "
+                                    f"drag={self.dragging} "
+                                    f"resize={self.resizing} "
+                                    f"start={'set' if self.drag_start else 'none'} "
+                                    f"sel={self.selected} {detail}")
+        except Exception:
+            pass
+
     def mousePressEvent(self, event: QMouseEvent) -> None:
+        self._trace("PRESS", button=int(event.button().value),
+                    at=f"({event.position().toPoint().x()},"
+                       f"{event.position().toPoint().y()})",
+                    parent=type(self.parent()).__name__)
         if event.button() != Qt.MouseButton.LeftButton:
             return
 
@@ -420,6 +480,8 @@ class Tile(QWidget):
             self.deselect()
             self.edit()
             return
+        if handle:
+            self._trace("PRESS-ON-HANDLE", handle=handle)
         if handle == "resize":
             self.resizing      = True
             self._resize_origin = event.globalPosition().toPoint()
@@ -446,6 +508,7 @@ class Tile(QWidget):
         to move again because `drag_start` was gone. Every way a drag can end
         has to end with the tile somewhere real.
         """
+        self._trace("END-GESTURE (abandoned)")
         was_dragging = self.dragging
 
         self.resizing       = False
@@ -493,6 +556,9 @@ class Tile(QWidget):
             # over the tile and produces them steadily. Waiting for a few in
             # a row tells those two apart without asking the platform a
             # question it cannot answer.
+            self._trace("MOVE-NO-BUTTON",
+                        app_buttons=int(QApplication.mouseButtons().value),
+                        run=self._no_button)
             if QApplication.mouseButtons() & Qt.MouseButton.LeftButton:
                 self._no_button = 0
                 return
@@ -522,8 +588,14 @@ class Tile(QWidget):
 
         delta = event.globalPosition().toPoint() - self.drag_start
 
+        self._moves = getattr(self, "_moves", 0) + 1
+        if self._moves <= 8 or self._moves % 10 == 0:
+            self._trace("MOVE", n=self._moves,
+                        delta=f"({delta.x()},{delta.y()})")
+
         if not self.dragging and max(abs(delta.x()), abs(delta.y())) >= self.DRAG_THRESHOLD:
             self._hold.stop()      # a move is a drag, not a hold
+            self._trace("DRAG-BEGINS")
             self.dragging = True
             self.drag_origin = (self.grid_col, self.grid_row)
             self.raise_()
@@ -545,7 +617,11 @@ class Tile(QWidget):
             grid = self.parent()
             here = event.globalPosition().toPoint()
             if grid is not None:
-                self.move(grid.mapFromGlobal(here) - self._grab)
+                want = grid.mapFromGlobal(here) - self._grab
+                self.move(want)
+                if self._moves <= 8 or self._moves % 10 == 0:
+                    self._trace("MOVED", wanted=f"({want.x()},{want.y()})",
+                                landed=f"({self.x()},{self.y()})")
             self.drag_start = here
 
             self.move_requested.emit(self, *self.screen_to_grid())
@@ -581,6 +657,8 @@ class Tile(QWidget):
         self.resize_requested.emit(self, want_w, want_h)
 
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:
+        self._trace("RELEASE", moves=getattr(self, "_moves", 0))
+        self._moves = 0
         self._hold.stop()
 
         # A handle already dealt with this press. Whatever the tile does when
