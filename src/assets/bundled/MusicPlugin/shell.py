@@ -79,6 +79,12 @@ function onYouTubeIframeAPIReady() {
 }
 
 HA.refreshMeta = function () {
+  // Frozen once the track has finished. The embed puts up its own end screen
+  // when a video runs out, and getVideoData() starts answering about
+  // whatever that screen is offering next - so the card quietly changed to a
+  // song nobody had asked for while the player sat there stopped. HA.at()
+  // clears the flag, so the next real track updates it again.
+  if (HA.finished) { return; }
   try {
     var d = HA.player.getVideoData ? HA.player.getVideoData() : {};
     HA.meta = {
@@ -133,10 +139,24 @@ HA.wake = function (volume) {
   try { HA.player.setVolume(volume === undefined ? 100 : volume); } catch (e) {}
 };
 
+// Pressing play. Not playVideo() straight through, because after the end
+// that hands the decision to the page - and the page has an end screen with
+// its own idea of what comes next. What just finished is what plays again.
+HA.play = function () {
+  if (!HA.ready || !HA.player) { return false; }
+  if (HA.finished) { return HA.at(HA.index); }
+  try { HA.player.playVideo(); } catch (e) {}
+  return true;
+};
+
 HA.at = function (i) {
   if (!HA.ready || i < 0 || i >= HA.queue.length) { return false; }
   HA.index = i;
   HA.finished = false;
+  // No longer at the end, so the next time it reaches one is a new event.
+  // Left set, the "reached the end of the queue" line is said once ever and
+  // the panel has nothing to say about the second time.
+  HA.exhausted = false;
   HA.player.loadVideoById(HA.queue[i]);
   return true;
 };

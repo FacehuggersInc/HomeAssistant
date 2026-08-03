@@ -18,11 +18,11 @@ import time
 from typing import TYPE_CHECKING
 
 from PyQt6.QtWidgets import (
-    QWidget, QHBoxLayout, QVBoxLayout, QLabel, QPushButton, QSizePolicy,
+    QWidget, QHBoxLayout, QLabel, QPushButton, QSizePolicy,
 )
-from PyQt6.QtCore import Qt, QPointF, QRectF
+from PyQt6.QtCore import Qt, QPointF, QRectF, QSize
 from PyQt6.QtGui import (
-    QPainter, QPainterPath, QPen, QColor, QImage, QBrush,
+    QPainter, QPainterPath, QPen, QColor, QImage, QBrush, QPixmap, QIcon,
 )
 
 from src.styling import set_style, make_font, SIZES
@@ -302,11 +302,14 @@ class WhiteboardDialog(BaseDialog):
 
         self.width_buttons = []
         for width in WIDTHS:
-            button = QPushButton("●")
-            button.setFont(make_font(
-                SIZES.S1 if width <= 4 else
-                SIZES.S2 if width <= 10 else
-                SIZES.M1 if width <= 20 else SIZES.L1, bold=True))
+            button = QPushButton()
+            # A drawn dot rather than a bullet character. A glyph scaled by
+            # font size is at the mercy of the font: the bullet in this one is
+            # small and sits high in its box, so the four sizes came out as
+            # four short dashes at slightly different heights rather than as
+            # four brush tips.
+            button.setIcon(QIcon(self._width_icon(width)))
+            button.setIconSize(QSize(self.TOOL, self.TOOL))
             button.setFixedSize(self.TOOL, self.TOOL)
             button.setCursor(Qt.CursorShape.PointingHandCursor)
             button.clicked.connect(
@@ -376,6 +379,40 @@ class WhiteboardDialog(BaseDialog):
                       else "1px solid rgba(255,255,255,60)")
             button.setStyleSheet(
                 f"background:{value};border:{border};border-radius:10px;")
+
+    #The dot for the largest brush, and the smallest one still worth looking
+    #at. The widths themselves span 4 to 36 - a ninth - and at that ratio the
+    #two smallest dots are a pixel apart and read as the same button.
+    DOT_MAX = 30
+    DOT_MIN = 8
+
+    def _width_icon(self, width: int) -> QPixmap:
+        """
+        A filled circle the size of the brush, near enough.
+
+        By the square root rather than in proportion. A brush is a round tip
+        and what the eye compares between two of them is their AREA, so the
+        square root is closer to how much bigger one looks than the other - and
+        it opens the small end out, which is where they were indistinguishable.
+        """
+        biggest = max(WIDTHS) or 1
+        share = (float(width) / biggest) ** 0.5
+        diameter = max(self.DOT_MIN, min(self.DOT_MAX,
+                                         int(round(self.DOT_MAX * share))))
+
+        ratio = self.devicePixelRatioF() or 1.0
+        pixmap = QPixmap(int(self.TOOL * ratio), int(self.TOOL * ratio))
+        pixmap.setDevicePixelRatio(ratio)
+        pixmap.fill(Qt.GlobalColor.transparent)
+
+        painter = QPainter(pixmap)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setBrush(QBrush(QColor("#f2f2f2")))
+        painter.setPen(Qt.PenStyle.NoPen)
+        offset = (self.TOOL - diameter) / 2.0
+        painter.drawEllipse(QRectF(offset, offset, diameter, diameter))
+        painter.end()
+        return pixmap
 
     def _pick_width(self, width: int) -> None:
         self.canvas.width = width

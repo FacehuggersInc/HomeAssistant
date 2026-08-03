@@ -543,7 +543,11 @@ class WebPlayer(QObject):
         self._run(f"{source}({int(self._volume)})")
 
     def play(self) -> None:
-        self._run("HAW.play()" if self.watching else "HA.player && HA.player.playVideo()")
+        # HA.play rather than playVideo: after a track ends, the embed's end
+        # screen has its own opinion about what comes next, and resuming
+        # through the page took it. Replaying what finished is the only thing
+        # pressing play on a stopped player can reasonably mean.
+        self._run("HAW.play()" if self.watching else "HA.play()")
 
     def pause(self) -> None:
         self._run("HAW.pause()" if self.watching else "HA.player && HA.player.pauseVideo()")

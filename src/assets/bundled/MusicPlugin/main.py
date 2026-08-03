@@ -24,7 +24,8 @@ from src.registries.player_registry import NowPlaying, STOPPED
 
 from .player import WebPlayer
 from .system_player import SystemPlayer
-from .search import search, split_request, comparable, best_match
+from .search import (search, split_request, comparable, best_match,
+                     channel_score, MIN_ARTIST_MATCH)
 from .aliases import ArtistAliases
 from .history import History
 from .history_panel import HistoryCard
@@ -754,11 +755,27 @@ class MusicPlugin(Plugin):
             self.client.call_on_ui(
                 lambda: self.player.load(ids, 0, owners, known))
 
+            top = results[0]
+
+            # Playing somebody else, and saying so.
+            #
+            # Every site has been asked for that artist by now and none of
+            # them had them, so this is the closest title by whoever did
+            # upload it. Playing it silently is the failure worth avoiding:
+            # what somebody hears is a song they asked for, by a voice that
+            # is not the one they wanted, with nothing to say the panel knew.
+            if (artist and not dropped_artist
+                    and channel_score(top, asked) < MIN_ARTIST_MATCH):
+                self.client.log(
+                    "info", f"[Music] Nothing by {artist!r} anywhere - "
+                            f"playing {top.title!r} by {top.artist!r}.")
+                self.client.call_on_ui(
+                    lambda: self._say_not_that_artist(artist, top))
+
             # Only when the artist had to be dropped to find anything. That is
             # the case where the name was probably misheard, and the only one
             # where an answer is worth interrupting somebody for.
-            top = results[0]
-            if dropped_artist and artist:
+            elif dropped_artist and artist:
                 self.client.call_on_ui(
                     lambda: self._ask_about_artist(artist, top))
             elif not comparable(title, top.title):
@@ -768,6 +785,34 @@ class MusicPlugin(Plugin):
                     lambda: self._ask_about_title(title, top))
 
         Thread(target=work, name="__music_search", daemon=True).start()
+
+    def _say_not_that_artist(self, wanted: str, result) -> None:
+        """
+        Say that this is not who was asked for, and play it anyway.
+
+        Said rather than asked. There is no question here - the search has
+        already been everywhere and this is the best there is - so a dialog
+        would be a decision somebody has to dismiss before the music starts.
+        A sentence is enough, and it goes out with the song rather than
+        instead of it.
+        """
+        who = (result.artist or "").strip()
+        try:
+            if who:
+                self.client.assistant.say(
+                    f"I could not find anything by {wanted}. "
+                    f"Playing {result.title} by {who} instead.")
+            else:
+                self.client.assistant.say(
+                    f"I could not find anything by {wanted}. "
+                    f"Playing {result.title} instead.")
+        except Exception as e:
+            self.client.log("debug", f"[Music] Could not say which artist "
+                                     f"this is: {e}")
+        self.client.simple_notify(
+            "magnify", "Music",
+            f"Nothing by \u201c{wanted}\u201d was found. Playing "
+            f"\u201c{result.title}\u201d{f' by {who}' if who else ''}.")
 
     def _ask_about_artist(self, heard: str, result) -> None:
         """

@@ -193,6 +193,12 @@ def _words(text: str) -> set:
 #word in common is 0; a title matching every word is 1.
 MIN_TITLE_MATCH = 0.34
 
+#And below this, when a name was said, it is not that artist. Deliberately
+#well under 1: a two-word name matching one word is somebody who said
+#"okay goodnight" and got "Okay Goodnight - Topic", which is the same artist.
+#A cover by a stranger shares none of it.
+MIN_ARTIST_MATCH = 0.5
+
 
 #Roughly: does this text use letters a Latin query could ever match?
 _LATIN = re.compile(r"[a-z0-9]")
@@ -250,6 +256,62 @@ def title_match(wanted: set, found: set, raw_wanted: str, raw_found: str) -> flo
     return max(overlap, close if close > 0.6 else 0.0)
 
 
+def artist_score(result, query: str) -> float:
+    """
+    How much of the named artist this result actually carries, 0..1.
+
+    The channel or the title: a song is as often uploaded to a label's channel
+    with the artist in the title as it is to the artist's own.
+
+    Nothing was named - 1.0. There is no artist to disagree with, so a caller
+    asking "is this the right artist" should not be told no.
+    """
+    _title, wanted = _words_of_artist(query)
+    if not wanted:
+        return 1.0
+    return max(
+        len(wanted & _words(result.artist)) / len(wanted),
+        len(wanted & _words(result.title)) / len(wanted),
+    )
+
+
+def channel_score(result, query: str) -> float:
+    """
+    How much of the named artist is in the CHANNEL, 0..1.
+
+    The strict half of `artist_score`. Naming an artist means that artist's
+    upload, and their name in a title means only that a title mentions them -
+    "RWBY Volume 6 Intro Rising - Jeff Williams (Lyrics)" uploaded by
+    "Nightcore WR" carries the name perfectly and is not by him. That result
+    passed the artist test on the first site asked, so the site that had the
+    real one was never asked at all.
+
+    Nothing was named - 1.0, the same as `artist_score`.
+    """
+    _title, wanted = _words_of_artist(query)
+    if not wanted:
+        return 1.0
+    return len(wanted & _words(result.artist)) / len(wanted)
+
+
+def is_a_recording_of(result) -> bool:
+    """
+    Whether the title says this is somebody's version rather than the thing.
+
+    The same word list `ranking_score` docks points for, asked as a yes or no.
+    Ranking can afford to weigh it against everything else; the strict pass
+    cannot, because the whole point of that pass is to leave a nightcore edit
+    on this site and go and ask the next one.
+    """
+    lowered = f" {_plain(result.title)} "
+    return any(f" {word} " in lowered for word in NOT_THE_SONG)
+
+
+def _words_of_artist(query: str) -> tuple:
+    title_part, artist_part = split_request(query)
+    return title_part, _words(artist_part)
+
+
 def acceptance_score(result, query: str) -> tuple:
     """
     (score, comparable) for one result, for deciding whether to play it.
@@ -278,12 +340,7 @@ def acceptance_score(result, query: str) -> tuple:
     found_title = _words(result.title)
     found_artist = _words(result.artist)
 
-    artist = 0.0
-    if wanted_artist:
-        artist = max(
-            len(wanted_artist & found_artist) / len(wanted_artist),
-            len(wanted_artist & found_title) / len(wanted_artist),
-        )
+    artist = artist_score(result, query)
 
     if not comparable(title_part, result.title):
         # Nothing can be said about the title. The artist is all there is.
@@ -532,7 +589,7 @@ def build_query(phrase: str) -> str:
 
 
 def usable(results: list, query: str, floor: float = MIN_TITLE_MATCH,
-           log=None) -> list:
+           log=None, require_artist: bool = False) -> list:
     """
     Only the results that are plausibly what was asked for.
 
@@ -540,11 +597,32 @@ def usable(results: list, query: str, floor: float = MIN_TITLE_MATCH,
     played - "kaiju girl by metta nick" returning a short film about a
     corporate monster is a score of zero, and it played because zero was the
     highest score there was.
+
+    `require_artist` makes the named artist a condition rather than a quarter
+    of the score. The ordinary weighting lets a strong title carry a result
+    whoever uploaded it, which is right in the end - a cover is better than
+    silence - but it is wrong as a FIRST answer, because it means the search
+    stops at the first site with a matching title and never asks the next one
+    whether the actual artist is there. Nothing was named: no condition.
     """
     _title, wanted_artist = split_request(query)
 
     kept, unknown = [], []
     for index, result in enumerate(results or []):
+        if require_artist and wanted_artist:
+            # The channel, not the title. See channel_score.
+            if channel_score(result, query) < MIN_ARTIST_MATCH:
+                if log:
+                    log("debug", f"[Music] {result.title!r} is not on "
+                                 f"{wanted_artist}'s channel "
+                                 f"({result.artist!r}).")
+                continue
+            if is_a_recording_of(result):
+                if log:
+                    log("debug", f"[Music] {result.title!r} is a version of "
+                                 f"the song rather than the song.")
+                continue
+
         score, could_compare = acceptance_score(result, query)
 
         if not could_compare:
@@ -567,7 +645,7 @@ def usable(results: list, query: str, floor: float = MIN_TITLE_MATCH,
     kept.sort(key=lambda pair: -pair[0])
     ordered = [result for _score, result in kept]
 
-    if unknown and not ordered:
+    if unknown and not ordered and not require_artist:
         # Nothing comparable matched, so fall back to what the search itself
         # ranked first. Only the top one: trusting the whole list would queue
         # up nine things nobody can vouch for.
@@ -746,9 +824,38 @@ def _key_was_refused(problem) -> bool:
     return any(reason in lowered for reason in _KEY_REFUSALS)
 
 
+def _pool(*batches) -> list:
+    """Every result once, in the order the sources returned them."""
+    seen, merged = set(), []
+    for batch in batches:
+        for result in batch or []:
+            if result.video_id and result.video_id not in seen:
+                seen.add(result.video_id)
+                merged.append(result)
+    return merged
+
+
 def search(query: str, key: str = "", limit: int = 10, log=None) -> list:
     """
     Whatever works. Returns [] rather than raising.
+
+Two passes, and the order is the point.
+
+    1. **Each source on its own, with the named artist required.** The Data
+       API if there is a key, then YouTube, then YouTube Music. A source that
+       has the right artist wins immediately and the rest are never asked.
+    2. **Everything pooled and ranked together**, with the artist back to
+       being a quarter of the score. Nobody had that artist, so the question
+       becomes which of all the results is closest - and a result that was
+       second-best on YouTube and one that was second-best on Music have
+       never been compared with each other until here.
+
+    Without the first pass the search stopped at the first site with a
+    matching title, whoever had uploaded it, and never asked the next one
+    whether the actual artist was on it - a cover with the right name beat
+    the real thing one site over. Without the second, each site's leftovers
+    were judged alone, and the best answer of the two was whichever site
+    happened to be asked first.
 
     The key is tried first when there is one, and a failure falls through to
     scraping rather than leaving somebody with silence - an exhausted quota
@@ -763,13 +870,17 @@ def search(query: str, key: str = "", limit: int = 10, log=None) -> list:
     if log and asked != query:
         log("debug", f"[Music] Searching for {asked!r}")
 
+    _title, wanted_artist = split_request(query)
+
     if key and key in _REFUSED_KEYS:
         # Already established, once, out loud. Saying it again on every
         # search would bury the log in a problem nobody is going to fix from
         # a warning they have read forty times.
         key = ""
 
-    if key:
+    def from_api() -> list:
+        if not key:
+            return []
         # Restricted first, then plain. A refusal is usually one of the
         # optional filters rather than the key, and giving up on the API
         # entirely would drop to scraping for the rest of the session.
@@ -777,12 +888,7 @@ def search(query: str, key: str = "", limit: int = 10, log=None) -> list:
             try:
                 results = search_api(asked, key, limit, restrict=restrict)
                 if results:
-                    good = usable(results, query, log=log)
-                    if good:
-                        return good
-                    if log:
-                        log("debug", "[Music] Nothing the API returned matched "
-                                     "closely enough.")
+                    return results
                 if log:
                     log("debug", f"[Music] The Data API returned nothing"
                                  f"{' with filters' if restrict else ''}.")
@@ -801,29 +907,59 @@ def search(query: str, key: str = "", limit: int = 10, log=None) -> list:
                 if log:
                     log("warning", f"[Music] Data API search failed ({e})"
                                    f"{' - retrying unfiltered' if restrict else ''}.")
+        return []
 
-    # YouTube first, then YouTube Music.
-    #
-    # Both, rather than one: a track is often filed under a translated or
-    # romanised title on Music and only its original title on YouTube, so a
-    # search for the English name finds nothing on one and everything on the
-    # other. Whichever produces something plausible wins.
-    for name, finder in (("YouTube", search_scrape),
-                         ("YouTube Music", search_music)):
+    # YouTube and YouTube Music are both asked, rather than one: a track is
+    # often filed under a translated or romanised title on Music and only its
+    # original title on YouTube, so a search for the English name finds
+    # nothing on one and everything on the other.
+    sources = [("the Data API", from_api),
+               ("YouTube", lambda: search_scrape(asked, limit)),
+               ("YouTube Music", lambda: search_music(asked, limit))]
+
+    found: dict = {}
+    for name, finder in sources:
         try:
-            results = finder(asked, limit)
+            found[name] = finder() or []
         except Exception as e:
+            found[name] = []
             if log:
                 log("warning", f"[Music] {name} search failed: {e}")
             continue
 
-        good = usable(results, query, log=log)
-        if good:
-            if log and name != "YouTube":
-                log("info", f"[Music] Found on {name}: {good[0].title!r}")
-            return good
-        if log and results:
-            log("debug", f"[Music] {name} returned {len(results)} results, "
-                         f"none matching.")
+        if not found[name]:
+            continue
 
-    return []
+        if wanted_artist:
+            good = usable(found[name], query, log=log, require_artist=True)
+            if good:
+                if log:
+                    log("info", f"[Music] Found on {name}: {good[0].title!r} "
+                                f"by {good[0].artist!r}")
+                return good
+            if log:
+                log("debug", f"[Music] {name} has nothing by that artist.")
+            # On to the next source rather than settling here. The ordinary
+            # gate gets its turn below, once every source has been asked.
+            continue
+
+        good = usable(found[name], query, log=log)
+        if good:
+            return good
+        if log:
+            log("debug", f"[Music] {name} returned {len(found[name])} "
+                         f"results, none matching.")
+
+    if not wanted_artist:
+        return []
+
+    # Nobody had the artist. Everything together, ranked as one list: the
+    # queue this builds is the best of both sites in order, rather than all
+    # of whichever site was asked first.
+    combined = _pool(*(found.get(name) or [] for name, _ in sources))
+    good = usable(combined, query, log=log)
+    if good and log:
+        log("info", f"[Music] Nothing by that artist anywhere - "
+                    f"{good[0].title!r} by {good[0].artist!r} is the closest "
+                    f"of all {len(combined)} results together.")
+    return good

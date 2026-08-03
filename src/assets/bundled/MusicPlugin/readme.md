@@ -126,6 +126,14 @@ that is exactly what it did. Anything that starts it again afterwards is paused
 straight back: this is the same page a browser would use and it has opinions
 about what to play next. An explicit press clears the hold.
 
+**Pressing play after the end replays what finished**, by loading that ID
+again rather than by calling `playVideo()`. Resuming through the page hands the
+decision to the page, which by then is showing its end screen — so play gave you
+whatever that screen was offering. For the same reason the card's **metadata is
+frozen** once a track finishes: `getVideoData()` starts answering about the end
+screen's suggestion, and the panel sat there stopped while the title quietly
+changed to a song nobody had asked for. Loading a real track clears both.
+
 **A track the embed refuses is played anyway**, on its own watch page. See
 below.
 
@@ -226,6 +234,49 @@ The **title carries the score**. An artist name heard wrongly is common; a
 title sharing no word with what was asked for is a different song. Character
 similarity sits under word overlap as a floor, so *"kaiju"* against *"kaijuu"*
 still counts.
+
+### Asking every source before settling
+
+When the request **names an artist**, each source is asked in turn with that
+artist as a *condition* rather than a quarter of the score — the Data API, then
+YouTube, then YouTube Music. The first source that has that artist wins and the
+rest are never asked.
+
+The condition is the **channel**, not the title. Their name in a title means
+only that a title mentions them: *"Rising by Jeff Williams"* returned *"RWBY
+Volume 6 Intro Rising - Jeff Williams (Lyrics)"* uploaded by *"Nightcore WR"*,
+which carries the name perfectly and is not by him — and because it passed on
+the first site asked, the site that had the real recording was never asked at
+all. A title carrying one of the `NOT_THE_SONG` markers is dropped from this
+pass for the same reason: a nightcore edit is a version of the song, and the
+whole point of the pass is to leave it and go and ask the next source.
+
+Both are only conditions *here*. In the pooled pass a title match still counts,
+because by then the question is no longer "is this them" but "what is closest".
+
+That first pass is the fix for the search that kept finding the wrong person.
+Under the ordinary weighting a strong title carries a result whoever uploaded
+it, which is the right answer eventually — a cover beats silence — but it is the
+wrong *first* answer, because it means the search stops at the first site with a
+matching title and never asks the next one whether the real artist is on it. A
+cover on YouTube beat the artist's own upload one site over.
+
+If no source has that artist, everything found is **pooled and ranked as one
+list**, with the artist back to being a quarter of the score. A result that was
+second-best on YouTube and one that was second-best on Music have never been
+compared with each other until then, and judging each site's leftovers alone
+made the answer depend on which site happened to be asked first.
+
+Nothing is pooled when no artist was named: there is no condition to fail, so
+the first source with a match is already the answer.
+
+**And the panel says so.** When every source has been asked and the track that
+ends up playing is not on the named artist's channel, it says which artist it
+found instead, and notifies. Said rather than asked: the search has already
+been everywhere and this is the best there is, so a dialog would be a decision
+somebody has to dismiss before the music starts. Playing it silently is the
+version worth avoiding — what somebody hears is a song they asked for, by a
+voice that is not the one they wanted, with nothing to say the panel knew.
 
 ### Two titles for one song
 
