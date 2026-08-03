@@ -10,9 +10,9 @@ if TYPE_CHECKING:
 
 
 #TEMPORARY. Every gesture event, so a drag that misbehaves says where it went
-#instead of being reasoned about. Grep the log for "[TileTrace]"; set this to
-#False, or delete this block and every _trace call, to take it back out.
-TRACE = True
+#instead of being reasoned about. Grep the log for "[TileTrace]". Turn it on
+#here; delete this block and every _trace call to take it back out entirely.
+TRACE = False
 
 
 class Tile(QWidget):
@@ -508,7 +508,8 @@ class Tile(QWidget):
         to move again because `drag_start` was gone. Every way a drag can end
         has to end with the tile somewhere real.
         """
-        self._trace("END-GESTURE (abandoned)")
+        if self.dragging or self.resizing or self.drag_start is not None:
+            self._trace("END-GESTURE (abandoned)")
         was_dragging = self.dragging
 
         self.resizing       = False
