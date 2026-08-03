@@ -1263,7 +1263,10 @@ def layers_for(weather: dict, fireflies: bool = True,
     # it is. Hidden under heavy cloud, which is what actually happens.
     if moon and cover < 75 and not (raining or snowing or hailing or foggy):
         try:
-            from .astronomy import moon_phase, moon_illumination, moon_waxing
+            sky = self.client.public.astronomy
+            moon_phase = sky["moon_phase"]
+            moon_illumination = sky["moon_illumination"]
+            moon_waxing = sky["moon_waxing"]
             layers.append(Moon(moon_phase(when), moon_illumination(when),
                                moon_waxing(when)))
         except Exception:

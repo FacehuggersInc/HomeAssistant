@@ -168,7 +168,8 @@ class NightPage(PageFramework):
             return None
         from datetime import datetime, timedelta
         # Counted from a known new moon, so the offset means what it says.
-        from .astronomy import KNOWN_NEW_MOON, SYNODIC
+        sky = self.client.public.astronomy["module"]
+        KNOWN_NEW_MOON, SYNODIC = sky.KNOWN_NEW_MOON, sky.SYNODIC
         base = datetime(2000, 1, 6, 18, 14)
         cycles = int((datetime.now() - base).days / SYNODIC)
         return base + timedelta(days=cycles * SYNODIC + days)
@@ -219,7 +220,9 @@ class NightPage(PageFramework):
         if not bool(self._setting("scene.show_sun", True)):
             return ""
         try:
-            from .astronomy import next_sun_event, describe_wait
+            sky = self.client.public.astronomy
+            next_sun_event = sky["next_sun_event"]
+            describe_wait = sky["describe_wait"]
             # Asked of the weather API, not read out of another plugin's
             # settings file. `client.setting()` walks the client's own tree
             # and never reaches a plugin key, so those paths always answered

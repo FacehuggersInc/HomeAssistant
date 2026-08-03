@@ -145,6 +145,19 @@ class Widget(QWidget):
         self.KEY      = key or self.__class__.KEY or self.__class__.__name__.lower()
         self.client   = client
         self.anchor   = anchor or self.DEFAULT_ANCHOR
+        # A floatable widget starts FLOATING unless it was told otherwise.
+        #
+        # Starting anchored made it both at once: it drew in an anchor zone,
+        # and dragging it had to tear it out of that zone before it could go
+        # anywhere - which is why it would not pick up cleanly and kept
+        # landing back in the corner it started in.
+        #
+        # A class that overrode DEFAULT_ANCHOR meant it: the configuration
+        # bar and the clock are floatable so they CAN be moved, and belong
+        # somewhere specific until they are.
+        if not floating and anchor is None and self.FLOATABLE \
+                and type(self).DEFAULT_ANCHOR == Widget.DEFAULT_ANCHOR:
+            floating = True
         self.floating = bool(floating)
         self.float_x  = float_x
         self.float_y  = float_y
@@ -884,7 +897,13 @@ class WidgetFramework(QWidget):
 
         if widget.floating or widget.anchor == FLOATING:
             widget.tags = ["floating"]
-            if wanted or exact is not None or bundle:
+            # A widget with no saved position is a NEW one, and new means the
+            # middle. Without this it takes float_x/float_y as they were
+            # initialised - (0, 0) - so everything added from the widgets
+            # panel piled up in the top-left corner.
+            fresh = not widget.float_x and not widget.float_y
+            if wanted or exact is not None or bundle or fresh:
+                wanted = wanted or "center"
                 # Measured against what is already on the page, so this has to
                 # happen after the widget is parented and fitted - its size is
                 # part of the question.

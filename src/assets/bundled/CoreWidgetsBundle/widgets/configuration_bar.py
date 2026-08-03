@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from PyQt6.QtWidgets import QHBoxLayout, QFrame
+from PyQt6.QtWidgets import QHBoxLayout
 from PyQt6.QtCore import Qt
 
 from src.ui.widget import Widget
@@ -76,6 +76,27 @@ class ConfigurationBar(Widget):
         self._alarm_btn.setFixedSize(self.BUTTON, self.BUTTON)
         row.addWidget(self._alarm_btn)
 
+        self._draw_btn = IconButton("mdi.draw",
+                                    self._whiteboard, size=self.BUTTON // 2)
+        self._draw_btn.setFixedSize(self.BUTTON, self.BUTTON)
+        row.addWidget(self._draw_btn)
+
+        # The wallpaper, from the page the wallpaper is on.
+        #
+        # These were in the quick settings header, which is reachable from
+        # every page - and the cycling background only exists while sub.home
+        # is built, so they were hidden almost everywhere they could be
+        # reached from. Here they are on the page they act on.
+        self._wallpaper_btn = IconButton(Icons.IMAGE, self._cycle_wallpaper,
+                                         size=self.BUTTON // 2)
+        self._wallpaper_btn.setFixedSize(self.BUTTON, self.BUTTON)
+        row.addWidget(self._wallpaper_btn)
+
+        self._pin_btn = IconButton(Icons.PIN, self._pin_wallpaper,
+                                   size=self.BUTTON // 2)
+        self._pin_btn.setFixedSize(self.BUTTON, self.BUTTON)
+        row.addWidget(self._pin_btn)
+
         # An explicit size, not adjustSize(): the bar goes into a graphics
         # proxy before its layout has run, so leaving it to size itself left
         # the buttons clipped by a box smaller than its own contents.
@@ -83,12 +104,94 @@ class ConfigurationBar(Widget):
         # Counted rather than written out. Three buttons was two additions
         # ago, and a width that has to be edited every time one is added is a
         # width that will be wrong.
-        buttons = 3
+        buttons = 6
         self.setFixedSize(
             10 + self.notifications.width()
             + (8 + self.BUTTON) * buttons + 10,
             inner_h + 16,
         )
+
+    ## -- wallpaper
+
+    def _wallpaper(self, name: str):
+        """
+        One of the background's own functions, or nothing.
+
+        Looked up on every press rather than held. This widget is built by the
+        same mixin that publishes them and can run first, and the page can be
+        torn down and rebuilt under it - a reference taken once is a reference
+        to a background that may be gone.
+        """
+        try:
+            if not self.client.public.has("cwb_wallpaper"):
+                return None
+            found = self.client.public.cwb_wallpaper.get(name)
+        except Exception:
+            return None
+        return found if callable(found) else None
+
+    def _cycle_wallpaper(self) -> None:
+        action = self._wallpaper("cycle")
+        if action is None:
+            return
+        try:
+            action()
+        except Exception as e:
+            self.client.log("warning",
+                            f"[ConfigurationBar] Wallpaper cycle failed: {e}")
+        self.refresh_wallpaper()
+
+    def _pin_wallpaper(self) -> None:
+        action = self._wallpaper("toggle_pin")
+        if action is None:
+            return
+        try:
+            action()
+        except Exception as e:
+            self.client.log("warning",
+                            f"[ConfigurationBar] Wallpaper pin failed: {e}")
+        self.refresh_wallpaper()
+
+    def refresh_wallpaper(self) -> None:
+        """
+        Put the two buttons in step with the background.
+
+        Only the buttons themselves change either state, so this runs on a
+        press rather than on a tick - a bar that polls the background once a
+        second to redraw an icon that cannot have changed is a bar that costs
+        something for nothing.
+        """
+        available = self._wallpaper("cycle") is not None
+        self._wallpaper_btn.setVisible(available)
+        self._pin_btn.setVisible(available)
+        if not available:
+            return
+
+        pinned = False
+        check = self._wallpaper("is_pinned")
+        if check is not None:
+            try:
+                pinned = bool(check())
+            except Exception:
+                pinned = False
+        self._pin_btn.update_icon(Icons.UNPIN if pinned else Icons.PIN)
+
+        # Cycling a pinned wallpaper does nothing, so the button says so.
+        can_cycle = self._wallpaper("can_cycle")
+        try:
+            self._wallpaper_btn.setEnabled(
+                bool(can_cycle()) if can_cycle is not None else True)
+        except Exception:
+            self._wallpaper_btn.setEnabled(True)
+
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        # The first refresh. It cannot happen in __init__: this is built by the
+        # mixin that publishes the background, and may be built first.
+        try:
+            self.refresh_wallpaper()
+        except Exception:
+            pass
 
     ## -- timers
 
@@ -144,6 +247,37 @@ class ConfigurationBar(Widget):
         self.client.simple_notify(
             "mdi.alarm", "Alarm set",
             f"{said}, every day" if alarm.repeats else said)
+
+    ## -- the whiteboard
+
+    def _whiteboard(self) -> None:
+        from .whiteboard import WhiteboardDialog
+        self.client.dialog(WhiteboardDialog(self.client, on_saved=self._stuck))
+
+    def _stuck(self, sticker, longest: int = 0) -> None:
+        """
+        Drawn, saved, and put up.
+
+        Placed as well as saved because the whole point was sticking it on
+        the wall - a drawing that lands in a folder and waits to be chosen is
+        two more steps than anybody wants while holding a pen.
+        """
+        placed, reason = False, ""
+        try:
+            placed, reason = self.client.public.stickers["place"](
+                sticker.key, "center",
+                # "custom" with the size it was drawn at, rather than the
+                # default share of the panel width - which would shrink a
+                # careful drawing or blow up a doodle.
+                scale="custom", size=int(longest or 0))
+        except Exception as e:
+            reason = str(e)
+        if not placed and reason:
+            self.client.log("warning", f"[Whiteboard] Not placed: {reason}")
+        self.client.simple_notify(
+            "mdi.draw", "Whiteboard",
+            "Saved to your stickers and put on the home screen." if placed
+            else "Saved to your stickers.")
 
     def _open_widgets_panel(self) -> None:
         framework = self._framework()

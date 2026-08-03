@@ -1,6 +1,220 @@
 {
  "log": [
   {
+   "at": 1785719646.495249,
+   "note": "tiles ordered small to large, a count on the panel, full-size bookmark icons, and the wallpaper controls moved to the configuration bar",
+   "pages": [
+    {
+     "slug": "bundled-plugins",
+     "state": "updated"
+    },
+    {
+     "slug": "quick-settings",
+     "state": "updated"
+    },
+    {
+     "slug": "tiles",
+     "state": "updated"
+    },
+    {
+     "slug": "widgets",
+     "state": "updated"
+    }
+   ]
+  },
+  {
+   "at": 1785719060.1187956,
+   "note": "the tile panel as a grid of its own, unlabelled and rendered without a card behind it",
+   "pages": [
+    {
+     "slug": "tiles",
+     "state": "updated"
+    }
+   ]
+  },
+  {
+   "at": 1785718566.9826672,
+   "note": "the tile panel packed into its own grid, at grid size",
+   "pages": [
+    {
+     "slug": "tiles",
+     "state": "updated"
+    }
+   ]
+  },
+  {
+   "at": 1785717333.2316082,
+   "note": "registry and plugin counts that had drifted, and the astronomy library written up",
+   "pages": [
+    {
+     "slug": "architecture",
+     "state": "updated"
+    },
+    {
+     "slug": "bundled-plugins",
+     "state": "updated"
+    },
+    {
+     "slug": "registries",
+     "state": "updated"
+    },
+    {
+     "slug": "tiles",
+     "state": "updated"
+    }
+   ]
+  },
+  {
+   "at": 1785716614.0928206,
+   "note": "tiles that hold a state",
+   "pages": [
+    {
+     "slug": "tiles",
+     "state": "updated"
+    }
+   ]
+  },
+  {
+   "at": 1785715469.4746127,
+   "note": "nothing ticks unless it asks",
+   "pages": [
+    {
+     "slug": "widgets",
+     "state": "updated"
+    }
+   ]
+  },
+  {
+   "at": 1785715285.2772365,
+   "note": "a widget paints itself",
+   "pages": [
+    {
+     "slug": "widgets",
+     "state": "updated"
+    }
+   ]
+  },
+  {
+   "at": 1785714850.50596,
+   "note": "floating means floating",
+   "pages": [
+    {
+     "slug": "widgets",
+     "state": "updated"
+    }
+   ]
+  },
+  {
+   "at": 1785712945.2321217,
+   "note": "a widget that can be put down somewhere else",
+   "pages": [
+    {
+     "slug": "widgets",
+     "state": "updated"
+    }
+   ]
+  },
+  {
+   "at": 1785712297.912338,
+   "note": "a weather tile you can read across a room",
+   "pages": [
+    {
+     "slug": "plugins",
+     "state": "updated"
+    }
+   ]
+  },
+  {
+   "at": 1785712057.613625,
+   "note": "a library plugin, and the weather in one word",
+   "pages": [
+    {
+     "slug": "architecture",
+     "state": "updated"
+    }
+   ]
+  },
+  {
+   "at": 1785711551.7201393,
+   "note": "the sun, the moon, and where shared maths lives",
+   "pages": [
+    {
+     "slug": "architecture",
+     "state": "updated"
+    }
+   ]
+  },
+  {
+   "at": 1785711100.999552,
+   "note": "a private name is not an api",
+   "pages": [
+    {
+     "slug": "plugins",
+     "state": "updated"
+    }
+   ]
+  },
+  {
+   "at": 1785711084.7215283,
+   "note": "a private name is not an api",
+   "pages": [
+    {
+     "slug": "plugins",
+     "state": "updated"
+    }
+   ]
+  },
+  {
+   "at": 1785710073.226564,
+   "note": "asking from a browser",
+   "pages": [
+    {
+     "slug": "api",
+     "state": "updated"
+    }
+   ]
+  },
+  {
+   "at": 1785709189.4063241,
+   "note": "an eraser that erases",
+   "pages": [
+    {
+     "slug": "dialogs",
+     "state": "updated"
+    }
+   ]
+  },
+  {
+   "at": 1785708916.768846,
+   "note": "asking for the whole screen",
+   "pages": [
+    {
+     "slug": "dialogs",
+     "state": "updated"
+    }
+   ]
+  },
+  {
+   "at": 1785706865.5593538,
+   "note": "labels that fit, and settings nothing reads",
+   "pages": [
+    {
+     "slug": "settings",
+     "state": "updated"
+    }
+   ]
+  },
+  {
+   "at": 1785705973.459995,
+   "note": "scroll or drag, decided once",
+   "pages": [
+    {
+     "slug": "tiles",
+     "state": "updated"
+    }
+   ]
+  },
+  {
    "at": 1785689739.2169821,
    "note": "an alarm you can set by hand",
    "pages": [
@@ -843,14 +1057,14 @@
  ],
  "pages": {
   "api": {
-   "at": 1785682556.2391026,
-   "hash": "b2c950497e792ffe",
+   "at": 1785710073.2259855,
+   "hash": "90619f6803f9ae8d",
    "opened": 0,
    "state": "updated"
   },
   "architecture": {
-   "at": 1785680032.7133954,
-   "hash": "e2f7c787752ee35a",
+   "at": 1785717333.2300634,
+   "hash": "1ef2520c21b1f1b3",
    "opened": 0,
    "state": "updated"
   },
@@ -873,8 +1087,8 @@
    "state": "updated"
   },
   "bundled-plugins": {
-   "at": 1785682895.196486,
-   "hash": "1b593cec1c45df59",
+   "at": 1785719646.4938622,
+   "hash": "ff699d60840ee9af",
    "opened": 0,
    "state": "updated"
   },
@@ -885,8 +1099,8 @@
    "state": "updated"
   },
   "dialogs": {
-   "at": 1785689739.215798,
-   "hash": "412b796505b34363",
+   "at": 1785709189.40583,
+   "hash": "02fe3960a333de27",
    "opened": 0,
    "state": "updated"
   },
@@ -963,26 +1177,26 @@
    "state": "updated"
   },
   "plugins": {
-   "at": 1785682556.24008,
-   "hash": "2285e7076fc8026c",
+   "at": 1785712297.911991,
+   "hash": "30ca7169c56b74f8",
    "opened": 0,
    "state": "updated"
   },
   "quick-settings": {
-   "at": 1785682556.240136,
-   "hash": "2ec3090fbba2595c",
+   "at": 1785719646.4945621,
+   "hash": "173e8ce552c1c1ef",
    "opened": 0,
    "state": "updated"
   },
   "registries": {
-   "at": 1785682556.2401776,
-   "hash": "8f1a749cf129bb22",
+   "at": 1785717333.2309856,
+   "hash": "f69a5a0325dd8274",
    "opened": 0,
    "state": "updated"
   },
   "settings": {
-   "at": 1785682556.2402792,
-   "hash": "3655233625c41998",
+   "at": 1785706865.5588963,
+   "hash": "1a8c608b78cd346e",
    "opened": 0,
    "state": "updated"
   },
@@ -1005,8 +1219,8 @@
    "state": "updated"
   },
   "tiles": {
-   "at": 1785680032.713894,
-   "hash": "08897e82f6708258",
+   "at": 1785719646.4949687,
+   "hash": "35760e76a5a05daf",
    "opened": 0,
    "state": "updated"
   },
@@ -1035,8 +1249,8 @@
    "state": "updated"
   },
   "widgets": {
-   "at": 1785680032.7139816,
-   "hash": "b10a799a356a645a",
+   "at": 1785719646.4952104,
+   "hash": "063b6603e75bf1b7",
    "opened": 0,
    "state": "updated"
   },

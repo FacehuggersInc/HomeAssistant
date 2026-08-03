@@ -2,7 +2,7 @@
 name = "Nighttime Clock"
 key = "nighttimeclock"
 order = 5
-dependencies = ["corewidgetsbundle"]
+dependencies = ["corewidgetsbundle", "astronomy"]
 icon = "weather-night"
 
 [settings]

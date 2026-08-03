@@ -335,6 +335,64 @@ def FlaskApp(client):
 			        "reason": "The assistant is busy."}, 409
 		return {"request": "Success"}, 200
 
+	@app.route("/ask", methods=["GET", "POST"])
+	def ask_page():
+		"""
+		Ask the assistant something, from a browser.
+
+		GET /ask?token=...&q=what is the weather
+
+		With no query it serves the form. A separate endpoint from
+		`/process` on purpose: that one is the machine-readable route with a
+		bare JSON contract, and a page and a script that share a URL end up
+		with one of them shaping the other. This can grow a form, examples
+		and a friendlier failure without touching what scripts depend on.
+
+		The answer happens on the PANEL, not here. What comes back is
+		whether anything took it, which is the only thing this end can know.
+		"""
+		log()
+		err = auth()
+		if err: return err
+
+		token = (request.args.get("token")
+				 or request.headers.get("X-Client-Token") or "")
+		query = str(request.values.get("q") or "").strip()
+
+		if not query:
+			# Real skills rather than invented ones. An example that matches
+			# nothing teaches somebody that the panel does not work.
+			examples = []
+			try:
+				for skill in list(client.SKILLS.skills())[:60]:
+					for phrase in (getattr(skill, "examples", None) or [])[:1]:
+						if phrase and len(phrase) <= 34:
+							examples.append(phrase)
+							break
+					if len(examples) >= 6:
+						break
+			except Exception:
+				examples = []
+			return render_template("ask.html", token=token,
+								   examples=examples,
+								   panel=client.panel_name()), 200
+
+		if not client.BUILT:
+			return {"request": "Failed",
+					"reason": "Wait until the Program has started fully."}, 409
+
+		# submit(), like /process - the microphone's path looks for a wake
+		# word first and a typed query has none.
+		try:
+			taken = bool(client.STT.submit(query))
+		except Exception as e:
+			return {"request": "Failed", "reason": str(e)}, 500
+		if not taken:
+			return {"request": "Failed",
+					"what": "The assistant is busy - try again in a moment.",
+					"reason": "The assistant is busy."}, 409
+		return {"request": "Success", "what": f"Asked: {query}"}, 200
+
 	## NAVIGATION
 
 	def _coerce(value: str):
@@ -815,6 +873,12 @@ def FlaskApp(client):
 			 "auth": True, "icon": "arrow-right-bold"},
 			{"url": "/say", "label": "Say something",
 			 "description": "Read a message out on the panel, from anywhere.",
+			 "auth": True, "icon": "message-text"},
+			{"url": "/ask", "label": "Ask",
+			 "description": "Ask the assistant something and let the panel "
+							"answer.",
+			 # An icon the set actually has - svg() falls back to a dot for
+			 # a name it does not know, which is a gap rather than an icon.
 			 "auth": True, "icon": "message-text"},
 			{"url": "/clipboard/page", "label": "Clipboard",
 			 "description": "Read what is on the panel's clipboard, or put "

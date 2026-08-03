@@ -31,6 +31,58 @@ A widget declares what it supports on the class:
 | `EDGE_PADDING`                       | how close to the window edge it may be dragged                                         |
 | `DEFAULT_ANCHOR`                     | where it lands when nothing has been saved for it                                      |
 
+## A widget paints itself
+
+There is **no `build()` hook**. A `Widget` draws in `paintEvent`; a class that
+defines `build()` and returns a laid-out QLabel gets a widget with nothing in
+it, because nothing ever calls it.
+
+A `Tile` is the other way round - `add_variant(min_w, min_h, builder)` takes
+builders, and the builder is called when the tile crosses that size. Two
+classes in the same folder can therefore look almost identical and want
+opposite things, which is worth checking before wondering why a label is
+missing.
+
+## Nothing ticks unless it asks
+
+`tick()` exists on the base class and **nothing calls it on its own**. A
+widget that wants to be ticked says so:
+
+```python
+self.start_tick(interval_ms=5000)
+```
+
+Without it the method is simply never reached, which looks like the fetch
+failing rather than never being attempted - there is no error, because
+nothing ran. A `Tile` is ticked by its grid; a `Widget` is not.
+
+## Anchored, floating, and the state between them
+
+`FLOATABLE` says a widget CAN be moved. It defaults to False, and a widget
+without it is pinned to an anchor zone - `DEFAULT_ANCHOR`, which is
+`bottom-left`. Nothing about the drag is broken when that happens; the widget
+is doing what it was declared to do.
+
+**Floatable widgets start floating.** Declaring `FLOATABLE = True` and
+letting it start anchored made it both at once: it drew inside an anchor
+zone, and a drag had to tear it out of that zone before it could go anywhere
+- so it would not pick up cleanly and kept landing back where it began.
+
+| The class says                                  | It starts                 |
+|-------------------------------------------------|---------------------------|
+| Nothing                                         | Anchored at `bottom-left` |
+| `FLOATABLE = True`                              | Floating, in the middle   |
+| `FLOATABLE = True` and its own `DEFAULT_ANCHOR` | Anchored there, movable   |
+
+That last row is deliberate: the configuration bar and the clock are
+floatable so they *can* be moved, and belong somewhere specific until
+somebody does.
+
+**A new floating widget lands in the middle.** `float_x` and `float_y` start
+at (0, 0), which is the top-left corner - so anything added from the widgets
+panel piled up there. `place()` treats an unset position as new and asks for
+a free spot at `center`.
+
 ## Placing and moving
 
 **Hold** a widget to lift it: it rises above everything else and gets a dashed
@@ -578,11 +630,20 @@ already selected.
 
 ## The configuration bar
 
-`ConfigurationBar` carries the notification centre and the widgets-panel
-button. It is `REMOVABLE = False` so it cannot be thrown away - otherwise
-removing it would leave no way back into the panel - but it is `FLOATABLE`, so
-it can be moved anywhere. It embeds the real `NotificationCenterWidget` rather
-than reimplementing it, so history, the unread dot and the panel keep working.
+`ConfigurationBar` carries the notification centre, the widgets-panel button, a
+timer, an alarm, the whiteboard, and the two wallpaper controls. It is
+`REMOVABLE = False` so it cannot be thrown away - otherwise removing it would
+leave no way back into the panel - but it is `FLOATABLE`, so it can be moved
+anywhere. It embeds the real `NotificationCenterWidget` rather than
+reimplementing it, so history, the unread dot and the panel keep working.
+
+**The wallpaper controls are here rather than in quick settings** because the
+cycling background only exists while `sub.home` is built. In a panel reachable
+from every page they were hidden on most of them; on a widget that lives on
+that page they are there whenever they mean anything. Each press looks the
+functions up again through `cwb_wallpaper` rather than holding a reference:
+this widget is built by the same mixin that publishes them and can run first,
+and the page can be torn down and rebuilt underneath it.
 
 ## The sticky note
 

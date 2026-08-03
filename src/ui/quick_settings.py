@@ -12,7 +12,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtGui import QFontMetrics, QPainter, QColor
 from PyQt6.QtCore import Qt, QEvent, QPoint, QRect, QTimer, QSize
 
-from src.styling import make_font, SIZES, set_style, get_style_sheet, style_scrollbar
+from src.styling import make_font, SIZES, set_style, style_scrollbar
 from src.ui.overlays import Panel
 from src.ui.controls.buttons import IconButton
 from src.ui.icons import Icons, icon as resolve_icon
@@ -69,12 +69,15 @@ class QuickAccessButton(QWidget):
         # Fixed height, flexible width. Fixed on both axes is what left four
         # tiles huddled against the left edge of a panel wide enough for
         # eight, with the rest of the row empty.
-        self.setFixedHeight(84)
-        self.setMinimumWidth(88)
+        # Tall enough for two lines of a wrapped label. Eight pixels short of
+        # that and "Do not disturb" - which is two lines at any sensible tile
+        # width - has its second line clipped off with nothing to say it went.
+        self.setFixedHeight(102)
+        self.setMinimumWidth(132)
         # Capped as well as flexible. Stretching to fill was the fix for four
         # tiles bunched on the left, but with three entries on a wide panel it
         # would have given three tiles 700px across, which is worse.
-        self.setMaximumWidth(168)
+        self.setMaximumWidth(210)
         self.setSizePolicy(QSizePolicy.Policy.Expanding,
                            QSizePolicy.Policy.Fixed)
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
@@ -474,16 +477,17 @@ class QuickSettings(Panel):
 
         # The controls that used to sit in every page's drawer.
         self._btn_update    = IconButton(Icons.DOWNLOAD, self._show_update, size=24)
-        self._btn_wallpaper = IconButton(Icons.IMAGE, self._cycle_wallpaper, size=24)
-        self._btn_pin       = IconButton(Icons.PIN, self._pin_wallpaper, size=24)
+        # The wallpaper controls used to sit here. They act on the cycling
+        # background, which only exists on sub.home - so they spent most of
+        # their life hidden, in a panel reachable from everywhere. They live
+        # on the configuration bar now, which is on that page.
         self._btn_full      = IconButton(Icons.FULLSCREEN, self._toggle_fullscreen, size=24)
         self._btn_docs      = IconButton("mdi.book-open-variant", self._open_docs, size=24)
         self._btn_settings  = IconButton(Icons.SETTINGS, self._open_settings, size=24)
         self._btn_quit      = IconButton(Icons.CLOSE, self._quit, size=24)
 
-        for button in (self._btn_update, self._btn_wallpaper, self._btn_pin,
-                       self._btn_full, self._btn_docs, self._btn_settings,
-                       self._btn_quit):
+        for button in (self._btn_update, self._btn_full, self._btn_docs,
+                       self._btn_settings, self._btn_quit):
             header.addWidget(button)
 
         self._layout.addLayout(header)
@@ -1037,7 +1041,13 @@ class QuickSettings(Panel):
         self._quick_columns_used = columns
 
     #the width one tile wants before the grid starts adding another column
-    TILE_TARGET = 116
+    #The width one quick access tile wants before another column is added.
+    #
+    #Names here are words rather than glyph captions - "Do not disturb", "Night
+    #clock", "Music" - and a column narrow enough to fit eight of them across
+    #is a column that clips most of them. Fewer and wider reads better than
+    #more and cut off.
+    TILE_TARGET = 168
 
     def _quick_columns(self, count: int) -> int:
         """
@@ -1093,55 +1103,11 @@ class QuickSettings(Panel):
 
     ## -- built in controls
 
-    def _on_sub_home(self) -> bool:
-        """Whether the wallpaper controls have anything to act on right now."""
-        return bool(self.client.public.has("cwb_wallpaper"))
-
     def _refresh_header(self) -> None:
         self.refresh_update_button()
-
-        # Hidden off sub.home: these act on the cycling background, and the
-        # publication only exists while that page is built.
-        on_home = self._on_sub_home()
-        self._btn_wallpaper.setVisible(on_home)
-        self._btn_pin.setVisible(on_home)
-
-        if on_home:
-            pinned = self._wallpaper_state("is_pinned")
-            self._btn_pin.update_icon(Icons.UNPIN if pinned else Icons.PIN)
-            # Cycling a pinned wallpaper is a no-op, so the button says so.
-            self._btn_wallpaper.setEnabled(self._wallpaper_state("can_cycle"))
-
         self._btn_full.update_icon(
             Icons.FULLSCREEN_EXIT if self.client.window.isFullScreen()
             else Icons.FULLSCREEN)
-
-    def _wallpaper_state(self, name: str) -> bool:
-        try:
-            check = self.client.public.cwb_wallpaper.get(name)
-            return bool(check()) if callable(check) else False
-        except Exception:
-            return False
-
-    def _wallpaper_action(self, name: str) -> None:
-        try:
-            action = self.client.public.cwb_wallpaper.get(name)
-        except Exception:
-            action = None
-        if not callable(action):
-            return
-        try:
-            action()
-        except Exception as e:
-            self.client.log("warning", f"[QuickSettings] Wallpaper '{name}' failed: {e}")
-        self._refresh_header()
-        self._restart_timeout()
-
-    def _cycle_wallpaper(self) -> None:
-        self._wallpaper_action("cycle")
-
-    def _pin_wallpaper(self) -> None:
-        self._wallpaper_action("toggle_pin")
 
     def _toggle_fullscreen(self) -> None:
         self.client.toggle_fullscreen()

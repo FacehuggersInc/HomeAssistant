@@ -2,7 +2,8 @@
 
 Registries manage and store extendable, plugin-ownable objects — things like API endpoints or pages, that a plugin registers and expects to have cleaned up automatically when it's unloaded or reloaded.
 
-Three concrete registries currently exist. They are not all shaped the same way.
+Nine concrete registries currently exist, and `BookmarkStore` sits alongside
+them below. They are not all shaped the same way.
 
 ## `APIRegistry` — `self.client.API`
 

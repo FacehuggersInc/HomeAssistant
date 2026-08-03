@@ -450,6 +450,7 @@ class ArgumentList(QWidget):
         self._fill(arguments or [], values or {})
 
     def _fill(self, arguments: list, values: dict) -> None:
+        declared = []
         for argument in arguments:
             name = argument.get("name") if isinstance(argument, dict) else argument.name
             kind = argument.get("kind") if isinstance(argument, dict) else argument.kind
@@ -458,7 +459,23 @@ class ArgumentList(QWidget):
             default = (argument.get("default") if isinstance(argument, dict)
                        else argument.default)
             value = values.get(name, default)
+            declared.append(name)
             self._append(name, kind, value, required=bool(required))
+
+        # Anything SAVED that the signature does not declare.
+        #
+        # An argument added by hand is passed as a keyword and is not in the
+        # function's signature, so building the list from the signature alone
+        # gives it no row - and `values()` reads the rows, so the next save
+        # writes it out of existence. It survived being set and disappeared
+        # the second time the dialog was opened.
+        for name, value in (values or {}).items():
+            if name in declared:
+                continue
+            # No declared kind - there is nothing declaring it - so the
+            # editor is chosen from the value itself, the same way a nested
+            # object rebuilds its rows.
+            self._append(name, kind_of(value), value)
         self._sync_empty()
 
     def _append(self, name: str, kind: str, value: Any,

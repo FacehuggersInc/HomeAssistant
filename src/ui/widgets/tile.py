@@ -143,6 +143,51 @@ class Tile(QWidget):
                 best, best_score = (min_w, min_h), score
         return best
 
+    #Below this many characters of a name, the elided version says nothing.
+    #"Ch..." is not a shorter label, it is a worse one.
+    MIN_LABEL_CHARS = 4
+
+    def label_for(self, label, text: str, inset: int = 16) -> str:
+        """
+        The name to put on this tile at its current size, or nothing.
+
+        Three answers, not two. It fits; it fits shortened; or there is no
+        width at which it says anything and the tile is better off with just
+        its picture.
+
+        A 1x1 tile is always the third. Whatever the name, a square that size
+        holds an icon and about three letters of it, and three letters of a
+        name is not a name - it is a tile that looks broken.
+        """
+        from PyQt6.QtGui import QFontMetrics
+        from PyQt6.QtCore import Qt
+
+        text = str(text or "")
+        if not text:
+            return ""
+        if self.grid_w <= 1 and self.grid_h <= 1:
+            return ""
+
+        # Measured from the TILE, not the label. A label's own width is
+        # whatever the last layout pass gave it, and this runs before the
+        # first one - so it reads as a handful of pixels and elides the name
+        # to two letters, which then shrinks what the label asks for, which
+        # cuts it down further on every resize.
+        room = self.width() - inset
+        if room <= 8:
+            return text
+
+        metrics = QFontMetrics(label.font())
+        if metrics.horizontalAdvance(text) <= room:
+            return text
+
+        shortened = metrics.elidedText(text, Qt.TextElideMode.ElideRight, room)
+        # Count what survived, not what was written: the ellipsis is not a
+        # character somebody reads.
+        if len(shortened.rstrip(".…").strip()) < self.MIN_LABEL_CHARS:
+            return ""
+        return shortened
+
     def apply_span(self, w: int, h: int, force: bool = False) -> bool:
         """
         Set the tile's span and swap in the variant that fits.

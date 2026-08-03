@@ -11,7 +11,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Optional
 
 from PyQt6.QtCore import Qt, QSize
-from PyQt6.QtGui import QPixmap, QFontMetrics
+from PyQt6.QtGui import QPixmap
 from PyQt6.QtWidgets import QWidget, QLabel, QVBoxLayout, QSizePolicy
 
 from src.styling import make_font, set_style, add_text_shadow, SIZES
@@ -46,6 +46,10 @@ class BookmarkTile(Tile):
         self.url = str(url or "").strip()
         self._icon_label: Optional[QLabel] = None
         self._name_label: Optional[QLabel] = None
+        #The favicon at whatever size it was saved, scaled on every resize
+        #rather than once. A cell's pixel size depends on the screen and is
+        #not known when the address is set.
+        self._icon_source: Optional[QPixmap] = None
 
         # One cell whatever it is asked for: the grid can hand back a
         # remembered span from before the limit existed.
@@ -100,6 +104,45 @@ class BookmarkTile(Tile):
     #Side margins the label sits inside, from the layout below.
     LABEL_INSET = 16
 
+    #Room the icon sits inside: the layout's margins above and below, which
+    #are the larger pair.
+    ICON_INSET = 14
+
+    def _fit_icon(self) -> None:
+        """
+        Draw the favicon at whatever size the tile has for it.
+
+        Full size rather than a fixed 40px thumbnail. A bookmark's picture is
+        how it is recognised across the room, and a small square in the middle
+        of a cell is the least recognisable version of it.
+
+        **The name goes when there is a picture.** A site's own icon says which
+        site it is better than five elided characters do, and keeping both
+        means the icon gets whatever the text left over - which is the fixed
+        thumbnail again by another route.
+
+        Measured from the TILE, not from the label - the same trap the name
+        label carries a comment about. The host layout is centre-aligned, so a
+        label is given its size hint rather than the width available; a label
+        showing a pixmap hints at that pixmap's size, so scaling to the label
+        shrinks the label, which shrinks the next scale. It settles at the
+        size of the original file, however big the cell is.
+        """
+        label = self._icon_label
+        if label is None or self._icon_source is None:
+            return
+        if self._name_label is not None:
+            self._name_label.setVisible(False)
+
+        side = min(self.width(), self.height()) - self.ICON_INSET
+        if side <= 0:
+            # Before the first layout pass. resizeEvent runs this again with a
+            # real size, so nothing is lost by waiting.
+            return
+        label.setPixmap(self._icon_source.scaled(
+            QSize(side, side), Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.SmoothTransformation))
+
     def edit(self) -> None:
         """The chrome's pencil: choose a different page."""
         self.client.choose_bookmark(self.set_url)
@@ -118,16 +161,18 @@ class BookmarkTile(Tile):
         label = self._name_label
         if label is None:
             return
-        text = getattr(self, "_label_text", "") or ""
-        room = self.width() - self.LABEL_INSET
-        if room <= 8:
-            # No geometry yet. The full text is set, and the next resize
-            # trims it - showing too much briefly beats showing two letters.
-            label.setText(text)
+        if self._icon_source is not None:
+            # A picture takes the whole tile, so there is no line for a name
+            # to go on. Hidden here as well as in _fit_icon, because a resize
+            # runs this one first.
+            label.setVisible(False)
             return
-        metrics = QFontMetrics(label.font())
-        label.setText(metrics.elidedText(text, Qt.TextElideMode.ElideRight,
-                                         room))
+        text = self.label_for(label, getattr(self, "_label_text", ""),
+                              self.LABEL_INSET)
+        label.setText(text)
+        # Hidden, not merely blank. An empty label still takes its line, and
+        # on a 1x1 tile that line is a third of the picture.
+        label.setVisible(bool(text))
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
@@ -136,6 +181,7 @@ class BookmarkTile(Tile):
         # when the name is set.
         try:
             self._fit_label()
+            self._fit_icon()
         except Exception:
             pass
 
@@ -162,25 +208,23 @@ class BookmarkTile(Tile):
         else:
             label, initial = mark.label, mark.initial
 
-        pixmap = None
+        self._icon_source = None
         if mark is not None:
             try:
                 path = self.client.BOOKMARKS.icon_path(mark)
                 if path is not None:
                     candidate = QPixmap(str(path))
                     if not candidate.isNull():
-                        pixmap = candidate.scaled(
-                            QSize(40, 40), Qt.AspectRatioMode.KeepAspectRatio,
-                            Qt.TransformationMode.SmoothTransformation)
+                        self._icon_source = candidate
             except Exception:
-                pixmap = None
+                self._icon_source = None
 
         try:
             self._label_text = label
             self._fit_label()
-            if pixmap is not None:
-                self._icon_label.setPixmap(pixmap)
+            if self._icon_source is not None:
                 self._icon_label.setText("")
+                self._fit_icon()
             else:
                 # A letter, when there is no picture. Better than a generic
                 # globe: it differs between bookmarks, which is the job.

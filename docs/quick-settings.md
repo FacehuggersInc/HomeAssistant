@@ -47,10 +47,13 @@ an 18px margin, which makes it float as a card rather than sit flush. Both
 cards scroll internally so the panel keeps its proportion instead of growing to
 fit whatever happens to be registered.
 
-Header controls, left to right: update, wallpaper cycle, wallpaper pin,
-fullscreen, settings, quit. The two wallpaper buttons are hidden off `sub.home`
-- they act on the cycling background, and the publication they call only exists
-while that page is built.
+Header controls, left to right: update, fullscreen, docs, settings, quit.
+
+The two wallpaper buttons used to sit here and now live on the
+[configuration bar](widgets.md#the-configuration-bar). They act on the cycling
+background, which only exists while `sub.home` is built - so in a panel
+reachable from every page they spent most of their life hidden. On a widget
+that is on that page, they are always there when they mean anything.
 
 
 ## Registering a quick access button

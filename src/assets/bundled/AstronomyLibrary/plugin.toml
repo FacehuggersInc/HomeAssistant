@@ -1,0 +1,5 @@
+[plugin]
+name = "Astronomy"
+key = "astronomy"
+order = -10
+dependencies = []

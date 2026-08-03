@@ -2,9 +2,6 @@
   "descriptions": {
     "application": "Main settings for the App",
     "home": "Home Settings",
-    "home.media.show_normal_media_player": "If the normal Media Player should show (The black box with Play / Pause, Next, and Previous)",
-    "home.media.show_whats_playing": "If the title of whats playing should show. This will be positioned above or below the media controls and will show if the media controls aren't showing",
-    "home.media.media_player_position": "Where should the media controls / player be positioned",
     "home.background.background_cycle_interval": "The amount of time in seconds before the background cycles to a new Wallpaper",
     "home.background.background_fade_duration": "How long the fade animation should be when a Wallpaper cycles",
     "home.background.images": "Home Background's Path for Cycling Images",
@@ -61,7 +58,6 @@
     "home.clock.time_format": "Clock format, strftime style",
     "home.clock.date_format": "Date format, strftime style",
     "home.background": "The wallpaper and how it changes",
-    "home.media": "The now-playing card",
     "notifications.toasts": "Toast duration, spacing and position",
     "application.panel_name": "What this panel calls itself",
     "application.interaction_timeout": "Inactivity before the panel counts as idle",

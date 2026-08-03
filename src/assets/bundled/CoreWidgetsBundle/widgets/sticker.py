@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Optional
 from PyQt6.QtCore import Qt, QSize
 from PyQt6.QtGui import QPixmap, QMovie, QPainter, QColor, QPen
 
-from src.ui.widget import Widget
+from src.ui.widget import Widget, FLOATING
 
 if TYPE_CHECKING:
     from src.main import Client
@@ -53,7 +53,9 @@ class StickerWidget(Widget):
     #choice above "normal": on a 2560px panel it is a quarter of the width, so
     #"huge" came out the same size as "large".
     MAX_W, MAX_H = 1600, 1600
-    DEFAULT_ANCHOR = "top-right"
+    #Floating, not anchored. A sticker is stuck where somebody put it;
+    #an anchor zone is for things that belong in a corner.
+    DEFAULT_ANCHOR = FLOATING
 
     DEFAULT_SIDE = 180
 

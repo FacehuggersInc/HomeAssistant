@@ -9,6 +9,11 @@ router off, and it cannot be the thing that wakes the network.
 The moon is the standard mean-phase approximation and the sun is the NOAA
 solar position algorithm, both accurate to about a minute for this purpose -
 which is a great deal more than a wall clock saying "sunrise in 2h 14m" needs.
+
+In core rather than in the night clock, where it started. Two plugins want it
+now, and Core Widgets loads BEFORE Nighttime Clock - so a dependency in that
+direction is a cycle. It is arithmetic on a date and a position with no Qt and
+no plugin state in it, which makes it nobody's plugin in the first place.
 """
 
 from __future__ import annotations

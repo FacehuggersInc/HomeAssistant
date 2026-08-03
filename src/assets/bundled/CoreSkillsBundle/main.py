@@ -891,9 +891,14 @@ class CoreSkills(Plugin):
         if not self.client.public.has("notification_history"):
             self._respond("There is no notification history.")
             return
+        # Through what the history exposes, rather than reaching for the
+        # widget behind it. The manager lives on the home page, so it can be
+        # absent - which is what asking for this from another page does.
+        if not self.client.public.notification_history.open():
+            self._respond("The notification list is only on the home screen.")
+            return
         # Not spoken on success: the panel opening IS the answer, and reading
         # it out over the list somebody is now looking at helps nobody.
-        self.client.public.notification_history.manager.open_history()
     def weather_update(self):
         api = self.client.API.get("weather")
         if api is None:

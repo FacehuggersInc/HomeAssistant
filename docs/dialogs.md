@@ -105,6 +105,51 @@ at a time always has the room it needs, on any screen, and there is no
 breakpoint left to be wrong about. Reach for that before a second layout: a
 dialog that needs two shapes usually needs fewer things visible at once.
 
+### Qt objects that outlive their Python owner
+
+```python
+buffer = QBuffer(QByteArray())     # segfault, no traceback
+```
+
+The `QByteArray` is a temporary. Python collects it, the `QBuffer` keeps
+writing into freed memory, and the app disappears **with nothing in the log** -
+a SIGSEGV is not an exception and no handler sees it. Hold it in a name:
+
+```python
+store  = QByteArray()
+buffer = QBuffer(store)
+```
+
+The same shape appears wherever a Qt object takes another by pointer and does
+not own it - `QPropertyAnimation` without a parent, a model without a
+reference to its data. If something vanishes with an empty log, look for a
+constructor argument that nothing is keeping alive.
+
+### Asking for the whole screen
+
+`BaseDialog` sizes from `WIDTH` and `MAX_HEIGHT`, and clamps both with
+`_fits_across` / `_fits_down`. It has **no `WIDTH_RATIO`** - that is a
+`_WideDialog` idea, and setting one on a `BaseDialog` subclass does nothing
+whatsoever, silently.
+
+So a dialog that wants the screen asks for more than any screen and lets the
+clamp do the work:
+
+```python
+WIDTH = 100_000
+MAX_HEIGHT = 100_000
+```
+
+| Screen    | Dialog    |
+|-----------|-----------|
+| 1024x600  | 976x552   |
+| 1920x1080 | 1872x1032 |
+| 2560x1440 | 2512x1392 |
+
+Pair it with `expand_content()` and `setMinimumHeight(self.maximumHeight())`
+so the content actually fills what was asked for. The minimum is safe because
+the maximum has already been fitted to the screen.
+
 ### A panel somebody else may need to close
 
 `client.answer()` takes `on_built`, called with the `AnswerPanel` once it

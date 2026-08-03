@@ -17,6 +17,10 @@ from .widgets.tiles.bookmark_tile import BookmarkTile
 from src.assets.bundled.CoreWidgetsBundle.widgets.tiles.action_tile import ActionTile
 from .widgets.tiles.clock_tile import ClockTile
 from .widgets.tiles.weather_tile import WeatherTile
+from .widgets.tiles.sun_tile import SunTile
+from .widgets.weather_event import (
+    WeatherEventTile, WeatherEventWidget)
+from .widgets.tiles.switch_tiles import DEFAULT_TILES
 from .pages.home import HomePage
 from .api.openmeteo import OpenMeteoAPI
 
@@ -66,6 +70,11 @@ class CoreWidgetsBundle(Plugin):
             "get":    self.stickers.get,
             "add":    self.stickers.add_bytes,
             "remove": self.stickers.remove,
+            # Putting one on the home screen, for anything that makes a
+            # sticker rather than only reading them - see the whiteboard. The
+            # alternative is reaching for this plugin's instance, which is the
+            # route around the registry the registry exists to prevent.
+            "place":  self._place_sticker,
             "dir":    sticker_dir,
         })
         # Reachable over the API, which is how a phone gets a sticker onto the
@@ -1142,6 +1151,14 @@ class CoreWidgetsBundle(Plugin):
 
         sub_tiles.features().register_tile(ClockTile, in_grid=False)
         sub_tiles.features().register_tile(WeatherTile, in_grid=False)
+        sub_tiles.features().register_tile(SunTile, in_grid=False)
+        sub_tiles.features().register_tile(WeatherEventTile,
+                                          in_grid=False)
+        # The panel's own switches. Only Core Widgets' - a plugin that wants
+        # a tile for its own registers one itself, which is what keeps this
+        # from becoming the place every plugin's UI lives.
+        for tile_class in DEFAULT_TILES:
+            sub_tiles.features().register_tile(tile_class, in_grid=False)
         sub_tiles.features().register_tile(BookmarkTile, in_grid=False)
         sub_tiles.features().register_tile(ActionTile, in_grid=False)
 
@@ -1242,6 +1259,7 @@ class CoreWidgetsBundle(Plugin):
         register(BookmarkWidget)
         # A list to tick off - the most-used thing on a kitchen wall.
         register(ChecklistWidget)
+        register(WeatherEventWidget)
 
         # A star pressed in the browser toolbar puts one on the home
         # page briefly - see _on_web_event.

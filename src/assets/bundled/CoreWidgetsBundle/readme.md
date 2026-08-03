@@ -117,6 +117,142 @@ control for one number, and the one people get wrong.
 Skills for setting, cancelling and listing them are in **Core Skills**, which
 owns the phrasing; this plugin owns the clock, the panel and the picker.
 
+## The whiteboard
+
+`mdi.draw` on the Configuration Bar opens a near-fullscreen canvas: colours,
+four brush widths, an eraser, undo, clear. Save writes a **transparent PNG**
+into the sticker folder and puts it on the home screen.
+
+A producer for the sticker system rather than a second one. The folder, the
+library, placement and persistence already exist - this only had to make the
+image and hand it over, through `stickers["add"]` and `stickers["place"]`.
+
+Four decisions worth knowing:
+
+- **Strokes are objects, not pixels.** Each is a `QPainterPath` with its own
+  colour and width. Undo is then free and the drawing never goes soft.
+- **The eraser is a stroke** with `CompositionMode_Clear`, so it takes ink
+  away rather than painting over it - which is what a transparent sticker
+  needs, since background-coloured paint would land as an opaque smear on the
+  wallpaper. It also undoes like everything else, rather than being a hole
+  nothing can take back.
+- **The ink is composed offscreen**, then drawn onto the widget. `Clear`
+  needs an alpha channel to clear TO and a widget has none, so painting the
+  strokes straight onto it made the eraser a black pen. It also means the
+  preview is rendered by the same code as the saved file - a preview drawn
+  differently from the thing being saved is a preview of nothing. Finished
+  strokes are cached; only the one under the finger is redrawn.
+- **Saved cropped to the ink**, and put up at the size it was drawn. The
+  canvas is most of a screen and a drawing is usually a corner of it; whole,
+  every sticker would be a screen-sized mostly-empty PNG that is awkward to
+  place and slow to paint.
+
+  The crop margin is **half** the pen width plus a pixel for the antialiased
+  edge, because a path's bounding box is its centre line and the pen paints
+  half either side. The whole width leaves a 36 pixel border around a 36
+  pixel brush, which nearly doubles a small drawing.
+
+  Placement passes that measured size rather than the default share of the
+  panel width - the canvas is nearly the screen, so pixels on it are close to
+  pixels on the home page, and "it appeared the size I drew it" is the least
+  surprising answer. `StickerWidget` clamps to 48-1600 either way.
+- **The board tint is not saved.** There is a faint fill under the canvas so
+  ink can be seen while drawing; the image is filled transparent instead.
+
+Black is deliberately not in the palette. A transparent sticker lands on
+whatever wallpaper is underneath, and black on a dark panel is invisible.
+
+## Sun & moon
+
+`SunTile` counts down to the next sunrise or sunset, and after dark draws the
+moon at its actual phase.
+
+Nothing is fetched. The **Astronomy** library plugin is arithmetic on a date
+and a position, so it works with the router off and is never the thing that
+wakes the network - reached through `client.public.astronomy`, with
+`astronomy` declared as a dependency. The position comes from the weather API's `coordinates()`, not
+from another plugin's settings file.
+
+**Two faces, one tile.** Daylight puts the sun on an arc at how far through
+the day it is - a dot near the left has just come up, one near the right is
+nearly down, and that is read before any word on the tile. Night draws the
+moon as a lit disc with a shadow offset across it, which gives every phase
+rather than eight named pictures.
+
+Three things that were wrong and are worth not repeating:
+
+- `sun_times` answers in **UTC with a timezone attached**, and comparing one
+  of those to `datetime.now()` raises rather than returning False. The
+  day/night test threw, the handler swallowed it, and the tile showed the day
+  face at midnight while claiming it had no location. Everything is converted
+  to local naive time on the way in.
+- `%-I` is a **glibc extension**. Windows raises on it, and a format string is
+  a poor place to lose a whole platform.
+- The failure branch resets **everything**, not just the times. Half-reset
+  state is a tile confidently showing the wrong face with a stale countdown.
+
+## The weather tile
+
+Three variants: a glance at one cell, an hourly strip from 2x3, a full
+readout at 3x3 and above.
+
+**The background is the same painter the weather-event tile uses**, so two of
+these side by side agree about the sky rather than one showing a gradient and
+the other a storm.
+
+**There is no icon.** The background draws the weather, so a glyph on top of
+a picture of the same thing is the same fact twice - in the space the
+temperature wants. What the icon used to say, the sky says. A scrim is laid under the readout on anything larger than
+1x1 - white-on-cloud is the one combination that stops being readable, and
+the drawing is behind numbers now.
+
+**The stats are meters, not rows.** Anything with a scale worth drawing gets
+a bar under its value, so the tile answers "a lot or a little" before a
+number is read:
+
+| Reading                | Ceiling                         |
+|------------------------|---------------------------------|
+| Humidity, cloud cover  | 100%                            |
+| Wind                   | 40 mph                          |
+| Gusts                  | 60 mph                          |
+| Feels like, rain, snow | no bar - inches have no ceiling |
+
+A fixed ceiling rather than the day's maximum. A bar that rescales itself
+looks like the weather changed when only the range did.
+
+Feels-like and humidity are new: the API was already fetching both and the
+tile was throwing them away. A reading that is missing or zero drops its row
+entirely - "Snowfall 0.00 in" in July is a row spending space to say nothing.
+
+## Weather event
+
+`WeatherEventTile` and `WeatherEventWidget`: the sky drawn, and one word for
+what it is doing. No numbers - the weather tile beside them has those, and a
+temperature is a thing you read where "raining" is a thing you see from the
+far side of a room.
+
+Both are frames around `paint_condition()`, a painter rather than a widget,
+which is what lets a 1x1 tile and a home-page widget be the same picture at
+very different sizes without one owning the other.
+
+`condition_of()` picks the word in the order somebody would say it: storm
+beats snow beats rain beats cloud. If the sky is doing two things, the one
+worth mentioning is the worse one.
+
+The raindrops are placed from a seed rather than at random. Re-rolled on
+every repaint they crawl, which reads as a rendering fault rather than as
+rain.
+
+The widget paints its word in `paintEvent`; the tile puts one in a label from
+its variant builder. That is not inconsistency - a `Widget` has no `build()`
+hook and a `Tile` does take builders, so each does what its base class asks
+for.
+
+The widget declares `FLOATABLE = True`. Without it a widget is pinned to an
+anchor zone and `DEFAULT_ANCHOR` is `bottom-left` - so it can be picked up
+and never put down anywhere else. Anything meant to be arranged has to say
+so.
+
 ## Two tiles worth knowing about
 
 **Bookmark** and **action** are both `MULTIPLE`: the panel entry is a template

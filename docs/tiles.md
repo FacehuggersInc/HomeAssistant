@@ -8,6 +8,7 @@ being clear about:
 > `corewidgetsbundle`. Disable or remove it and these features go with it — the client
 > itself has no tile grid. That is deliberate: see
 > [Bundled plugins](bundled-plugins.md).
+
 |                    | Widgets                          | Tiles                             |
 |--------------------|----------------------------------|-----------------------------------|
 | Live on            | `sub.home`                       | `sub.tiles`                       |
@@ -22,6 +23,90 @@ Widgets are for a home screen that looks arranged. Tiles are for a dashboard
 that looks tidy. Both are registered rather than constructed-and-placed, and
 both remember where you put them.
 
+
+## Tiles that hold a state
+
+`StateTile` in `src/ui/widgets/state_tile.py` is a tile that is one of two or
+three things and looks different in each. A subclass supplies `STATES` and
+answers `read_state()`; a press calls `apply_state()` with whatever
+`next_state()` returned.
+
+```python
+class DoNotDisturbTile(StateTile):
+    STATES = [
+        TileState("off", "Notifications", "mdi.bell-outline"),
+        TileState("on",  "Do not disturb", "mdi.bell-off",
+                  background="#4a2130", border="#e0483f", ink="#ffd9d4"),
+    ]
+
+    def read_state(self):        return "on" if ... else "off"
+    def apply_state(self, key):  ...
+```
+
+Three rules it enforces so subclasses cannot get them wrong:
+
+- **The state is never cached.** It is re-read on every tick, because the
+  thing being toggled can also be changed by a skill, a Quick Setting or
+  another panel - and a tile showing what it last set lies the moment
+  anything else touches it.
+- **A press re-reads rather than assumes.** What was asked for and what
+  happened are different questions, and the second is the one to draw.
+- **Two or three states.** Past that a tap is a guessing game and what
+  somebody wants is a menu.
+
+A single state is a button that shares the look - see `_OpensSomething`.
+
+### Sliders
+
+`SliderTile` extends it with a value. **Which way it slides comes from its
+shape**: wider than tall goes left to right, otherwise bottom to top. Square
+counts as vertical - a square handle read as horizontal is a coin toss, and
+up-for-more is what everyone agrees on.
+
+A tap still toggles the state, which is what makes it one control rather than
+two: volume slides and mutes; brightness slides and cycles full, dim, and
+back to what it was.
+
+Telling the two gestures apart is the same problem as the tile panel:
+
+- Below `SLIDE_THRESHOLD` (6px) it is a tap, or every tap nudges the value it
+  was meant to leave alone.
+- Once it is a slide, the release must **not** toggle - nobody wants the
+  volume to mute as they let go.
+- The value is not re-read while a finger is down, or the drag fights itself
+  and the level jumps back a frame at a time.
+
+The whole tile is the control rather than a bar drawn inside it, which is
+what makes it usable with a thumb.
+
+## Scrolling the panel, or taking a tile out of it
+
+Both start as a press and a movement, so the first eight pixels look
+identical - and a threshold with no direction in it makes every attempt to
+scroll the panel into a tile being pulled out.
+
+`TilePanelItem` decides once, on the movement that crosses `DRAG_THRESHOLD`,
+and does not revisit it. A gesture that changes its mind halfway is worse than
+one that guessed wrong: the tile is already out by then.
+
+**Out is one direction.** The grid is to the left of the panel, so a movement
+that leaves the panel goes left and nothing else does. Rightward has nowhere to
+go at all - the panel is against that edge - so it reads as a scroll along with
+everything that is mostly vertical.
+
+| Gesture                                          | Reads as                               |
+|--------------------------------------------------|----------------------------------------|
+| Leftward, by `LEFT_BIAS` (1.2x) over vertical    | Dragging the tile out                  |
+| Anything else                                    | Scrolling the panel                    |
+| Held `HOLD_MS` (260ms) first, then any direction | Dragging - waiting says what was meant |
+
+The item scrolls the panel itself rather than letting the viewport do it. The
+items swallow the press so a tile's own handlers do not also run, which means
+the scroll area never sees the gesture - so whichever item was touched moves
+the scrollbar on its behalf.
+
+A gesture that scrolled is not also a tap. `_on_tile_release` returns early,
+or letting go after a flick would run whatever the tile does.
 
 ## Dragging one
 
@@ -255,19 +340,71 @@ a tile has many variants and only a couple are worth offering up front.
 
 Each entry shows a real render of the tile at that size. A tile is a singleton
 by `KEY`, so the panel borrows the instance, renders it at each advertised
-span, grabs the result and puts it back exactly as it was — the entries are the
+span, takes the result and puts it back exactly as it was — the entries are the
 same tile at different starting sizes, not separate tiles. Placing any one of
 them removes all of them.
 
 Renders are at **full size** — the pixel size the tile will actually occupy on
-the grid, taken from the grid's own cell metrics. The panel is a third wider
-than the other panels to make room for that; a span too wide even for it is
-scaled down, which after the width increase is rare. The list scrolls
-vertically.
+the grid, taken from the grid's own cell metrics. Nothing is scaled to fit:
+dragging an entry out changes nothing about it, and a preview that has been
+squeezed into a cell is a preview of a tile that will not look like that.
+The panel is a third wider than the other panels to make room for it, capped
+at `MAX_SHARE` of the screen so it does not cover the grid it is filling.
 
-Renders are re-grabbed whenever the panel ticks, so a clock preview is not
+Renders are retaken whenever the panel ticks, so a clock preview is not
 frozen at whatever time the panel was first opened, and the first render after
 the grid has a real cell size replaces the placeholder-sized one from load.
+
+### How they are arranged
+
+`TilePanelGrid` packs them into a grid rather than stacking them, and **it is
+the same grid**: cells are the real `TileGrid`'s cells, the space between them
+is its gap, and the dots behind them are drawn the same way and cached the
+same way. The panel reads as a corner of the dashboard holding the tiles that
+are not on it yet.
+
+**Nothing is named.** A label over every entry costs a line of text per tile
+and pushes the grid apart into rows of cards — which is the layout this
+replaced. The tile draws its own face, and its face is what somebody is
+choosing between.
+
+Placement is a skyline: each entry goes at the lowest row it fits, and valleys
+get filled by whatever comes along small enough to sit in them.
+
+**Order is by size, smallest first** — the one-cell switches across the top,
+then the two-by-twos, down to whatever is biggest, and the same within a group
+so a tile's small size sits above its large one. That is a reading order rather
+than a packing one: it costs about three rows on the bundled set against
+letting the packer choose freely, because once the small groups are all placed
+there is nothing small left to drop into the gaps the large ones leave. Being
+able to find a tile is worth three rows.
+
+A tile's sizes stay together: each group is packed on its own first and the
+rectangle it comes out as is packed with the others. That buys variants that
+are always adjacent.
+
+The line under the panel's title counts the **tiles** waiting, not the entries.
+A tile offered at three sizes is one thing you can place, and counting it three
+times would say the panel holds twenty-two when it holds fourteen.
+
+### Rendered, not grabbed
+
+An entry is a render of the tile taken with `render()` into a pixmap filled
+transparent, **not** `grab()`. `grab()` hands back an opaque pixmap and fills
+it from the palette before painting, so a tile with rounded corners comes back
+sitting on a near-white square — which on a dark grid is a white card with a
+border around every tile. `DrawChildren` without `DrawWindowBackground` keeps
+the style from putting one back.
+
+The same care applies to the placeholder shown when a render fails: `set_style`
+*replaces* a stylesheet, so a label once given the dashed ghost look keeps it
+behind every render afterwards unless it is styled back.
+
+`checks/tile_panel_pack.py` packs the bundled set against a real `TileGrid` at
+three screen sizes and fails on an overlap, an entry past the padding, an entry
+off the cell grid, a size that is not exactly what that span occupies on the
+grid, or a rendered tile whose corners are not transparent. `--png` writes out
+what it laid out, for a session with no screen.
 
 ---
 
@@ -316,9 +453,6 @@ From `built()`, once the page exists:
 class MyPlugin(Plugin):
 
     def built(self):
-        tiles = self.client.get_page("#cwb_home_page")
-        sub = self.client.public.cwb_sub_pages  # or reach the page directly
-
         page = self.client.PAGES.get_entry("#cwb_home_page")
         if page and page.instance:
             sub_tiles = page.instance.sub_page_dict.get("tiles")

@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Ask &mdash; {{ panel }}</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
+<style>
+{{ chrome|safe }}
+ :root{color-scheme:dark}
+ h1{font-size:24px;font-weight:600;letter-spacing:-.02em;margin:0 0 6px}
+ .sub{color:var(--muted);font-size:14px;margin:0 0 26px}
+ label{display:block;font-size:12px;font-weight:600;text-transform:uppercase;
+       letter-spacing:.08em;color:var(--muted);margin:0 0 9px}
+ .go{display:flex;gap:10px;margin:20px 0 0}
+ .go button{flex:1;min-height:54px}
+ #said{display:none;margin:20px 0 0}
+ .examples{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 24px}
+ .examples button{min-height:42px;padding:0 15px;border-radius:11px;
+   border:1px solid var(--line);background:var(--card);color:var(--muted);
+   font-size:14px;font-weight:500;font-family:inherit;cursor:pointer}
+ .examples button:hover{color:var(--text);border-color:var(--accent)}
+</style>
+</head>
+<body>
+<p>{{ back_button(token)|safe }}</p>
+
+<h1>Ask</h1>
+<p class="sub">The panel answers on its own screen, out loud if it can. The
+  same thing you would say to it, typed.</p>
+
+{% if examples %}
+<label>Try</label>
+<div class="examples" id="examples">
+  {% for example in examples %}
+  <button type="button" data-say="{{ example }}">{{ example }}</button>
+  {% endfor %}
+</div>
+{% endif %}
+
+<label for="query">Ask it something</label>
+<input id="query" placeholder="what is the weather" maxlength="300"
+       autocomplete="off" autocapitalize="none">
+
+<div class="go"><button type="button" id="send">Ask</button></div>
+<div id="said"></div>
+
+<p class="hint">No wake word needed &mdash; typing it is already saying who you
+  are talking to. The answer appears on the panel rather than here.</p>
+
+<script>
+var TOKEN = {{ token|tojson }};
+
+function show(text, bad) {
+  var box = document.getElementById('said');
+  /* The shared banner, so this reads the same as the one every other page
+     shows for the same thing. */
+  box.className = bad ? 'banner bad' : 'banner';
+  box.style.display = 'block';
+  box.textContent = text;
+}
+
+var field = document.getElementById('query');
+
+var examples = document.getElementById('examples');
+if (examples) {
+  Array.prototype.forEach.call(examples.querySelectorAll('button'),
+    function (b) {
+      b.addEventListener('click', function () {
+        /* Filled in rather than sent. An example is a starting point, and
+           somebody who meant it exactly is one tap from Ask. */
+        field.value = b.getAttribute('data-say');
+        field.focus();
+      });
+    });
+}
+
+function ask() {
+  var query = field.value.trim();
+  if (!query) { show('Type something first.', true); return; }
+
+  fetch('/ask?token=' + TOKEN + '&q=' + encodeURIComponent(query),
+        {headers: {'Accept': 'application/json'}})
+    .then(function (r) { return r.json().then(function (d) {
+      show(d.what || d.reason || 'Asked.', !r.ok);
+      if (r.ok) { field.value = ''; }
+    }); })
+    .catch(function () { show('The panel did not answer.', true); });
+}
+
+document.getElementById('send').addEventListener('click', ask);
+// Enter sends, because a single-line field on a phone shows a Go key and
+// making it do nothing is worse than not having one.
+field.addEventListener('keydown', function (e) {
+  if (e.key === 'Enter') { e.preventDefault(); ask(); }
+});
+</script>
+</body>
+</html>

@@ -377,18 +377,37 @@ need it include the approval screen - a browser refused the font renders the
 one page somebody has to read in order to get a token in a fallback face.
 
 
+## Asking the assistant
+
+`GET /process?q=...` is the machine-readable route: a bare JSON contract, and
+what a script should call.
+
+`GET /ask?q=...` is the same thing for a person. With no `q` it serves a form
+with real examples on it; with one it answers `{"request", "what"}`, where
+`what` is a sentence rather than a status.
+
+Two endpoints on purpose. A page and a script sharing a URL means one of them
+shapes the other - the page cannot grow a friendlier failure without changing
+what scripts parse, and the script cannot stay terse once the page needs
+prose. Both go through `STT.submit()`, so neither needs a wake word.
+
+**The answer happens on the panel**, not in the browser. What comes back here
+is whether anything took it, which is the only thing this end can know.
+
+
 ## Pages rather than data
 
 Some endpoints answer with HTML because the thing asking is a browser rather
 than a script.
 
-| Endpoint                               | Does                                         |
-|----------------------------------------|----------------------------------------------|
-| `GET /`                                | The index. See [The index](#the-index).      |
-| `GET /goto/page`                       | A page switcher for a device with a browser. |
-| `GET /clipboard/page`                  | The clipboard, as a page a phone can open.   |
-| `GET /upload`, `GET /upload/<key>`     | Upload forms, above.                         |
-| `GET /access/wait`, `GET /access/name` | The approval flow. See [Users](users.md).    |
+| Endpoint                               | Does                                                      |
+|----------------------------------------|-----------------------------------------------------------|
+| `GET /`                                | The index. See [The index](#the-index).                   |
+| `GET /ask`                             | Ask the assistant something. Serves the form with no `q`. |
+| `GET /goto/page`                       | A page switcher for a device with a browser.              |
+| `GET /clipboard/page`                  | The clipboard, as a page a phone can open.                |
+| `GET /upload`, `GET /upload/<key>`     | Upload forms, above.                                      |
+| `GET /access/wait`, `GET /access/name` | The approval flow. See [Users](users.md).                 |
 
 `/goto/page` also matches `/goto/<path:page>`. Werkzeug sorts rules by
 specificity rather than by declaration order, so the static one wins and there

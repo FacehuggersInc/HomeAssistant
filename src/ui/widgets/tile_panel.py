@@ -1,18 +1,18 @@
 from __future__ import annotations
+import time
 from typing import TYPE_CHECKING
 
 from PyQt6.QtWidgets import (
-    QWidget, QVBoxLayout, QLabel, QHBoxLayout, QScrollArea, QPushButton, QLayout,
+    QWidget, QLabel, QHBoxLayout, QScrollArea, QLayout,
 )
-from PyQt6.QtCore import Qt, QPropertyAnimation, QEasingCurve, QPoint, QSize, QEvent
-from PyQt6.QtGui import QPainter, QColor, QBrush, QPen, QMouseEvent
+from PyQt6.QtCore import Qt, QPropertyAnimation, QEasingCurve, QPoint
+from PyQt6.QtGui import QMouseEvent, QPixmap
 from PyQt6 import sip
 
-import qtawesome as qta
-
 from src.ui.widgets.tile import Tile
+from src.ui.widgets.tile_panel_grid import TilePanelGrid
 from src.ui.overlays import Panel
-from src.styling import make_font, SIZES, set_style, get_style_sheet, style_scrollbar
+from src.styling import make_font, SIZES, set_style, style_scrollbar
 
 if TYPE_CHECKING:
     from src.main import Client
@@ -22,76 +22,71 @@ if TYPE_CHECKING:
 ##TILE PANEL ITEM
 
 class TilePanelItem(QWidget):
+    """
+    One offer: a tile at one of its sizes, drawn at the size it will be.
+
+    Nothing but the tile. Its geometry is set by `TilePanelGrid`, not by a
+    layout - the panel is a grid rather than a stack, and a layout would have
+    opinions about that.
+    """
 
     DRAG_THRESHOLD = 8
 
+    #How much more leftward than vertical a movement has to be before it is
+    #read as pulling the tile out rather than scrolling the panel.
+    #
+    #The grid is to the LEFT of the panel, so out is one direction and only
+    #one. A movement that is mostly up or down is somebody looking for
+    #something further down; a movement to the right has nowhere to go at all,
+    #since the panel is against that edge.
+    LEFT_BIAS = 1.2
+
+    #Held still for this long and it is a drag whatever direction it goes.
+    #Somebody who has pressed and waited has said what they meant.
+    HOLD_MS = 260
+
     def __init__(self, tile: Tile, panel: "TilePanel",
                  span: tuple = None, live: bool = True,
-                 snapshot: "QPixmap" = None):
+                 snapshot: QPixmap = None):
         super().__init__()
         self.tile       = tile
         self.panel      = panel
         self.span       = span or (tile.grid_w, tile.grid_h)
         self.live       = live
         self.snapshot   = snapshot
+        # Set by the grid when this entry is too wide for the panel to show at
+        # full size, which cannot happen on a panel wide enough for the grid's
+        # own widest tile. See TilePanelGrid._rescue.
+        self.scaled     = False
         self.drag_start: QPoint | None = None
         self.dragging   = False
-
-        outer = QVBoxLayout(self)
-        outer.setContentsMargins(0, 0, 0, 0)
-        outer.setSpacing(6)
-        outer.setAlignment(Qt.AlignmentFlag.AlignHCenter)
-
-        name = tile.NAME or tile.KEY
-        if len(tile.panel_sizes()) > 1:
-            name = f"{name}  {self.span[0]}\u00d7{self.span[1]}"
-        title_lbl = QLabel(name)
-        title_lbl.setFont(make_font(SIZES.S2, bold=True))
-        set_style(title_lbl, "common", "text-strong")
-        title_lbl.setAlignment(Qt.AlignmentFlag.AlignHCenter)
-        outer.addWidget(title_lbl)
-
-        preview_w, preview_h = panel.preview_size(self.span)
-
-        self.preview_container = QWidget()
-        self.preview_container.setFixedSize(preview_w, preview_h)
-        set_style(self.preview_container, "common", "transparent")
-        outer.addWidget(self.preview_container, alignment=Qt.AlignmentFlag.AlignHCenter)
+        #The gesture has been given to the panel, and this entry is out of it
+        #until the finger comes up.
+        self.scrolling  = False
+        self.pressed_at = 0.0
+        self.last_point: QPoint | None = None
 
         # Every entry is a render, including the first. Hosting the live tile
         # in one of them meant that entry looked different from its siblings
-        # and, once the tile had been borrowed for the other snapshots, often
+        # and, once the tile had been borrowed for the other renders, often
         # did not paint at all.
-        self.preview_label = QLabel(self.preview_container)
-        self.preview_label.setGeometry(0, 0, preview_w, preview_h)
+        self.preview_label = QLabel(self)
         self.preview_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        # NOT setScaledContents: that fills the label regardless of aspect. The
-        # grab is whatever size the tile's layout would actually allow, which
-        # is not always the size asked for, so it is scaled here instead.
-        self.set_snapshot(snapshot)
+        set_style(self.preview_label, "common", "transparent")
         self.preview_label.show()
 
         self.setCursor(Qt.CursorShape.OpenHandCursor)
 
-    def refit(self) -> None:
-        """
-        Re-measure against the grid as it is now.
+    ## -- geometry, driven by the grid
 
-        Panel items are built during plugin load, before the grid has been laid
-        out even once - so the first sizes come from FALLBACK_CELL and are
-        wrong the moment a real cell size exists.
-        """
-        width, height = self.panel.preview_size(self.span)
-        if (width, height) == (self.preview_container.width(),
-                               self.preview_container.height()):
-            return
-        self.preview_container.setFixedSize(width, height)
-        label = getattr(self, "preview_label", None)
-        if label is not None:
-            label.setGeometry(0, 0, width, height)
+    def apply_metrics(self, width: int, height: int) -> None:
+        """Take the size the grid worked out and fill it with the render."""
+        self.setFixedSize(width, height)
+        self.preview_label.setGeometry(0, 0, width, height)
+        self.set_snapshot(self.snapshot)
 
     def set_snapshot(self, pixmap) -> None:
-        self.refit()
+        self.snapshot = pixmap
         label = getattr(self, "preview_label", None)
         if label is None:
             return
@@ -100,11 +95,30 @@ class TilePanelItem(QWidget):
             label.setFont(make_font(SIZES.S2, bold=True))
             set_style(label, "tiles", "tile-panel-ghost")
             return
+
+        # Back out of the ghost look. `set_style` REPLACES the sheet, so a
+        # label that once had no render kept the dashed outline and the pale
+        # fill behind every render it was given afterwards - a white card
+        # under a tile with rounded corners.
+        label.setText("")
+        set_style(label, "common", "transparent")
+
+        # 1:1 wherever it can be. The render is taken at the size the tile
+        # will occupy on the grid, so on any panel wide enough to hold it the
+        # pixmap already fits and scaling it would only cost sharpness. The
+        # scaled path is for the rescued entry, and nothing else.
+        ratio = pixmap.devicePixelRatio() or 1.0
+        logical = (round(pixmap.width() / ratio), round(pixmap.height() / ratio))
+        if logical == (label.width(), label.height()):
+            label.setPixmap(pixmap)
+            return
         label.setPixmap(pixmap.scaled(
             label.size(),
             Qt.AspectRatioMode.KeepAspectRatio,
             Qt.TransformationMode.SmoothTransformation,
         ))
+
+    ## -- input
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
         self._on_tile_press(event)
@@ -119,18 +133,43 @@ class TilePanelItem(QWidget):
         if event.button() != Qt.MouseButton.LeftButton:
             return False
         self.drag_start = event.globalPosition().toPoint()
+        self.last_point = self.drag_start
+        self.pressed_at = time.monotonic()
         self.dragging    = False
+        self.scrolling   = False
         return True   #swallow — Tile's own mousePressEvent must not also run
 
     def _on_tile_move(self, event: QMouseEvent) -> bool:
         if self.drag_start is None:
             return False
 
-        delta = event.globalPosition().toPoint() - self.drag_start
+        point = event.globalPosition().toPoint()
+        delta = point - self.drag_start
 
-        if not self.dragging and max(abs(delta.x()), abs(delta.y())) >= self.DRAG_THRESHOLD:
-            self.dragging = True
-            self.start_real_drag()
+        # Already decided this one belongs to the list.
+        if self.scrolling:
+            self._scroll_by(self.last_point.y() - point.y())
+            self.last_point = point
+            return True
+
+        if not self.dragging:
+            held = (time.monotonic() - self.pressed_at) * 1000 >= self.HOLD_MS
+            moved = max(abs(delta.x()), abs(delta.y()))
+            if moved >= self.DRAG_THRESHOLD:
+                # Which it is, decided once and not revisited. A gesture that
+                # changes its mind halfway is worse than one that guessed
+                # wrong: the tile is already out by then.
+                leftward = (delta.x() < 0
+                            and abs(delta.x()) >= abs(delta.y()) * self.LEFT_BIAS)
+                if not held and not leftward:
+                    self.scrolling = True
+                    self._scroll_by(self.last_point.y() - point.y())
+                    self.last_point = point
+                    return True
+                self.dragging = True
+                self.start_real_drag()
+
+        self.last_point = point
 
         if self.dragging:
             page = self.panel.page
@@ -157,6 +196,14 @@ class TilePanelItem(QWidget):
         return True   #swallow — Tile's own mouseMoveEvent must not also run
 
     def _on_tile_release(self, event: QMouseEvent) -> bool:
+        if self.scrolling:
+            # It was a scroll. Not a tap, not a drop - nothing happens except
+            # the gesture ending.
+            self.scrolling = False
+            self.drag_start = None
+            self.last_point = None
+            return True
+
         was_dragging   = self.dragging
         self.dragging   = False
         self.drag_start = None
@@ -165,7 +212,6 @@ class TilePanelItem(QWidget):
             return False   #wasn't a drag (just a click) — let Tile handle it normally
 
         gpos = event.globalPosition().toPoint()
-        page = self.panel.page
         grid = self.panel.grid
 
         #always clear guide box / trash bin state — both only matter mid-drag
@@ -198,6 +244,14 @@ class TilePanelItem(QWidget):
 
         return True   #swallow — Tile's own mouseReleaseEvent must not also run
 
+    def _scroll_by(self, pixels: int) -> None:
+        """Move the panel's list, on behalf of the item that was touched."""
+        try:
+            bar = self.panel.scroll.verticalScrollBar()
+        except Exception:
+            return
+        bar.setValue(bar.value() + int(pixels))
+
     def start_real_drag(self) -> None:
         page = self.panel.page
         grid = self.panel.grid
@@ -211,21 +265,26 @@ class TilePanelItem(QWidget):
             w = int(self.span[0] * grid.cell_size + (self.span[0] - 1) * grid.gap_x)
             h = int(self.span[1] * grid.cell_size + (self.span[1] - 1) * grid.gap_y)
         else:
-            w = self.preview_container.width()
-            h = self.preview_container.height()
+            w = self.width()
+            h = self.height()
 
         self.tile.resize(w, h)
         self.tile.show()
 
-        page = self.panel.page
         if hasattr(page, 'notify_drag_started'):
             page.notify_drag_started()
 
     def restore_preview(self) -> None:
-        self.tile.setParent(self.preview_container)
-        self.tile.move(0, 0)
-        self.tile.resize(self.preview_container.size())
-        self.tile.show()
+        """
+        Put the tile away again after a drag that placed nothing.
+
+        Away, not back into this entry. Every entry shows a snapshot, so a
+        live tile parented into one of them is the only entry that looks
+        different from its siblings - and the next snapshot pass borrows it
+        straight back out again anyway.
+        """
+        self.tile.setParent(None)
+        self.tile.hide()
 
     def _cursor_outside_window(self, global_pos: QPoint) -> bool:
         window = self.panel.client.window
@@ -238,25 +297,30 @@ class TilePanelItem(QWidget):
 
 class TilePanel(Panel):
 
-    # A third wider than the other panels. Previews are rendered at the size
-    # the tile will actually be on the grid, and at the shared width the wider
+    # A third wider than the other panels. Entries are shown at the size the
+    # tile will actually be on the grid, and at the shared width the wider
     # spans had to be scaled down to fit - which is what made them look like
     # miniatures rather than previews.
     WIDTH = int(Panel.DEFAULT_WIDTH * 4 / 3)
 
-    # Room taken by the panel's own padding and the item margins, so a preview
-    # can be measured against what is actually left for it.
-    CHROME = 56
+    # ...but never more than a bit over half the screen. The width above is
+    # measured against a 1920-wide panel; on a smaller one it is most of the
+    # display, and a drawer that covers the grid it is filling is a drawer
+    # nobody can aim from.
+    MAX_SHARE = 0.55
 
     FALLBACK_CELL = 96   #before the grid has been laid out even once
 
     def __init__(self, client: "Client", page: QWidget, grid: "TileGrid"):
-        super().__init__(client, width=self.WIDTH, edge="right",
+        width = min(self.WIDTH, max(360, int(page.width() * self.MAX_SHARE)))
+        super().__init__(client, width=width, edge="right",
                          dismiss_on_outside_click=True)
+        self.width_px = width
         self.page  = page
         self.grid  = grid
         self.items: dict[str, TilePanelItem] = {}        #tile.KEY -> its live item
         self.size_items: dict[str, list] = {}            #tile.KEY -> every size entry
+        self.order: list[str] = []                       #the order tiles were registered
         self.closing = False
 
         self.page.destroyed.connect(self.deleteLater)
@@ -278,34 +342,36 @@ class TilePanel(Panel):
         title = QLabel("Tiles")
         title.setFont(make_font(SIZES.M1, bold=True))
         set_style(title, "common", "text-strong")
+        header_row.addWidget(title)
+        header_row.addStretch()
 
         layout.addLayout(header_row)
 
-        sub = QLabel("Drag a tile onto the grid to place it.")
-        sub.setFont(make_font(SIZES.S1))
-        set_style(sub, "common", "text-muted")
-        sub.setWordWrap(True)
-        layout.addWidget(sub)
+        self.sub_lbl = QLabel("")
+        self.sub_lbl.setFont(make_font(SIZES.S1))
+        set_style(self.sub_lbl, "common", "text-muted")
+        self.sub_lbl.setWordWrap(True)
+        layout.addWidget(self.sub_lbl)
 
-        #scrollable list of TilePanelItem widgets
+        #the packed grid of entries, scrolled
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         style_scrollbar(scroll)
-        # Explicit: full-size previews make the list far taller than the panel,
-        # so this is load-bearing rather than a default worth relying on.
+        # Explicit: full-size entries make the grid taller than the panel, so
+        # this is load-bearing rather than a default worth relying on.
         scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         scroll.viewport().setAutoFillBackground(False)
+        scroll.setFrameShape(QScrollArea.Shape.NoFrame)
 
-        self.list_widget = QWidget()
-        set_style(self.list_widget, "common", "transparent")
-        self.list_layout = QVBoxLayout(self.list_widget)
-        self.list_layout.setContentsMargins(0, 0, 0, 0)
-        self.list_layout.setSpacing(20)
-        self.list_layout.addStretch()   #keeps items pinned to the top as they're added
-
-        scroll.setWidget(self.list_widget)
+        self.panel_grid = TilePanelGrid(self)
+        scroll.setWidget(self.panel_grid)
         layout.addWidget(scroll, stretch=1)
+        # Held, because an item has to be able to scroll it. The items swallow
+        # the press so a tile's own handlers do not also run, which means the
+        # viewport never sees the gesture - so whichever item was touched
+        # scrolls this on the item's behalf. See TilePanelItem._on_tile_move.
+        self.scroll = scroll
 
         # The third argument is the PARENT. Without it the animation belongs
         # to nothing, outlives the widget it animates, and fires `finished`
@@ -315,27 +381,52 @@ class TilePanel(Panel):
         self.anim.setDuration(220)
         self.anim.setEasingCurve(QEasingCurve.Type.OutCubic)
 
+        self.refresh_count()
+
+    ## -- entries
+
+    def refresh_count(self) -> None:
+        """
+        Say how many tiles are in here.
+
+        Tiles, not entries. A tile offered at three sizes is one thing you can
+        place, and counting it three times would say the panel holds twenty-two
+        when it holds fourteen.
+        """
+        count = len(self.order)
+        if not count:
+            text = "Every tile is on the grid."
+        elif count == 1:
+            text = "1 tile waiting. Drag it left onto the grid to place it."
+        else:
+            text = (f"{count} tiles waiting. Drag one left onto the grid to "
+                    f"place it.")
+        try:
+            self.sub_lbl.setText(text)
+        except RuntimeError:
+            pass
+
+    def all_items(self):
+        """Every entry, in the order the tiles were registered."""
+        for key in self.order:
+            for item in self.size_items.get(key, []):
+                yield item
+
     def preview_size(self, span: tuple) -> tuple:
         """
-        The pixel size a tile of this span will occupy on the grid.
+        The pixel size a tile of this span occupies on the grid.
 
-        Full size wherever it fits. Scaled down only when a span is wider than
-        the panel can show, which after the width increase is rare.
+        Full size, always. An entry that cannot be shown at full size is
+        dropped by the packing rather than shrunk here - a preview that has
+        been squeezed is a preview of a tile that will not look like that.
         """
         grid = self.grid
         if grid is not None and getattr(grid, "cell_size", 0) > 0:
-            width  = span[0] * grid.cell_size + (span[0] - 1) * grid.gap_x
-            height = span[1] * grid.cell_size + (span[1] - 1) * grid.gap_y
+            cell, gap = grid.cell_size, grid.gap_x
         else:
-            width  = span[0] * self.FALLBACK_CELL
-            height = span[1] * self.FALLBACK_CELL
-
-        usable = max(80, self.width() or self.WIDTH) - self.CHROME
-        if width > usable:
-            scale  = usable / width
-            width  = width * scale
-            height = height * scale
-
+            cell, gap = self.FALLBACK_CELL, 0
+        width  = span[0] * cell + (span[0] - 1) * gap
+        height = span[1] * cell + (span[1] - 1) * gap
         return max(1, int(width)), max(1, int(height))
 
     def add_tile(self, tile: Tile) -> None:
@@ -354,12 +445,16 @@ class TilePanel(Panel):
         for index, span in enumerate(sizes):
             item = TilePanelItem(tile, self, span=span, live=(index == 0),
                                  snapshot=shots.get(span))
+            item.setParent(self.panel_grid)
+            item.show()
             made.append(item)
-            #insert before the trailing stretch so new items stack at the bottom
-            self.list_layout.insertWidget(self.list_layout.count() - 1, item)
 
         self.items[tile.KEY] = made[0]
         self.size_items[tile.KEY] = made
+        if tile.KEY not in self.order:
+            self.order.append(tile.KEY)
+        self.refresh_count()
+        self.panel_grid.relayout(force=True)
 
     def _snapshot(self, tile: Tile, span: tuple):
         """
@@ -386,7 +481,20 @@ class TilePanel(Panel):
                 tile.layout().setSizeConstraint(QLayout.SizeConstraint.SetNoConstraint)
             tile.resize(max(1, w), max(1, h))
             tile.ensurePolished()
-            pixmap = tile.grab()
+
+            # render(), not grab(). `grab()` hands back an OPAQUE pixmap and
+            # fills it from the palette first, so a tile with rounded corners
+            # came back sitting on a near-white square - which on the panel's
+            # dark grid reads as a white card with a border round every tile.
+            # Rendering into a pixmap this fills itself keeps the corners
+            # transparent, and DrawChildren without DrawWindowBackground keeps
+            # the style from putting one back.
+            ratio = tile.devicePixelRatioF() or 1.0
+            pixmap = QPixmap(int(max(1, w) * ratio), int(max(1, h) * ratio))
+            pixmap.setDevicePixelRatio(ratio)
+            pixmap.fill(Qt.GlobalColor.transparent)
+            tile.render(pixmap, QPoint(),
+                        flags=QWidget.RenderFlag.DrawChildren)
         except Exception as e:
             self.client.log("warning", f"[TilePanel] Could not preview "
                                        f"{tile.KEY} at {span}: {e}")
@@ -409,9 +517,13 @@ class TilePanel(Panel):
             item.deleteLater()
         if key in self.items:
             del self.items[key]
+        if key in self.order:
+            self.order.remove(key)
+        self.refresh_count()
+        self.panel_grid.relayout(force=True)
 
     def place_tile_on_grid(self, tile: Tile, col: int, row: int,
-                           span: tuple = None) -> None:
+                           span: tuple = None) -> bool:
         if getattr(tile, "MULTIPLE", False):
             # The template stays; a copy goes to the grid. Its key has to be
             # unique or the grid refuses it and the saved position of the
@@ -426,8 +538,6 @@ class TilePanel(Panel):
             # force, because the tile may already be at this span from its
             # preview and still needs the variant rebuilt at real size.
             tile.apply_span(span[0], span[1], force=True)
-        if tile.KEY in self.items:
-            tile.removeEventFilter(self.items[tile.KEY])
         self.remove_tile(tile.KEY)         #panel item no longer needed
         tile.setParent(self.grid)          #tile now belongs to TileGrid
         self.grid.add_tile(tile, col, row) #same entry point used for saved-position restoration
@@ -435,16 +545,20 @@ class TilePanel(Panel):
         return True
 
     def tick_once(self) -> None:
+        # Re-grab so a clock preview is not frozen at whatever time the panel
+        # was first built - and so the first render after the grid has a real
+        # cell size replaces the fallback-sized one.
+        #
+        # The pack comes first: an entry's snapshot is grabbed at the size the
+        # pack gave it, so grabbing before laying out renders every one of
+        # them at the size they had last time.
+        self.panel_grid.relayout(force=True)
         for key, items in self.size_items.items():
             live = self.items.get(key)
             if live is None:
                 continue
-            # Re-grab so a clock preview is not frozen at whatever time the
-            # panel was first built - and so the first render after the grid
-            # has a real cell size replaces the fallback-sized one.
             for item in items:
                 try:
-                    item.refit()
                     item.set_snapshot(self._snapshot(live.tile, item.span))
                 except Exception:
                     pass
@@ -475,13 +589,13 @@ class TilePanel(Panel):
             self._build_scrim()
             self.anim.stop()
             self.move(pw, 0)
-            self._shown_pos = QPoint(pw - self.WIDTH, 0)   #for refresh_backdrop()'s rect math
+            self._shown_pos = QPoint(pw - self.width_px, 0)   #for refresh_backdrop()'s rect math
             self.refresh_backdrop()
             self.show()
             self.raise_()
             self.tick_once()
             self.anim.setStartValue(QPoint(pw, 0))
-            self.anim.setEndValue(QPoint(pw - self.WIDTH, 0))
+            self.anim.setEndValue(QPoint(pw - self.width_px, 0))
             self.open = True
             self.anim.start()
 

@@ -1,6 +1,6 @@
 # Bundled plugins
 
-Eight plugins ship in `src/assets/bundled/`. They are ordinary plugins with no
+Nine plugins ship in `src/assets/bundled/`. They are ordinary plugins with no
 special privileges - the same lifecycle, the same registries, the same
 `plugin.toml`. Almost everything visible on a fresh install comes from them,
 which is deliberate: if the bundled plugins could do something your plugin
@@ -18,18 +18,19 @@ Read them when the documentation runs out. They are the worked examples.
 | `nighttimeclock`    | Nighttime Clock      | A full-screen clock page for after hours.                  |
 | `musicplugin`       | Music                | Playing music by voice, and the now-playing card.          |
 | `calendar`          | Calendar             | Events, holidays, a calendar sub-page, widgets and a tile. |
+| `astronomy`         | Astronomy            | Sun and moon arithmetic, for anything that asks.           |
 
 
 ## Core Widgets Bundle
 
-`corewidgetsbundle` - the largest of the eight, and the one to read first.
+`corewidgetsbundle` - the largest of the nine, and the one to read first.
 
 Registers the home page and its sub-pages, and every widget and tile that
 comes with the app:
 
 * **CyclingBackground** - the wallpaper, fading between images on a timer.
-  Publishes `cwb_wallpaper` so the [quick settings](quick-settings.md) header
-  can cycle and pin it.
+  Publishes `cwb_wallpaper` so the
+  [configuration bar](widgets.md#the-configuration-bar) can cycle and pin it.
 * **DateTimeWidget** - the time with the full date beneath it, painted as one
   block rather than stacked labels. Two labels in a column would each carry
   their own metrics, shadow and baseline, and read as two widgets that happen
@@ -45,7 +46,8 @@ comes with the app:
 * **WeatherWidget** - the other half of the default home screen content. The
   temperature carries its unit; `weather.units` picks fahrenheit or celsius and
   is sent to the API rather than converted afterwards.
-* **ConfigurationBar** - quick access to a few settings from the page itself.
+* **ConfigurationBar** - quick access from the page itself: notifications, the
+  widgets panel, a timer, an alarm, the whiteboard, and the wallpaper.
 * **StickerWidget** - an image or GIF from the sticker folder, `MULTIPLE` so
   several can be up at once. Chosen from a searchable grid at the panel or sent
   from a phone. See [Stickers](/docs/plugin/corewidgetsbundle/stickers).
@@ -283,6 +285,29 @@ the calendar existing; anything that reads it checks
 `client.public.has("calendar")` first.
 
 
+## Astronomy
+
+`astronomy` - where the sun and moon are, worked out rather than asked for.
+
+A **library plugin**: no page, no widget, no skill. It exists so more than one
+plugin can share `astronomy.py`, and `load()` does nothing but expose it on
+the public registry. See [Library plugins](architecture.md#library-plugins).
+
+It is a plugin rather than part of `src/` because nothing in the client needs
+to know where the moon is, and it is not owned by either of its callers
+because Core Widgets loads before Nighttime Clock - a dependency in that
+direction is a cycle. Having none of its own, this sits under both.
+
+Exposed under `astronomy`: `sun_times`, `next_sun_event`, `describe_wait`,
+`moon_phase`, `moon_name`, `moon_illumination`, `moon_waxing`, `moon_age`, and
+`module` for a caller doing several sums in a row. Declare `astronomy` in your
+`dependencies` so it has loaded before your `load()` runs.
+
+No network - it is arithmetic on a date and a position. `sun_times` answers in
+UTC with a timezone attached, so convert before comparing against
+`datetime.now()`.
+
+
 ## Reading them
 
 Each has a `readme.md` next to its `main.py`, and any plugin can ship a whole
@@ -310,8 +335,14 @@ than one long module. See [Plugins](plugins.md).
 ## Bookmark
 
 A saved web page, as a floating widget or a 1×1 tile. Both show the site's icon
-— fetched by the browser engine when the page was saved, not by a second request
-— with its name underneath.
+— fetched by the browser engine when the page was saved, not by a second
+request.
+
+On the tile the icon fills the cell, and **the name goes when there is one**. A
+site's own picture says which site it is better than a few elided characters do,
+and keeping both means the icon gets whatever the text left over — which is the
+small centred thumbnail again by another route. Without an icon the tile falls
+back to the site's initial and its name.
 
 Added from the widgets or tiles panel, it asks which bookmark first; with none
 saved it opens the browser's home page instead, since there is nothing to choose

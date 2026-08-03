@@ -45,16 +45,16 @@ This backend should be thought of as a server and not part of the Client Applica
 
 ## Core Concepts, briefly
 
-Everything in the tree above boils down to a handful of ideas, each covered in full further down this document:
+Everything in the tree above boils down to a handful of ideas, each covered in full on its own page:
 
 * **Plugins** provide functionality.
 * **Pages** own UI systems.
 * **Features** expose extensibility for Pages and sub-systems.
 * **Widgets & Tiles** are reusable UI components, usually added via Pages and their Features.
 * **Mixins** rigidly extend existing behavior.
-* **Registries** manage and store extendable, plugin-ownable objects. There are
-  eight, each with its own page section under [Registries](registries.md):
 * **Events** let any part of the application react to things happening elsewhere.
+* **Registries** manage and store extendable, plugin-ownable objects. There are
+  nine, each with its own section under [Registries](registries.md):
 
 | Registry              | Reached by       | Holds                                                                             |
 |-----------------------|------------------|-----------------------------------------------------------------------------------|
@@ -64,9 +64,34 @@ Everything in the tree above boils down to a handful of ideas, each covered in f
 | `SecretRegistry`      | `client.SECRETS` | API keys, kept out of the settings file                                           |
 | `QuickAccessRegistry` | `client.QUICK`   | Buttons on the quick settings panel                                               |
 | `UserRegistry`        | `client.USERS`   | Approved devices and their tokens                                                 |
+| `AudioRegistry`       | `client.AUDIO`   | Sounds by name, and where their files live                                        |
 | `PlayerRegistry`      | `client.PLAYER`  | Whatever is playing, from any source                                              |
 | `CancelRegistry`      | `client.CANCEL`  | What "stop" means right now                                                       |
 
-Keep these in mind as you read on — nearly everything else in this document is one of these six ideas in more detail.
+Keep these in mind as you read on — nearly everything else in these docs is one of these seven ideas in more detail.
 
 ---
+
+## Library plugins
+
+A plugin that registers no page, no widget and no skill, and exists so more
+than one plugin can share something. `AstronomyLibrary` is the first.
+
+It came about because Core Widgets loads **before** Nighttime Clock, so the
+night clock could not own the sun-and-moon maths that both wanted - a
+dependency in that direction is a cycle. With no dependencies of its own, a
+library can sit under everything.
+
+Why a plugin rather than `src/`: nothing in the client needs to know where
+the moon is. `src/` is the panel's own machinery, and a thing that can be
+uninstalled without the panel noticing is not that. The rule is not "shared
+code goes to core" - it is **what does the client itself depend on**.
+
+Shape:
+
+- No dependencies, so anything can depend on it.
+- `load()` exposes its surface on the public registry and nothing else.
+- No state, no timers, no widgets - so `unload()` has nothing to undo beyond
+  the automatic `public.clear(key)`.
+- Callers declare it in `dependencies` and reach it through
+  `client.public.<name>`, never by importing it.

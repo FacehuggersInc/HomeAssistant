@@ -286,18 +286,15 @@ how it speaks, and whether it makes any noise at all.
 
 ### `home`
 
-| Key                                         | Type   | Default          | What it does                                                                                                                                            |
-|---------------------------------------------|--------|------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `home.layout.widget_margin`                 | int    | `28`             | The Outer Margin of Widgets on the Home Page                                                                                                            |
-| `home.layout.pinned`                        | path   | ` `              | The Path to your Pinned Image for the Home Background                                                                                                   |
-| `home.clock.time_format`                    | string | `%I:%M %p`       | -                                                                                                                                                       |
-| `home.clock.date_format`                    | string | `%a, %b %d`      | -                                                                                                                                                       |
-| `home.background.images`                    | path   | `C:\Home\Images` | Home Background's Path for Cycling Images                                                                                                               |
-| `home.background.background_cycle_interval` | int    | `75` sec         | The amount of time in seconds before the background cycles to a new Wallpaper                                                                           |
-| `home.background.background_fade_duration`  | int    | `1200` ms        | How long the fade animation should be when a Wallpaper cycles                                                                                           |
-| `home.media.show_normal_media_player`       | bool   | `off`            | If the normal Media Player should show (The black box with Play / Pause, Next, and Previous)                                                            |
-| `home.media.show_whats_playing`             | bool   | `off`            | If the title of whats playing should show. This will be positioned above or below the media controls and will show if the media controls aren't showing |
-| `home.media.media_player_position`          | enum   | `bottom-right`   | Where should the media controls / player be positioned                                                                                                  |
+| Key                                         | Type   | Default          | What it does                                                                  |
+|---------------------------------------------|--------|------------------|-------------------------------------------------------------------------------|
+| `home.layout.widget_margin`                 | int    | `28`             | The Outer Margin of Widgets on the Home Page                                  |
+| `home.layout.pinned`                        | path   | ` `              | The Path to your Pinned Image for the Home Background                         |
+| `home.clock.time_format`                    | string | `%I:%M %p`       | -                                                                             |
+| `home.clock.date_format`                    | string | `%a, %b %d`      | -                                                                             |
+| `home.background.images`                    | path   | `C:\Home\Images` | Home Background's Path for Cycling Images                                     |
+| `home.background.background_cycle_interval` | int    | `75` sec         | The amount of time in seconds before the background cycles to a new Wallpaper |
+| `home.background.background_fade_duration`  | int    | `1200` ms        | How long the fade animation should be when a Wallpaper cycles                 |
 
 ### `notifications`
 

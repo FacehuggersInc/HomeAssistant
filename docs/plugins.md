@@ -112,6 +112,50 @@ correct, so your code works on the first launch rather than after a reload.
 Core Skills depends on Core Widgets for exactly this reason: timers and the
 weather API.
 
+### A plugin that only adds support for something
+
+A plugin does not have to ship a page, a widget or a tile. It can add the
+*ability* to do something and put that on the registries, leaving what to do
+with it to whatever comes later - including nothing.
+
+That is often the better shape:
+
+| It provides                     | Through                                   |
+|---------------------------------|-------------------------------------------|
+| Functions or values             | `client.public.expose(key, name, ...)`    |
+| A class other code constructs   | `client.API.register_api(key, name, ...)` |
+| A thing "stop" should interrupt | `client.CANCEL.register(...)`             |
+| Something to say out loud       | `client.SKILLS`                           |
+| A button in Quick Settings      | `client.QUICK.register(...)`              |
+| An HTTP endpoint                | `client.API.register(...)`                |
+
+**Why bother, if nothing uses it yet.** A capability with no UI is testable
+on its own, replaceable without touching anything that draws, and it does not
+decide how it should look for everybody who comes after. `AstronomyLibrary`
+is the extreme case - it registers nothing but functions - and two plugins
+draw the sun and moon completely differently from the same maths.
+
+It also solves load order. Anything that owns a page tends to depend on Core
+Widgets, so it loads late; a plugin that only exposes has no dependencies and
+can sit under everything.
+
+Shape of one:
+
+```python
+class MyLibrary(Plugin):
+    KEY = "mything"
+
+    def load(self, carryover=None):
+        self.client.public.expose(self.KEY, "mything", {
+            "read":  self.read,
+            "write": self.write,
+        })
+```
+
+No state, no timers and no widgets means `unload()` has nothing to undo - the
+manager's `public.clear(key)` is the whole teardown. See
+[Architecture](architecture.md#library-plugins).
+
 ### Reaching another plugin
 
 Through what it publishes, and nothing else.
@@ -134,6 +178,30 @@ The same goes for reaching your own plugin from a page you registered. A page
 that needs its plugin's settings should be given a reader through
 `client.public`, not go looking for the instance: `client.setting()` walks the
 client's tree and never reaches a plugin key, which is what tempts the detour.
+
+**A leading underscore is a promise across a boundary too.** If another
+plugin has to call it, it is public - rename it rather than reaching for it,
+because a private name is the one thing nobody agreed to keep. And reaching
+two levels deep (`public.thing.widget.method()`) is the same problem wearing a
+different hat: what you got handed is the thing to ask, so give it a method
+rather than digging past it.
+
+That matters most where the second level is a **widget**. A widget belongs to
+a page, so it can be absent, and after a page rebuild it can be a Python
+object whose C++ half has gone - which is a hard crash rather than an
+`AttributeError`. Ask the thing that owns it, and let it answer False.
+
+**A leading underscore is a promise across a boundary too.** If another
+plugin has to call it, it is public - rename it rather than reaching for it,
+because a private name is the one thing nobody agreed to keep. Reaching two
+levels deep (`public.thing.widget.method()`) is the same problem wearing a
+different hat: what you were handed is the thing to ask, so give it a method
+rather than digging past it.
+
+That matters most where the second level is a **widget**. A widget belongs to
+a page, so it can be absent, and after a page rebuild it can be a Python
+object whose C++ half has gone - a hard crash rather than an
+`AttributeError`. Ask the thing that owns it and let it answer False.
 
 **Importing another plugin's module** is allowed for classes you have to
 subclass or construct, and then `dependencies` in your `plugin.toml` **must**

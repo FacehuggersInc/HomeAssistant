@@ -113,6 +113,25 @@ class NotificationHistory:
         else:
             self.items = self.client.public.cwb_notifications
 
+    def open(self) -> bool:
+        """
+        Open the list, if there is anything to open it on.
+
+        Here rather than on the widget, so a caller does not have to reach
+        through `history.manager` and hope. The manager is a widget on the
+        home page: it can be absent, and after a page rebuild it can be a
+        Python object whose C++ half has gone - which is a hard crash rather
+        than an AttributeError.
+        """
+        if not self.is_manager_alive():
+            return False
+        try:
+            self.manager.open_history()
+            return True
+        except RuntimeError:
+            # Deleted between the check and the call.
+            return False
+
     def is_manager_alive(self) -> bool:
         if self.manager is None:
             return False
@@ -198,7 +217,7 @@ class NotificationCenterWidget(Widget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
 
-        self._btn = IconButton(Icons.BELL, self._open_history, size=self.SIZE // 2)
+        self._btn = IconButton(Icons.BELL, self.open_history, size=self.SIZE // 2)
         self._btn.setParent(self)
         self._btn.move(0, 0)
         self._btn.resize(self.SIZE, self.SIZE)
@@ -232,7 +251,14 @@ class NotificationCenterWidget(Widget):
         if self._panel and self._panel.open:
             self._panel.toggle()
 
-    def _open_history(self, event=None) -> None:
+    def open_history(self, event=None) -> None:
+        """
+        Show the list. Public, because a skill opens it too.
+
+        The underscore said "mine alone" and it was not - the notifications
+        skill called it across a plugin boundary, where a private name is a
+        promise nobody made.
+        """
         if self._panel is None:
             self._panel = NotificationPanel(self)
         self._panel.toggle()

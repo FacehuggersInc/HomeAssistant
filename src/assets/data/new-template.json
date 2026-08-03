@@ -53,34 +53,6 @@
     "suffix": "ms",
     "description": "How long the fade animation should be when a Wallpaper cycles"
    }
-  },
-  "media": {
-   "show_normal_media_player": {
-    "type": "bool",
-    "default": false,
-    "value": false,
-    "description": "If the normal Media Player should show (The black box with Play / Pause, Next, and Previous)"
-   },
-   "show_whats_playing": {
-    "type": "bool",
-    "default": false,
-    "value": false,
-    "description": "If the title of whats playing should show. This will be positioned above or below the media controls and will show if the media controls aren't showing"
-   },
-   "media_player_position": {
-    "type": "enum",
-    "default": "bottom-right",
-    "value": "bottom-right",
-    "options": [
-     "top-left",
-     "top-center",
-     "top-right",
-     "bottom-left",
-     "bottom-center",
-     "bottom-right"
-    ],
-    "description": "Where should the media controls / player be positioned"
-   }
   }
  },
  "audio": {

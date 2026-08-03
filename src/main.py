@@ -1698,8 +1698,13 @@ class Client:
         try:
             for path, direction in (("audio.devices.output_device", "output"),
                                     ("audio.devices.input_device", "input")):
-                section, _, name = path.partition(".")
-                setting = getattr(getattr(self.SETTINGS, section), name)
+                # Walked, not split once. `partition` leaves
+                # "devices.output_device" as a single attribute name, which
+                # exists nowhere - so this raised on every start and the whole
+                # device check was skipped with one warning to show for it.
+                setting = self.SETTINGS
+                for part in path.split("."):
+                    setting = getattr(setting, part)
                 found = self.AUDIO.devices(direction)
                 saved = str(getattr(setting, "value", "") or "").strip()
                 if saved and saved not in found:

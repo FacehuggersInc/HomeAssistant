@@ -141,17 +141,15 @@ class ActionTile(Tile):
             "QWidget#action_surface { " + "; ".join(parts) + "; }")
 
     def _fit_label(self) -> None:
-        """Shorten the name to the width the TILE has - see BookmarkTile."""
+        """The name at this size, or none - see Tile.label_for."""
         label = self._name_label
         if label is None:
             return
-        room = self.width() - self.LABEL_INSET
-        if room <= 8:
-            label.setText(self._label_text)
-            return
-        metrics = QFontMetrics(label.font())
-        label.setText(metrics.elidedText(self._label_text,
-                                         Qt.TextElideMode.ElideRight, room))
+        text = self.label_for(label, self._label_text, self.LABEL_INSET)
+        label.setText(text)
+        # Hidden, not merely blank. An empty label still takes its line, and
+        # on a 1x1 tile that line is a third of the picture.
+        label.setVisible(bool(text))
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
