@@ -299,9 +299,44 @@ class PocketTTSProcessing:
             self.client.log("warning", f"[TTS] Could not synthesise: {e}")
             return None
 
+        self._report_head(spoken, audio)
+
         if auto_play:
             self._play_audio(audio)
         return audio
+
+    def _report_head(self, spoken: str, audio) -> None:
+        """
+        How the generated audio STARTS, before anything plays it.
+
+        The one measurement that separates the two explanations for a reply
+        that begins partway through its first word. If the model handed back
+        audio whose first sample is already loud, the beginning was never
+        generated and no amount of padding or device warm-up will bring it
+        back. If it handed back silence and the speaker still starts late,
+        the audio was made and something after this dropped it.
+
+        Cheap enough to leave on: one pass over a tenth of a second.
+        """
+        try:
+            import numpy as np
+            data = self._as_playable(audio)
+            if data is None or not len(data):
+                self.client.log("warning", f"[TTS] No audio for {spoken!r}.")
+                return
+            flat = data if data.ndim == 1 else data[:, 0]
+            window = int(self.sample_rate * 0.02)          # 20ms
+            loud = np.abs(flat) > 0.01
+            lead_ms = (int(np.argmax(loud)) / self.sample_rate * 1000
+                       if loud.any() else -1)
+            first = float(np.sqrt(np.mean(flat[:window] ** 2))) if len(flat) else 0.0
+            self.client.log(
+                "info",
+                f"[TTS] {len(flat) / self.sample_rate:.2f}s for "
+                f"{len(spoken.split())} words; silence before the first sound "
+                f"{lead_ms:.0f}ms; first 20ms RMS {first:.4f}")
+        except Exception as e:
+            self.client.log("debug", f"[TTS] Could not measure the head: {e}")
 
     def _play_audio(self, audio) -> None:
         """Send PCM to the speakers and block until it has finished."""
@@ -348,6 +383,10 @@ class PocketTTSProcessing:
                                          channels=channels, dtype="float32")
             try:
                 stream.start()
+                self.client.log(
+                    "debug",
+                    f"[TTS] Playing {len(data) / max(1, rate):.2f}s at {rate}Hz "
+                    f"on device {chosen}, {channels}ch.")
                 # Written in pieces so it can be stopped part way.
                 #
                 # One write() of the whole reply blocks until every sample has
