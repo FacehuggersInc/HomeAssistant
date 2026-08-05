@@ -1252,7 +1252,10 @@ class Client:
         # that layer's mask in step with it. Re-parenting directly skips the
         # filter, and the dim would never appear.
         self.DIMMER = Dimmer(self)
-        self.OVERLAYS.add("BACKGROUND", self.DIMMER)
+        # Over everything rather than in a layer. A wash painted under the
+        # panels dims the page and leaves them bright, which reads as the
+        # dimming not working at all.
+        self.OVERLAYS.set_topmost(self.DIMMER)
         self.DIMMER.sync_geometry()
         self.DIMMER.hide()   # add() shows it; nothing to dim at full brightness
 

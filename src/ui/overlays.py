@@ -144,9 +144,41 @@ class OverlayManager(QWidget):
             # would pop a stray top-level window.
             self.passthrough.show()
 
+        # Above everything, always. See set_topmost().
+        self.topmost_widget = None
+
         self._recompute_mask()  # Empty mask — no children yet, all clicks pass through
 
     # ── Layer API ─────────────────────────────────────────────────────────────
+
+    def set_topmost(self, widget: QWidget) -> None:
+        """
+        One widget that sits over everything, panels and dialogs included.
+
+        For the dimmer, and nothing else so far. A screen dimmed by painting
+        over it is dimmed only as far up the stack as the paint reaches, and
+        the overlay layers sit above the passthrough host - so a panel opened
+        at 3am came up at full strength over a dark room, and looked like the
+        dimming had failed rather than been drawn under.
+
+        Given the overlay's own parent rather than a layer inside it: the
+        layers are raised beneath this widget's parent, so no amount of
+        raising within one can climb past them.
+
+        It has to be WA_TransparentForMouseEvents, or a wash over the screen
+        is a screen nobody can touch.
+        """
+        self.topmost_widget = widget
+        if widget is None:
+            return
+        if not widget.testAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents):
+            widget.setAttribute(
+                Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
+        host = self.parentWidget()
+        if host is not None:
+            widget.setParent(host)
+            widget.setGeometry(self.geometry())
+        self._enforce_z_order()
 
     def _host_for(self, widget: QWidget) -> QWidget:
         """Where a widget should actually live: masked layer, or passthrough."""
@@ -206,6 +238,13 @@ class OverlayManager(QWidget):
             for widget in self._layers[layer_name]:
                 widget.raise_()
 
+        # Last, so it covers the layers as well as the page.
+        if self.topmost_widget is not None:
+            try:
+                self.topmost_widget.raise_()
+            except RuntimeError:
+                self.topmost_widget = None
+
     # ── Geometry ──────────────────────────────────────────────────────────────
 
     def update_geometry(self, w: int, h: int) -> None:
@@ -219,6 +258,11 @@ class OverlayManager(QWidget):
         # this widget, so the passthrough host is synced from the resize
         # rather than from update_geometry().
         self.passthrough.setGeometry(self.geometry())
+        if self.topmost_widget is not None:
+            try:
+                self.topmost_widget.setGeometry(self.geometry())
+            except RuntimeError:
+                self.topmost_widget = None
         self._schedule_mask_update()
 
     def moveEvent(self, event) -> None:  # type: ignore[override]
