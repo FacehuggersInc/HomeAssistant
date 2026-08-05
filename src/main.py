@@ -1786,7 +1786,17 @@ class Client:
         The answer is what a caller decides on: False means show the message
         instead.
         """
-        if not text or self.TTS is None or not getattr(self.TTS, "available", False):
+        # Said out loud, because silence here has three causes and they look
+        # identical from the outside: no text, no backend, or a backend that
+        # never came up. A skill that answers and is not heard is the hardest
+        # failure to place, and until now it left nothing in the log at all.
+        if not text:
+            return False
+        if self.TTS is None or not getattr(self.TTS, "available", False):
+            self.log("warning",
+                     f"[Assistant] Nothing said - the voice backend is "
+                     f"{'missing' if self.TTS is None else 'not available'}: "
+                     f"{text[:60]!r}")
             return False
         # Muted counts as not said.
         #
@@ -1795,6 +1805,8 @@ class Client:
         # on this to decide whether to SHOW the message instead skipped that
         # too. The question this answers is whether a person heard it.
         if self.sounds_muted():
+            self.log("info", f"[Assistant] Not said - sounds are muted: "
+                             f"{text[:60]!r}")
             return False
         # Remembered before it is spoken, not after.
         #
@@ -1814,6 +1826,7 @@ class Client:
             # The pill stays up while the audio is made. A local voice takes a
             # second or two on a long reply, and a silent panel in that gap
             # looks like nothing happened.
+            self.log("debug", f"[Assistant] Speaking: {text[:80]!r}")
             with self.thinking("speaking"):
                 self.TTS.play(text, thread=thread)
             return True

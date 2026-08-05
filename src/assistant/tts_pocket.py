@@ -356,6 +356,8 @@ class PocketTTSProcessing:
             # one: sd.play() writes to a single module-level stream, and a tap
             # sound landing while this is speaking reaches into it from another
             # thread. PortAudio answers that with SIGABRT.
+            import numpy as np
+
             channels = 1 if data.ndim == 1 else data.shape[1]
             rate = self._playback_rate()
             # The chosen output, like every other sound the panel makes -
@@ -387,6 +389,26 @@ class PocketTTSProcessing:
                     "debug",
                     f"[TTS] Playing {len(data) / max(1, rate):.2f}s at {rate}Hz "
                     f"on device {chosen}, {channels}ch.")
+
+                # Silence written and WAITED FOR, before the reply.
+                #
+                # An idle sink is suspended, and resuming it takes long enough
+                # that everything written meanwhile is dropped. Padding the
+                # buffer does not survive that - the measurements show close
+                # to a second of silence already in front of the speech and
+                # the first syllable still going missing - because the frames
+                # are pulled and discarded while the device wakes.
+                #
+                # So the device is given something to throw away first, and
+                # then a moment to finish waking. `stop()`/`start()` is not
+                # used here: the point is to keep the stream running from this
+                # instant until the last sample, so nothing can suspend in
+                # between.
+                warm = int(rate * self.WARMUP_S)
+                if warm > 0:
+                    shape = (warm,) if data.ndim == 1 else (warm, data.shape[1])
+                    stream.write(np.zeros(shape, dtype=data.dtype))
+                    time.sleep(self.WARMUP_S)
                 # Written in pieces so it can be stopped part way.
                 #
                 # One write() of the whole reply blocks until every sample has
@@ -583,6 +605,11 @@ class PocketTTSProcessing:
     #How much audio is written at a time, in seconds. Short enough that a
     #stop lands immediately, long enough not to starve the output.
     INTERRUPT_STEP = 0.1
+
+    #How long the device is given to wake up, with silence, before the reply
+    #starts. Written AND waited for - writing alone only queues it, and the
+    #queue is what a resuming sink throws away.
+    WARMUP_S = 0.45
 
     ## -- interface
 
