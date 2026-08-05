@@ -56,3 +56,19 @@ class Asset(Path):
 	@property
 	def is_uploadable(self) -> bool:
 		return object.__getattribute__(self, "uploadable_flag") if "uploadable_flag" in self.__dict__ else False
+
+	def mark_deletable(self) -> "Asset":
+		"""
+		Files in here may be listed and removed over the API.
+
+		Separate from uploadable, and deliberately not implied by it. Adding
+		to a folder is recoverable by deleting what was added; emptying one is
+		not, and a folder somebody may put things into is not automatically a
+		folder they should be able to empty from a phone.
+		"""
+		object.__setattr__(self, "deletable_flag", True)
+		return self
+
+	@property
+	def is_deletable(self) -> bool:
+		return object.__getattribute__(self, "deletable_flag") if "deletable_flag" in self.__dict__ else False

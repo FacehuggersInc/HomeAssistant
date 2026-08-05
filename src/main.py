@@ -315,6 +315,8 @@ class Client:
         self.SETTINGS_LOCK = RLock()
         bg_asset = Asset(self.SETTINGS.home.background.images.value)
         bg_asset.mark_uploadable()
+        # Wallpapers get swapped out, so they can go as well as arrive.
+        bg_asset.mark_deletable()
         self.register_asset("background_images", bg_asset, "FOLDER")
 
         ## -- ASSISTANT

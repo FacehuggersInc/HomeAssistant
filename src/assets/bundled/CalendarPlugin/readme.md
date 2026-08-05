@@ -48,6 +48,30 @@ alone. The API refuses an event with no `user`.
 Holidays are worked out rather than fetched. A wall panel is offline often, an
 API key for something this static is a poor trade, and the rules do not change.
 
+## Widgets
+
+**Next event** is one event, large: what it is, how long until it, and when.
+The gap alone answers "when" only loosely — "Tomorrow" still leaves somebody
+needing to know whether to be somewhere at nine or at four — so the day and the
+time are shown together, with the frame where the event has an end:
+`Tomorrow  ·  2:05 PM - 3:30 PM`.
+
+**Coming up** is today and the next two days with what is on each, one line per
+event, the start time on the right. Just the start there: a row has one line to
+say it in, and the start is the part being looked for.
+
+Times are shown on a **12-hour clock**, minutes dropped on the hour — `3 PM`,
+`9:30 AM`, `All day`. The panel is read at a glance from across a room, and
+`15:00` is a number to convert before it is a time. The stored clock stays
+24-hour; only the reading of it changes.
+
+Both open the event when tapped, and a tap is measured rather than assumed: a
+release counts as one only if the finger travelled less than `DRAG_DISTANCE`
+**and** was down for less than the widget framework's own hold. Distance alone
+cannot tell a tap from somebody pressing and waiting for the handles, because a
+finger held still travels nothing — the threshold is shared with the framework
+so that the moment a press stops being a tap is the moment the handles appear.
+
 ## Subscribed calendars
 
 **Settings → Calendar → Subscriptions → Add a calendar**, then paste the ICS

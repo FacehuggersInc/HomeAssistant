@@ -22,6 +22,7 @@
  .missing{color:#e08a8a}
  .empty{background:var(--card);border:1px solid var(--line);border-radius:14px;
       padding:20px;color:var(--muted);font-size:14px}
+ .key em{font-style:normal;font-size:11px;color:var(--accent);font-weight:600}
 </style></head><body>
 <div class="backrow">{{ back_button(token)|safe }}</div>
 <h1>Upload</h1>
@@ -33,7 +34,7 @@
   <a class="card" href="/upload/{{ a.key }}?token={{ token }}">
     <span class="glyph">&#8679;</span>
     <span class="meta">
-      <span class="key">{{ a.key }}</span>
+      <span class="key">{{ a.key }}{% if a.deletable %} <em>&middot; manageable</em>{% endif %}</span>
       <span class="path">{{ a.path }}</span>
     </span>
     <span class="stats">

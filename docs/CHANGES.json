@@ -1,6 +1,16 @@
 {
  "log": [
   {
+   "at": 1785890075.0764322,
+   "note": "listing and deleting files in an asset folder",
+   "pages": [
+    {
+     "slug": "api",
+     "state": "updated"
+    }
+   ]
+  },
+  {
    "at": 1785723863.3219125,
    "note": "the docs describe what is there rather than what changed",
    "pages": [
@@ -1095,8 +1105,8 @@
  ],
  "pages": {
   "api": {
-   "at": 1785710073.2259855,
-   "hash": "90619f6803f9ae8d",
+   "at": 1785890075.0748465,
+   "hash": "559dd53728597544",
    "opened": 0,
    "state": "updated"
   },

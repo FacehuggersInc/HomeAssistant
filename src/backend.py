@@ -6,9 +6,20 @@ from threading import Thread
 
 from src.constants import APP_NAME
 
+
+def _pretty_size(total: int) -> str:
+	"""Bytes as something readable. Two places at GB, one below."""
+	if total < 1024:
+		return f"{total} B"
+	if total < 1024 * 1024:
+		return f"{total / 1024:.1f} KB"
+	if total < 1024 ** 3:
+		return f"{total / (1024 * 1024):.1f} MB"
+	return f"{total / (1024 ** 3):.2f} GB"
+
 from urllib.parse import urlencode
 
-from flask import Flask, jsonify, redirect, send_from_directory, request, render_template, make_response
+from flask import Flask, jsonify, redirect, send_from_directory, request, render_template, make_response, send_file
 
 ADDRESS = "0.0.0.0"
 PORT = 5000
@@ -668,7 +679,9 @@ def FlaskApp(client):
 		for key, asset in client.ASSETS.get("FOLDER", {}).items():
 			if not getattr(asset, "is_uploadable", False):
 				continue
-			info = {"key": key, "path": str(asset), "exists": False, "file_count": 0, "size": "0 B", "size_bytes": 0}
+			info = {"key": key, "path": str(asset), "exists": False,
+					"file_count": 0, "size": "0 B", "size_bytes": 0,
+					"deletable": bool(getattr(asset, "is_deletable", False))}
 			try:
 				import os
 				if asset.exists():
@@ -677,14 +690,7 @@ def FlaskApp(client):
 					total = sum(f.stat().st_size for f in files)
 					info["file_count"] = len(files)
 					info["size_bytes"] = total
-					if total < 1024:
-						info["size"] = f"{total} B"
-					elif total < 1024 * 1024:
-						info["size"] = f"{total / 1024:.1f} KB"
-					elif total < 1024 ** 3:
-						info["size"] = f"{total / (1024 * 1024):.1f} MB"
-					else:
-						info["size"] = f"{total / (1024 ** 3):.2f} GB"
+					info["size"] = _pretty_size(total)
 			except Exception as e:
 				client.log("error", f"[backend.upload_index] Upload Failed: {e}")
 			uploadable.append(info)
@@ -714,7 +720,122 @@ def FlaskApp(client):
 		# ended up with no size on its back-button icon, and an SVG with no
 		# size fills whatever contains it.
 		return render_template("upload.html", key=key, path=str(path),
-							   token=token)
+							   token=token,
+							   deletable=bool(getattr(path, "is_deletable", False)))
+
+	def _deletable_folder(key):
+		"""The folder behind `key`, or the refusal to hand it over."""
+		path = client.asset("FOLDER", key)
+		if not path:
+			return None, ({"request": "Failed",
+						   "reason": f"No FOLDER asset '{key}'"}, 404)
+		if not getattr(path, "is_deletable", False):
+			return None, ({"request": "Failed",
+						   "reason": f"Asset '{key}' is not marked as deletable"}, 403)
+		return path, None
+
+	def _safe_name(name):
+		"""
+		A plain filename, or nothing.
+
+		The names come back from a page this served, but a request is a
+		request whatever served the page before it - and `folder / "../x"`
+		reaches outside the folder just as happily as any other path.
+		"""
+		import os
+		name = os.path.basename(str(name or "")).strip()
+		if not name or name.startswith(".") or "/" in name or "\\" in name:
+			return ""
+		return name
+
+	@app.route("/upload/<key>/files", methods=["GET"])
+	def upload_files(key):
+		log()
+		err = auth()
+		if err: return err
+
+		path, refusal = _deletable_folder(key)
+		if refusal: return refusal
+
+		images = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".svg"}
+		files = []
+		try:
+			for entry in sorted(path.iterdir(), key=lambda f: f.name.lower()):
+				if not entry.is_file() or entry.name.startswith("."):
+					continue
+				size = entry.stat().st_size
+				files.append({
+					"name": entry.name,
+					"size_bytes": size,
+					"size": _pretty_size(size),
+					"is_image": entry.suffix.lower() in images,
+					"modified": int(entry.stat().st_mtime),
+				})
+		except Exception as e:
+			client.log("error", f"[backend.upload_files] {key}: {e}")
+			return {"request": "Failed", "reason": str(e)}, 500
+		return {"request": "OK", "key": key, "files": files}
+
+	@app.route("/upload/<key>/file/<path:name>", methods=["GET"])
+	def upload_file_raw(key, name):
+		"""One file, so the listing can show what it is about to delete."""
+		log()
+		err = auth()
+		if err: return err
+
+		path, refusal = _deletable_folder(key)
+		if refusal: return refusal
+
+		safe = _safe_name(name)
+		target = path / safe if safe else None
+		if not safe or not target.is_file():
+			return {"request": "Failed", "reason": "No such file"}, 404
+		return send_file(str(target))
+
+	@app.route("/upload/<key>/delete", methods=["POST"])
+	def upload_delete(key):
+		"""
+		Remove the named files.
+
+		Every name is answered for separately. A batch that stops at the first
+		refusal leaves the caller unable to say which of the ten it asked
+		about are still there.
+		"""
+		log()
+		err = auth()
+		if err: return err
+
+		path, refusal = _deletable_folder(key)
+		if refusal: return refusal
+
+		payload = request.get_json(silent=True) or {}
+		names = payload.get("files")
+		if not isinstance(names, list) or not names:
+			return {"request": "Failed", "reason": "No files given"}, 400
+
+		deleted, failed = [], {}
+		for raw in names:
+			safe = _safe_name(raw)
+			if not safe:
+				failed[str(raw)] = "Bad filename"
+				continue
+			target = path / safe
+			try:
+				if not target.is_file():
+					failed[safe] = "No such file"
+					continue
+				target.unlink()
+				deleted.append(safe)
+			except Exception as e:
+				failed[safe] = str(e)
+
+		if deleted:
+			client.log("info", f"[backend.upload_delete] Removed "
+							   f"{len(deleted)} from '{key}': "
+							   f"{', '.join(deleted)}")
+		for name, why in failed.items():
+			client.log("warning", f"[backend.upload_delete] {key}/{name}: {why}")
+		return {"request": "OK", "deleted": deleted, "failed": failed}
 
 	@app.route("/upload/<key>", methods=["POST"])
 	def upload_file(key):

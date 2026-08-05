@@ -25,6 +25,25 @@
  li .sz{color:var(--muted);font-size:12px;white-space:nowrap}
  li .x{color:var(--bad);padding:0 8px;font-size:20px;line-height:1}
  .ok{color:var(--accent)} .bad{color:var(--bad)}
+ /* The listing. A grid rather than rows: most of what goes in these folders
+    is pictures, and a filename is a poor answer to "which one is that". */
+ h2{font-size:15px;margin:26px 0 8px;color:var(--muted);font-weight:600}
+ .grid{display:grid;gap:10px;
+       grid-template-columns:repeat(auto-fill,minmax(104px,1fr))}
+ .cell{position:relative;border:1px solid var(--line);border-radius:10px;
+       overflow:hidden;cursor:pointer;background:rgba(255,255,255,.03)}
+ .cell .thumb{width:100%;height:78px;object-fit:cover;display:block}
+ .cell .glyph{height:78px;display:flex;align-items:center;
+              justify-content:center;font-size:26px;color:var(--muted)}
+ .cell .meta{padding:6px 7px;font-size:11px;line-height:1.3}
+ .cell .meta .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+ .cell .meta .sz{color:var(--muted);font-size:10px}
+ /* Marked, not gone. Nothing is removed until the button at the bottom. */
+ .cell.marked{border-color:var(--bad);opacity:.55}
+ .cell.marked:after{content:"\2715";position:absolute;top:6px;right:8px;
+       color:var(--bad);font-size:16px;font-weight:700}
+ #wipe{background:var(--bad);color:#fff;border:none}
+ #wipe[hidden]{display:none}
 </style></head><body>
 <div class="backrow">{{ back_button(token)|safe }}{{ back_button(token, "All folders", "/upload")|safe }}</div>
 <h1>Upload to {{ key }}</h1>
@@ -45,6 +64,14 @@
 <section id="resultBox" style="display:none">
   <ul id="results"></ul>
 </section>
+
+{% if deletable %}
+<section id="listing">
+  <h2>Already here</h2>
+  <div class="grid" id="files"></div>
+  <button id="wipe" hidden></button>
+</section>
+{% endif %}
 
 <script>
  var KEY = {{ key|tojson }};
@@ -145,4 +172,111 @@
    });
  });
 </script>
+
+{% if deletable %}
+<script>
+ (function () {
+   var grid = document.getElementById('files');
+   var wipe = document.getElementById('wipe');
+   var marked = {};
+
+   function url(suffix) {
+     return '/upload/' + encodeURIComponent(KEY) + suffix +
+            '?token=' + encodeURIComponent(TOKEN);
+   }
+
+   function refreshButton() {
+     var names = Object.keys(marked);
+     wipe.hidden = names.length === 0;
+     wipe.textContent = names.length === 1
+       ? 'Delete 1 file'
+       : 'Delete ' + names.length + ' files';
+   }
+
+   function cell(file) {
+     var box = document.createElement('div');
+     box.className = 'cell';
+     if (file.is_image) {
+       var img = document.createElement('img');
+       img.className = 'thumb';
+       img.loading = 'lazy';
+       img.src = url('/file/' + encodeURIComponent(file.name));
+       box.appendChild(img);
+     } else {
+       var glyph = document.createElement('div');
+       glyph.className = 'glyph';
+       glyph.textContent = '\u25A4';
+       box.appendChild(glyph);
+     }
+     var meta = document.createElement('div');
+     meta.className = 'meta';
+     var nm = document.createElement('div');
+     nm.className = 'nm'; nm.textContent = file.name; nm.title = file.name;
+     var sz = document.createElement('div');
+     sz.className = 'sz'; sz.textContent = file.size;
+     meta.appendChild(nm); meta.appendChild(sz);
+     box.appendChild(meta);
+
+     box.addEventListener('click', function () {
+       if (marked[file.name]) { delete marked[file.name]; }
+       else { marked[file.name] = true; }
+       box.classList.toggle('marked');
+       refreshButton();
+     });
+     return box;
+   }
+
+   function load() {
+     marked = {};
+     refreshButton();
+     grid.textContent = '';
+     fetch(url('/files'))
+       .then(function (r) { return r.json(); })
+       .then(function (body) {
+         var files = (body && body.files) || [];
+         if (!files.length) {
+           grid.innerHTML = '<p class="sub">Nothing here yet.</p>';
+           return;
+         }
+         files.forEach(function (f) { grid.appendChild(cell(f)); });
+       })
+       .catch(function () {
+         grid.innerHTML = '<p class="bad">Could not list this folder.</p>';
+       });
+   }
+
+   wipe.addEventListener('click', function () {
+     var names = Object.keys(marked);
+     if (!names.length) { return; }
+     // Asked once, and by count rather than by name: the marks are on the
+     // screen behind this, so the number is what wants confirming.
+     var question = names.length === 1
+       ? 'Delete "' + names[0] + '"? This cannot be undone.'
+       : 'Delete these ' + names.length + ' files? This cannot be undone.';
+     if (!window.confirm(question)) { return; }
+     wipe.disabled = true;
+     fetch(url('/delete'), {
+       method: 'POST',
+       headers: { 'Content-Type': 'application/json' },
+       body: JSON.stringify({ files: names })
+     })
+       .then(function (r) { return r.json(); })
+       .then(function (body) {
+         var failed = Object.keys((body && body.failed) || {});
+         if (failed.length) {
+           window.alert('Could not delete: ' + failed.join(', '));
+         }
+       })
+       .catch(function (e) { window.alert('Delete failed: ' + e); })
+       .finally(function () { wipe.disabled = false; load(); });
+   });
+
+   load();
+   // Whatever was just uploaded belongs in the listing too.
+   document.getElementById('send').addEventListener('click', function () {
+     setTimeout(load, 1200);
+   });
+ })();
+</script>
+{% endif %}
 </body></html>

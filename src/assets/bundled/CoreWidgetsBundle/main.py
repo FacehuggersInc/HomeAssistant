@@ -85,6 +85,7 @@ class CoreWidgetsBundle(Plugin):
         from src.enums import Asset
         sticker_asset = Asset(sticker_dir)
         sticker_asset.mark_uploadable()
+        sticker_asset.mark_deletable()
         self.client.register_asset("stickers", sticker_asset, "FOLDER")
 
         # Timers. The service owns the countdowns; the widget only draws one.

@@ -12,6 +12,10 @@ from src.webui import escape, page, position_grid, POSITION_SCRIPT
 
 
 CSS = """
+/* A link, shaped like the button it sits beside. */
+a.manage{display:block;text-align:center;text-decoration:none;
+         line-height:46px;border-radius:11px}
+
  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(96px,1fr));
       gap:10px;margin-top:6px}
  .tile{position:relative;border:2px solid var(--line);border-radius:12px;
@@ -72,10 +76,6 @@ function mark(tile) {
   var go = document.getElementById('go');
   go.disabled = false;
   go.textContent = 'Place "' + tile.dataset.label + '"';
-  var rm = document.getElementById('rm');
-  rm.disabled = false;
-  rm.value = chosen;
-  rm.textContent = 'Delete "' + tile.dataset.label + '" from the library';
 }
 if (chosen) {
   var pre = document.querySelector('#grid .tile[data-name="' +
@@ -97,14 +97,9 @@ document.getElementById('scale').addEventListener('change', function () {
      named size is exactly what made the names look identical. */
   document.getElementById('size').disabled = !custom;
 });
-/* Asked first. This removes a file, and the grid is where a mis-tap lands. */
-document.getElementById('rm').addEventListener('click', function (e) {
-  var tile = document.querySelector('#grid .tile.sel');
-  var name = tile ? tile.dataset.label : 'this sticker';
-  if (!confirm('Delete "' + name + '" from the library? This cannot be undone.')) {
-    e.preventDefault();
-  }
-});
+/* Removing lives on the shared folder page, which lists what is in here with
+   thumbnails and takes the marks before it takes anything away. One picture
+   picked by name off a grid is the mis-tap this page used to be able to make. */
 var pick = document.getElementById('pick');
 var picked = document.getElementById('picked');
 if (pick && picked) {
@@ -227,9 +222,8 @@ def render_page(token: str, stickers: list, message: str = "",
     <div class="go">
       <button type="submit" id="go"{disabled}>
         {f'Place "{escape(label)}"' if chosen else "Choose a sticker first"}</button>
-      <button type="submit" name="remove" id="rm" class="danger"
-              value="{escape(chosen)}" formnovalidate{disabled}>
-        {f'Delete "{escape(label)}" from the library' if chosen else "Delete"}</button>
+      <a class="danger manage" href="/upload/stickers?token={escape(token)}">
+        Manage the library</a>
     </div>
   </form>
 </section>

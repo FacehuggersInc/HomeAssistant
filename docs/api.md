@@ -368,7 +368,23 @@ adding an event, served at
 | `GET /upload`                 | Index of upload keys.          |
 | `GET /upload/<key>`           | Upload form for one key.       |
 | `POST /upload/<key>`          | Receive a file.                |
+| `GET /upload/<key>/files`     | What is in the folder.         |
+| `GET /upload/<key>/file/<n>`  | One file, for the thumbnails.  |
+| `POST /upload/<key>/delete`   | Remove the named files.        |
 | `GET /asset/<key>`            | List assets under a key.       |
+The last three need the folder marked **deletable** as well as uploadable, and
+the two are separate on purpose: adding to a folder is undone by deleting what
+was added, emptying one is not, and a folder somebody may put things into is
+not automatically one they should be able to empty from a phone. Without the
+mark they answer 403 and the page draws no listing.
+
+`background_images` and `stickers` carry it. The listing shows a thumbnail for
+anything that is an image and a filename for everything else; tapping marks,
+and nothing is removed until the button at the bottom, which asks once by
+count. `POST .../delete` answers for each name separately - `deleted` and
+`failed` - because a batch that stops at the first refusal leaves the caller
+unable to say which of the ten it asked about are still there.
+
 | `GET /asset/<key>/<filename>` | Download one.                  |
 | `GET /font/<name>`            | One of the panel's font files. |
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import calendar as calendar_module
+import time as clock
 from datetime import date, timedelta
 from typing import TYPE_CHECKING
 
@@ -9,7 +10,7 @@ from PyQt6.QtCore import Qt, QRectF
 from PyQt6.QtGui import (
     QPainter, QColor, QPen, QBrush, QLinearGradient, QPainterPath)
 
-from src.ui.widget import Widget
+from src.ui.widget import Widget, HOLD_MS
 from src.ui.widgets.tile import Tile
 from src.ui.icons import icon
 from PyQt6.QtWidgets import QGraphicsDropShadowEffect
@@ -21,6 +22,49 @@ if TYPE_CHECKING:
 
 
 SOURCE_COLOURS = {"local": "#4f9de0", "imported": "#a97fe0", "holiday": "#d8a24a"}
+
+
+def clock_12h(moment) -> str:
+    """
+    A datetime as `2:05 PM`, or `3 PM` on the hour.
+
+    Taken from `starts_at`/`ends_at` rather than from the stored `time`
+    string, which is kept as a 24-hour clock and is what a wall panel should
+    never show: the panel is read at a glance from across a room, and "14:05"
+    is a number to convert before it is a time.
+
+    The minutes go when there are none. "3 PM" is what somebody would say.
+    """
+    if moment is None:
+        return ""
+    pattern = "%I:%M %p" if moment.minute else "%I %p"
+    return moment.strftime(pattern).lstrip("0")
+
+
+def when_text(event, span: bool = False) -> str:
+    """
+    When an event is, in words: `All day`, `2:05 PM`, or `2:05 PM - 3:30 PM`.
+
+    `span` asks for the frame where there is one. Off by default because a
+    row in a list has one line to say it in, and a start time is the part
+    somebody is actually looking for.
+    """
+    if event is None:
+        return ""
+    if getattr(event, "all_day", False):
+        return "All day"
+
+    start = clock_12h(getattr(event, "starts_at", None))
+    if not span:
+        return start
+
+    end = getattr(event, "ends_at", None)
+    # ends_at answers with the start when nothing else was stated, rather
+    # than inventing a length - so a frame is only shown when there is one.
+    if not getattr(event, "end_time", "") or end is None \
+            or end == getattr(event, "starts_at", None):
+        return start
+    return f"{start} - {clock_12h(end)}"
 
 
 def calendar_api(client):
@@ -142,10 +186,12 @@ class _TintedWidget(Widget):
 
     def mousePressEvent(self, event) -> None:
         self._press = event.globalPosition().toPoint()
+        self._press_at = clock.monotonic()
         super().mousePressEvent(event)
 
     def mouseReleaseEvent(self, event) -> None:
         start, self._press = getattr(self, "_press", None), None
+        began = getattr(self, "_press_at", 0.0)
         super().mouseReleaseEvent(event)
 
         if not self._event_key or start is None:
@@ -156,6 +202,15 @@ class _TintedWidget(Widget):
         # ended by opening the event that had just been moved.
         moved = (event.globalPosition().toPoint() - start).manhattanLength()
         if moved >= self.DRAG_DISTANCE:
+            return
+
+        # And not a hold. Distance alone cannot tell a tap from somebody
+        # pressing and waiting for the handles, because a finger held still
+        # travels nothing - so every attempt to pick the widget up ended on
+        # the calendar page instead. The framework's own threshold, so the
+        # moment this stops counting as a tap is the moment the handles
+        # appear rather than some other number nearby.
+        if began and (clock.monotonic() - began) * 1000 >= HOLD_MS:
             return
 
         # And not while the framework has it lifted for editing - a tap to
@@ -349,7 +404,12 @@ class UpcomingEventWidget(_TintedWidget):
         self.set_tint(colour_of(event))
         self.set_event(event)
         self.title.setText(event.title)
-        self.when.setText(api["describe_gap"](event).capitalize())
+        # The day and the time, not the day alone. "Tomorrow" is the answer
+        # to when in the loosest sense, and somebody reading it off a wall
+        # still has to know whether to be somewhere at nine or at four.
+        gap = api["describe_gap"](event).capitalize()
+        clock_part = when_text(event, span=True)
+        self.when.setText(f"{gap}  \u00b7  {clock_part}" if clock_part else gap)
         self.where.setText(event.location or "")
         self.where.setVisible(bool(event.location))
         try:
@@ -558,7 +618,7 @@ class NextEventsWidget(_TintedWidget):
         add_text_shadow(title, blur=6)
         line.addWidget(title, stretch=1)
 
-        when = QLabel(str(getattr(event, "time", "") or "All day"))
+        when = QLabel(when_text(event))
         when.setFont(make_font(SIZES.S1))
         when.setStyleSheet(
             "color: rgba(255,255,255,170); background: transparent;")
