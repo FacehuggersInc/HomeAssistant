@@ -729,6 +729,12 @@ class SkillIntentEngine:
 		else:
 			if use_skill:
 				self.client.ASSIST_STATUS = "ACTING"
+				# The counterpart of on_assistant_fallback: something took
+				# this. Without it the only signal anything gets is the
+				# failure, so a display cannot tell a phrase that was
+				# understood from one that was not.
+				self.client.iterate_event_callables("on_skill_called",
+												   best_skill.key)
 				Thread(target = self.__skill_call_with_status_update, args = [best_skill, match_doc]).start()
 			else:
 				self.client.ASSIST_STATUS = "LIVE"

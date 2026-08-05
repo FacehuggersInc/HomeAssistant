@@ -49,6 +49,11 @@ A fixed set of built-in events the Client fires itself, at predictable moments.
 | `on_assistant_transcribed` | A phrase was transcribed.                               | The transcript                  |
 | `on_assistant_cancelled`   | The user cancelled mid-conversation.                    | `None`                          |
 | `on_assistant_fallback`    | A phrase matched no skill.                              | The transcript                  |
+| `on_transcribing_assistant`| Audio captured; the model is working on it.             | `None`                          |
+| `on_transcribed_assistant` | The model finished, whatever it found.                  | `None`                          |
+| `on_heard_assistant`       | A finished transcript, before anything routes it.       | The transcript                  |
+| `on_skill_called`          | A skill took the phrase.                                | The skill key                   |
+| `on_mic_mute_changed`      | The microphone was muted or unmuted at the mixer. Linux only.| `True` when muted          |
 | `on_plugin_reloading`      | A plugin is about to reload.                            | The plugin key                  |
 | `on_plugin_unload`         | A plugin is unloading.                                  | The plugin key                  |
 
@@ -323,6 +328,18 @@ already listening to silently drops them:
 if "my_custom_event" not in self.client.EVENTS["on_call"]:
     self.client.create_on_call_event("my_custom_event")
 ```
+
+### The ones that ship
+
+The bundled plugins define these. They exist only while their plugin is
+loaded, so guard the subscription - a panel with Core Widgets disabled has
+no timers to finish.
+
+| Event                 | From                | Fires when                                                     | Payload                                |
+|-----------------------|---------------------|----------------------------------------------------------------|----------------------------------------|
+| `on_timer_finished`   | `corewidgetsbundle` | A countdown reaches zero.                                      | The timer                              |
+| `on_alarm_fired`      | `corewidgetsbundle` | A wall-clock alarm goes off.                                   | The alarm                              |
+| `on_calendar_changed` | `calendar`          | An event is added, edited or removed, or a subscription syncs. | The event, the calendar key, or `None` |
 
 `create_on_call_event` and `trigger_on_call_event_iteration` will raise if you pass one of the built-in event names — those are reserved for the Client and must be triggered through its own internal calls, not from plugin code.
 

@@ -246,6 +246,12 @@ class Client:
                 "on_assistant_transcribed": [],
                 "on_assistant_cancelled":   [],
                 "on_assistant_fallback":    [],
+                #The counterpart of the fallback: a skill took the phrase.
+                #Both, so a display can tell "understood" from "nothing
+                #wanted it" rather than only being told about the failure.
+                "on_skill_called":          [],
+                #The microphone was muted or unmuted at the mixer.
+                "on_mic_mute_changed":      [],
                 "on_plugin_reloading":      [],
                 "on_plugin_unload" :        [],
                 "on_interaction":           [],

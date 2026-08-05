@@ -1,6 +1,26 @@
 {
  "log": [
   {
+   "at": 1785940022.2201173,
+   "note": "the audio settings are Linux only",
+   "pages": [
+    {
+     "slug": "settings",
+     "state": "updated"
+    }
+   ]
+  },
+  {
+   "at": 1785939986.7039654,
+   "note": "the events the client and the bundled plugins fire",
+   "pages": [
+    {
+     "slug": "events",
+     "state": "updated"
+    }
+   ]
+  },
+  {
    "at": 1785895374.9157777,
    "note": "output devices read from the sound server",
    "pages": [
@@ -1203,8 +1223,8 @@
    "state": "updated"
   },
   "events": {
-   "at": 1785682556.2396154,
-   "hash": "e6c00bb3f322235d",
+   "at": 1785939986.7028959,
+   "hash": "ba5e5d6c673568d6",
    "opened": 0,
    "state": "updated"
   },
@@ -1293,8 +1313,8 @@
    "state": "updated"
   },
   "settings": {
-   "at": 1785895374.9108064,
-   "hash": "25c01587b017a26b",
+   "at": 1785940022.2195895,
+   "hash": "bbf7b581c501657c",
    "opened": 0,
    "state": "updated"
   },

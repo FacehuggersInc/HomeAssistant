@@ -19,7 +19,12 @@ ACCENT = {
     "LISTENING": "#da091f",
     "THINKING":  "#2d6cc0",
     "ACTING":    "#1f7a4d",
+    #What was heard, and whether anything took it. Grey is what CANCELLED
+    #looks like, so a matched phrase shown in grey reads as a refusal - which
+    #is how "what is the weather" looked like it had not been understood
+    #while the weather skill was running.
     "HEARD":     "#cfcfcf",
+    "MATCHED":   "#8fd6b0",
 }
 
 VISIBLE_STATES = ("LISTENING", "THINKING", "ACTING")
@@ -163,15 +168,34 @@ class VoiceBar(QWidget):
         estimate = self.HOLD_BASE_MS + len(text) * self.HOLD_PER_CHAR_MS
         return int(min(self.HOLD_MAX_MS, max(floor, estimate)))
 
-    def show_heard(self, text: str) -> None:
-        """A finished transcript. Held long enough to read, then dismissed."""
+    def show_heard(self, text: str, matched: bool = None) -> None:
+        """
+        A finished transcript. Held long enough to read, then dismissed.
+
+        `matched` recolours it once something has decided what to do with the
+        phrase: green when a skill took it, grey when nothing did. Left as
+        None while that is still unknown, which is the state this arrives in.
+        """
         text = " ".join(str(text or "").split())
         if not text:
             return
-        self._accent = QColor(ACCENT["HEARD"])
+        self._accent = QColor(ACCENT["MATCHED" if matched else "HEARD"])
         self._set_text(f"\u201c{text}\u201d")
         self._reveal()
         self._hold.start(self.hold_ms(text))
+
+    def mark_heard(self, matched: bool) -> None:
+        """
+        Recolour whatever transcript is up, without restarting its timer.
+
+        Separate from show_heard because the answer arrives afterwards: the
+        phrase is on screen before anything has decided whether a skill wants
+        it, and re-showing it would reset how long it stays.
+        """
+        if not self._text:
+            return
+        self._accent = QColor(ACCENT["MATCHED" if matched else "HEARD"])
+        self.update()
 
     def show_cancelled(self) -> None:
         """Acknowledge backing out, then drop away shortly after."""

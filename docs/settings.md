@@ -55,6 +55,15 @@ be hardware that is simply unplugged.
 for one with an array that takes the output as well as the input when it
 appears - which is the reason the rest of the list exists.
 
+> **The audio device settings are Linux only.** The output list comes from
+> PipeWire or PulseAudio through `pactl`, the volume floor drives `wpctl`,
+> `pactl` or `amixer`, and the microphone mute drives the same three. Without
+> one of those the output list falls back to the sound card's own devices, the
+> volume floor does nothing, and the microphone mute control is not offered at
+> all - a button that cannot mute anything is worse than no button, because it
+> looks like the microphone is off.
+
+
 ## Settings that move
 
 `merge_values` matches by path, so a setting that moves category looks like

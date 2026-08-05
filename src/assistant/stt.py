@@ -135,6 +135,10 @@ class STTProcessing():
 		self.last_error : str = ""
 		#When the panel last finished speaking. See heard_itself().
 		self.spoke_until : float = 0.0
+		#Whether capture is muted, and since when. Only the panel speaking
+		#should hold it, and only for as long as that lasts.
+		self.capture_held : bool = False
+		self.held_since : float = 0.0
 		self.process_type = process
 		self.__process_path = None
 		match self.process_type:
@@ -645,6 +649,8 @@ class STTProcessing():
 		"""
 		if self.process is None or not self.listening:
 			return
+		self.capture_held = bool(held)
+		self.held_since = time.time() if held else 0.0
 		try:
 			self.send_command("MUTE" if held else "UNMUTE", retries=2)
 		except Exception as e:
@@ -688,7 +694,14 @@ class STTProcessing():
 		# arrives next as the question rather than as the tail of the reply
 		# that was just cut off.
 		self.interrupted_at = time.time()
-		self.spoke_until = time.time()
+		# Cleared, NOT stamped. `heard_itself()` treats anything within the
+		# grace of this as the panel overhearing its own voice, and the
+		# sentence somebody is saying right now arrives inside that window -
+		# so stamping it here threw away the question that the wake word was
+		# said in order to ask. The reply was stopped mid-word: whatever else
+		# was coming is not coming, and there is nothing left to overhear.
+		# `interrupt_for_wake` clears it for the same reason.
+		self.spoke_until = 0.0
 
 		# And listening again. Muted was correct while it was talking; it is
 		# not talking any more, and the sentence after the wake word is
@@ -778,7 +791,11 @@ class STTProcessing():
 			if self.interrupt_for_wake(transcribed):
 				pass
 			else:
-				self.client.log("debug",
+				# Info, not debug. From outside this looks like the panel
+				# hearing somebody and then doing nothing, which is the
+				# hardest kind of failure to report - the log is the only
+				# place it is visible at all.
+				self.client.log("info",
 					f"[STTProcessing] Ignored '{transcribed}' - the panel was "
 					f"talking.")
 				return
@@ -1071,6 +1088,26 @@ class STTProcessing():
 			self.woke_with = None
 			self.client.ASSIST_VOICE_ACTIVITY_LEVEL = 0.0
 			return
+
+		# Nothing said, or nothing heard?
+		#
+		# Capture muted and never released looks exactly like silence: the
+		# spotter still runs, so the wake word gets through and the panel
+		# opens its window, and then every phrase in that window transcribes
+		# to nothing. From the outside somebody is talking to a panel that
+		# lights up and does nothing, over and over.
+		#
+		# Released here rather than waited out. The child lifts its own mute
+		# after two minutes as a failsafe, which is far too long to be sat in
+		# front of, and the hold means "while the panel is speaking" - the
+		# panel is not speaking, or this window would not have opened.
+		if getattr(self, "capture_held", False):
+			held_for = time.time() - getattr(self, "held_since", 0.0)
+			self.client.log("warning",
+				f"[STTProcessing] Capture was still muted after "
+				f"{held_for:.0f}s - releasing it. Nothing said in that window "
+				f"could have been heard.")
+			self.hold_capture(False)
 
 		self.client.log("info",
 			"[STTProcessing] Listening timed out with nothing said - standing down.")
