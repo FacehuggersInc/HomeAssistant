@@ -41,6 +41,8 @@ def build(plugin, wake: str, key: str) -> list:
                             "set an alarm in 20 minutes",
                             "set an alarm in an hour and a half",
                             "wake me up in 45 minutes",
+                            "wake me up in two hours", "wake me up in an hour",
+                            "set an alarm in 2 hours",
                             # Named
                             "set an alarm called laundry for 6 pm",
                             "set a bread alarm for 7 am",

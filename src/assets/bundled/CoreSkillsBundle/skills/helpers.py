@@ -40,6 +40,11 @@ ALARM_TIME_PATTERNS = [
 ]
 
 # "in 20 minutes", "10 minutes from now", "an hour and a half from now".
+#"an hour" is a number said as an article. `LIKE_NUM` is False for "a" and
+#"an", so a pattern built only on it misses the commonest way of saying one
+#of something - "wake me up in an hour" extracted nothing at all.
+_A_NUMBER = {"IN": ["a", "an", "one", "half"]}
+
 ALARM_AFTER_PATTERNS = [
     [{"LIKE_NUM": True}, {"LEMMA": {"IN": DURATION_UNITS}},
      {"LOWER": {"IN": DURATION_JOINERS}, "OP": "?"},
@@ -47,6 +52,14 @@ ALARM_AFTER_PATTERNS = [
      {"LEMMA": {"IN": DURATION_UNITS}, "OP": "?"},
      {"LOWER": {"IN": ["from", "in"]}, "OP": "?"},
      {"LOWER": {"IN": ["now", "time"]}, "OP": "?"}],
+    [{"LOWER": _A_NUMBER}, {"LEMMA": {"IN": DURATION_UNITS}},
+     {"LOWER": {"IN": DURATION_JOINERS}, "OP": "?"},
+     {"LOWER": _A_NUMBER, "OP": "?"},
+     {"LIKE_NUM": True, "OP": "?"},
+     # "half" closes "an hour and a half", which otherwise ends at the "a"
+     # and comes out as an hour and one minute.
+     {"LOWER": "half", "OP": "?"},
+     {"LEMMA": {"IN": DURATION_UNITS}, "OP": "?"}],
 ]
 
 ALARM_DAY_PATTERNS = [
