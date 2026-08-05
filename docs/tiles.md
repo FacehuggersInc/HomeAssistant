@@ -391,7 +391,7 @@ are always adjacent.
 
 The line under the panel's title counts the **unique tiles** waiting, not the
 entries. A tile offered at three sizes is one thing you can place, and counting
-it three times would say the panel holds twenty-two when it holds fourteen.
+it three times would say the panel holds twenty-three when it holds fifteen.
 
 ### Rendered, not grabbed
 
@@ -406,11 +406,11 @@ The same care applies to the placeholder shown when a render fails: `set_style`
 *replaces* a stylesheet, so a label once given the dashed ghost look keeps it
 behind every render afterwards unless it is styled back.
 
-`checks/tile_panel_pack.py` packs the bundled set against a real `TileGrid` at
-three screen sizes and fails on an overlap, an entry past the padding, an entry
-off the cell grid, a size that is not exactly what that span occupies on the
-grid, or a rendered tile whose corners are not transparent. `--png` writes out
-what it laid out, for a session with no screen.
+What a correct layout means, since none of it is visible in a screenshot that
+happens to look tidy: no two entries overlap, none sits past the panel's
+padding, every one lands on a cell boundary, each is exactly the pixel size
+that span occupies on the real grid, and every rendered tile has transparent
+corners.
 
 ---
 

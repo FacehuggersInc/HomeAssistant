@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import collections
 import json
+import math
 import os
 import queue
 import signal
@@ -155,6 +156,14 @@ class ParakeetListener:
     # One level report per this many speech windows - about ten a second,
     # which is faster than the eye and a third of the traffic.
     LEVEL_EVERY = 3
+
+    # Where a captured phrase sits, in dBFS, so the numbers read the same on
+    # any microphone at any gain. Somebody speaking to a panel lands around
+    # -30, an empty room around -50, and a capture that never happened is
+    # the floor. Below SILENT there is no signal at all; below QUIET there
+    # is one, but nobody was talking into it.
+    SILENT_DBFS = -70.0
+    QUIET_DBFS = -45.0
 
     # How long after a wake to keep waiting for a phrase that never comes.
     # The client has its own, longer timeout as a backstop; this one exists
@@ -649,6 +658,79 @@ class ParakeetListener:
         except Exception:
             pass
 
+    @staticmethod
+    def __dbfs(value: float) -> float:
+        """Full-scale decibels, with a floor instead of an infinity."""
+        return 20.0 * math.log10(value) if value > 1e-9 else -120.0
+
+    def __measure_phrase(self, audio):
+        """
+        What is actually in the buffer, as (rms dBFS, peak dBFS, voiced share).
+
+        One pass over an array that has already been built for the model, so
+        it costs nothing worth counting and can stay on.
+
+        `voiced` is measured per window rather than over the whole buffer.
+        The average alone cannot tell a phrase that was quiet throughout
+        from one that was loud and then stopped dead half way, and those are
+        different faults: the first is a microphone, the second is something
+        taking the capture away mid-sentence.
+        """
+        if np is None or audio is None or not len(audio):
+            return None
+
+        floor = 10.0 ** (self.SILENT_DBFS / 20.0)
+        rms = float(np.sqrt(np.mean(audio ** 2)))
+        peak = float(np.max(np.abs(audio)))
+
+        voiced = 0.0
+        usable = len(audio) - (len(audio) % self.window_samples)
+        if usable:
+            frames = audio[:usable].reshape(-1, self.window_samples)
+            levels = np.sqrt(np.mean(frames ** 2, axis=1))
+            voiced = float(np.mean(levels > floor))
+
+        return self.__dbfs(rms), self.__dbfs(peak), voiced
+
+    def __report_phrase(self, measured, speech_windows: int) -> None:
+        """
+        Say what was in a phrase the model found nothing in.
+
+        "Nothing was said" and "nothing was captured" arrive identically -
+        an empty transcript, and the panel standing back down - and they are
+        opposite problems. Nothing here can tell them apart by looking at
+        the text, because in both cases there is none.
+
+        The audio thread already called this buffer speech; the VAD counted
+        the windows and the count comes through the queue with it. So a
+        buffer that measures as silence HERE means the two disagree, and
+        that is not a transcription problem at all - the audio was muted,
+        zeroed or replaced between being called speech and being handed
+        over. No amount of looking at the model shows that.
+        """
+        if measured is None:
+            self.send_log("warning",
+                          "[Parakeet]: Nothing to transcribe - the buffer was empty.")
+            return
+
+        rms_db, peak_db, voiced = measured
+        if peak_db < self.SILENT_DBFS:
+            verdict = ("silent, so nothing was captured - the microphone was "
+                       "muted or handed back nothing")
+        elif rms_db < self.QUIET_DBFS:
+            verdict = ("room tone, so nothing was said - something was "
+                       "captured, but nobody spoke into it")
+        else:
+            verdict = ("audible, so something was said - the model found no "
+                       "words in it")
+
+        self.send_log(
+            "info",
+            f"[Parakeet]: The phrase measures {rms_db:.1f} dBFS, peak "
+            f"{peak_db:.1f}, {voiced * 100:.0f}% of it above the floor, "
+            f"against {speech_windows * self.WINDOW_MS}ms the VAD called "
+            f"speech. It is {verdict}.")
+
     def __finalise(self, phrase: list, speech_windows: int) -> None:
         """Hand a finished utterance to the processing thread, or drop it."""
         if speech_windows < self.min_speech_windows:
@@ -667,8 +749,12 @@ class ParakeetListener:
         # being transcribed cannot be stood down halfway through.
         self.waiting_since = time.time()
         try:
+            # The VAD's own count travels with the audio. It is the only
+            # thing that can contradict the buffer later: the audio thread
+            # said this much of it was speech, and the processing thread can
+            # measure whether any of it still is.
             self.audio_queue.put_nowait(
-                (b"".join(phrase), time.time(), self.generation))
+                (b"".join(phrase), time.time(), self.generation, speech_windows))
         except queue.Full:
             # Dropped loudly. Silently is how a panel ends up ignoring
             # somebody with no indication that it ever heard them.
@@ -736,7 +822,7 @@ class ParakeetListener:
         if item is None:
             return False
 
-        raw, finalised_at, generation = item
+        raw, finalised_at, generation, speech_windows = item
         if generation != self.generation:
             # Captured under a mode that has since been left. Dropped before
             # the announcement, so there is no "transcribing" to pair with.
@@ -754,12 +840,22 @@ class ParakeetListener:
             self._announced = True
             self.on_transcribing()
 
-        began = time.time()
         # No noise reduction. Whisper needed it to keep its hallucinations
         # down; Parakeet was trained on noisy speech and does not invent
         # words out of room tone, so a de-noising pass here costs a large
         # fraction of a core to make clean speech sound underwater.
         audio = np.frombuffer(raw, dtype=np.int16).astype(np.float32) / 32768.0
+        try:
+            measured = self.__measure_phrase(audio)
+        except Exception as exc:
+            measured = None
+            self.send_log("debug",
+                          f"[Parakeet]: Could not measure the phrase: {exc}")
+
+        # The clock starts here, not above. Everything before it is this
+        # process's own work, and folding it into the figure reported as
+        # time in the model is how a slow decode gets blamed on the model.
+        began = time.time()
         text = self.parakeet.transcribe(audio)
         model_ms = int((time.time() - began) * 1000)
         text = self.__clean(text)
@@ -777,11 +873,17 @@ class ParakeetListener:
             self.send_log("debug",
                           f"[Parakeet]: Nothing transcribed ({model_ms}ms in "
                           f"the model) - still listening.")
+            self.__report_phrase(measured, speech_windows)
             return True
 
+        # The level rides along on the phrases that WORKED as well. A number
+        # from a failure is only readable against one from a success on the
+        # same microphone, and hunting for that in a different log file at a
+        # different gain is how -38 dBFS gets called quiet.
+        level = f", {measured[0]:.0f} dBFS" if measured else ""
         self.send_log("debug",
                       f"[Parakeet]: Final transcription ({queued_ms}ms queued, "
-                      f"{model_ms}ms in the model): {text}")
+                      f"{model_ms}ms in the model{level}): {text}")
         if self.mode == "wake":
             # Spoken to, and answered. One phrase per wake; a follow-up comes
             # through a session, which the client opens by switching this

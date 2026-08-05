@@ -18,8 +18,9 @@ Two ways a name becomes real:
   an `in` test so a reload does not clear the subscribers.
 
 Adding a `subscribe_to_event` without doing one of those is the mistake, and
-`check_events.py` catches it by comparing every name used against every name
-declared.
+it is not visible until something subscribes: the event fires perfectly well
+with nobody listening, so the crash arrives on the first plugin that wants it
+rather than on the one that forgot to declare it.
 
 ## Client events
 

@@ -81,7 +81,7 @@ next calendar event, timers, and quitting the app.
 
 The wake word comes from Assistant settings unless a skill overrides it.
 Skills that speak degrade to silence when TTS is unavailable, so the panel
-still works without an the voice backend key.
+still works with spoken replies turned off.
 
 The **activity bar** shows what was heard and what the assistant is doing. It
 lives on the passthrough overlay layer, so it can sit over the page without

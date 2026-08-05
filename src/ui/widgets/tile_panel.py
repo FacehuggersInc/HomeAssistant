@@ -403,8 +403,8 @@ class TilePanel(Panel):
         Say how many tiles are in here.
 
         Tiles, not entries. A tile offered at three sizes is one thing you can
-        place, and counting it three times would say the panel holds twenty-two
-        when it holds fourteen.
+        place, and counting it three times would say the bundled set holds
+        twenty-three when it holds fifteen.
         """
         count = len(self.order)
         if not count:

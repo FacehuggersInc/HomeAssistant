@@ -191,18 +191,6 @@ a page, so it can be absent, and after a page rebuild it can be a Python
 object whose C++ half has gone - which is a hard crash rather than an
 `AttributeError`. Ask the thing that owns it, and let it answer False.
 
-**A leading underscore is a promise across a boundary too.** If another
-plugin has to call it, it is public - rename it rather than reaching for it,
-because a private name is the one thing nobody agreed to keep. Reaching two
-levels deep (`public.thing.widget.method()`) is the same problem wearing a
-different hat: what you were handed is the thing to ask, so give it a method
-rather than digging past it.
-
-That matters most where the second level is a **widget**. A widget belongs to
-a page, so it can be absent, and after a page rebuild it can be a Python
-object whose C++ half has gone - a hard crash rather than an
-`AttributeError`. Ask the thing that owns it and let it answer False.
-
 **Importing another plugin's module** is allowed for classes you have to
 subclass or construct, and then `dependencies` in your `plugin.toml` **must**
 list that plugin's key - an import is a hard requirement and the load order

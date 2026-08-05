@@ -1,9 +1,9 @@
 """
 The tile panel's own grid, and the packing behind it.
 
-A column would be several screens tall at twenty-two entries - one per row,
-every row as tall as the tallest thing in it - and finding a one-cell switch
-would mean scrolling past everything bigger than it.
+A column would be several screens tall at the bundled set's twenty-three
+entries - one per row, every row as tall as the tallest thing in it - and
+finding a one-cell switch would mean scrolling past everything bigger than it.
 
 So it is a grid, and **it is the same grid**. Cells are the real
 `TileGrid`'s cells, the space between them is its gap, and the dots behind
