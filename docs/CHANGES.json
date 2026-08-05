@@ -1,6 +1,16 @@
 {
  "log": [
   {
+   "at": 1785894055.8403413,
+   "note": "a wake sensitivity for while the panel is speaking",
+   "pages": [
+    {
+     "slug": "settings",
+     "state": "updated"
+    }
+   ]
+  },
+  {
    "at": 1785893107.6188653,
    "note": "the wake sensitivity restarts the assistant on save",
    "pages": [
@@ -1263,8 +1273,8 @@
    "state": "updated"
   },
   "settings": {
-   "at": 1785893107.6181927,
-   "hash": "4fcbb3d0b0609749",
+   "at": 1785894055.8367827,
+   "hash": "d36d9469ab621d56",
    "opened": 0,
    "state": "updated"
   },

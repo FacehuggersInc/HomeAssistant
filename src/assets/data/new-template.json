@@ -436,6 +436,15 @@
                 "max": 0.95,
                 "step": 0.05,
                 "description": "How sure openWakeWord has to be before it counts as the wake word.\n\n0.5 is the library's own suggestion. LOWER hears the word through more noise - a fan, music, a room away - and also fires on more things that were not it. HIGHER wants a clearer say of it and misses more.\n\nWorth moving in steps of 0.05 and living with for a day: the cost of going too low is the panel waking up on its own, which is more annoying than saying the word twice. The assistant restarts itself when this changes."
+            },
+            "wake_sensitivity_speaking": {
+                "type": "float",
+                "default": 0.0,
+                "value": 0.0,
+                "min": 0.0,
+                "max": 0.95,
+                "step": 0.05,
+                "description": "The same bar, for the moment the panel is talking. 0 means use the ordinary sensitivity above.\n\nWhile a reply is being read out the microphone carries the panel's own voice alongside yours, so the wake word arrives buried in a way it never is in a quiet room - and the setting that works for the room is often too high for this.\n\nGoing lower costs less here than it does elsewhere: a false fire only interrupts a sentence the panel was already reading out. Try 0.05 below the ordinary one and keep going while it still refuses to be interrupted. The assistant restarts itself when this changes."
             }
         },
         "feedback": {

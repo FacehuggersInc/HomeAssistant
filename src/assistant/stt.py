@@ -1329,6 +1329,9 @@ class STTProcessing():
 				# because the child is respawned when it changes.
 				"wake_sensitivity": float(self.client.setting(
 					"assistant.wake.wake_sensitivity.value", 0.5) or 0.5),
+				# And the one used while the panel is talking. 0 means the same.
+				"wake_sensitivity_speaking": float(self.client.setting(
+					"assistant.wake.wake_sensitivity_speaking.value", 0.0) or 0.0),
 				# So the process can notice the client dying without a STOP and
 				# leave on its own, instead of surviving as an orphan holding
 				# the microphone and both ports.

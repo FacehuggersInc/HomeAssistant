@@ -1767,6 +1767,7 @@ class Client:
             # It is a setting somebody adjusts by feel, a step at a time, and
             # one that needed a relaunch between steps would not get adjusted.
             str(self.setting("assistant.wake.wake_sensitivity.value", 0.5)),
+            str(self.setting("assistant.wake.wake_sensitivity_speaking.value", 0.0)),
         )
 
     def stop_assistant(self) -> None:

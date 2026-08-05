@@ -168,6 +168,7 @@ class ParakeetListener:
                  vad_aggressiveness: int = 3,
                  mic_processing: str = "software",
                  wake_sensitivity: float = 0.5,
+                 wake_sensitivity_speaking: float = 0.0,
                  initial_mode: str = "wake"):
         # First, so everything that reports during setup reports through the
         # socket rather than into a terminal nobody is reading.
@@ -182,6 +183,17 @@ class ParakeetListener:
         # noise and fires on more things that were not it; higher is the
         # reverse. A fan in the room is the case this is for.
         self.wake_sensitivity = max(0.05, min(0.95, float(wake_sensitivity or 0.5)))
+        # And the bar while the panel is talking. Zero means "the same as
+        # above" - the setting is off until somebody sets it.
+        #
+        # A lower one is defensible HERE and nowhere else: the microphone is
+        # carrying the panel's own voice at the same time, so the word arrives
+        # buried in a way it never is when the room is quiet. The cost of
+        # going too low is also smaller in this window, because a false fire
+        # only interrupts a sentence the panel was already reading out.
+        speaking = float(wake_sensitivity_speaking or 0.0)
+        self.wake_sensitivity_speaking = (
+            max(0.05, min(0.95, speaking)) if speaking > 0 else self.wake_sensitivity)
         self.mic_processing = str(mic_processing or "software").lower()
 
         self.window_samples = int(self.SAMPLE_RATE * self.WINDOW_MS / 1000)
@@ -510,6 +522,13 @@ class ParakeetListener:
             # matched as text, and passed by every self-hearing guard first.
             if self.mode == "passthrough" or not self.armed:
                 try:
+                    # Muted means the panel is speaking. Same detector, a
+                    # different bar for the moment its own voice is in the
+                    # microphone with yours.
+                    wanted = (self.wake_sensitivity_speaking if self.muted
+                              else self.wake_sensitivity)
+                    if self.spotter.threshold != wanted:
+                        self.spotter.threshold = wanted
                     if self.spotter.feed(window) is not None:
                         self.__woke()
                         if self.mode == "wake":
@@ -815,6 +834,8 @@ class ParakeetServer:
             vad_aggressiveness=3,
             mic_processing=str(config.get("mic_processing") or "software"),
             wake_sensitivity=float(config.get("wake_sensitivity") or 0.5),
+            wake_sensitivity_speaking=float(
+                config.get("wake_sensitivity_speaking") or 0.0),
         )
         self.listener.set_callbacks(
             on_wake=self.trigger_wake,
