@@ -379,6 +379,14 @@ class CoreSkills(Plugin):
                     "start a laundry timer for 40 minutes",
                     "make a bread timer for 25 minutes",
                     "put a coffee timer on for 4 minutes",
+                    # Seconds. The pattern and the parser have always taken
+                    # them; without an example saying so, the phrase scored
+                    # against a list that only ever said "minutes" and the
+                    # skill was not the one that matched.
+                    "set a timer for 30 seconds", "set a timer for 5 seconds",
+                    "start a 45 second timer", "make a timer for 90 seconds",
+                    "set an eggs timer for 30 seconds",
+                    "set a timer for 1 minute and 30 seconds",
                 ],
                 arguments={
                     # LEMMA, not LOWER: one entry covers singular and plural.

@@ -342,14 +342,19 @@ class NighttimeClockPlugin(Plugin):
             self._forced_weather, self._forced_key = {}, ""
 
         if was_enabled and not enabled:
-            # Turned off. Undo everything it was doing rather than freezing
-            # the panel dim on a page nothing will now navigate away from.
+            # Turned off. Off the clock page, and off the schedule - but the
+            # brightness is left exactly where it is.
+            #
+            # This runs when the setting changes, which is what the quick
+            # toggle does, so raising to full here lit the room up the moment
+            # somebody turned night mode off at 2am. Off means no control:
+            # this plugin stops driving the screen rather than driving it
+            # somewhere else on the way out.
             self._awake = False
             try:
                 self.client.TIMEOUTS.discard(self._settle_key)
             except Exception:
                 pass
-            self._set_brightness(100, self.FADE_MS)
             if self._on_night_page():
                 self._goto(self._home_target())
             return
@@ -624,11 +629,11 @@ class NighttimeClockPlugin(Plugin):
         """
         Turn the whole schedule on or off.
 
-        Turning it OFF while the panel is dimmed and on the clock has to undo
-        both, or the setting says off while the screen still says night.
-        Brought back to the WOKEN brightness rather than to 100: switching this
-        off is usually somebody sitting in a dark room, and full brightness is
-        not a kindness there.
+        Turning it OFF leaves the clock page and lifts what night quietened,
+        and **does not touch the brightness at all**. Off means no control:
+        the screen is wherever it is, and whoever turned this off during the
+        night did not ask for the room to be lit up. Anything that wants a
+        different level has the brightness control for it.
         """
         wanted = not self._enabled()
         if not self._set_enabled(wanted):
@@ -644,8 +649,6 @@ class NighttimeClockPlugin(Plugin):
         except Exception:
             pass
         self._awake = True
-        self._set_brightness(self._setting("brightness.woken_brightness", 55),
-                             self.WAKE_MS)
         if self._on_night_page():
             self._goto(self._home_target())
         # And whatever night quietened.
@@ -660,10 +663,15 @@ class NighttimeClockPlugin(Plugin):
         """The quick access button: onto the clock, or back off it."""
         if self._on_night_page():
             self._awake = True
-            self._set_brightness(
-                self._setting("brightness.woken_brightness", 55)
-                if self.schedule.is_night(now_minutes()) else 100,
-                self.WAKE_MS)
+            # Only where this plugin put it. At night that is the woken
+            # level; outside night it never dimmed anything, so raising to
+            # full here would be undoing somebody else's setting - which is
+            # how a panel turned down by hand ends up at full brightness for
+            # no reason anybody can trace.
+            if self.schedule.is_night(now_minutes()):
+                self._set_brightness(
+                    self._setting("brightness.woken_brightness", 55),
+                    self.WAKE_MS)
             self._goto(self._home_target())
             if self.schedule.is_night(now_minutes()):
                 self._arm_settle()
