@@ -652,6 +652,52 @@ class STTProcessing():
 				f"[STTProcessing] Could not {'hold' if held else 'resume'} "
 				f"capture: {e}")
 
+	def wake_interrupts_speech(self) -> None:
+		"""
+		The spotter fired while the panel was talking. Stop it and listen.
+
+		The missing half of "the spotter keeps running, so the wake word still
+		interrupts". It kept running and it did fire - the message arrived and
+		set the panel to LISTENING - but nothing acted on it: the reply carried
+		on, and capture stayed muted, so the question that followed the wake
+		word was never recorded. From the outside that is the panel ignoring
+		somebody, and no amount of sensitivity fixes it, because the detector
+		was never the part that was failing.
+
+		The other interrupt path works off a TRANSCRIPT, which cannot happen
+		here: capture is muted while speaking, so there is nothing to
+		transcribe. The spotter is the only thing that can hear anything in
+		this window, so it has to be the thing that acts.
+		"""
+		tts = getattr(self.client, "TTS", None)
+		speaking = False
+		try:
+			speaking = bool(tts is not None and tts.is_speaking())
+		except Exception:
+			speaking = False
+		if not speaking:
+			return
+
+		try:
+			tts.stop()
+		except Exception as e:
+			self.client.log("warning",
+				f"[STTProcessing] Could not stop speech on wake: {e}")
+
+		# Marked as an interruption, so the settle window treats whatever
+		# arrives next as the question rather than as the tail of the reply
+		# that was just cut off.
+		self.interrupted_at = time.time()
+		self.spoke_until = time.time()
+
+		# And listening again. Muted was correct while it was talking; it is
+		# not talking any more, and the sentence after the wake word is
+		# already being said.
+		self.hold_capture(False)
+		self.client.log("info",
+			"[STTProcessing] Wake word heard over a reply - stopped it and "
+			"reopened the microphone.")
+
 	def note_speech_ended(self) -> None:
 		"""Called when the panel finishes a spoken reply."""
 		self.spoke_until = time.time()
@@ -1216,6 +1262,7 @@ class STTProcessing():
 										self.woke_with = data.strip()
 										self.woke_at = time.time()
 										self.client.ASSIST_STATUS = "LISTENING"
+										self.wake_interrupts_speech()
 
 									case "transcribing":
 										# Audio captured, the model is running.

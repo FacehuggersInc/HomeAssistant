@@ -1326,8 +1326,18 @@ class Panel(QWidget):
         if self._scrim is not None or not self.dismiss_on_outside_click:
             return
 
-        scrim = _PanelScrim(self.parentWidget(), self)
-        scrim.setGeometry(self.parentWidget().rect())
+        # A panel built off the UI thread never got one, and a panel whose
+        # overlay was rebuilt lost it. Either way there is nothing for the
+        # scrim to cover, and the panel still opens - it just cannot be
+        # dismissed by pressing beside it.
+        host = self.parentWidget()
+        if host is None:
+            self.client.log("warning", f"[Panel] {self.key or 'panel'} has no "
+                                       f"parent; opening without a scrim.")
+            return
+
+        scrim = _PanelScrim(host, self)
+        scrim.setGeometry(host.rect())
         scrim.show()
         # Behind the panel, so the panel's own presses are its own.
         scrim.stackUnder(self)

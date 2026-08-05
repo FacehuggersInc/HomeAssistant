@@ -212,12 +212,28 @@ class NotificationHistory:
         """
         if not self.is_manager_alive():
             return False
+
+        manager = self.manager
+
+        def show():
+            try:
+                manager.open_history()
+            except RuntimeError:
+                pass   # deleted between the check and the call
+
+        # On the UI thread, whoever asked. A skill runs on the assistant's
+        # thread, and building a panel from there gives it no parent - the
+        # scrim is a sibling of the panel, so it then has nothing to size
+        # itself against and the open dies with an AttributeError.
+        #
+        # The answer is still returned from here: whether there is a manager
+        # to open it on is a question this thread can answer, and it is what
+        # the caller needs to know.
         try:
-            self.manager.open_history()
-            return True
-        except RuntimeError:
-            # Deleted between the check and the call.
+            self.client.call_on_ui(show)
+        except Exception:
             return False
+        return True
 
     def is_manager_alive(self) -> bool:
         if self.manager is None:
@@ -265,10 +281,25 @@ class NotificationHistory:
         self.items.clear()
         if not self.is_manager_alive():
             return
-        self.manager.hide()
-        panel = self.manager._panel
-        if panel and panel.open:
-            panel.toggle()
+
+        manager = self.manager
+
+        def apply():
+            try:
+                manager.hide()
+                panel = manager._panel
+                if panel and panel.open:
+                    panel.toggle()
+            except RuntimeError:
+                pass
+
+        # Same reason as open(): the skill that empties this runs on the
+        # assistant's thread, and hiding a widget from there is a Qt call from
+        # the wrong side.
+        try:
+            self.client.call_on_ui(apply)
+        except Exception:
+            pass
 
 
 # ── Notification center widget ────────────────────────────────────────────────
