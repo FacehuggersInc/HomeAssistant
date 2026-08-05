@@ -30,6 +30,9 @@ class AnswerPanel(Panel):
     Closes itself, because an answer nobody dismissed should not still be
     there an hour later - and closes on a tap, because sometimes it should go
     sooner than that.
+
+    Only one is ever up. A second answer displaces the first rather than
+    landing on it - see `_displace_others`.
     """
 
     # A card, not a full-height drawer. edge="right" with no height fills the
@@ -124,6 +127,68 @@ class AnswerPanel(Panel):
                                 idle=True,
                                 transient=True)
             client.TIMEOUTS.start(self._timeout_key)
+
+    def open_panel(self) -> None:
+        """
+        Go up, and take down whatever answer was up already.
+
+        After the open rather than before it. Displacing runs the other
+        panel's `on_closed`, which belongs to whoever put it up and is
+        allowed to answer back - and a hook that does needs to see THIS panel
+        as the one on screen, or the answer it raises will not displace it
+        and both end up open. Being open first is what makes that true.
+        """
+        super().open_panel()
+        if self.open:
+            self._displace_others()
+
+    def _displace_others(self) -> None:
+        """
+        Take down any answer already up, now that this one is.
+
+        Every answer is the same card in the same corner, so a second one
+        does not sit beside the first - it lands on top of it, and what shows
+        is whichever edges of the older card the newer one fails to cover.
+        Asking two things in a row is ordinary rather than a race: each
+        answer stands for thirty seconds and nothing about the panel suggests
+        waiting.
+
+        Here rather than in `client.answer()` because the rule is about
+        answers and not about the one method that happens to make them.
+        Anything opening an AnswerPanel gets it.
+
+        **Answers only.** A conversation panel, a notification centre or
+        anything else on the overlay is a different thing in a different
+        place, and an answer arriving is no reason to take it away.
+        """
+        host = getattr(self.client, "OVERLAYS", None)
+        if host is None:
+            return
+
+        try:
+            # Listed before any of them is closed. Each close runs a hook
+            # that can open and close panels itself, and walking the overlay's
+            # children while that happens is walking a list being edited.
+            #
+            # `open` is the test rather than existence: one already sliding
+            # out is leaving, and closing it again takes the destroy path
+            # from underneath its own animation.
+            others = [panel for panel in host.findChildren(AnswerPanel)
+                      if panel is not self and panel.open]
+        except RuntimeError:
+            # The overlay went while this was being built.
+            return
+
+        for panel in others:
+            try:
+                panel.close_panel()
+            except RuntimeError:
+                # Its C++ half has already gone; there is nothing to close.
+                continue
+            except Exception as e:
+                self.client.log("warning",
+                                f"[AnswerPanel] Could not displace "
+                                f"{panel.key}: {e}")
 
     def _fit_to_content(self, body: QWidget) -> None:
         """

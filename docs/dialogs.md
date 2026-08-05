@@ -227,9 +227,10 @@ not overwritten on the way out.
 ## Telling a caller the answer has gone
 
 `client.answer()` takes `on_closed`, called however the panel goes - a tap
-beside it, a tap on it, or its own timeout. A caller whose answer stands for
-something still happening needs all three, and one that hears about only one
-of them has to guess about the others.
+beside it, a tap on it, its own timeout, or another answer arriving and
+taking its place. A caller whose answer stands for something still happening
+needs all four, and one that hears about only one of them has to guess about
+the others.
 
 ```python
 client.answer("mdi.timer-outline", "Eggs finished",
@@ -240,6 +241,12 @@ client.answer("mdi.timer-outline", "Eggs finished",
 
 The timer service uses this: dismissing the answer stops the alarm, because an
 alarm still sounding after somebody has acknowledged it is the panel arguing.
+
+**Which means being displaced counts as acknowledged.** Ask something else
+while an alarm is ringing and its panel goes, `on_closed` fires, and the alarm
+is treated as answered. That follows from the panel being the alarm's only
+control: leaving it sounding with its card gone would be an alarm nothing on
+screen can stop.
 
 ## The overlay hit mask
 

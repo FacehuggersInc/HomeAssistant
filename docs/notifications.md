@@ -55,6 +55,15 @@ self.client.answer(
 A panel with an icon, a headline and however many detail lines the answer has.
 Closes itself after 30 seconds, and on a tap.
 
+**Only one is ever up.** Every answer is the same card in the same corner, so
+a second one would land on top of the first rather than beside it — and
+asking two things in a row is ordinary rather than a race, since the panel
+stands for thirty seconds and nothing about it suggests waiting. Opening an
+answer takes down whichever one was there, and that panel's `on_closed` fires
+the same as if it had been tapped. Only answers: a conversation panel or the
+notification centre is a different thing in a different place, and an answer
+arriving is no reason to take it away.
+
 ### Which to use
 
 A notification **reports**; an answer panel **answers**. The test is whether
@@ -72,8 +81,8 @@ has read the second one. Clearing notifications is a notification: the action
 
 ### Speaking
 
-`speak=` says the text as well as showing it. Text-to-speech needs an
-the voice backend key and a panel without one is a normal install, so an answer that
+`speak=` says the text as well as showing it. Replies can be turned off in
+Settings and a backend can fail to load, so an answer that
 is only spoken is an answer half the time — every skill should show as well as
 say.
 
