@@ -511,6 +511,27 @@ class OverlayedWidget(QWidget):
 
     # ── Animation ─────────────────────────────────────────────────────────────
 
+    def mousePressEvent(self, event) -> None:
+        """
+        Tapped: gone, now.
+
+        A notification is an interruption that has already done its job by the
+        time somebody looks at it, and it sits over whatever they were
+        reaching for. Waiting out the rest of its duration to reach a button
+        underneath is the notification getting in the way twice.
+
+        `decided` as well as the animation, so the manager treats this as
+        finished rather than seeing a toast that is still counting down.
+        Buttons inside it get the press first - Qt gives it to the child - so
+        an actionable notification still works.
+        """
+        if event.button() == Qt.MouseButton.LeftButton and not self.animating:
+            self.decided = True
+            self.dismiss()
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
     def push(self) -> None:
         if not self.pushing:
             self.pushing = True

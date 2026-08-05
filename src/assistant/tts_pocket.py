@@ -412,6 +412,11 @@ class PocketTTSProcessing:
         except Exception:
             pass
 
+    #How long a suspended sink takes to come back. PipeWire and PulseAudio
+    #both idle a sink out, and the first audio after that is written into a
+    #device that is not playing yet.
+    RESUME_LEAD_MS = 320
+
     def _padding_ms(self) -> int:
         try:
             return max(0, min(1000, int(self.client.setting(
@@ -431,14 +436,30 @@ class PocketTTSProcessing:
         import numpy as np
 
         milliseconds = self._padding_ms()
-        if milliseconds <= 0 or data is None:
+        if data is None:
             return data
-        frames = int(self.sample_rate * milliseconds / 1000)
-        if frames <= 0:
+
+        # The lead-in is longer than the tail, and not for symmetry.
+        #
+        # A sink that has gone idle is SUSPENDED, and resuming it takes a few
+        # hundred milliseconds during which anything written is dropped. What
+        # comes out is a reply that starts partway through its first word -
+        # the same audio every time, so it reads as the model truncating
+        # rather than the device waking up. The tail only has to cover the
+        # speaker's own decay, which is much shorter.
+        lead = max(milliseconds, self.RESUME_LEAD_MS)
+        if lead <= 0 and milliseconds <= 0:
             return data
-        shape = (frames,) if data.ndim == 1 else (frames, data.shape[1])
-        quiet = np.zeros(shape, dtype=data.dtype)
-        return np.concatenate([quiet, data, quiet])
+
+        def silence(ms):
+            frames = int(self.sample_rate * ms / 1000)
+            if frames <= 0:
+                return None
+            shape = (frames,) if data.ndim == 1 else (frames, data.shape[1])
+            return np.zeros(shape, dtype=data.dtype)
+
+        parts = [silence(lead), data, silence(milliseconds)]
+        return np.concatenate([p for p in parts if p is not None])
 
     def _playback_rate(self) -> int:
         """
