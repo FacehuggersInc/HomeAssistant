@@ -16,6 +16,7 @@ import os
 import re
 import shutil
 import subprocess
+from typing import Optional
 
 # Commands can hang when a sound server is wedged. Short, because this runs on
 # the UI thread when the slider moves.
@@ -159,3 +160,105 @@ def _set_ok(args: list) -> bool:
         return result.returncode == 0
     except Exception:
         return False
+
+
+##THE MICROPHONE
+
+#The source the panel is listening on. `@DEFAULT_SOURCE@` follows whatever the
+#system chose, which is what "Default" in the settings means; a named input
+#device is resolved to its source below.
+def _source_name(preferred: str = "") -> str:
+    """
+    The mixer's name for the input to mute, or the system default.
+
+    A saved input device is an ALSA name from PortAudio's list, and the mixer
+    speaks in sources. Matched on the card fragment the two share, because
+    that is all they have in common - "HDA Intel PCH: ALC897 Analog (hw:1,0)"
+    and "alsa_input.pci-0000_00_1f.3.analog-stereo" are the same input under
+    two naming schemes and neither contains the other.
+    """
+    wanted = str(preferred or "").strip()
+    if not wanted or wanted.lower() == "default":
+        return ""
+
+    if backend() not in ("wpctl", "pactl"):
+        return ""
+
+    out = _run(["pactl", "list", "short", "sources"])
+    if not out:
+        return ""
+
+    # The distinctive part of the ALSA name: the card, without the plugin
+    # wrapper or the channel numbers.
+    fragment = wanted.split(":")[0].strip().lower().replace(" ", "_")
+    for line in out.splitlines():
+        parts = line.split("\t")
+        if len(parts) < 2:
+            continue
+        name = parts[1].strip()
+        if not name or name.endswith(".monitor"):
+            continue
+        if fragment and fragment in name.lower():
+            return name
+    return ""
+
+
+def mic_muted(preferred: str = "") -> Optional[bool]:
+    """
+    Whether the input is muted. None means the question cannot be answered.
+
+    None rather than False, so a caller does not treat "no mixer here" as
+    "the microphone is live" and draw a control that does nothing.
+    """
+    name = backend()
+    target = _source_name(preferred)
+
+    if name == "wpctl":
+        out = _run(["wpctl", "get-volume",
+                    target or "@DEFAULT_AUDIO_SOURCE@"])
+        if not out:
+            return None
+        return "[MUTED]" in out.upper()
+
+    if name == "pactl":
+        out = _run(["pactl", "get-source-mute", target or "@DEFAULT_SOURCE@"])
+        if not out:
+            return None
+        return "yes" in out.lower()
+
+    if name == "amixer":
+        out = _run(["amixer", "get", "Capture"])
+        if not out:
+            return None
+        return "[off]" in out.lower()
+
+    return None
+
+
+def set_mic_muted(muted: bool, preferred: str = "") -> bool:
+    """Mute or unmute the input itself, not the panel's use of it."""
+    name = backend()
+    target = _source_name(preferred)
+    flag = "1" if muted else "0"
+
+    if name == "wpctl":
+        return _set_ok(["wpctl", "set-mute",
+                        target or "@DEFAULT_AUDIO_SOURCE@", flag])
+
+    if name == "pactl":
+        return _set_ok(["pactl", "set-source-mute",
+                        target or "@DEFAULT_SOURCE@", flag])
+
+    if name == "amixer":
+        return _set_ok(["amixer", "set", "Capture",
+                        "nocap" if muted else "cap"])
+
+    return False
+
+
+def toggle_mic_muted(preferred: str = "") -> Optional[bool]:
+    """Flip it, and answer with where it ended up."""
+    now = mic_muted(preferred)
+    if now is None:
+        return None
+    return not now if set_mic_muted(not now, preferred) else now

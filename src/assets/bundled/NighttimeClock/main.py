@@ -466,7 +466,7 @@ class NighttimeClockPlugin(Plugin):
 
         # Between boundaries: follow the fade, unless somebody is about.
         if not self._awake:
-            target = self.schedule.brightness(minute)
+            target = self.target_brightness(minute)
             if abs(target - self._brightness()) >= 2:
                 self._set_brightness(target, self.FADE_MS)
 
@@ -478,7 +478,7 @@ class NighttimeClockPlugin(Plugin):
         minute = now_minutes()
         self.client.log("info", "[Nighttime] Entering night.")
         self._goto(NightPage.KEY)
-        self._set_brightness(self.schedule.brightness(minute), self.FADE_MS)
+        self._set_brightness(self.target_brightness(minute), self.FADE_MS)
 
         # Quiet as well as dark.
         #
@@ -517,7 +517,7 @@ class NighttimeClockPlugin(Plugin):
         """Put the panel where the schedule says it should be, now."""
         if self.schedule.is_night(minute):
             self._goto(NightPage.KEY)
-        self._set_brightness(self.schedule.brightness(minute),
+        self._set_brightness(self.target_brightness(minute),
                              1 if immediate else self.FADE_MS)
 
     ## INTERACTION
@@ -670,7 +670,7 @@ class NighttimeClockPlugin(Plugin):
             return
         self._awake = False
         self._goto(NightPage.KEY)
-        self._set_brightness(self.schedule.brightness(now_minutes()),
+        self._set_brightness(self.target_brightness(now_minutes()),
                              self.FADE_MS)
 
     def _on_idle(self, event=None) -> None:
@@ -705,7 +705,7 @@ class NighttimeClockPlugin(Plugin):
             return
         self._awake = False
         self.client.log("debug", "[Nighttime] Settling back to night.")
-        self._set_brightness(self.schedule.brightness(now_minutes()),
+        self._set_brightness(self.target_brightness(now_minutes()),
                              self.FADE_MS)
         if not self._on_night_page():
             self._goto(NightPage.KEY)
@@ -717,6 +717,39 @@ class NighttimeClockPlugin(Plugin):
             return self.client.DIMMER.brightness()
         except Exception:
             return 100
+
+    def target_brightness(self, minute: int) -> int:
+        """
+        Where the screen should be now, faded from where it actually was.
+
+        The starting level is captured once, when the lead window opens, and
+        held until day. Read fresh on every tick instead, the fade would
+        measure itself: each step lowers the screen, the next step starts
+        from the level it just set, and the whole hour's dimming happens in
+        the first few minutes.
+        """
+        if not self.schedule.dim_enabled:
+            return self.schedule.brightness(minute)
+
+        if self.schedule.is_night(minute) or not self.schedule.is_dimming(minute):
+            # Outside the window there is nothing to hold on to. Day resets
+            # it, so tomorrow's fade starts from wherever the screen is then
+            # rather than from where it was yesterday.
+            if not self.schedule.is_night(minute):
+                self._fade_from = None
+            return self.schedule.brightness(minute)
+
+        if getattr(self, "_fade_from", None) is None:
+            self._fade_from = self._current_brightness()
+        return self.schedule.brightness(minute, start=self._fade_from)
+
+    def _current_brightness(self) -> int:
+        """What the screen is at, or full if nothing can say."""
+        try:
+            level = int(self.client.DIMMER.brightness())
+        except Exception:
+            return 100
+        return level if 1 <= level <= 100 else 100
 
     def _set_brightness(self, percent: int, duration_ms: int) -> None:
         def apply():
@@ -795,7 +828,7 @@ class NighttimeClockPlugin(Plugin):
                 "is_night": self.schedule.is_night(minute),
                 "detail": self.schedule.describe(minute),
                 "brightness": self._brightness(),
-                "target_brightness": self.schedule.brightness(minute),
+                "target_brightness": self.target_brightness(minute),
                 "woken": self._awake,
                 "condition": self.condition(),
                 "night_at": Schedule.clock(self.schedule.night),

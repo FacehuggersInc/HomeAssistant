@@ -88,30 +88,48 @@ class Schedule:
             return DIMMING
         return DAY
 
+    def is_dimming(self, minute: int) -> bool:
+        """In the lead window: not night yet, and on the way down."""
+        return self.phase(minute) == DIMMING
+
     ## -- brightness
 
-    def brightness(self, minute: int) -> int:
+    def brightness(self, minute: int, start: int = 100) -> int:
         """
         What the level should be, with nobody about.
 
-        The fade runs from full to the night level across the lead time, so
-        the last hour before bed gets gradually dimmer rather than the room
-        changing all at once at nine o'clock.
+        The fade runs from `start` down to the night level across the lead
+        time, so the last hour before bed gets gradually dimmer rather than
+        the room changing all at once at nine o'clock.
+
+        `start` is where the fade begins, and it is the caller's business
+        because only the caller knows what the screen is actually at. Fading
+        from a fixed 100 means a screen somebody had already turned down to
+        75 jumps UP to full the moment the lead window opens, and then dims
+        from there - brighter than it was, in the hour before bed, which is
+        the opposite of the point.
+
+        A `start` already at or below the night level leaves it alone: it is
+        darker than the night setting asks for, and somebody put it there.
         """
+        start = max(1, min(100, int(start or 100)))
         if not self.dim_enabled:
-            return self.night_brightness if self.is_night(minute) else 100
+            return self.night_brightness if self.is_night(minute) else start
 
         if self.is_night(minute):
             return self.night_brightness
 
         remaining = minutes_until(minute, self.night)
         if not self.lead or remaining > self.lead:
-            return 100
+            return start
 
-        # remaining == lead -> 100, remaining == 0 -> night level
+        if start <= self.night_brightness:
+            return start
+
+        # remaining == lead -> start, remaining == 0 -> night level
         progress = 1.0 - (remaining / float(self.lead))
-        span = 100 - self.night_brightness
-        return int(round(100 - span * progress))
+        span = start - self.night_brightness
+        return int(round(start - span * progress))
 
     ## -- transitions
 

@@ -1268,10 +1268,17 @@ def FlaskApp(client):
 								  "devices": []}
 
 		try:
+			# `muted` is the panel's own sounds; `mic` is the microphone
+			# itself, muted at the mixer. Two different things, and a
+			# dashboard that showed only the first would say a room was
+			# private when it was not.
 			state["quiet"] = {"dnd": client.do_not_disturb(),
-							  "muted": client.sounds_muted()}
+							  "muted": client.sounds_muted(),
+							  "mic_available": client.mic_mute_available(),
+							  "mic_muted": client.mic_muted()}
 		except Exception:
-			state["quiet"] = {"dnd": False, "muted": False}
+			state["quiet"] = {"dnd": False, "muted": False,
+							  "mic_available": False, "mic_muted": False}
 
 		try:
 			# `latest` as well as the wording, so the dashboard can tell

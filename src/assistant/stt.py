@@ -1263,6 +1263,16 @@ class STTProcessing():
 										self.woke_at = time.time()
 										self.client.ASSIST_STATUS = "LISTENING"
 										self.wake_interrupts_speech()
+										# Before the answer rather than after it.
+										# A device that arrived since the last
+										# wake brings its own volume with it, and
+										# the reply is the thing that needs to be
+										# heard. Threaded inside; cheap when the
+										# setting is off.
+										try:
+											self.client.apply_minimum_volume()
+										except Exception:
+											pass
 
 									case "transcribing":
 										# Audio captured, the model is running.

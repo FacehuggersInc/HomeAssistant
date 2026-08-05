@@ -41,6 +41,33 @@ class DoNotDisturbTile(StateTile):
         self.client.set_do_not_disturb(key == "on")
 
 
+class MicrophoneTile(StateTile):
+    """
+    The microphone itself, on or off.
+
+    The device rather than the panel's use of it, so "off" means the input is
+    muted at the mixer and nothing on the machine can hear the room - not
+    that the panel has agreed to stop listening.
+    """
+
+    KEY  = "microphone_tile"
+    NAME = "Microphone"
+    ICON = "mdi.microphone-off"
+
+    STATES = [
+        TileState("off", "Mic on", "mdi.microphone",
+                  background=OFF_BACK, ink="#c9cfdb"),
+        TileState("on", "Mic off", "mdi.microphone-off",
+                  background="#5c2230", border="#c56b7f", ink="#ffd9e0"),
+    ]
+
+    def read_state(self) -> str:
+        return "on" if self.client.mic_muted() else "off"
+
+    def apply_state(self, key: str) -> None:
+        self.client.set_mic_muted(key == "on")
+
+
 class SilenceTile(StateTile):
     KEY  = "silence_tile"
     NAME = "Silence"
@@ -259,5 +286,5 @@ class BrightnessTile(SliderTile):
         self.client.DIMMER.set_brightness(max(1, min(100, int(level))))
 
 
-DEFAULT_TILES = (DoNotDisturbTile, SilenceTile, TimersTile, AlarmsTile,
-                 WebTile, VolumeTile, BrightnessTile)
+DEFAULT_TILES = (DoNotDisturbTile, SilenceTile, MicrophoneTile, TimersTile,
+                 AlarmsTile, WebTile, VolumeTile, BrightnessTile)

@@ -238,6 +238,28 @@ class AudioRegistry:
             return found
         sounddevice, _ = backend
 
+        # Outputs, from the sound server rather than from ALSA.
+        #
+        # PortAudio answers this question at the ALSA layer and the system's
+        # own sound settings answer it at the server's, so the two lists share
+        # no names - which is a dropdown offering things nobody recognises.
+        # Inputs stay on PortAudio: the assistant opens the microphone
+        # directly and by index, which is a different job.
+        if not str(direction).lower().startswith("in"):
+            try:
+                from src.system import sinks as server_sinks
+                if server_sinks.server_device_index(sounddevice) is not None:
+                    for sink in server_sinks.sinks():
+                        label = sink.get("description") or sink.get("name")
+                        if label and label not in found:
+                            found.append(label)
+                    if len(found) > 1:
+                        return found
+            except Exception as e:
+                self.client.log("debug",
+                                f"[Audio] Could not list sinks, falling back "
+                                f"to the ALSA list: {e}")
+
         # The same filter the assistant already used for its own logging.
         # PortAudio lists ALSA's plugins as devices - resamplers, mixers,
         # channel maps - and every one of them opens without complaining and
@@ -276,6 +298,31 @@ class AudioRegistry:
                             f"[Audio] Could not list devices: {e}")
         return found
 
+    def sink_for(self, name: str) -> str:
+        """
+        The server sink behind a chosen output name, or empty.
+
+        Empty covers everything that is not one: `Default`, an ALSA device
+        from the fallback list, and a saved name for hardware that is not
+        here today.
+        """
+        wanted = str(name or "").strip()
+        if not wanted or wanted == self.DEFAULT_DEVICE:
+            return ""
+        try:
+            from src.system import sinks as server_sinks
+            return server_sinks.name_for(wanted)
+        except Exception:
+            return ""
+
+    def chosen_sink(self) -> str:
+        """The sink the settings point at, ready for `sinks.routed()`."""
+        try:
+            return self.sink_for(
+                str(self.client.setting("audio.devices.output_device.value", "")))
+        except Exception:
+            return ""
+
     def is_helper(self, name: str) -> bool:
         """
         Whether a name is an ALSA plugin rather than a device.
@@ -309,6 +356,15 @@ class AudioRegistry:
         sounddevice, _ = backend
 
         wants_input = str(direction).lower().startswith("in")
+
+        # A sink is not a PortAudio device. It is reached through the one
+        # PortAudio has for the sound server, with the sink chosen per stream
+        # - see sink_for() and src/system/sinks.py.
+        if not wants_input and self.sink_for(wanted):
+            from src.system import sinks as server_sinks
+            index = server_sinks.server_device_index(sounddevice)
+            if index is not None:
+                return index
         try:
             for index, device in enumerate(sounddevice.query_devices()):
                 if not device.get("max_input_channels" if wants_input
@@ -468,11 +524,17 @@ class AudioRegistry:
             chosen = self.device_index(
                 str(self.client.setting("audio.devices.output_device.value", "")),
                 "output")
-            stream = sounddevice.OutputStream(samplerate=rate,
-                                              device=chosen,
-                                              channels=channels,
-                                              dtype="float32")
-            stream.start()
+            # Opened inside the routing block: PULSE_SINK is read when the
+            # stream is created, not when it is written to, so setting it
+            # afterwards would send this one to the old place and only the
+            # next one where it was asked to go.
+            from src.system import sinks as server_sinks
+            with server_sinks.routed(self.chosen_sink()):
+                stream = sounddevice.OutputStream(samplerate=rate,
+                                                  device=chosen,
+                                                  channels=channels,
+                                                  dtype="float32")
+                stream.start()
             for start in range(0, len(data), self.BLOCK):
                 if handle.stop.is_set():
                     break

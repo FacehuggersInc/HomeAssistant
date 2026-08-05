@@ -1234,6 +1234,17 @@ class CoreWidgetsBundle(Plugin):
             on_state = lambda: self.client.sounds_muted(),
             order    = 21)
 
+        # Only where there is a mixer to do it with. A button that cannot
+        # mute anything is worse than no button: it looks like the microphone
+        # is off.
+        if self.client.mic_mute_available():
+            self.client.QUICK.register(
+                "corewidgetsbundle", "mic_mute", "Microphone",
+                Icons.MICROPHONE_OFF,
+                on_press = self.client.toggle_mic_muted,
+                on_state = lambda: self.client.mic_muted(),
+                order    = 22)
+
         self.client.QUICK.register(
             "corewidgetsbundle", "widget_panel", "Widgets", Icons.EXTENSION,
             on_press = lambda: sub_home.features().toggle_widget_panel(),

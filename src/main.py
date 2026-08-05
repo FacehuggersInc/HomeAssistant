@@ -409,6 +409,139 @@ class Client:
 
     ##UI BRIDGE
 
+    #What the microphone was last known to be doing, and when that was asked.
+    #
+    #Cached because every read is a subprocess and the quick panel asks each
+    #button for its state on every press and every open - and because the
+    #answer has to be available the INSTANT the button is pressed, which is
+    #before the mixer has been told anything.
+    MIC_STATE_TTL = 2.0
+
+    def mic_muted(self) -> bool:
+        """
+        Whether the microphone itself is muted.
+
+        The device, not the panel's use of it. Blocking the transcript would
+        leave a live microphone in the room with a button claiming otherwise,
+        which is the one thing a mute control must never do.
+        """
+        cached, asked = getattr(self, "_mic_state", (None, 0.0))
+        if cached is not None and (time.time() - asked) < self.MIC_STATE_TTL:
+            return bool(cached)
+        answer = self._read_mic_muted()
+        self._mic_state = (answer, time.time())
+        return bool(answer)
+
+    def _read_mic_muted(self):
+        from src.system import volume as system_volume
+        try:
+            return system_volume.mic_muted(
+                str(self.setting("audio.devices.input_device.value", "")))
+        except Exception:
+            return None
+
+    def mic_mute_available(self) -> bool:
+        """Whether there is a mixer that can answer for the microphone."""
+        return self._read_mic_muted() is not None
+
+    def set_mic_muted(self, muted: bool) -> None:
+        """
+        Mute or unmute the input. On a thread - every backend is a subprocess.
+
+        The cache is moved FIRST, before the mixer is touched. The quick
+        panel asks every button for its state the moment a press returns, and
+        a press that only starts the work returns before anything has
+        changed - so the button read the old value and sat there saying the
+        microphone was still on.
+
+        Corrected afterwards from what the mixer actually did, and the panel
+        told again if the two disagree, so a refusal shows rather than
+        leaving a button lying about a live microphone.
+        """
+        muted = bool(muted)
+        device = str(self.setting("audio.devices.input_device.value", ""))
+        self._mic_state = (muted, time.time())
+
+        def apply():
+            from src.system import volume as system_volume
+            worked = False
+            try:
+                worked = system_volume.set_mic_muted(muted, device)
+            except Exception as e:
+                self.log("warning", f"[Audio] Microphone mute failed: {e}")
+
+            truth = self._read_mic_muted()
+            self._mic_state = (truth, time.time())
+            if worked and truth is muted:
+                self.log("info", f"[Audio] Microphone "
+                                 f"{'muted' if muted else 'unmuted'}.")
+            else:
+                self.log("warning", f"[Audio] The microphone did not "
+                                    f"{'mute' if muted else 'unmute'}.")
+            self.iterate_event_callables("on_mic_mute_changed", bool(truth))
+            self.refresh_quick_states()
+
+        Thread(target=apply, name="__mic_mute", daemon=True).start()
+
+    def toggle_mic_muted(self) -> None:
+        self.set_mic_muted(not self.mic_muted())
+
+    def refresh_quick_states(self) -> None:
+        """
+        Ask the quick panel to re-read every button.
+
+        For anything that finishes after the press does. The panel refreshes
+        itself when a press returns, which is the wrong moment for work that
+        was handed to a thread.
+        """
+        def apply():
+            try:
+                panel = getattr(self, "QUICK_SETTINGS", None)
+                if panel is not None:
+                    panel.refresh_states()
+            except Exception:
+                pass
+        self.call_on_ui(apply)
+
+    def apply_minimum_volume(self) -> None:
+        """
+        Raise the system volume to the floor in settings, if it is under it.
+
+        Only ever up. It is a minimum rather than a level, so somebody turning
+        the panel down by hand still works - down to the point where a reply
+        would go unheard, which is the case this exists for.
+
+        On a thread, because every backend here is a subprocess: `wpctl`,
+        `pactl` or `amixer`. Two shells out on the UI thread is a visible
+        stall on a panel this size, and this runs on every wake.
+        """
+        try:
+            floor = int(self.setting("audio.devices.minimum_volume.value", 0) or 0)
+        except (TypeError, ValueError):
+            return
+        if floor <= 0:
+            return
+
+        def apply():
+            from src.system import volume as system_volume
+            try:
+                if not system_volume.available():
+                    return
+                current = system_volume.get_volume()
+                # -1 or anything unreadable: left alone. A backend that cannot
+                # say where the volume is cannot be trusted to be told, and
+                # guessing here would set it on every wake.
+                if current is None or current < 0 or current >= floor:
+                    return
+                if system_volume.set_volume(floor):
+                    self.log("info", f"[Audio] Volume was {current}%, raised to "
+                                     f"the {floor}% minimum.")
+            except Exception as e:
+                self.log("debug", f"[Audio] Could not apply the volume "
+                                  f"minimum: {e}")
+
+        Thread(target=apply, name="__minimum_volume", daemon=True).start()
+
     def call_on_ui(self, fn: Callable) -> None:
         self.bridge.dispatch(fn)
 
@@ -2202,6 +2335,11 @@ class Client:
 
     def _launch_assistant(self, device, model: str) -> None:
         from src.assistant import audio
+
+        # Before anything can speak. A machine that picked its own output on
+        # boot inherits whatever volume that device was left at, and a first
+        # reply nobody can hear is indistinguishable from one that never came.
+        self.apply_minimum_volume()
 
         self._start_tts()
 

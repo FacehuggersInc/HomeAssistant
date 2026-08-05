@@ -1,6 +1,26 @@
 {
  "log": [
   {
+   "at": 1785895374.9157777,
+   "note": "output devices read from the sound server",
+   "pages": [
+    {
+     "slug": "settings",
+     "state": "updated"
+    }
+   ]
+  },
+  {
+   "at": 1785894950.7967684,
+   "note": "a minimum system volume",
+   "pages": [
+    {
+     "slug": "settings",
+     "state": "updated"
+    }
+   ]
+  },
+  {
    "at": 1785894055.8403413,
    "note": "a wake sensitivity for while the panel is speaking",
    "pages": [
@@ -1273,8 +1293,8 @@
    "state": "updated"
   },
   "settings": {
-   "at": 1785894055.8367827,
-   "hash": "d36d9469ab621d56",
+   "at": 1785895374.9108064,
+   "hash": "25c01587b017a26b",
    "opened": 0,
    "state": "updated"
   },

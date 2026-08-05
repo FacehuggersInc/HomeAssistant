@@ -334,9 +334,18 @@ class PocketTTSProcessing:
                     "output")
             except Exception:
                 chosen = None
-            stream = sd.OutputStream(samplerate=rate,
-                                     device=chosen,
-                                     channels=channels, dtype="float32")
+            # Inside the routing block, for the reason the audio registry
+            # gives: PULSE_SINK is read when the stream is created.
+            sink = ""
+            try:
+                sink = self.client.AUDIO.chosen_sink()
+            except Exception:
+                sink = ""
+            from src.system import sinks as server_sinks
+            with server_sinks.routed(sink):
+                stream = sd.OutputStream(samplerate=rate,
+                                         device=chosen,
+                                         channels=channels, dtype="float32")
             try:
                 stream.start()
                 # Written in pieces so it can be stopped part way.

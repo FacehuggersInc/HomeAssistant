@@ -1515,10 +1515,21 @@ class Panel(QWidget):
 
         hook, self.on_closed_hook = self.on_closed_hook, None
         if hook is not None:
-            try:
-                hook()
-            except Exception:
-                pass
+            # Next turn of the event loop, not here.
+            #
+            # This runs inside `_anim.finished`, so anything the hook does is
+            # done on top of a QPropertyAnimation that is still emitting - and
+            # an owner tearing itself down in response will close panels,
+            # destroy widgets and start animations from inside that emission.
+            # Qt does not survive all of those, and what comes back is a
+            # SIGSEGV with nothing in the log rather than an exception
+            # anything here could catch.
+            def run(call=hook):
+                try:
+                    call()
+                except Exception:
+                    pass
+            QTimer.singleShot(0, run)
 
         if getattr(self, "_destroy_after_close", False):
             self._destroy_after_close = False

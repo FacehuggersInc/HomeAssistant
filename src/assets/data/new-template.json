@@ -64,7 +64,7 @@
                 ],
                 "default": "Default",
                 "value": "Default",
-                "description": "Where the panel plays sound. 'Default' follows whatever the system is using, which changes when a USB device is plugged in - a microphone array with a speaker jack will take the output as well as the input unless it is named here."
+                "description": "Where the panel plays sound.\n\nThe list is the system's own outputs - the same ones the desktop's sound settings show - read from PipeWire or PulseAudio. Default follows whatever the system is using now, which is right for most panels and wrong for one with a microphone array that takes the output as well.\n\nOnly the panel's own audio moves. Choosing one here does not change the system default, so nothing else on the machine follows it.\n\nWithout a sound server the list falls back to the sound card's own devices, which have less friendly names."
             },
             "input_device": {
                 "type": "enum",
@@ -84,6 +84,14 @@
                 "default": "software",
                 "value": "software",
                 "description": "What the microphone does for itself. 'software' assumes a plain mic and cleans the audio here. 'hardware' is for arrays that already do it - the ReSpeaker XVF3800 and similar - and turns off the second pass, because cleaning already-clean audio is what makes speech sound underwater. Set this to hardware only if the device really does the work; on a plain mic it will hear far less."
+            },
+            "minimum_volume": {
+                "type": "int",
+                "default": 0,
+                "value": 0,
+                "min": 0,
+                "max": 100,
+                "description": "The quietest the system volume is allowed to be. 0 turns this off.\n\nA machine that picks its own output device on boot inherits whatever volume that device was left at, which is sometimes nothing - and a panel that answers silently looks broken rather than quiet.\n\nA floor, not a level: it only ever raises the volume, so turning the panel down by hand still works down to this point. Applied when the panel starts and again whenever the wake word is heard, so a device that arrives later is caught too."
             }
         },
         "speech": {
