@@ -629,6 +629,11 @@ class STTProcessing():
 		# Whatever was still coming is not coming now, so the grace would only
 		# suppress the next real thing said.
 		self.spoke_until = 0.0
+		# Only when something was actually stopped. With nothing playing
+		# there is no unwinding callback to defend against, and the flag
+		# would sit there and swallow the grace after the NEXT reply.
+		if stopped:
+			self.note_interrupted()
 		# Said immediately rather than waiting for the wake pipeline: this is
 		# the moment somebody is looking for a sign they were heard.
 		self.client.ASSIST_STATUS = "LISTENING"
@@ -702,6 +707,11 @@ class STTProcessing():
 		# was coming is not coming, and there is nothing left to overhear.
 		# `interrupt_for_wake` clears it for the same reason.
 		self.spoke_until = 0.0
+		# And the clear is defended. `tts.stop()` above returns before the
+		# playback thread has noticed, so that thread calls
+		# note_speech_ended() a moment from now and would stamp the grace
+		# right back over this line.
+		self.note_interrupted()
 
 		# And listening again. Muted was correct while it was talking; it is
 		# not talking any more, and the sentence after the wake word is
@@ -711,8 +721,38 @@ class STTProcessing():
 			"[STTProcessing] Wake word heard over a reply - stopped it and "
 			"reopened the microphone.")
 
+	#How long a stop takes to unwind. `tts.stop()` only ASKS the playback
+	#thread to break: it finishes the buffer it is holding, waits out the
+	#tail and then calls note_speech_ended(). Bounded so a flag can never
+	#outlive the callback it was set for and suppress a later, real one.
+	INTERRUPT_UNWIND = 4.0
+
+	def note_interrupted(self) -> None:
+		"""The speech about to end was cut off rather than finished."""
+		self._interrupted_speech = time.time()
+
 	def note_speech_ended(self) -> None:
-		"""Called when the panel finishes a spoken reply."""
+		"""
+		Called when the panel finishes a spoken reply.
+
+		**Not after an interruption.** The grace exists to cover the panel
+		overhearing the tail of its own voice, and a reply cut off mid-word
+		has no tail - what is in the room instead is the person who
+		interrupted it, mid-sentence, saying the thing the wake word was said
+		in order to ask.
+
+		Both interrupt paths clear `spoke_until` themselves, and it did not
+		help: `tts.stop()` returns before the playback thread has noticed, so
+		that thread arrives HERE a moment later and stamps the grace straight
+		back over the clear. From the log that is a wake word interrupting a
+		reply correctly, the microphone reopening correctly, and the next
+		question ignored as an echo two seconds afterwards.
+		"""
+		cut = getattr(self, "_interrupted_speech", 0.0)
+		self._interrupted_speech = 0.0
+		if cut and time.time() - cut < self.INTERRUPT_UNWIND:
+			self.spoke_until = 0.0
+			return
 		self.spoke_until = time.time()
 		self.hold_capture(False)
 
@@ -1119,6 +1159,26 @@ class STTProcessing():
 		self.client.ASSIST_STATUS = "LIVE"
 		self.client.ASSIST_VOICE_ACTIVITY_LEVEL = 0.0
 
+		# And the child is TOLD, rather than assumed to have agreed.
+		#
+		# This used to clear the panel's own state and nothing else, so a
+		# child still armed carried on capturing - and every capture it
+		# could not transcribe announced `transcribing`, drove the pill to
+		# THINKING and let it fade again. With the panel stood down there is
+		# no wake word in any of it, so from the front it is a light
+		# flashing on its own, indefinitely, and saying the wake word does
+		# not help because nothing is waiting for one.
+		#
+		# A session never reaches here - that case returned above - so this
+		# cannot close a conversation. START_WAKE is idempotent: it resets
+		# the child to waiting for the word and bumps the generation, so
+		# anything already captured is dropped rather than announced.
+		#
+		# Few retries. This runs on the update thread, and ten of them at
+		# half a second each is five seconds of the tick loop spent on a
+		# child that is not answering anyway.
+		self.send_command("START_WAKE", retries=2)
+
 	def cancel(self, reason: str = "") -> None:
 		"""
 		Abandon whatever the assistant is doing and go back to waiting for the
@@ -1300,6 +1360,20 @@ class STTProcessing():
 										self.woke_at = time.time()
 										self.client.ASSIST_STATUS = "LISTENING"
 										self.wake_interrupts_speech()
+										# Somebody in the room said something
+										# TO the panel, which is an
+										# interaction by any definition -
+										# they just did not touch it. Without
+										# this the idle clock keeps running
+										# through the wake, the question and
+										# the reply, so waking a panel four
+										# seconds into its window and asking
+										# it something got an answer onto a
+										# screen that was already going dark.
+										try:
+											self.client.reset_interaction_timeout()
+										except Exception:
+											pass
 										# Before the answer rather than after it.
 										# A device that arrived since the last
 										# wake brings its own volume with it, and

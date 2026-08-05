@@ -55,6 +55,12 @@ self.client.answer(
 A panel with an icon, a headline and however many detail lines the answer has.
 Closes itself after 30 seconds, and on a tap.
 
+**It grows to hold what it is given.** The headline wraps, so a long event
+title makes the card taller — and wider first, since wrapping is what makes a
+card tall and the same title needs half the height in a wider one. It stops at
+the screen; an answer that still does not fit is trimmed and says so in the
+log rather than quietly losing its last lines.
+
 **Only one is ever up.** Every answer is the same card in the same corner, so
 a second one would land on top of the first rather than beside it — and
 asking two things in a row is ordinary rather than a race, since the panel

@@ -76,8 +76,34 @@ and quick access in one place.
 `coreskillsbundle` - voice skills for the built-in assistant, plus the
 activity bar along the bottom of the screen.
 
-Skills cover relative dates, opening and clearing notifications, weather, the
-next calendar event, timers, and quitting the app.
+Skills cover the time and relative dates, opening and clearing notifications,
+weather, the sun and moon, looking a word up, converting units, the next
+calendar event, timers, and quitting the app.
+
+Weather is four skills rather than one, because they are four different
+answers and a single skill covering everything outdoors answers "is the air
+clean" with a wind speed:
+
+| Skill                   | Asked as                                    | Answers with                                              |
+|-------------------------|---------------------------------------------|-----------------------------------------------------------|
+| `weather-update`        | "what's the weather", "how hot is it"       | Temperature, feels-like, sky, wind, humidity              |
+| `weather-precipitation` | "is it raining", "will it snow tonight"     | What is falling now, when it is likely, how much          |
+| `weather-week`          | "what's the forecast for the week"          | Seven days of high, low, sky and chance                   |
+| `weather-wind`          | "how windy is it", "which way is the wind"  | Speed, what that is called, direction, gusts              |
+| `weather-humidity`      | "how humid is it", "is it muggy"            | The percentage, and whether that is comfortable           |
+| `weather-uv`            | "what's the UV index", "do I need sunscreen"| The index, its band, and what to do about it              |
+| `weather-air-quality`   | "how's the air quality", "what's the AQI"   | US AQI with its EPA band, and the main pollutants         |
+
+Rain and snow are one skill, not two. Splitting them would put "will it rain
+or snow" in a competition between them, and the words that tell them apart are
+the only difference between the two utterances - so the handler takes the
+whole phrase and answers about whichever was asked. Asking about snow while
+rain is falling says so rather than answering yes.
+
+Air quality and UV come from a different open-meteo service to the forecast,
+so they fail separately: a panel somewhere that model does not cover still
+gets its weather, and asking about the air says so rather than showing a blank
+card.
 
 The wake word comes from Assistant settings unless a skill overrides it.
 Skills that speak degrade to silence when TTS is unavailable, so the panel
@@ -86,6 +112,79 @@ still works with spoken replies turned off.
 The **activity bar** shows what was heard and what the assistant is doing. It
 lives on the passthrough overlay layer, so it can sit over the page without
 taking a single touch from it.
+
+### Looking a word up
+
+`define-word` and `word-synonyms` answer "what does petrichor mean", "define
+ephemeral", "what are other words for happy". Both go to
+[dictionaryapi.dev](https://dictionaryapi.dev), which needs no key - a panel
+that needs one for this is a panel where the skill starts failing the day
+somebody's trial runs out. One request answers both, since definitions and
+synonyms come back in the same document.
+
+Two things about the matching are worth knowing before adding phrasings:
+
+* **A payload anchor must not be the whole command.** The anchor is cut out
+  before patterns are generated, so an anchor of `"whats"` leaves nothing to
+  generate from and the resulting pattern matches every question on the
+  panel. With it in the list, "whats the weather", "whats the date" and
+  "whats the uv index" all arrived as words to look up. The anchors here all
+  carry a word of their own - `definition of`, `the meaning of`, `look up`.
+* **"what does X mean" has no leader**, so it is matched on its trailing verb
+  and the word is read off the phrase. An argument pattern cannot do it:
+  `extract_args` strips leading verbs and auxiliaries from the span it
+  matched, so "what does **run** mean" comes back empty - and most short
+  English words are also verbs.
+
+### Converting units
+
+`convert-units` answers "how many cups in a litre", "convert 5 miles to km",
+"what's 350 Fahrenheit in Celsius". Length, mass, volume, time, speed, data
+and temperature; US customary for volume, since a cup is 237ml there and 250
+in a British recipe book.
+
+Two things it does that are worth keeping if the table is extended:
+
+* **The other side of the question settles an ambiguous unit.** "How many
+  ounces in a gallon" is a volume and "how many ounces in a pound" is a mass -
+  the word is identical and nothing but the other unit can decide it. An
+  ounce is registered as both readings, and `resolve()` picks the pair whose
+  dimensions agree.
+* **Temperature is not in the same table.** It is affine rather than linear:
+  0°C is not zero of anything, so a factor cannot express it and folding it in
+  makes "20 C in F" come out as 36. It also gets no rate line, because one
+  degree Fahrenheit is -17 Celsius - true, and not a conversion rate.
+
+Like the dictionary, this reads the whole phrase rather than using argument
+patterns. A conversion carries three values in an order the phrasing changes,
+and `extract_args` returns the widest span *per argument* rather than one per
+position - two units in one utterance is the case it cannot do.
+
+**It is matched on shape, not on the units named.** A unit is an opaque value
+the way a song title is: the examples can only list a handful, and scoring an
+utterance against them punishes it for naming different ones. "How many inches
+in a foot" against the example "how many feet in a mile" shares two lemmas of
+three and scores 0.67, under the threshold - so the whole of length and data
+reached no skill at all while converting perfectly the moment it was called by
+hand. `units.PATTERN_TOKENS` exists for that: hand-written patterns fire on
+"how many &lt;unit&gt; ... &lt;unit&gt;" whatever the units are. Anything added to the
+table is reachable immediately, without an example naming it.
+
+### The sun and the moon
+
+`sun-times` and `moon-phase` answer "when is sunset", "when does it get dark",
+"what phase is the moon". The arithmetic is **not** here - it belongs to the
+[Astronomy](#astronomy) plugin, which registers no page, widget or skill on
+purpose. `plugin.toml` declares the dependency so the load order is right;
+every use is still guarded, so a panel with the library removed says so.
+
+Sunrise and sunset are one skill. They are the same calculation and the same
+card, and which end of the day was asked about is a word in the phrase rather
+than a different question. Coordinates come from the weather plugin's
+settings, where they are already configured - a second copy is a second thing
+to edit and a second thing to be wrong. With no location set it says so
+instead of answering: sunrise at 0,0 is a real time in the Gulf of Guinea,
+which looks right and is hours out.
 
 See [Voice assistant](assistant.md) for how skills are declared and matched.
 
@@ -258,6 +357,16 @@ Events come from four places and are kept apart by `source`: made in the app
 (`subscribed`), or computed (`holiday`). Holidays are 21 of them, worked out
 from the rules rather than fetched, because a wall panel is offline often and
 the rules do not change.
+
+They can also be asked for by name - "when is Thanksgiving", "how long until
+Christmas", "when is the fourth of July". `store.holiday_named()` matches an
+alias against the **whole phrase** rather than against a name pulled out of
+it, so nothing has to find where "the fourth of July" starts and stops.
+Aliases are tried longest first, or "Christmas Eve" is answered with Christmas
+Day, and matched on whole words, or a short alias matches inside an unrelated
+one. `find_holiday()` rolls into next year rather than returning a date that
+has been and gone: asked about Christmas on Boxing Day, the answer is next
+December.
 
 * **Calendar sub-page** - a month grid at `(0, 1)`, so it is one swipe down
   from the widgets. Tapping a day opens the day view; tapping an event opens

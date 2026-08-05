@@ -234,6 +234,7 @@ class Calendar(Plugin):
             "upcoming":          self.store.upcoming,
             "next_event":        self.store.next_event,
             "next_holiday":      self.store.next_holiday,
+            "find_holiday":      self.store.find_holiday,
             "next_user_event":   self.store.next_user_event,
             "previous_event":    self.store.previous_event,
             "current_event":     self.store.current_event,

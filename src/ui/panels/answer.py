@@ -41,7 +41,15 @@ class AnswerPanel(Panel):
     MIN_WIDTH   = 380
     MAX_WIDTH   = 620
     MIN_HEIGHT  = 140
-    MAX_RATIO   = 0.55        # of the screen height, for a long answer
+    # How far the card may grow before it is trimmed. One that reaches the
+    # screen edges is not a card any more, but an answer that does not fit is
+    # worse than a tall one, and what gets lost is the bottom - which is
+    # where the rest of the headline is.
+    MAX_RATIO   = 0.90        # of the screen height, for a long answer
+    # Widths tried before height is spent. Wrapping is what makes a card
+    # tall: the same event title wants 532px in a 380 card and 356 in a 620.
+    WIDTH_STEPS = (0, 80, 160, 240)
+    PAD         = 8
     MARGIN      = 22          # non-zero, so it floats as a card
     TIMEOUT     = 30
 
@@ -62,7 +70,12 @@ class AnswerPanel(Panel):
         # with different titles can collide inside one run.
         super().__init__(client, width=width, edge="right",
                          key=f"__answer_{client.uuid()}",
-                         margin=self.MARGIN, destroy_on_close=True)
+                         margin=self.MARGIN, destroy_on_close=True,
+                         # An answer is a thing to READ, and reading produces
+                         # no interaction. The panel timing out over its own
+                         # answer - switching pages, letting a screensaver
+                         # cover it - measures the wrong thing entirely.
+                         blocks_idle=True)
         self.tint = QColor(tint)
 
         body = QWidget()
@@ -141,6 +154,15 @@ class AnswerPanel(Panel):
         super().open_panel()
         if self.open:
             self._displace_others()
+            # `blocks_idle` holds the clock while this is up; this restarts
+            # it. Without both, an answer arriving four seconds into a five
+            # second window is read for one second and then timed out from
+            # under - held open the whole time it was there, and stale the
+            # moment it went.
+            try:
+                self.client.reset_interaction_timeout()
+            except Exception:
+                pass
 
     def _displace_others(self) -> None:
         """
@@ -192,21 +214,89 @@ class AnswerPanel(Panel):
 
     def _fit_to_content(self, body: QWidget) -> None:
         """
-        Height from what is actually in it, capped to the screen.
+        Size from what is in it, at the width it is actually going to be.
 
-        Without this the panel is as tall as the display whatever it holds,
-        and an answer of two lines reads as a wall.
+        `sizeHint()` is the wrong question to ask about anything that wraps.
+        A word-wrapped QLabel answers with the height it would like at its
+        own natural width, not the height it needs at the width it is being
+        given - so a long event title measured 268, was handed 276, and drew
+        532. What went over the edge was the bottom of the headline, which is
+        the part somebody had asked about.
+
+        `heightForWidth()` is the same question asked properly, and it is
+        asked once per candidate width because the answer moves. Widening is
+        tried before height is spent: a 380-wide card most of the screen tall
+        is a column of two-word lines.
         """
         try:
-            wanted = body.sizeHint().height() + 8
             ceiling = self.MIN_HEIGHT
             host = self.client.OVERLAYS
             if host is not None and host.height() > 0:
-                ceiling = max(self.MIN_HEIGHT, int(host.height() * self.MAX_RATIO))
-            self.panel_height = max(self.MIN_HEIGHT, min(wanted, ceiling))
+                # The ratio, or whatever the margins leave - whichever is
+                # smaller. Subtracting the margins FROM the ratio counts
+                # them twice: `_sync_geometry` already parks the card at
+                # `margin` and the height is what sits below that.
+                ceiling = max(self.MIN_HEIGHT,
+                              min(int(host.height() * self.MAX_RATIO),
+                                  host.height() - self.MARGIN * 2))
+
+            base = int(self.panel_width or self.MIN_WIDTH)
+            candidates = []
+            for step in self.WIDTH_STEPS:
+                width = min(base + step, self.MAX_WIDTH)
+                if width not in candidates:
+                    candidates.append(width)
+
+            measured = [(width, self._content_height(body, width))
+                        for width in candidates]
+
+            # Narrowest that fits AND still reads as a card - no taller than
+            # it is wide. Fitting alone is not enough now that the ceiling is
+            # most of the screen: a long title fits at 380 by being 532 tall,
+            # which is a column of two-word lines rather than an answer.
+            #
+            # Failing that, the narrowest that fits at all. Failing that the
+            # widest tried, which is the one needing the least height -
+            # trimming is unavoidable by then, and this loses the fewest
+            # lines to it.
+            chosen = next(
+                ((w, h) for w, h in measured
+                 if h + self.PAD <= min(ceiling, w)), None)
+            if chosen is None:
+                chosen = next(
+                    ((w, h) for w, h in measured if h + self.PAD <= ceiling),
+                    None)
+            if chosen is None:
+                chosen = measured[-1]
+                # Said out loud. An answer quietly losing its last two lines
+                # looks exactly like an answer that only had three.
+                self.client.log(
+                    "debug",
+                    f"[AnswerPanel] Content wants {chosen[1]}px at "
+                    f"{chosen[0]}px wide and the screen allows {ceiling} - "
+                    f"it is trimmed.")
+
+            self.panel_width  = chosen[0]
+            self.panel_height = max(self.MIN_HEIGHT,
+                                    min(chosen[1] + self.PAD, ceiling))
             self._sync_geometry()
         except Exception as e:
             self.client.log("debug", f"[AnswerPanel] Could not fit to content: {e}")
+
+    def _content_height(self, body: QWidget, width: int) -> int:
+        """
+        How tall the content is at `width`, asked of the layout.
+
+        `sizeHint()` only as a fallback, for a body the layout cannot answer
+        for - which means one holding nothing that wraps, and so nothing this
+        was written to get right.
+        """
+        layout = body.layout()
+        if layout is not None and layout.hasHeightForWidth():
+            wanted = layout.heightForWidth(int(width))
+            if wanted > 0:
+                return int(wanted)
+        return int(body.sizeHint().height())
 
     def close_panel(self, destroy: bool = None) -> None:
         key = getattr(self, "_timeout_key", "")

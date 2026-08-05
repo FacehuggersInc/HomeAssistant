@@ -13,13 +13,13 @@ panel and the other plugins, and that is the plugin's business.
 
 from __future__ import annotations
 
-from . import (alarms, dates, navigation, notifications, quiet, system,
-               timers, weather)
+from . import (alarms, astronomy, conversions, dates, dictionary,
+               navigation, notifications, quiet, system, timers, weather)
 
 #Order is the order they are registered in, which does not affect matching -
 #the engine scores every skill - but does decide the order they are listed in.
-GROUPS = (dates, notifications, weather, timers, alarms, quiet, navigation,
-          system)
+GROUPS = (dates, notifications, weather, astronomy, dictionary, conversions,
+          timers, alarms, quiet, navigation, system)
 
 
 def build_all(plugin, wake: str, key: str) -> list:

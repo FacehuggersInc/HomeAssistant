@@ -33,6 +33,9 @@ class OpenMeteoAPI:
         self.openmeteo      = openmeteo_requests.Client(session=self.retry_session)
 
         self.BASE = "https://api.open-meteo.com/v1/forecast"
+        # A different host, not a different path. Air quality is its own
+        # service on open-meteo and does not answer on the forecast one.
+        self.AIR = "https://air-quality-api.open-meteo.com/v1/air-quality"
 
         self.PARAMS = {
             "hourly": {
@@ -41,6 +44,41 @@ class OpenMeteoAPI:
                 "hourly":           ["temperature_2m", "apparent_temperature"],
                 "temperature_unit": "fahrenheit",
                 "timezone":         self.plugin.settings.weather.timezone.value,
+            },
+            # Its own block rather than more fields on "hourly". Both readers
+            # of that one map the response by POSITION, so an extra variable
+            # there relabels every series after it.
+            "precipitation": {
+                "latitude":           self.plugin.settings.weather.latitude.value,
+                "longitude":          self.plugin.settings.weather.longitude.value,
+                "hourly":             ["precipitation_probability",
+                                       "precipitation",
+                                       # Appended. Rain and snow are the same
+                                       # question asked about different
+                                       # weather, and answering "will it
+                                       # snow" out of the rain total says
+                                       # yes to a wet afternoon in October.
+                                       "snowfall"],
+                "precipitation_unit": "inch",
+                "timezone":           self.plugin.settings.weather.timezone.value,
+            },
+            "daily": {
+                "latitude":           self.plugin.settings.weather.latitude.value,
+                "longitude":          self.plugin.settings.weather.longitude.value,
+                "daily":              ["weather_code", "temperature_2m_max",
+                                       "temperature_2m_min",
+                                       "precipitation_probability_max"],
+                "temperature_unit":   "fahrenheit",
+                "forecast_days":      7,
+                "timezone":           self.plugin.settings.weather.timezone.value,
+            },
+            "air": {
+                "latitude":  self.plugin.settings.weather.latitude.value,
+                "longitude": self.plugin.settings.weather.longitude.value,
+                # Appended, never inserted - same positional mapping.
+                "current":   ["us_aqi", "pm2_5", "pm10", "ozone",
+                              "nitrogen_dioxide", "uv_index"],
+                "timezone":  self.plugin.settings.weather.timezone.value,
             },
             "current": {
                 "latitude":           self.plugin.settings.weather.latitude.value,
@@ -53,6 +91,14 @@ class OpenMeteoAPI:
                     # response by POSITION in this list, so putting a new field
                     # anywhere but the end silently relabels every one after it.
                     "weather_code",
+                    # Asked for at last. The weather answer has read
+                    # `apparent_temperature` and `relative_humidity_2m` since
+                    # it was written, and neither was ever requested - so
+                    # "Feels like" and "Humidity" resolved to None and were
+                    # skipped by the loop that builds the lines. Two rows
+                    # nobody had ever seen, failing in the quietest way there
+                    # is.
+                    "apparent_temperature", "relative_humidity_2m",
                 ],
                 "temperature_unit":   "fahrenheit",
                 "wind_speed_unit":    "mph",
@@ -124,8 +170,13 @@ class OpenMeteoAPI:
         # a conversion in two places is a rounding disagreement waiting to
         # happen.
         unit = self.unit()
-        for key in ("hourly", "current"):
+        for key in ("hourly", "current", "daily"):
             self.PARAMS[key]["temperature_unit"] = unit
+        # Location and timezone on every block, temperature only on the ones
+        # that ask for a temperature. Setting `temperature_unit` on a request
+        # with no temperature in it is not an error, but it is a claim about
+        # the request that is not true.
+        for key in self.PARAMS:
             self.PARAMS[key]["latitude"]  = self.plugin.settings.weather.latitude.value
             self.PARAMS[key]["longitude"] = self.plugin.settings.weather.longitude.value
             self.PARAMS[key]["timezone"]  = self.plugin.settings.weather.timezone.value
@@ -179,6 +230,221 @@ class OpenMeteoAPI:
             return out
         except Exception as e:
             self.client.log("error", f"[OpenMeteoAPI] get_hourly_forecast failed: {e}")
+            return None
+
+    # US EPA breakpoints, and the words the EPA puts against them. The bands
+    # are what somebody actually wants: "58" means nothing to anyone who does
+    # not already know where 58 sits.
+    AQI_BANDS = (
+        (50,  "good",                           "mdi.leaf"),
+        (100, "moderate",                       "mdi.weather-hazy"),
+        (150, "unhealthy for sensitive groups", "mdi.weather-fog"),
+        (200, "unhealthy",                      "mdi.smog"),
+        (300, "very unhealthy",                 "mdi.smog"),
+    )
+
+    def aqi_band(self, aqi: float) -> tuple:
+        """(word, icon) for a US AQI number."""
+        for ceiling, word, glyph in self.AQI_BANDS:
+            if aqi <= ceiling:
+                return word, glyph
+        return "hazardous", "mdi.skull-outline"
+
+    def get_air_quality(self) -> dict | None:
+        """
+        What is in the air now, or None.
+
+        A separate service from the forecast, so it fails separately: a panel
+        somewhere the air quality model does not cover still gets its
+        weather, and asking about the air says so rather than saying nothing.
+        """
+        self._sync_params()
+        try:
+            responses = self.openmeteo.weather_api(self.AIR, params=self.PARAMS["air"])
+            if not responses:
+                return None
+            current = responses[0].Current()
+            data = {}
+            for i, item in enumerate(self.PARAMS["air"]["current"]):
+                value = current.Variables(i).Value()
+                # NaN is what this endpoint returns for a pollutant it does
+                # not model where the panel is - a real number-shaped answer
+                # meaning "no answer", which formats as "nan" and reads as a
+                # reading if it is not caught here.
+                data[item] = None if value != value else float(value)
+            return data
+        except Exception as e:
+            self.client.log("error", f"[OpenMeteoAPI] get_air_quality failed: {e}")
+            return None
+
+    # 16 points, because eight is not enough to be useful and thirty-two is
+    # not something anybody says out loud.
+    COMPASS = ("north", "north-northeast", "northeast", "east-northeast",
+               "east", "east-southeast", "southeast", "south-southeast",
+               "south", "south-southwest", "southwest", "west-southwest",
+               "west", "west-northwest", "northwest", "north-northwest")
+
+    def compass(self, degrees: float) -> str:
+        """Which way the wind is coming FROM, in words."""
+        try:
+            index = int((float(degrees) % 360) / 22.5 + 0.5) % 16
+        except (TypeError, ValueError):
+            return ""
+        return self.COMPASS[index]
+
+    # What each Beaufort number is called. The scale is already computed for
+    # the icon; naming it is what makes "12 mph" mean something.
+    BEAUFORT_WORDS = (
+        "calm", "light air", "a light breeze", "a gentle breeze",
+        "a moderate breeze", "a fresh breeze", "a strong breeze",
+        "near gale", "gale", "a severe gale", "storm force",
+        "violent storm", "hurricane force",
+    )
+
+    def beaufort_word(self, wind_speed: float) -> str:
+        try:
+            return self.BEAUFORT_WORDS[self.get_beaufort_scale(float(wind_speed))]
+        except (TypeError, ValueError, IndexError):
+            return ""
+
+    # WMO codes, which is what the daily endpoint reports the sky as. Grouped
+    # rather than listed one per line: 61, 63 and 65 are the same weather at
+    # three intensities, and a forecast row has no space to say which.
+    WMO = {
+        0: ("Clear", "mdi.weather-sunny"),
+        1: ("Mostly clear", "mdi.weather-sunny"),
+        2: ("Partly cloudy", "mdi.weather-partly-cloudy"),
+        3: ("Overcast", "mdi.weather-cloudy"),
+        45: ("Fog", "mdi.weather-fog"), 48: ("Freezing fog", "mdi.weather-fog"),
+        51: ("Drizzle", "mdi.weather-rainy"), 53: ("Drizzle", "mdi.weather-rainy"),
+        55: ("Drizzle", "mdi.weather-rainy"),
+        56: ("Freezing drizzle", "mdi.weather-snowy-rainy"),
+        57: ("Freezing drizzle", "mdi.weather-snowy-rainy"),
+        61: ("Rain", "mdi.weather-rainy"), 63: ("Rain", "mdi.weather-rainy"),
+        65: ("Heavy rain", "mdi.weather-pouring"),
+        66: ("Freezing rain", "mdi.weather-snowy-rainy"),
+        67: ("Freezing rain", "mdi.weather-snowy-rainy"),
+        71: ("Snow", "mdi.weather-snowy"), 73: ("Snow", "mdi.weather-snowy"),
+        75: ("Heavy snow", "mdi.weather-snowy-heavy"),
+        77: ("Snow grains", "mdi.weather-snowy"),
+        80: ("Showers", "mdi.weather-rainy"), 81: ("Showers", "mdi.weather-rainy"),
+        82: ("Heavy showers", "mdi.weather-pouring"),
+        85: ("Snow showers", "mdi.weather-snowy"),
+        86: ("Snow showers", "mdi.weather-snowy"),
+        95: ("Thunderstorms", "mdi.weather-lightning"),
+        96: ("Thunderstorms", "mdi.weather-lightning-rainy"),
+        99: ("Thunderstorms", "mdi.weather-lightning-rainy"),
+    }
+
+    def sky_from_code(self, code) -> tuple:
+        """(words, icon) for a WMO weather code."""
+        try:
+            return self.WMO[int(code)]
+        except (TypeError, ValueError, KeyError):
+            return "", "mdi.weather-cloudy"
+
+    # WHO/EPA bands. Below 3 there is nothing to do about it, which is worth
+    # saying as plainly as the number.
+    UV_BANDS = ((2, "low"), (5, "moderate"), (7, "high"), (10, "very high"))
+
+    def uv_band(self, uv: float) -> str:
+        for ceiling, word in self.UV_BANDS:
+            if uv <= ceiling:
+                return word
+        return "extreme"
+
+    def get_daily_forecast(self, days: int = 7) -> list | None:
+        """
+        [{day, code, high, low, chance}, ...] for the week.
+
+        Separate from `get_current_forecast`, which reads the HOURLY endpoint
+        and keeps whichever hour happens to be 1pm - a daily high is not the
+        temperature at one o'clock, and on a day that peaks at four it is out
+        by several degrees.
+        """
+        self._sync_params()
+        try:
+            self.PARAMS["daily"]["forecast_days"] = max(1, min(16, int(days)))
+            responses = self.openmeteo.weather_api(self.BASE, params=self.PARAMS["daily"])
+            if not responses or not responses[0].Daily():
+                return None
+
+            daily = responses[0].Daily()
+            zone  = self.plugin.settings.weather.timezone.value
+            stamps = pd.date_range(
+                start     = pd.to_datetime(daily.Time(), unit="s", utc=True),
+                end       = pd.to_datetime(daily.TimeEnd(), unit="s", utc=True),
+                freq      = pd.Timedelta(seconds=daily.Interval()),
+                inclusive = "left",
+            ).tz_convert(zone)
+
+            series = [daily.Variables(i).ValuesAsNumpy() for i in range(4)]
+
+            def clean(value):
+                return None if value != value else float(value)
+
+            out = []
+            for index, stamp in enumerate(stamps):
+                out.append({
+                    "day":    stamp.to_pydatetime(),
+                    "code":   clean(series[0][index]),
+                    "high":   clean(series[1][index]),
+                    "low":    clean(series[2][index]),
+                    "chance": clean(series[3][index]),
+                })
+            return out
+        except Exception as e:
+            self.client.log("error", f"[OpenMeteoAPI] get_daily_forecast failed: {e}")
+            return None
+
+    def get_precipitation_outlook(self, hours: int = 12) -> list | None:
+        """
+        [(datetime, chance %, amount, snow), ...] for the next `hours` hours.
+
+        Probability is hourly and has no current value - there is no such
+        thing as the chance of rain right now, only whether it is raining -
+        so "will it rain later" cannot be answered from the current call at
+        all. `snow` is the part of `amount` falling as snow, not a separate
+        total on top of it.
+        """
+        self._sync_params()
+        try:
+            responses = self.openmeteo.weather_api(
+                self.BASE, params=self.PARAMS["precipitation"])
+            if not responses or not responses[0].Hourly():
+                return None
+
+            hourly = responses[0].Hourly()
+            zone   = self.plugin.settings.weather.timezone.value
+            stamps = pd.date_range(
+                start     = pd.to_datetime(hourly.Time(), unit="s", utc=True),
+                end       = pd.to_datetime(hourly.TimeEnd(), unit="s", utc=True),
+                freq      = pd.Timedelta(seconds=hourly.Interval()),
+                inclusive = "left",
+            ).tz_convert(zone)
+
+            chances = hourly.Variables(0).ValuesAsNumpy()
+            amounts = hourly.Variables(1).ValuesAsNumpy()
+            snows   = hourly.Variables(2).ValuesAsNumpy()
+
+            # From the top of the CURRENT hour, not from now. Dropping the
+            # hour in progress at ten past means the answer to "will it rain
+            # in the next hour" skips the hour being asked about.
+            now = pd.Timestamp.now(tz=zone).floor("h")
+            out = []
+            for stamp, chance, amount, snow in zip(stamps, chances, amounts, snows):
+                if stamp < now:
+                    continue
+                out.append((stamp.to_pydatetime(),
+                            None if chance != chance else float(chance),
+                            None if amount != amount else float(amount),
+                            None if snow != snow else float(snow)))
+                if len(out) >= hours:
+                    break
+            return out
+        except Exception as e:
+            self.client.log("error",
+                            f"[OpenMeteoAPI] get_precipitation_outlook failed: {e}")
             return None
 
     def get_current_forecast(self) -> dict | None:

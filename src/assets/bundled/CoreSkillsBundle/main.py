@@ -10,13 +10,16 @@ from PyQt6.QtCore import Qt
 from src.plugin.template import Plugin
 from src.assistant.skill import Skill
 from .skills import build_all
+from .skills import units
 from .skills.helpers import (
     FILLER,
     PAGE_VERBS,
     _alarm_epoch,
     _clean_label,
     _clean_words,
+    _clock,
     _overlap,
+    _spoken_wait,
     _spoken_duration,
 )
 
@@ -52,6 +55,11 @@ class CoreSkills(Plugin):
         self._last_state = (None, None)
 
     def load(self, carryover=None):
+        # Registered before the skills, so a skill built during load_skills
+        # that wants it finds it there rather than on the second try.
+        from .api.dictionary import DictionaryAPI
+        self.client.API.register_api("coreskillsbundle", "dictionary",
+                                     DictionaryAPI(self, self.client))
         self.load_skills()
         self.client.subscribe_to_event("on_update", self.update_assistant)
         self.client.subscribe_to_event("on_assistant_transcribed", self.on_routed)
@@ -71,6 +79,7 @@ class CoreSkills(Plugin):
         self.load_voice_bar()
 
     def unload(self, carryover=None):
+        self.client.API.unregister_api("coreskillsbundle", "dictionary")
         self.client.unsubscribe_from_event("on_update", self.update_assistant)
         self.client.unsubscribe_from_event("on_assistant_transcribed", self.on_routed)
         self.client.unsubscribe_from_event("on_transcribing_assistant",
@@ -409,6 +418,42 @@ class CoreSkills(Plugin):
                     self.client.say("I didn't quite get that. Please say Yes or No.",
                                     thread=False)
 
+    def tell_time(self):
+        """"what time is it", "what's the time"."""
+        now = datetime.now()
+
+        # The clock widget's format, not a second opinion. A panel set to 24
+        # hour that answers out loud in 12 is two clocks disagreeing in the
+        # same room.
+        try:
+            fmt = str(self.client.setting("home.clock.time_format.value",
+                                          "%I:%M %p"))
+        except Exception:
+            fmt = "%I:%M %p"
+        shown = now.strftime(fmt)
+        # Only for twelve hour. "09:00" is how a 24 hour clock is written and
+        # stripping it to "9:00" is a different convention, not a tidier one.
+        if "%I" in fmt:
+            shown = shown.lstrip("0") or now.strftime("%I:%M %p")
+
+        # Spoken separately, and always in twelve hour. "Seventeen forty" is
+        # a correct reading of the clock and not how anybody says it.
+        minute = now.minute
+        hour = now.hour % 12 or 12
+        if minute == 0:
+            said = f"It's {hour} o'clock"
+        elif minute < 10:
+            said = f"It's {hour} oh {minute}"
+        else:
+            said = f"It's {hour} {minute}"
+        said += (" in the morning" if now.hour < 12 else
+                 " in the afternoon" if now.hour < 18 else
+                 " in the evening" if now.hour < 21 else " at night")
+
+        self.client.answer("mdi.clock-outline", shown,
+                           [now.strftime("%A, %B ") + str(now.day)],
+                           tint="#4f9de0", speak=said + ".")
+
     def tell_relative_date(self, given_date: str = ""):
         def ordinal(n: int) -> str:
             if 10 <= n % 100 <= 20:
@@ -432,11 +477,17 @@ class CoreSkills(Plugin):
             when, spoken = today - timedelta(days=1), "Yesterday was,"
         elif "tomorrow" in given_date or "after today" in given_date:
             when, spoken = today + timedelta(days=1), "Tomorrow is,"
-        elif "today" in given_date or not given_date:
+        elif ("today" in given_date or "date" in given_date
+              or "day" in given_date or not given_date):
             # Nothing captured means the phrasing got past the patterns but
             # not into them. Every example of this skill asks about a day, and
             # of those today is the one somebody asks for without saying which
             # - so it is a better answer than a refusal.
+            #
+            # "date" and "day" for the same reason one step further along.
+            # "what's the date" captures the words "the date", which named no
+            # day at all and so refused - a question this skill exists to
+            # answer, answered with "I don't know how to answer that".
             when, spoken = today, "Today is,"
         else:
             self._respond("I don't know how to answer that.")
@@ -559,6 +610,341 @@ class CoreSkills(Plugin):
                            tint="#3f7fbf" if is_day else "#3a2159",
                            speak=self._weather_spoken(temperature, data))
 
+    def _weather_api(self):
+        """The weather plugin's API, or None with the answer already given."""
+        api = self.client.API.get("weather")
+        if api is None:
+            self._respond("The weather plugin is not loaded.")
+        return api
+
+    def humidity_update(self):
+        """"how humid is it", "what's the humidity"."""
+        api = self._weather_api()
+        if api is None:
+            return
+        data = api.get_current_weather() or {}
+        try:
+            humidity = int(float(data["relative_humidity_2m"]))
+        except (KeyError, TypeError, ValueError):
+            self._respond("I couldn't get the humidity right now.")
+            return
+
+        # The number, then what it means. Nobody standing in a room knows
+        # whether 64% is a lot, and the whole point of asking is to find out
+        # whether to expect a sticky afternoon.
+        if humidity < 30:
+            feel = "Dry."
+        elif humidity < 60:
+            feel = "Comfortable."
+        elif humidity < 75:
+            feel = "Getting muggy."
+        else:
+            feel = "Humid."
+
+        lines = [feel]
+        try:
+            dew = float(data["temperature_2m"])
+            feels = float(data["apparent_temperature"])
+            if abs(feels - dew) >= 3:
+                lines.append(f"{int(dew)}\u00b0 out, feels like {int(feels)}\u00b0.")
+        except (KeyError, TypeError, ValueError):
+            pass
+
+        self.client.answer("mdi.water-percent", f"{humidity}% humidity", lines,
+                           tint="#3f8fa8",
+                           speak=f"It's {humidity} percent humidity. {feel}")
+
+    #How close a chance has to get before it is worth mentioning. Below this
+    #the forecast is saying no, and "a 4% chance at 3pm" is a way of saying no
+    #that sounds like a yes.
+    RAIN_LIKELY = 30
+
+    def precipitation_update(self, phrase: str = ""):
+        """
+        "is it going to rain", "is it snowing", "will it snow tonight".
+
+        Takes the whole phrase because rain and snow are the same skill asked
+        about different weather. Splitting them into two skills would put
+        "will it rain or snow" in a competition between them, and the words
+        that separate them are the only difference between the utterances.
+        """
+        api = self._weather_api()
+        if api is None:
+            return
+
+        asked_snow = any(word in (phrase or "").lower()
+                         for word in ("snow", "snowing", "flurr", "sleet"))
+
+        current = api.get_current_weather() or {}
+        outlook = api.get_precipitation_outlook(12)
+        if not outlook:
+            self._respond("I couldn't get the forecast right now.")
+            return
+
+        # Falling now beats going to fall. Somebody who can hear it on the
+        # window is asking how long it lasts, not whether it started.
+        falling = ""
+        for key, word in (("snowfall", "snowing"), ("showers", "showering"),
+                          ("rain", "raining")):
+            try:
+                if float(current.get(key) or 0) > 0:
+                    falling = word
+                    break
+            except (TypeError, ValueError):
+                continue
+
+        # Separated from "0%" on purpose. A probability the model did not
+        # return is not a probability of nothing, and reporting the absence
+        # as a confident zero is the panel making the number up.
+        known = [(when, chance) for when, chance, _, _ in outlook
+                 if chance is not None]
+        peak_at, peak_chance = (max(known, key=lambda row: row[1])
+                                if known else (None, None))
+        first = next((when for when, chance, _, _ in outlook
+                      if chance is not None and chance >= self.RAIN_LIKELY),
+                     None)
+
+        total = sum(amount or 0.0 for _, _, amount, _ in outlook)
+        snow  = sum(depth or 0.0 for _, _, _, depth in outlook)
+        hours = len(outlook)
+        word  = "Snow" if asked_snow else "Rain"
+
+        if falling and (asked_snow == (falling == "snowing")):
+            # Only when it answers what was asked. "Is it snowing" while rain
+            # is falling is a no, and "It's raining" as the headline reads as
+            # a yes to somebody who asked about snow.
+            headline = f"It's {falling}"
+            glyph, tint = "mdi.weather-pouring", "#3a6ea8"
+        elif asked_snow and snow < 0.01 and not falling:
+            headline = "No snow expected"
+            glyph, tint = "mdi.weather-partly-cloudy", "#3f7fbf"
+        elif first is not None:
+            headline = f"{word} likely by {_clock(first)}"
+            glyph = "mdi.weather-snowy" if asked_snow else "mdi.weather-rainy"
+            tint = "#3a6ea8"
+        elif peak_chance is None:
+            headline = f"No {word.lower()} forecast"
+            glyph, tint = "mdi.weather-cloudy-alert", "#6a6a7a"
+        else:
+            headline = f"No {word.lower()} expected"
+            glyph, tint = "mdi.weather-partly-cloudy", "#3f7fbf"
+
+        lines = []
+        if falling and not (asked_snow == (falling == "snowing")):
+            lines.append(f"It's {falling}, though.")
+        if peak_chance is not None:
+            lines.append(f"Highest chance {int(peak_chance)}% at {_clock(peak_at)}.")
+        else:
+            lines.append("No hourly chances came back for here.")
+        if asked_snow:
+            lines.append(f"About {snow:.1f} in of snow over the next {hours} hours."
+                         if snow >= 0.1 else
+                         f"No snow in the next {hours} hours.")
+        elif total >= 0.01:
+            lines.append(f"About {total:.2f} in over the next {hours} hours.")
+        else:
+            lines.append(f"Nothing measurable in the next {hours} hours.")
+
+        if falling and (asked_snow == (falling == "snowing")):
+            spoken = f"It's {falling} right now"
+            if first is None and peak_chance is not None:
+                spoken += ", and it should ease off within the hour"
+        elif first is not None:
+            spoken = (f"{word} looks likely by {_clock(first)}, "
+                      f"peaking around {int(peak_chance)} percent")
+        elif peak_chance is None:
+            spoken = f"I don't have an hourly {word.lower()} forecast for here"
+        else:
+            spoken = (f"No {word.lower()} expected today. The highest chance "
+                      f"is {int(peak_chance)} percent")
+
+        self.client.answer(glyph, headline, lines, tint=tint,
+                           speak=spoken + ".")
+
+    def wind_update(self):
+        """"how windy is it", "which way is the wind blowing"."""
+        api = self._weather_api()
+        if api is None:
+            return
+        data = api.get_current_weather() or {}
+        try:
+            speed = float(data["wind_speed_10m"])
+        except (KeyError, TypeError, ValueError):
+            self._respond("I couldn't get the wind right now.")
+            return
+
+        described = api.beaufort_word(speed)
+        heading = api.compass(data.get("wind_direction_10m"))
+        # Beaufort 0 and 1 are "calm" and "light air", and nobody standing
+        # outside can tell them apart. Both are the answer "there's no wind",
+        # so both get said that way rather than reported as a reading.
+        still = api.get_beaufort_scale(speed) <= 1
+
+        lines = []
+        # Where it is coming FROM, which is the meteorological convention and
+        # also the one somebody means when they ask which way the wind is
+        # blowing on a doorstep.
+        if heading and not still:
+            lines.append(f"Out of the {heading}.")
+        try:
+            gusts = float(data["wind_gusts_10m"])
+            # Only when they are actually gusting. A gust figure a mile an
+            # hour above the average is the same wind reported twice.
+            if gusts - speed >= 5:
+                lines.append(f"Gusting to {int(gusts)} mph.")
+        except (KeyError, TypeError, ValueError):
+            pass
+        if not lines:
+            lines.append("Barely a breath out there.")
+
+        if still:
+            said = "It's calm out"
+        else:
+            unit = "mile an hour" if int(speed) == 1 else "miles an hour"
+            said = f"It's {int(speed)} {unit}"
+            if described:
+                said += f", {described}"
+            if heading:
+                said += f", out of the {heading}"
+
+        self.client.answer("mdi.weather-windy", f"{int(speed)} mph wind", lines,
+                           tint="#4f8f9d", speak=said + ".")
+
+    def uv_update(self):
+        """"what's the UV index", "do I need sunscreen"."""
+        api = self._weather_api()
+        if api is None:
+            return
+        data = api.get_air_quality()
+        uv = (data or {}).get("uv_index")
+        if uv is None:
+            self._respond("I couldn't get the UV index right now.")
+            return
+
+        uv = float(uv)
+        band = api.uv_band(uv)
+        advice = {
+            "low":       "Nothing to worry about.",
+            "moderate":  "Cover up around midday.",
+            "high":      "Sunscreen and shade at midday.",
+            "very high": "Sunscreen, shade, and keep it short.",
+            "extreme":   "Avoid the sun through the middle of the day.",
+        }[band]
+
+        tint = ("#3f8f5a" if band == "low" else
+                "#a08a3a" if band == "moderate" else
+                "#a86a3a" if band == "high" else
+                "#a84a4a" if band == "very high" else "#7a3a7a")
+
+        self.client.answer("mdi.weather-sunny-alert",
+                           f"UV index {uv:.0f}",
+                           [band.capitalize() + ".", advice], tint=tint,
+                           speak=f"The UV index is {uv:.0f}, which is {band}. {advice}")
+
+    def forecast_week(self):
+        """"what's the forecast for the week", "what's the rest of the week look like"."""
+        api = self._weather_api()
+        if api is None:
+            return
+        days = api.get_daily_forecast(7)
+        if not days:
+            self._respond("I couldn't get the forecast right now.")
+            return
+
+        lines = []
+        for index, day in enumerate(days):
+            when = day.get("day")
+            label = "Today" if index == 0 else \
+                    "Tomorrow" if index == 1 else when.strftime("%A")
+            sky, _ = api.sky_from_code(day.get("code"))
+            high, low = day.get("high"), day.get("low")
+            parts = []
+            if high is not None and low is not None:
+                parts.append(f"{int(high)}\u00b0 / {int(low)}\u00b0")
+            if sky:
+                parts.append(sky)
+            chance = day.get("chance")
+            if chance is not None and chance >= self.RAIN_LIKELY:
+                # `precipitation_probability_max` covers everything that
+                # falls, so calling it rain on a day the code says is snow
+                # puts "80% rain" against a snow forecast.
+                falls = "snow" if "snow" in sky.lower() else "rain"
+                # Not repeated where the sky already said it. "Snow, 80%
+                # snow" is the same word twice in six characters.
+                parts.append(f"{int(chance)}%" if falls in sky.lower()
+                             else f"{int(chance)}% {falls}")
+            if parts:
+                lines.append(f"{label}: " + ", ".join(parts))
+
+        if not lines:
+            self._respond("The forecast came back empty.")
+            return
+
+        # The first day drives the icon. A week has several skies in it and
+        # the card can only wear one, so it wears the one nearest.
+        _, glyph = api.sky_from_code(days[0].get("code"))
+
+        # Spoken short. Seven days read aloud is forty seconds of numbers
+        # nobody is still listening to by Thursday - the panel is showing
+        # them, and that is the part worth having.
+        highs = [d["high"] for d in days if d.get("high") is not None]
+        said = "Here's the week"
+        if highs:
+            warmest = days[highs.index(max(highs))] if len(highs) == len(days) else None
+            said += f". Highs from {int(min(highs))} to {int(max(highs))}"
+            if warmest is not None:
+                said += f", warmest on {warmest['day'].strftime('%A')}"
+        wet = [d for d in days
+               if (d.get("chance") or 0) >= self.RAIN_LIKELY]
+        if wet:
+            # "Rain" would be wrong on a week with snow in it, and the count
+            # is over every day something falls.
+            said += (f". Rain or snow likely on {len(wet)} "
+                     + ("day" if len(wet) == 1 else "days"))
+
+        self.client.answer(glyph, "This week", lines, tint="#3f7fbf",
+                           speak=said + ".")
+
+    def air_quality_update(self):
+        """"how's the air quality", "is the air clean"."""
+        api = self._weather_api()
+        if api is None:
+            return
+
+        data = api.get_air_quality()
+        if not data:
+            self._respond("I couldn't get the air quality right now.")
+            return
+
+        aqi = data.get("us_aqi")
+        if aqi is None:
+            # Modelled almost everywhere, but not everywhere, and a panel
+            # somewhere it is not should be told that rather than shown a
+            # blank card.
+            self._respond("There's no air quality reading for here.")
+            return
+
+        aqi = int(aqi)
+        band, glyph = api.aqi_band(aqi)
+
+        lines = [band.capitalize() + "."]
+        for label, key, unit in (("PM2.5", "pm2_5", " \u00b5g/m\u00b3"),
+                                 ("PM10", "pm10", " \u00b5g/m\u00b3"),
+                                 ("Ozone", "ozone", " \u00b5g/m\u00b3")):
+            value = data.get(key)
+            if value is None:
+                continue
+            lines.append(f"{label}: {value:.0f}{unit}")
+
+        # Green through red, so the card says it before the words do.
+        tint = ("#3f8f5a" if aqi <= 50 else
+                "#a08a3a" if aqi <= 100 else
+                "#a86a3a" if aqi <= 150 else
+                "#a84a4a" if aqi <= 200 else "#7a3a7a")
+
+        self.client.answer(glyph, f"Air quality {aqi}", lines, tint=tint,
+                           speak=f"The air quality index is {aqi}, which is {band}.")
+
     #What the sky is doing, in the order somebody would mention it. First hit
     #wins, so snow beats rain beats cloud.
     WEATHER_WORDS = (
@@ -604,6 +990,286 @@ class CoreSkills(Plugin):
         except (TypeError, ValueError):
             pass
         return said + "."
+
+    ## SUN AND MOON
+
+    def _astronomy(self):
+        """
+        The astronomy library, and where the panel is.
+
+        Through `client.public` rather than by importing it. `plugin.toml`
+        makes `astronomy` a dependency, so an import would work - but the
+        library is a library on purpose, and a skill reaching past the
+        registry into its module is one more thing to keep in step when it
+        moves.
+        """
+        try:
+            if not self.client.public.has("astronomy"):
+                return None, 0.0, 0.0
+            api = self.client.public.astronomy
+        except Exception:
+            return None, 0.0, 0.0
+
+        # The coordinates belong to the weather plugin, which is where they
+        # are configured. Asking it beats keeping a second copy that can
+        # disagree with the one somebody actually edits.
+        latitude = longitude = 0.0
+        try:
+            weather = self.client.API.get("weather")
+            if weather is not None:
+                latitude, longitude = weather.coordinates()
+        except Exception:
+            pass
+        return api, latitude, longitude
+
+    def sun_times(self, phrase: str = ""):
+        """"when is sunset", "what time does the sun come up"."""
+        api, latitude, longitude = self._astronomy()
+        if api is None:
+            self._respond("The astronomy plugin isn't loaded.")
+            return
+        if not latitude and not longitude:
+            # Sunrise at 0,0 is a real time in the Gulf of Guinea, which is
+            # a worse answer than none: it looks right and is hours out.
+            self._respond("I don't know where this panel is. Set the "
+                          "location in weather settings.")
+            return
+
+        rise, setting = api["sun_times"](latitude, longitude)
+        if rise is None:
+            # Inside a polar circle the sun may not rise or set at all that
+            # day, and the library says so by returning nothing.
+            self._respond("The sun doesn't rise or set here today.")
+            return
+
+        asked_rise = any(word in (phrase or "").lower() for word in
+                         ("sunrise", "sun rise", "come up", "comes up",
+                          "get light", "gets light", "dawn", "sunup"))
+        asked_set = any(word in (phrase or "").lower() for word in
+                        ("sunset", "sun set", "go down", "goes down",
+                         "get dark", "gets dark", "dusk", "sundown"))
+
+        now = datetime.now().astimezone()
+        # Neither named, or both: whichever is next. "How long is daylight"
+        # and "when does the sun move" are the same want - the next thing it
+        # does.
+        if asked_rise == asked_set:
+            name, moment, seconds = api["next_sun_event"](latitude, longitude)
+            if name is None:
+                self._respond("I couldn't work out the sun times.")
+                return
+            heading = f"{name.capitalize()} at {_clock(moment)}"
+            # Words out loud, the compact form on the card. "3h 33m" is a
+            # label; read aloud it is "three em thirty three em".
+            said = (f"{name.capitalize()} is at {_clock(moment)}, "
+                    f"{_spoken_wait(seconds)} from now")
+        else:
+            moment = rise if asked_rise else setting
+            name = "Sunrise" if asked_rise else "Sunset"
+            heading = f"{name} at {_clock(moment)}"
+            if moment > now:
+                said = (f"{name} is at {_clock(moment)}, "
+                        f"{_spoken_wait((moment - now).total_seconds())} from now")
+            else:
+                # Already happened. Saying "in -3h" is what a naive
+                # subtraction does, and it is worse than saying nothing.
+                said = f"{name} was at {_clock(moment)} today"
+
+        lines = [f"Sunrise {_clock(rise)}", f"Sunset {_clock(setting)}"]
+        length = int((setting - rise).total_seconds())
+        hours, minutes = divmod(length // 60, 60)
+        lines.append(f"{hours}h {minutes}m of daylight")
+
+        glyph = ("mdi.weather-sunset-up" if heading.lower().startswith("sunrise")
+                 else "mdi.weather-sunset-down")
+        self.client.answer(glyph, heading, lines, tint="#c8873a",
+                           speak=said + ".")
+
+    def moon_phase(self):
+        """"what phase is the moon", "is it a full moon"."""
+        api, _, _ = self._astronomy()
+        if api is None:
+            self._respond("The astronomy plugin isn't loaded.")
+            return
+
+        name = api["moon_name"]()
+        lit = api["moon_illumination"]()
+        waxing = api["moon_waxing"]()
+        age = api["moon_age"]()
+
+        lines = [f"{lit * 100:.0f}% lit",
+                 "Waxing" if waxing else "Waning",
+                 f"{age:.1f} days into the cycle"]
+
+        glyph = {
+            "New moon":        "mdi.moon-new",
+            "Waxing crescent": "mdi.moon-waxing-crescent",
+            "First quarter":   "mdi.moon-first-quarter",
+            "Waxing gibbous":  "mdi.moon-waxing-gibbous",
+            "Full moon":       "mdi.moon-full",
+            "Waning gibbous":  "mdi.moon-waning-gibbous",
+            "Last quarter":    "mdi.moon-last-quarter",
+            "Waning crescent": "mdi.moon-waning-crescent",
+        }.get(name, "mdi.moon-waning-crescent")
+
+        self.client.answer(glyph, name, lines, tint="#5a5a8a",
+                           speak=f"It's a {name.lower()}, {lit * 100:.0f} percent lit.")
+
+    ## UNITS
+
+    def convert_units(self, phrase: str = ""):
+        """"how many cups in a litre", "convert 5 miles to km", "350 F in C"."""
+        parsed = units.parse(phrase or "")
+        if not parsed:
+            self._respond("I didn't catch what to convert. Try 'how many "
+                          "cups in a litre'.")
+            return
+
+        amount, source_word, target_word = parsed
+        pair = units.resolve(source_word, target_word)
+        if pair is None:
+            # Both words are units and neither is nonsense - they just do not
+            # measure the same thing. Saying which is the difference between
+            # an answer and a shrug.
+            self._respond(f"I can't convert {source_word} into "
+                          f"{target_word} - they measure different things.")
+            return
+
+        source, target = pair
+        try:
+            result = units.convert(amount, source, target)
+        except Exception as e:
+            self.client.log("warning", f"[CoreSkills] Conversion failed: {e}")
+            self._respond("I couldn't work that out.")
+            return
+
+        left = f"{units.pretty(amount)} {units.name(source, amount)}"
+        right = f"{units.pretty(result)} {units.name(target, result)}"
+
+        # The rate underneath, when the question was about a quantity. "5
+        # miles is 8.05 km" is the answer; "1 mile is 1.61 km" is the thing
+        # somebody can use again without asking.
+        lines = [f"{left} = {right}"]
+        if abs(amount - 1.0) > 1e-9:
+            try:
+                unit_rate = units.convert(1.0, source, target)
+                # Not for temperature. One degree Fahrenheit is -17 Celsius,
+                # which is true and is not a conversion rate - the scales
+                # have different zeros, so there is no rate to give.
+                if source[0] != "temperature":
+                    lines.append(f"1 {units.name(source, 1.0)} = "
+                                 f"{units.pretty(unit_rate)} "
+                                 f"{units.name(target, unit_rate)}")
+            except Exception:
+                pass
+
+        # First letter only. `capitalize()` lowercases everything after it,
+        # which turns "degrees Celsius" into "degrees celsius" - a proper
+        # noun quietly demoted by a formatting call.
+        heading = right[0].upper() + right[1:] if right else right
+        self.client.answer("mdi.swap-horizontal", heading, lines,
+                           tint="#4f9d8a", speak=f"{left} is {right}.")
+
+    ## DICTIONARY
+
+    #How many senses a panel shows. Past this it stops being an answer and
+    #starts being a page of a dictionary, and the card grows to hold it.
+    MAX_SENSES = 3
+    MAX_SYNONYMS = 8
+
+    def _look_up(self, word: str):
+        """(cleaned word, entry) with the apology already given on failure."""
+        api = self.client.API.get("dictionary")
+        if api is None:
+            self._respond("The dictionary isn't available.")
+            return "", None
+
+        cleaned = api.clean(word)
+        if not cleaned:
+            # The skill matched but caught no word - "what does that mean"
+            # with nothing before it. Asking again is the answer; guessing is
+            # not.
+            self._respond("Which word?")
+            return "", None
+
+        entry = api.look_up(cleaned)
+        if entry is None:
+            self._respond(f"I couldn't find {cleaned}.")
+            return cleaned, None
+        return cleaned, entry
+
+    def define_word(self, word: str = "", phrase: str = ""):
+        """"what does serendipity mean", "define petrichor"."""
+        api = self.client.API.get("dictionary")
+        if api is not None and not word and phrase:
+            # No leader in the phrase - "what does X mean" - so the word is
+            # in the middle and the payload anchors never fired.
+            word = api.word_from_phrase(phrase)
+        cleaned, entry = self._look_up(word)
+        if entry is None:
+            return
+
+        lines = []
+        for sense in entry["senses"][:self.MAX_SENSES]:
+            part = sense["part"]
+            lines.append(f"({part}) {sense['text']}" if part else sense["text"])
+
+        # The first sense only, spoken. A word with four meanings read aloud
+        # is a paragraph, and whoever asked wanted to know roughly what it
+        # means - the panel is holding the rest of it.
+        first = entry["senses"][0] if entry["senses"] else None
+        if first:
+            # Lowered, because the definition is a sentence in its own right
+            # and it is being spoken as a clause in somebody else's. "X means
+            # A combination of events" is read with the capital audible.
+            text = first["text"]
+            text = text[0].lower() + text[1:] if text else text
+            said = f"{entry['word'] or cleaned} means {text}"
+        else:
+            said = f"I have {entry['word'] or cleaned}, but no definition for it"
+
+        # Shown but not said. A phonetic spelling read by a speech model is
+        # noise, and out loud the pronunciation is already being demonstrated.
+        heading = entry["word"] or cleaned
+        if entry["phonetic"]:
+            lines.append(entry["phonetic"])
+
+        self.client.answer("mdi.book-open-variant", heading.capitalize(),
+                           lines, tint="#7a6ab0", speak=said)
+
+    def word_synonyms(self, word: str = ""):
+        """"what are other words for happy", "synonyms for tired"."""
+        cleaned, entry = self._look_up(word)
+        if entry is None:
+            return
+
+        found = entry["synonyms"][:self.MAX_SYNONYMS]
+        if not found:
+            # A real answer rather than a failure. Plenty of words have an
+            # entry and no synonyms in it, and "I couldn't find happy" would
+            # be false.
+            self._respond(f"I don't have any other words for {cleaned}.")
+            return
+
+        heading = entry["word"] or cleaned
+        lines = [", ".join(found)]
+        if entry["antonyms"]:
+            lines.append("Opposites: "
+                         + ", ".join(entry["antonyms"][:self.MAX_SYNONYMS]))
+
+        # Four out loud, the rest on the panel. A spoken list stops being a
+        # list somewhere around five and becomes a noise that ends.
+        spoken = found[:4]
+        if len(spoken) == 1:
+            said = f"Another word for {heading} is {spoken[0]}"
+        else:
+            said = (f"Other words for {heading}: "
+                    + ", ".join(spoken[:-1]) + f", and {spoken[-1]}")
+
+        self.client.answer("mdi.text-search", f"Other words for {heading}",
+                           lines, tint="#7a6ab0", speak=said + ".")
+
+    ## TIMERS
 
     def start_timer(self, time: str = None, name: str = None):
         """

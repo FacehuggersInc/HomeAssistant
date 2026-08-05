@@ -389,6 +389,77 @@ def _parse_clock(text: str) -> tuple:
 # Computed rather than fetched. A wall panel is frequently offline, an API key
 # for something this static is a poor trade, and the rules do not change.
 
+#What somebody calls a holiday, which is very often not its title. The key is
+#matched against the whole phrase rather than against an extracted name, so
+#"when is the fourth of july" needs no parsing at all - and the entries are
+#tried LONGEST FIRST, or "christmas eve" is answered with Christmas Day.
+HOLIDAY_ALIASES = {
+    "new years eve":              "New Year's Eve",
+    "new years day":              "New Year's Day",
+    "new year":                   "New Year's Day",
+    "new years":                  "New Year's Day",
+    "martin luther king day":     "Martin Luther King Jr. Day",
+    "martin luther king":         "Martin Luther King Jr. Day",
+    "mlk day":                    "Martin Luther King Jr. Day",
+    "mlk":                        "Martin Luther King Jr. Day",
+    "groundhog day":              "Groundhog Day",
+    "valentines day":             "Valentine's Day",
+    "valentines":                 "Valentine's Day",
+    "presidents day":             "Presidents' Day",
+    "saint patricks day":         "St. Patrick's Day",
+    "st patricks day":            "St. Patrick's Day",
+    "st pattys day":              "St. Patrick's Day",
+    "paddys day":                 "St. Patrick's Day",
+    "good friday":                "Good Friday",
+    "easter sunday":              "Easter",
+    "easter":                     "Easter",
+    "cinco de mayo":              "Cinco de Mayo",
+    "mothers day":                "Mother's Day",
+    "memorial day":               "Memorial Day",
+    "juneteenth":                 "Juneteenth",
+    "fathers day":                "Father's Day",
+    "independence day":           "Independence Day",
+    "fourth of july":             "Independence Day",
+    "4th of july":                "Independence Day",
+    "july fourth":                "Independence Day",
+    "labor day":                  "Labor Day",
+    "labour day":                 "Labor Day",
+    "halloween":                  "Halloween",
+    "veterans day":               "Veterans Day",
+    "thanksgiving":               "Thanksgiving",
+    "turkey day":                 "Thanksgiving",
+    "christmas eve":              "Christmas Eve",
+    "christmas day":              "Christmas Day",
+    "christmas":                  "Christmas Day",
+    "xmas":                       "Christmas Day",
+}
+
+_ALIAS_ORDER = sorted(HOLIDAY_ALIASES, key=len, reverse=True)
+
+
+def _flatten(text: str) -> str:
+    """Lowercase, apostrophes and full stops gone, spaces collapsed."""
+    text = (text or "").lower()
+    for character in "'\u2019.,!?":
+        text = text.replace(character, "")
+    return " ".join(text.split())
+
+
+def holiday_named(phrase: str) -> str:
+    """
+    The canonical holiday title somewhere in a phrase, or "".
+
+    Whole words only. Without that, "when is easter" is found inside
+    "when is the feast of..." and, more to the point, a two letter alias
+    would match inside almost anything.
+    """
+    flat = f" {_flatten(phrase)} "
+    for alias in _ALIAS_ORDER:
+        if f" {alias} " in flat:
+            return HOLIDAY_ALIASES[alias]
+    return ""
+
+
 def _nth_weekday(year: int, month: int, weekday: int, nth: int) -> date:
     """nth (1-based) `weekday` of a month; nth=-1 means the last one."""
     if nth > 0:
@@ -949,6 +1020,38 @@ class CalendarStore:
 
     def next_holiday(self, now: datetime = None) -> Optional[Event]:
         return self.next_event(source="holiday", now=now)
+
+    def find_holiday(self, phrase: str, now: datetime = None) -> Optional[Event]:
+        """
+        The NEXT occurrence of a holiday named in a phrase, or None.
+
+        Rolls into next year rather than returning a date that has been and
+        gone. Asked about Christmas in January the answer is this December,
+        and asked about it on Boxing Day the answer is next December - both
+        are "when is Christmas", and neither of them is last week.
+        """
+        title = holiday_named(phrase)
+        if not title:
+            return None
+
+        now = now or datetime.now()
+        today = now.date()
+        for year in (today.year, today.year + 1):
+            for holiday in self.holidays(year):
+                if holiday.title != title:
+                    continue
+                if holiday.key in self.hidden_holidays:
+                    # Hidden means "never show me this", which is an answer
+                    # about the calendar rather than about the date. Asked
+                    # directly, the date is still the date.
+                    pass
+                try:
+                    when = date.fromisoformat(holiday.day)
+                except (TypeError, ValueError):
+                    continue
+                if when >= today:
+                    return holiday
+        return None
 
     def next_user_event(self, now: datetime = None) -> Optional[Event]:
         """Anything a person put there, whether locally or over the API."""

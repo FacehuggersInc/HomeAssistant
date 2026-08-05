@@ -407,6 +407,18 @@ panel never says it, so it comes through whether or not there was anything to
 stop - which matters most in the seconds after a reply, when somebody is
 answering what was just said.
 
+**An interrupted reply leaves no grace behind.** The grace covers the panel
+overhearing the tail of its own voice, and a reply cut off mid-word has no
+tail - what is in the room instead is the person who interrupted, mid-sentence,
+saying the thing the wake word was said in order to ask. Both interrupt paths
+clear `spoke_until`, and clearing it is not enough on its own: `tts.stop()`
+returns before the playback thread has noticed, so that thread reaches
+`note_speech_ended()` a moment later and stamps the grace straight back over
+the clear. `note_interrupted()` is what makes the clear stick. From the log the
+symptom is a wake word interrupting correctly, the microphone reopening
+correctly, and the question that followed dropped as an echo two seconds
+afterwards.
+
 Everything else heard while the panel speaks is dropped as self-hearing, for
 `self_hearing_grace()` after it finishes. A microphone array that runs its own
 AEC shortens that: `audio.devices.mic_processing = hardware` uses

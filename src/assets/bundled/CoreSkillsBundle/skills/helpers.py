@@ -424,3 +424,44 @@ def _spoken_duration(text: str) -> float:
             if smaller:
                 total += pending * smaller
     return float(total)
+
+
+def _clock(moment) -> str:
+    """
+    A time somebody would say out loud: "3 PM", "3:20 PM".
+
+    Twelve hour, no leading zero, and the minutes only when there are any -
+    "3:00 PM" is one more thing to read than "3 PM" and says nothing extra.
+    Speech gets the same string as the panel, so what is heard and what is
+    shown cannot disagree.
+    """
+    try:
+        pattern = "%I:%M %p" if moment.minute else "%I %p"
+        return moment.strftime(pattern).lstrip("0")
+    except Exception:
+        return str(moment)
+
+
+def _spoken_wait(seconds) -> str:
+    """
+    A gap as somebody would say it: "3 hours and 33 minutes", "46 minutes".
+
+    `astronomy.describe_wait` gives "3h 33m", which is right for a label on a
+    widget and wrong for a voice - a speech model reads it as "three em
+    thirty-three em", or as nothing at all. The compact form still goes on
+    the panel; this is what gets said.
+    """
+    try:
+        seconds = max(0, int(seconds))
+    except (TypeError, ValueError):
+        return ""
+    if seconds < 60:
+        return "less than a minute"
+
+    hours, minutes = divmod(seconds // 60, 60)
+    parts = []
+    if hours:
+        parts.append(f"{hours} hour{'s' if hours != 1 else ''}")
+    if minutes:
+        parts.append(f"{minutes} minute{'s' if minutes != 1 else ''}")
+    return " and ".join(parts)

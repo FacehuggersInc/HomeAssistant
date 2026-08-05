@@ -874,6 +874,24 @@ class ParakeetListener:
                           f"[Parakeet]: Nothing transcribed ({model_ms}ms in "
                           f"the model) - still listening.")
             self.__report_phrase(measured, speech_windows)
+
+            # STILL ARMED, BUT NOT FOR ANY LONGER.
+            #
+            # `__finalise` pushes `waiting_since` forward so a phrase being
+            # transcribed cannot be stood down half way through. That is
+            # right, and it is wrong the instant the transcript comes back
+            # empty: the push happens on the audio thread, before anything
+            # knows whether there were words in it, so every unusable capture
+            # bought the wake another full window.
+            #
+            # A room with anything moving in it therefore never let go.
+            # Capture, THINKING, nothing, capture, THINKING, nothing - the
+            # timeout measured from the last cough rather than from the wake,
+            # so it could not fire while the coughs kept coming.
+            #
+            # The window belongs to the wake, so it goes back to the wake.
+            if self.mode == "wake" and self.armed and self.armed_at:
+                self.waiting_since = self.armed_at
             return True
 
         # The level rides along on the phrases that WORKED as well. A number

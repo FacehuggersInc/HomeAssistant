@@ -75,6 +75,26 @@ def build(plugin) -> list:
             ],
             func=answers.next_holiday,
         ),
+        # Named holidays, which the skill above cannot answer: "when is the
+        # next holiday" and "when is Thanksgiving" are different questions,
+        # and one of them names a date the panel already knows.
+        Skill(
+            wake_word=wake, plugin_key=key, skill_key="calendar-named-holiday",
+            examples=[
+                "when is thanksgiving", "when is christmas",
+                "when is easter this year", "what day is thanksgiving",
+                "what day is christmas on", "how long until christmas",
+                "how many days until christmas",
+                "when is the fourth of july", "when is halloween",
+                "when is memorial day", "whens new years",
+                "what date is thanksgiving",
+            ],
+            # The whole phrase. A holiday name is matched against the phrase
+            # directly - see `store.holiday_named` - so nothing has to pull
+            # "the fourth of july" out of a sentence and get it right.
+            wants_phrase=True,
+            func=answers.named_holiday,
+        ),
         Skill(
             wake_word=wake, plugin_key=key, skill_key="calendar-how-long",
             examples=[
@@ -114,9 +134,10 @@ class _Answers:
     def _say(self, text: str, lines: list = None,
              icon: str = "mdi.calendar", tint: str = "#4f9de0") -> None:
         """
-        Spoken and shown. Text-to-speech needs a key, and a panel without one
-        should still answer the question - and an answer with three events in
-        it is a list to read, not a line to catch as it goes past.
+        Spoken and shown. Spoken replies can be turned off and a backend can
+        fail to load, and a panel that never speaks should still answer the
+        question - and an answer with three events in it is a list to read,
+        not a line to catch as it goes past.
         """
         self.client.answer(icon, text, lines or [], tint=tint, speak=text)
 
@@ -170,6 +191,38 @@ class _Answers:
                                      api["describe_duration"](event),
                                      event.notes) if l],
                   icon=event.icon, tint=event.colour or "#4f9de0")
+
+    def named_holiday(self, phrase: str = "") -> None:
+        api = self._api()
+        holiday = api["find_holiday"](phrase) if api else None
+        if holiday is None:
+            # Matched the shape of the question but not a holiday it knows.
+            # Naming what it does know would be a list of twenty-one read
+            # aloud, so it says what kind of thing it wants instead.
+            self._say("I don't know that one. Try a holiday like "
+                      "Thanksgiving or the fourth of July.",
+                      icon="mdi.calendar-question", tint="#8a8a8a")
+            return
+
+        self._say(f"{holiday.title} is {api['describe_gap'](holiday)}.",
+                  lines=[self._full_date(holiday.day)],
+                  icon=holiday.icon, tint="#d8a24a")
+
+    @staticmethod
+    def _full_date(day: str) -> str:
+        """
+        "Monday, September 7, 2026" from an ISO day.
+
+        The weekday is most of why anybody asks: "Christmas is in 47 days"
+        answers a different question from "Christmas is on a Thursday". And
+        `2026-09-07` on a card is a field out of a database - it is the value
+        the panel stores, not the answer somebody wanted.
+        """
+        try:
+            when = date.fromisoformat(day)
+        except (TypeError, ValueError):
+            return day or ""
+        return f"{when.strftime('%A, %B')} {when.day}, {when.year}"
 
     def how_long(self) -> None:
         api = self._api()
@@ -238,4 +291,5 @@ class _Answers:
             self._say("No holidays coming up.")
             return
         self._say(f"{holiday.title} is {api['describe_gap'](holiday)}.",
-                  lines=[holiday.day], icon=holiday.icon, tint="#d8a24a")
+                  lines=[self._full_date(holiday.day)],
+                  icon=holiday.icon, tint="#d8a24a")
