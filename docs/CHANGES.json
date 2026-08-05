@@ -1,6 +1,26 @@
 {
  "log": [
   {
+   "at": 1785893107.6188653,
+   "note": "the wake sensitivity restarts the assistant on save",
+   "pages": [
+    {
+     "slug": "settings",
+     "state": "updated"
+    }
+   ]
+  },
+  {
+   "at": 1785892951.5393505,
+   "note": "wake sensitivity",
+   "pages": [
+    {
+     "slug": "settings",
+     "state": "updated"
+    }
+   ]
+  },
+  {
    "at": 1785890075.0764322,
    "note": "listing and deleting files in an asset folder",
    "pages": [
@@ -1243,8 +1263,8 @@
    "state": "updated"
   },
   "settings": {
-   "at": 1785706865.5588963,
-   "hash": "1a8c608b78cd346e",
+   "at": 1785893107.6181927,
+   "hash": "4fcbb3d0b0609749",
    "opened": 0,
    "state": "updated"
   },

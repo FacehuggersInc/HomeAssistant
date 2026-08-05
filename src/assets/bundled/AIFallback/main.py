@@ -434,6 +434,12 @@ class AIFallback(Plugin):
             # None fills the cross axis, less the margin.
             height=None, margin=inset,
             key="__ai_fallback", destroy_on_close=False, on_created=created,
+            # However it goes away - the button, a press beside it, the
+            # timeout - the conversation goes with it. Without this the
+            # session outlived the panel it belonged to: every phrase after
+            # that landed in a queue for a conversation nobody could see, and
+            # nothing else answered until it timed out.
+            on_closed=self.close_panel,
             # A conversation covering the screen has to be dismissable by
             # pressing beside it; there is nowhere else to press.
             dismiss_on_outside_click=True,
@@ -548,7 +554,21 @@ class AIFallback(Plugin):
         except Exception:
             pass
 
+        # Re-entrant: the panel's own close hook calls this, and this closes
+        # the panel. Second time through there is nothing left to do.
+        if getattr(self, "_closing_panel", False):
+            return
+        self._closing_panel = True
+
         self._dismissed = True
+
+        # Stop mid-sentence. An answer being read aloud to a panel that is no
+        # longer there is the same mistake as listening for a reply to it.
+        try:
+            if self.client.TTS is not None:
+                self.client.TTS.stop()
+        except Exception as e:
+            self.client.log("debug", f"[AIFallback] Could not stop speech: {e}")
 
         session, self.session = self.session, None
         if session is not None:
@@ -575,3 +595,5 @@ class AIFallback(Plugin):
             except Exception as e:
                 self.client.log("debug",
                                 f"[AIFallback] Could not resume music: {e}")
+
+        self._closing_panel = False

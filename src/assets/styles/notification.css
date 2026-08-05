@@ -54,3 +54,15 @@
     border: none;
     background: transparent;
 }
+
+.notification-clear {
+    background: rgba(255,255,255,10);
+    border: 1px solid rgba(255,255,255,30);
+    border-radius: 8px;
+    color: rgba(255,255,255,190);
+    font-size: 13px;
+    padding: 0 12px;
+}
+
+.notification-clear:hover  { background: rgba(255,255,255,22); color: white; }
+.notification-clear:pressed { background: rgba(255,255,255,8); }

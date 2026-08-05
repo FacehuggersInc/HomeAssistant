@@ -1325,6 +1325,10 @@ class STTProcessing():
 				# How long the child keeps waiting for a phrase after a wake
 				# before standing down on its own.
 				"wake_listen_timeout": self.wake_timeout_seconds(),
+				# How sure the spotter has to be. Read here rather than held,
+				# because the child is respawned when it changes.
+				"wake_sensitivity": float(self.client.setting(
+					"assistant.wake.wake_sensitivity.value", 0.5) or 0.5),
 				# So the process can notice the client dying without a STOP and
 				# leave on its own, instead of surviving as an orphan holding
 				# the microphone and both ports.

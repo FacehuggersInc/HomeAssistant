@@ -313,6 +313,14 @@ class CoreSkills(Plugin):
                 ],
                 arguments={
                     "given_date": [
+                        # The day word alone, first. The runs below are broken
+                        # by an apostrophe: "what's today" tokenises as
+                        # what / 's / today, and 's is not alpha - so the two
+                        # commonest phrasings of this skill captured nothing
+                        # at all and the day never reached the function.
+                        [{"LOWER": {"IN": ["today", "tomorrow", "yesterday"]}}],
+                        [{"LOWER": {"IN": ["before", "after"]}},
+                         {"LOWER": "today"}],
                         [{"IS_ALPHA": True, "OP": "{2,3}"}],
                         [{"LOWER": {"IN": ["is", "was"]}}, {"IS_ALPHA": True, "OP": "{1,4}"}],
                     ]
@@ -837,7 +845,7 @@ class CoreSkills(Plugin):
                     self.client.say("I didn't quite get that. Please say Yes or No.",
                                     thread=False)
 
-    def tell_relative_date(self, given_date: str):
+    def tell_relative_date(self, given_date: str = ""):
         def ordinal(n: int) -> str:
             if 10 <= n % 100 <= 20:
                 suffix = "th"
@@ -846,21 +854,65 @@ class CoreSkills(Plugin):
             return f"{n}{suffix}"
 
         def readable(d: date) -> str:
-            return f"{d.strftime('%B, %A the ')} {ordinal(d.day)}"
+            """For speech. The strftime already ends in a space."""
+            return f"{d.strftime('%B, %A the')} {ordinal(d.day)}"
+
+        def heading(d: date) -> str:
+            """For the panel. A heading, not a sentence read aloud."""
+            return f"{d.strftime('%A')} {ordinal(d.day)} {d.strftime('%B')}"
 
         today = date.today()
         given_date = (given_date or "").lower()
 
         if "yesterday" in given_date or "before today" in given_date:
-            answer = f"Yesterday was, {readable(today - timedelta(days=1))}"
+            when, spoken = today - timedelta(days=1), "Yesterday was,"
         elif "tomorrow" in given_date or "after today" in given_date:
-            answer = f"Tomorrow is, {readable(today + timedelta(days=1))}"
-        elif "today" in given_date:
-            answer = f"Today is, {readable(today)}"
+            when, spoken = today + timedelta(days=1), "Tomorrow is,"
+        elif "today" in given_date or not given_date:
+            # Nothing captured means the phrasing got past the patterns but
+            # not into them. Every example of this skill asks about a day, and
+            # of those today is the one somebody asks for without saying which
+            # - so it is a better answer than a refusal.
+            when, spoken = today, "Today is,"
         else:
-            answer = ""
+            self._respond("I don't know how to answer that.")
+            return
 
-        self._respond(answer or "I don't know how to answer that.")
+        answer = f"{spoken} {readable(when)}"
+        # Shown as well as said. A date is a thing to read off a wall rather
+        # than catch as it goes past, and the day somebody just asked about
+        # is the day they are about to ask what is on.
+        self.client.answer("mdi.calendar", heading(when),
+                           self._day_lines(when), tint="#4f9de0", speak=answer)
+
+    def _day_lines(self, when: date) -> list:
+        """
+        What is on that day, one line each.
+
+        Empty when there is no calendar, or nothing on. The panel is worth
+        showing either way - the date is the answer, and the events are what
+        the question was usually leading to.
+        """
+        try:
+            if not self.client.public.has("calendar"):
+                return []
+            api = self.client.public.calendar
+            events = api["on_day"](when)
+        except Exception:
+            return []
+
+        lines = []
+        for event in events or []:
+            if getattr(event, "all_day", False):
+                lines.append(f"All day  -  {event.title}")
+                continue
+            starts = getattr(event, "starts_at", None)
+            clock = ""
+            if starts is not None:
+                pattern = "%I:%M %p" if starts.minute else "%I %p"
+                clock = starts.strftime(pattern).lstrip("0")
+            lines.append(f"{clock}  -  {event.title}" if clock else event.title)
+        return lines or ["Nothing on."]
 
     def empty_notifications(self):
         if not self.client.public.has("notification_history"):
@@ -1281,20 +1333,66 @@ class CoreSkills(Plugin):
             return
 
         best, score = None, 0.0
-        for entry_key in self.client.PAGES.keys():
-            label = str(entry_key).lstrip("#").replace("_", " ")
-            label = label.replace("cwb ", "").replace(" page", "")
+        for label, target in self._page_candidates():
             hit = _overlap(wanted, label)
             if hit > score:
-                best, score = entry_key, hit
+                best, score = target, hit
 
         # A page nobody meant is worse than admitting the miss: this navigates,
         # so a wrong guess takes the screen away from whatever was on it.
         if best is None or score < 0.5:
             self._respond(f"I do not have a page called {wanted}.")
             return
-        self.client.call_on_ui(
-            lambda target=best: self.client.goto(target, override=True))
+
+        entry_key, coord = best
+        if coord is None:
+            self.client.call_on_ui(
+                lambda target=entry_key: self.client.goto(target, override=True))
+            return
+
+        def travel(target=entry_key, where=coord):
+            self.client.goto(target, override=True)
+            instance = getattr(self.client.PAGES.get_entry(target),
+                               "instance", None)
+            jump = getattr(instance, "jump_to_coord", None)
+            if callable(jump):
+                jump(tuple(where))
+        self.client.call_on_ui(travel)
+
+    def _page_candidates(self) -> list:
+        """
+        Every page somebody could ask for: the registered ones, and the
+        sub-pages inside them.
+
+        A sub-page is reached through its parent rather than by name, so it is
+        not in `PAGES` and a search of that alone cannot find it - "go to
+        calendar" matched the skill and then reported no such page, because
+        the calendar is a sub-page of the home page.
+
+        Found by shape rather than by naming a plugin: any page instance
+        offering `sub_page_dict` and `jump_to_coord` joins in, so this does
+        not have to know which plugin owns the framework.
+        """
+        found = []
+        for entry_key in self.client.PAGES.keys():
+            label = str(entry_key).lstrip("#").replace("_", " ")
+            label = label.replace("cwb ", "").replace(" page", "")
+            found.append((label, (entry_key, None)))
+
+            instance = getattr(self.client.PAGES.get_entry(entry_key),
+                               "instance", None)
+            subs = getattr(instance, "sub_page_dict", None)
+            if not isinstance(subs, dict) \
+                    or not callable(getattr(instance, "jump_to_coord", None)):
+                continue
+            for name, sub in subs.items():
+                coord = getattr(sub, "coord", None)
+                if coord is None:
+                    continue
+                spoken = str(getattr(sub, "NAME", "") or name)
+                spoken = spoken.replace("_", " ").lower()
+                found.append((spoken, (entry_key, coord)))
+        return found
 
     def open_bookmark(self, wanted: str = ""):
         """

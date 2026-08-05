@@ -739,7 +739,8 @@ class Client:
                       on_created: Optional[Callable[[Panel], None]] = None,
                       dismiss_on_outside_click: bool = False,
                       height: int = None, margin: int = 0,
-                      blocks_idle: bool = False
+                      blocks_idle: bool = False,
+                      on_closed: Optional[Callable[[], None]] = None
                       ) -> Optional[Panel]:
         """
         Build a panel and slide it in.
@@ -755,6 +756,7 @@ class Client:
                            dismiss_on_outside_click=dismiss_on_outside_click,
                            height=height, margin=margin,
                            blocks_idle=blocks_idle)
+            panel.on_closed_hook = on_closed
             if content is not None:
                 panel.add_content(content)
             panel.open_panel()
@@ -1760,6 +1762,11 @@ class Client:
             # How long the child waits for a phrase after a wake. Read once,
             # when it is spawned.
             str(self.setting("assistant.wake.wake_listen_timeout.value", 12)),
+            # The spotter's threshold, fixed when the child is spawned - so
+            # moving it in Settings does nothing at all until this restarts.
+            # It is a setting somebody adjusts by feel, a step at a time, and
+            # one that needed a relaunch between steps would not get adjusted.
+            str(self.setting("assistant.wake.wake_sensitivity.value", 0.5)),
         )
 
     def stop_assistant(self) -> None:

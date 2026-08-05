@@ -1166,6 +1166,13 @@ class Panel(QWidget):
         # conversation produces no interaction while somebody reads it, so
         # timing out behind one measures the wrong thing.
         self.blocks_idle       = bool(blocks_idle)
+        # Told when this closes, however it closes.
+        #
+        # A panel goes away by the button, by a press beside it, by a timeout
+        # or by whatever owns it - and an owner that only hears about the
+        # route it drove itself is an owner still running a conversation
+        # nobody can see.
+        self.on_closed_hook    = None
         self.floating          = self.margin > 0
         # None on either axis means "fill it, less the margin". A left/right
         # panel still defaults to DEFAULT_WIDTH so existing callers are
@@ -1495,6 +1502,14 @@ class Panel(QWidget):
         self._closing = False
         self._release_mask()
         self._release_backdrop()
+
+        hook, self.on_closed_hook = self.on_closed_hook, None
+        if hook is not None:
+            try:
+                hook()
+            except Exception:
+                pass
+
         if getattr(self, "_destroy_after_close", False):
             self._destroy_after_close = False
             self._destroy()

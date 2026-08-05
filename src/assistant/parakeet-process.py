@@ -167,6 +167,7 @@ class ParakeetListener:
                  wake_listen_timeout: float = 0.0,
                  vad_aggressiveness: int = 3,
                  mic_processing: str = "software",
+                 wake_sensitivity: float = 0.5,
                  initial_mode: str = "wake"):
         # First, so everything that reports during setup reports through the
         # socket rather than into a terminal nobody is reading.
@@ -177,6 +178,10 @@ class ParakeetListener:
         self.wake_words = [w for w in (wake_words or []) if w]
         self.wake_word = self.wake_words[0] if self.wake_words else ""
         self.input_device = input_device
+        # How sure openWakeWord has to be. Lower hears the word through more
+        # noise and fires on more things that were not it; higher is the
+        # reverse. A fan in the room is the case this is for.
+        self.wake_sensitivity = max(0.05, min(0.95, float(wake_sensitivity or 0.5)))
         self.mic_processing = str(mic_processing or "software").lower()
 
         self.window_samples = int(self.SAMPLE_RATE * self.WINDOW_MS / 1000)
@@ -310,7 +315,8 @@ class ParakeetListener:
                            f"- pick one it ships in Settings")
             return False
 
-        spotter = WakeSpotter(self.wake_word, log=self.send_log)
+        spotter = WakeSpotter(self.wake_word, threshold=self.wake_sensitivity,
+                              log=self.send_log)
         if not spotter.ready:
             self.reason = spotter.reason or "the wake spotter would not load"
             return False
@@ -808,6 +814,7 @@ class ParakeetServer:
             # reads as the panel being slow to hear you.
             vad_aggressiveness=3,
             mic_processing=str(config.get("mic_processing") or "software"),
+            wake_sensitivity=float(config.get("wake_sensitivity") or 0.5),
         )
         self.listener.set_callbacks(
             on_wake=self.trigger_wake,

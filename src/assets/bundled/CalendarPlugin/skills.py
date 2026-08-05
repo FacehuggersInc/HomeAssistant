@@ -177,7 +177,23 @@ class _Answers:
         if event is None:
             self._say("Nothing coming up.")
             return
-        self._say(f"{event.title} is {api['describe_gap'](event)}.")
+        # The same shape as every other calendar answer. A bare line said
+        # "in about two hours" and showed nothing about which thing, when, or
+        # where - which is the rest of what somebody asking is about to want.
+        when = "All day" if event.all_day else self._clock(event)
+        self._say(f"{event.title} is {api['describe_gap'](event)}.",
+                  lines=[l for l in (when, event.location,
+                                     api["describe_duration"](event)) if l],
+                  icon=event.icon, tint=event.colour or "#4f9de0")
+
+    @staticmethod
+    def _clock(event) -> str:
+        """The start on a 12-hour clock, for a panel rather than for speech."""
+        starts = getattr(event, "starts_at", None)
+        if starts is None:
+            return ""
+        pattern = "%I:%M %p" if starts.minute else "%I %p"
+        return starts.strftime(pattern).lstrip("0")
 
     def today(self) -> None:
         api = self._api()

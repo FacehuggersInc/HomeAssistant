@@ -516,7 +516,16 @@ class CalendarPage(SubPageFramework):
         self.client.unsubscribe_from_event("on_calendar_changed", self._on_changed)
 
     def refresh(self) -> None:
-        self.title.setText(f"{calendar_module.month_name[self.month]} {self.year}")
+        # The month being looked at, and today. A panel showing a calendar is
+        # also the thing somebody glances at to find out what day it is, and
+        # a heading of "August 2026" answers that only if you already know.
+        # Today is said in full only while it is on screen - on any other
+        # month it would read as the month's own date.
+        today = date.today()
+        heading = f"{calendar_module.month_name[self.month]} {self.year}"
+        if (today.year, today.month) == (self.year, self.month):
+            heading = f"{today.strftime('%A')} {today.day} \u00b7 {heading}"
+        self.title.setText(heading)
 
         first_weekday = 0 if self._monday_first() else 6
         names = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]

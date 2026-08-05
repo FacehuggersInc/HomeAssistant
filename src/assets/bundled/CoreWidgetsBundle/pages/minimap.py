@@ -34,7 +34,13 @@ def colour_for(coord: tuple) -> QColor:
 class MiniPage(QWidget):
     """One cell in the map: a page, or an empty slot a page can be moved into."""
 
-    SIZE = 76
+    #Wide rather than square. A cell is labelled with the page's name, and
+    #names are words - "Notifications" needs room across, not down, and a
+    #square cell elides most of them to three letters and an ellipsis.
+    SIZE = 128
+    #Height as a share of width. Flatter than the pages it stands for, so a
+    #row of them fits without the board running off the bottom.
+    RATIO = 0.52
 
     def __init__(self, dialog: "MinimapDialog", coord: tuple,
                  page=None, is_current: bool = False,
@@ -45,7 +51,7 @@ class MiniPage(QWidget):
         self.page       = page
         self.is_current = is_current
 
-        width, height = cell or (self.SIZE, int(self.SIZE * 0.62))
+        width, height = cell or (self.SIZE, int(self.SIZE * self.RATIO))
         self.setFixedSize(int(width), int(height))
         self.setAcceptDrops(True)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -196,7 +202,7 @@ class MinimapDialog(BaseDialog):
     so the map cannot grow into places nothing can reach by swiping.
     """
 
-    WIDTH = 560
+    WIDTH = 760
     GAP   = 8
     CONTENT_MARGIN = 56   #the dialog's own padding, both sides
 
@@ -269,7 +275,7 @@ class MinimapDialog(BaseDialog):
         cell_w = min(MiniPage.SIZE,
                      (available - (columns - 1) * self.GAP) // max(1, columns))
         cell_w = max(28, int(cell_w))
-        cell_h = max(20, int(cell_w * 0.62))
+        cell_h = max(20, int(cell_w * MiniPage.RATIO))
 
         for y in range(min(ys), max(ys) + 1):
             for x in range(min(xs), max(xs) + 1):

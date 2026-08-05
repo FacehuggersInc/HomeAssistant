@@ -15,7 +15,7 @@ what is coming up.
 | Widgets       | **Next event** and **Coming up**.                                                                               |
 | Tile          | **Calendar**, a month at a glance. Minimum 5x3.                                                                 |
 | Panels        | A reminder card before an event starts, with a map, and Snooze.                                                 |
-| Skills        | Six: what is next, today, tomorrow, this week, next holiday, how long.                                          |
+| Skills        | Six: what is next, today, tomorrow, this week, next holiday, how long. All answer on a panel.                   |
 | API           | `calendar_add` and `calendar_upcoming`, both authed.                                                            |
 | Subscriptions | Read-only mirrors of Google, iCloud or Outlook calendars. Managed from the calendar page, a phone, or settings. |
 | Registry      | `client.public.calendar` - see `docs/registry.md`.                                                              |

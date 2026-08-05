@@ -1,462 +1,471 @@
 {
- "home": {
-  "layout": {
-   "widget_margin": {
-    "type": "int",
-    "default": 28,
-    "value": 28,
-    "description": "The Outer Margin of Widgets on the Home Page"
-   },
-   "quick_settings_height": {
-    "type": "float",
-    "default": 0.34,
-    "value": 0.34,
-    "description": "How much of the screen height the quick settings panel takes. A share rather than a pixel count, so one value suits any display. A third is tight on 1080; 0.45 gives the System side room without scrolling. Clamped to 0.15-0.9."
-   },
-   "pinned": {
-    "type": "path",
-    "default": " ",
-    "value": " ",
-    "description": "The Path to your Pinned Image for the Home Background"
-   }
-  },
-  "clock": {
-   "time_format": {
-    "type": "string",
-    "default": "%I:%M %p",
-    "value": "%I:%M %p"
-   },
-   "date_format": {
-    "type": "string",
-    "default": "%a, %b %d",
-    "value": "%a, %b %d"
-   }
-  },
-  "background": {
-   "images": {
-    "type": "path",
-    "default": "C:\\Home\\Images",
-    "value": "C:\\Home\\Images",
-    "description": "Home Background's Path for Cycling Images"
-   },
-   "background_cycle_interval": {
-    "type": "int",
-    "default": 75,
-    "value": 75,
-    "suffix": "sec",
-    "description": "The amount of time in seconds before the background cycles to a new Wallpaper"
-   },
-   "background_fade_duration": {
-    "type": "int",
-    "default": 1200,
-    "value": 1200,
-    "suffix": "ms",
-    "description": "How long the fade animation should be when a Wallpaper cycles"
-   }
-  }
- },
- "audio": {
-  "devices": {
-   "output_device": {
-    "type": "enum",
-    "options": [
-     "Default"
-    ],
-    "default": "Default",
-    "value": "Default",
-    "description": "Where the panel plays sound. 'Default' follows whatever the system is using, which changes when a USB device is plugged in - a microphone array with a speaker jack will take the output as well as the input unless it is named here."
-   },
-   "input_device": {
-    "type": "enum",
-    "default": "Default",
-    "value": "Default",
-    "description": "Which microphone the assistant listens with. 'Default' follows the system.",
-    "options": [
-     "Default"
-    ]
-   },
-   "mic_processing": {
-    "type": "enum",
-    "options": [
-     "software",
-     "hardware"
-    ],
-    "default": "software",
-    "value": "software",
-    "description": "What the microphone does for itself. 'software' assumes a plain mic and cleans the audio here. 'hardware' is for arrays that already do it - the ReSpeaker XVF3800 and similar - and turns off the second pass, because cleaning already-clean audio is what makes speech sound underwater. Set this to hardware only if the device really does the work; on a plain mic it will hear far less."
-   }
-  },
-  "speech": {
-   "tts_enabled": {
-    "type": "bool",
-    "default": true,
-    "value": true,
-    "description": "Whether the assistant speaks its replies. Uses Kyutai Pocket TTS, which runs locally on the CPU and needs no key. A skill that would have spoken shows its answer instead when this is off."
-   },
-   "tts_backend": {
-    "type": "enum",
-    "default": "auto",
-    "value": "auto",
-    "options": [
-     "auto",
-     "pocket",
-     "off"
-    ],
-    "description": "Whether to speak replies. 'auto' and 'pocket' both use Kyutai Pocket TTS - local, no key, CPU only. 'off' silences them."
-   },
-   "tts_voice": {
-    "type": "enum",
-    "default": "alba",
-    "value": "alba",
-    "description": "Pocket TTS voice. 21 English, plus estelle (fr), giovanni (it), juergen (de), lola (es), rafael (pt). Overridden by Tts Voice File when that is set.",
-    "options": [
-     "alba",
-     "anna",
-     "azelma",
-     "bill_boerst",
-     "caro_davy",
-     "charles",
-     "cosette",
-     "eponine",
-     "eve",
-     "fantine",
-     "george",
-     "jane",
-     "jean",
-     "javert",
-     "marius",
-     "mary",
-     "michael",
-     "paul",
-     "peter_yearsley",
-     "stuart_bell",
-     "vera",
-     "estelle",
-     "giovanni",
-     "juergen",
-     "lola",
-     "rafael"
-    ]
-   },
-   "tts_language": {
-    "type": "enum",
-    "default": "default",
-    "value": "default",
-    "options": [
-     "default",
-     "english",
-     "french",
-     "german",
-     "portuguese",
-     "italian",
-     "spanish"
-    ],
-    "description": "Pocket TTS language weights. 'default' uses the model's own."
-   },
-   "tts_voice_file": {
-    "type": "str",
-    "default": "",
-    "value": "",
-    "description": "A wav to clone instead of a listed voice - a local path or an hf:// URL. Overrides Tts Voice. The sample's audio quality is reproduced, so a clean recording matters more than a long one."
-   },
-   "tts_padding_ms": {
-    "type": "int",
-    "default": 140,
-    "value": 140,
-    "suffix": "ms",
-    "description": "Silence added either side of a spoken reply. The model stops when the sentence stops, so a one-line answer otherwise begins and ends hard. Also covers the moment a Bluetooth speaker takes to wake, which eats the first syllable. Pocket TTS only."
-   },
-   "tts_rate": {
-    "type": "float",
-    "default": 1.0,
-    "value": 1.0,
-    "description": "Playback speed. Pocket TTS has no rate control, so this changes the sample rate instead - which moves the PITCH with the speed. 0.95 is audibly less hurried and hard to notice; below about 0.9 it sounds like a slowed recording. Pocket TTS only."
-   }
-  },
-  "quiet": {
-   "do_not_disturb": {
-    "type": "bool",
-    "default": false,
-    "value": false,
-    "description": "Hold back notifications and every sound the panel makes. They are still written to the notification history - the point is not to be interrupted, not to lose what happened."
-   },
-   "mute_sounds": {
-    "type": "bool",
-    "default": false,
-    "value": false,
-    "description": "Silence the panel's own sounds and its spoken replies, while leaving notifications on screen. Do not disturb implies this; this does not imply do not disturb."
-   }
-  }
- },
- "notifications": {
-  "toasts": {
-   "notification_duration": {
-    "type": "float",
-    "default": 4.5,
-    "value": 4.5,
-    "suffix": "sec",
-    "description": "How long a notification stays on screen"
-   },
-   "notification_queue_delay": {
-    "type": "float",
-    "default": 0.4,
-    "value": 0.4,
-    "suffix": "sec",
-    "description": "The delay in seconds between notifications in queue"
-   },
-   "notification_position": {
-    "type": "enum",
-    "default": "bottom-right",
-    "value": "bottom-right",
-    "options": [
-     "top-left",
-     "top-center",
-     "top-right",
-     "bottom-left",
-     "bottom-center",
-     "bottom-right"
-    ],
-    "description": "Where should notifications appear"
-   }
-  }
- },
- "plugins": {
-  "media": {
-   "username": {
-    "type": "string",
-    "default": "colin.a.bond",
-    "value": "colin.a.bond",
-    "description": "Your Username for your music API"
-   }
-  },
-  "weather": {
-   "timezone": {
-    "type": "string",
-    "default": "America/Chicago",
-    "value": "America/Chicago",
-    "description": "The timezone you're in"
-   },
-   "latitude": {
-    "type": "float",
-    "default": 41.2619,
-    "value": 41.2619,
-    "suffix": "deg.",
-    "description": "The Latitude of your city"
-   },
-   "longitude": {
-    "type": "float",
-    "default": -95.8608,
-    "value": -95.8608,
-    "suffix": "deg.",
-    "description": "The Longitude of your city"
-   }
-  }
- },
- "application": {
-  "panel_name": {
-   "type": "str",
-   "default": "",
-   "value": "",
-   "hidden": true,
-   "description": "What to call this panel. Shown in Info and on the web pages this panel serves. Empty means the application name."
-  },
-  "window": {
-   "size": {
-    "type": "list[float]",
-    "default": [
-     1920.0,
-     1080.0
-    ],
-    "value": [
-     1920.0,
-     1080.0
-    ],
-    "prefix": [
-     "w",
-     "h"
-    ],
-    "suffix": [
-     "px",
-     "px"
-    ],
-    "description": "Set the size of the window. NOTE: this doesn't effect the actual size, its a reference"
-   },
-   "position": {
-    "type": "list[int]",
-    "default": [
-     1074,
-     1701
-    ],
-    "value": [
-     1074,
-     1701
-    ],
-    "prefix": [
-     "x",
-     "y"
-    ],
-    "suffix": [
-     "px",
-     "px"
-    ],
-    "description": "Where the window will position itself on startup"
-   },
-   "auto_lock": {
-    "type": "bool",
-    "default": true,
-    "value": true,
-    "description": "Whether the app will automatically on startup, position at X and Y, then fullscreen"
-   }
-  },
-  "interaction_timeout": {
-   "type": "int",
-   "default": 60000,
-   "value": 60000,
-   "suffix": "ms",
-   "description": "Time of inactivity (no clicks/touches anywhere) before Client fires on_interaction_timeout. Used in the settings page to go home when no interaction has happened for a while."
-  },
-  "updates": {
-   "check_interval": {
-    "type": "int",
-    "default": 6,
-    "value": 6,
-    "suffix": "hrs",
-    "description": "How often to ask GitHub whether a newer version exists. This is a single small request, not a download - nothing is fetched until you choose to update. Set to 0 to never check automatically."
-   },
-   "restart_on_crash": {
-    "type": "bool",
-    "default": true,
-    "value": true,
-    "description": "Whether the launcher automatically restarts the app if it crashes. Turn this off to have a crash simply stop the app."
-   },
-   "max_restart_attempts": {
-    "type": "int",
-    "default": 5,
-    "value": 5,
-    "description": "How many times in a row the launcher will restart after a crash before giving up. Prevents a boot loop when something is genuinely broken."
-   },
-   "crash_window": {
-    "type": "int",
-    "default": 120,
-    "value": 120,
-    "suffix": "sec",
-    "description": "If the app ran longer than this before crashing, the restart counter resets. A long-lived session that later dies is not a boot loop."
-   },
-   "update_grace_period": {
-    "type": "int",
-    "default": 60,
-    "value": 60,
-    "suffix": "sec",
-    "description": "If a freshly-applied update crashes within this window, the launcher rolls back to the previous version and relaunches it."
-   }
-  },
-  "backlight": {
-   "mode": {
-    "type": "string",
-    "default": "auto",
-    "value": "auto",
-    "description": "How to dim the screen. 'auto' tries real backlight control and falls back to the overlay. 'overlay' never touches the hardware. Or name one: sysfs, logind, ddcutil, brightnessctl, light."
-   },
-   "device": {
-    "type": "string",
-    "default": "",
-    "value": "",
-    "description": "Which display, if the machine has more than one. A name from /sys/class/backlight, or a ddcutil display number. Blank picks the first that works."
-   },
-   "floor": {
-    "type": "int",
-    "default": 0,
-    "value": 0,
-    "suffix": "%",
-    "description": "Below this the dark overlay takes over, for monitors whose own minimum is still too bright. 0 lets the hardware cover the whole range."
-   }
-  }
- },
- "assistant": {
-  "enabled": {
-   "type": "bool",
-   "default": true,
-   "value": true,
-   "description": "Whether the voice assistant runs at all. Turn this off to stop the speech-to-text process entirely."
-  },
-  "speech": {
-   "model": {
-    "type": "enum",
-    "default": "parakeet-v3",
-    "value": "parakeet-v3",
-    "options": [
-     "parakeet-v3",
-     "parakeet-v2"
-    ],
-    "description": "What transcribes the phrase you said.\n\nparakeet-v3 is NVIDIA's, run through onnx-asr. It covers 25 European languages, and unlike whisper it does not invent words out of silence - which is why nothing here has to filter its output. parakeet-v2 is English-only and slightly faster.\n\nThe weights download once on first use, after you are asked. See 'parakeet_precision' for how large that is."
-   },
-   "parakeet_precision": {
-    "type": "enum",
-    "options": [
-     "int8",
-     "float32"
-    ],
-    "default": "int8",
-    "value": "int8",
-    "description": "Which Parakeet weights to use. Ignored on the whisper models.\n\n'int8' is 700MB, loads faster and runs faster on a panel with no GPU. 'float32' is the full-size export - 2.5GB to download and several times the memory - and is more accurate on long audio, which a phrase said to a wall panel is not. Change this and the new weights download the next time the assistant starts."
-   }
-  },
-  "wake": {
-   "wake_word": {
-    "type": "enum",
-    "default": "alexa",
-    "value": "alexa",
-    "description": "The word that wakes the assistant, spotted by openWakeWord - a model trained for the job rather than a transcription that gets read.\n\nThe list is the words openWakeWord ships models for. Anything else would need a model trained for it, which is a real piece of work and not something the panel can do.\n\nPlugins use this as the default wake word for their skills. Requires a restart of the assistant.",
-    "options": [
-     "alexa",
-     "hey jarvis",
-     "hey mycroft",
-     "hey rhasspy"
-    ]
-   },
-   "wake_listen_timeout": {
-    "type": "int",
-    "default": 12,
-    "value": 12,
-    "suffix": "sec",
-    "description": "How long the panel keeps listening after the wake word before giving up. Too short and it stops mid-thought; too long and it sits listening to the room."
-   },
-   "session_silence": {
-    "type": "int",
-    "default": 800,
-    "value": 800,
-    "suffix": "ms",
-    "description": "How long a pause ends your sentence once the assistant is in a conversation. Lower reacts faster; too low and a breath mid-sentence is treated as the end, which splits one question into several and sends each of them separately. 800ms suits normal speech."
-   }
-  },
-  "feedback": {
-   "voice_bar": {
-    "type": "bool",
-    "default": true,
-    "value": true,
-    "description": "Show the thin activity bar along the bottom of the screen while the assistant is listening."
-   },
-   "voice_bar_hold": {
-    "type": "int",
-    "default": 6,
-    "value": 6,
-    "suffix": "sec",
-    "description": "Minimum time the activity bar keeps a transcript on screen. Longer transcripts are held longer than this automatically."
-   },
-   "greet_on_start": {
-    "type": "bool",
-    "default": false,
-    "value": false,
-    "description": "Whether the assistant says hello out loud when it starts listening. The notification appears either way; this is only whether it is spoken. Off by default - a panel that restarts itself at four in the morning should not announce it."
-   }
-  }
- },
- "debug": {
-  "enabled": {
-   "type": "bool",
-   "default": false,
-   "value": false,
-   "description": "Developer controls and extra logging. Plugins may add their own switches while this is on."
-  }
- }
+    "home": {
+        "layout": {
+            "widget_margin": {
+                "type": "int",
+                "default": 28,
+                "value": 28,
+                "description": "The Outer Margin of Widgets on the Home Page"
+            },
+            "quick_settings_height": {
+                "type": "float",
+                "default": 0.34,
+                "value": 0.34,
+                "description": "How much of the screen height the quick settings panel takes. A share rather than a pixel count, so one value suits any display. A third is tight on 1080; 0.45 gives the System side room without scrolling. Clamped to 0.15-0.9."
+            },
+            "pinned": {
+                "type": "path",
+                "default": " ",
+                "value": " ",
+                "description": "The Path to your Pinned Image for the Home Background"
+            }
+        },
+        "clock": {
+            "time_format": {
+                "type": "string",
+                "default": "%I:%M %p",
+                "value": "%I:%M %p"
+            },
+            "date_format": {
+                "type": "string",
+                "default": "%a, %b %d",
+                "value": "%a, %b %d"
+            }
+        },
+        "background": {
+            "images": {
+                "type": "path",
+                "default": "C:\\Home\\Images",
+                "value": "C:\\Home\\Images",
+                "description": "Home Background's Path for Cycling Images"
+            },
+            "background_cycle_interval": {
+                "type": "int",
+                "default": 75,
+                "value": 75,
+                "suffix": "sec",
+                "description": "The amount of time in seconds before the background cycles to a new Wallpaper"
+            },
+            "background_fade_duration": {
+                "type": "int",
+                "default": 1200,
+                "value": 1200,
+                "suffix": "ms",
+                "description": "How long the fade animation should be when a Wallpaper cycles"
+            }
+        }
+    },
+    "audio": {
+        "devices": {
+            "output_device": {
+                "type": "enum",
+                "options": [
+                    "Default"
+                ],
+                "default": "Default",
+                "value": "Default",
+                "description": "Where the panel plays sound. 'Default' follows whatever the system is using, which changes when a USB device is plugged in - a microphone array with a speaker jack will take the output as well as the input unless it is named here."
+            },
+            "input_device": {
+                "type": "enum",
+                "default": "Default",
+                "value": "Default",
+                "description": "Which microphone the assistant listens with. 'Default' follows the system.",
+                "options": [
+                    "Default"
+                ]
+            },
+            "mic_processing": {
+                "type": "enum",
+                "options": [
+                    "software",
+                    "hardware"
+                ],
+                "default": "software",
+                "value": "software",
+                "description": "What the microphone does for itself. 'software' assumes a plain mic and cleans the audio here. 'hardware' is for arrays that already do it - the ReSpeaker XVF3800 and similar - and turns off the second pass, because cleaning already-clean audio is what makes speech sound underwater. Set this to hardware only if the device really does the work; on a plain mic it will hear far less."
+            }
+        },
+        "speech": {
+            "tts_enabled": {
+                "type": "bool",
+                "default": true,
+                "value": true,
+                "description": "Whether the assistant speaks its replies. Uses Kyutai Pocket TTS, which runs locally on the CPU and needs no key. A skill that would have spoken shows its answer instead when this is off."
+            },
+            "tts_backend": {
+                "type": "enum",
+                "default": "auto",
+                "value": "auto",
+                "options": [
+                    "auto",
+                    "pocket",
+                    "off"
+                ],
+                "description": "Whether to speak replies. 'auto' and 'pocket' both use Kyutai Pocket TTS - local, no key, CPU only. 'off' silences them."
+            },
+            "tts_voice": {
+                "type": "enum",
+                "default": "alba",
+                "value": "alba",
+                "description": "Pocket TTS voice. 21 English, plus estelle (fr), giovanni (it), juergen (de), lola (es), rafael (pt). Overridden by Tts Voice File when that is set.",
+                "options": [
+                    "alba",
+                    "anna",
+                    "azelma",
+                    "bill_boerst",
+                    "caro_davy",
+                    "charles",
+                    "cosette",
+                    "eponine",
+                    "eve",
+                    "fantine",
+                    "george",
+                    "jane",
+                    "jean",
+                    "javert",
+                    "marius",
+                    "mary",
+                    "michael",
+                    "paul",
+                    "peter_yearsley",
+                    "stuart_bell",
+                    "vera",
+                    "estelle",
+                    "giovanni",
+                    "juergen",
+                    "lola",
+                    "rafael"
+                ]
+            },
+            "tts_language": {
+                "type": "enum",
+                "default": "default",
+                "value": "default",
+                "options": [
+                    "default",
+                    "english",
+                    "french",
+                    "german",
+                    "portuguese",
+                    "italian",
+                    "spanish"
+                ],
+                "description": "Pocket TTS language weights. 'default' uses the model's own."
+            },
+            "tts_voice_file": {
+                "type": "str",
+                "default": "",
+                "value": "",
+                "description": "A wav to clone instead of a listed voice - a local path or an hf:// URL. Overrides Tts Voice. The sample's audio quality is reproduced, so a clean recording matters more than a long one."
+            },
+            "tts_padding_ms": {
+                "type": "int",
+                "default": 140,
+                "value": 140,
+                "suffix": "ms",
+                "description": "Silence added either side of a spoken reply. The model stops when the sentence stops, so a one-line answer otherwise begins and ends hard. Also covers the moment a Bluetooth speaker takes to wake, which eats the first syllable. Pocket TTS only."
+            },
+            "tts_rate": {
+                "type": "float",
+                "default": 1.0,
+                "value": 1.0,
+                "description": "Playback speed. Pocket TTS has no rate control, so this changes the sample rate instead - which moves the PITCH with the speed. 0.95 is audibly less hurried and hard to notice; below about 0.9 it sounds like a slowed recording. Pocket TTS only."
+            }
+        },
+        "quiet": {
+            "do_not_disturb": {
+                "type": "bool",
+                "default": false,
+                "value": false,
+                "description": "Hold back notifications and every sound the panel makes. They are still written to the notification history - the point is not to be interrupted, not to lose what happened."
+            },
+            "mute_sounds": {
+                "type": "bool",
+                "default": false,
+                "value": false,
+                "description": "Silence the panel's own sounds and its spoken replies, while leaving notifications on screen. Do not disturb implies this; this does not imply do not disturb."
+            }
+        }
+    },
+    "notifications": {
+        "toasts": {
+            "notification_duration": {
+                "type": "float",
+                "default": 4.5,
+                "value": 4.5,
+                "suffix": "sec",
+                "description": "How long a notification stays on screen"
+            },
+            "notification_queue_delay": {
+                "type": "float",
+                "default": 0.4,
+                "value": 0.4,
+                "suffix": "sec",
+                "description": "The delay in seconds between notifications in queue"
+            },
+            "notification_position": {
+                "type": "enum",
+                "default": "bottom-right",
+                "value": "bottom-right",
+                "options": [
+                    "top-left",
+                    "top-center",
+                    "top-right",
+                    "bottom-left",
+                    "bottom-center",
+                    "bottom-right"
+                ],
+                "description": "Where should notifications appear"
+            }
+        }
+    },
+    "plugins": {
+        "media": {
+            "username": {
+                "type": "string",
+                "default": "colin.a.bond",
+                "value": "colin.a.bond",
+                "description": "Your Username for your music API"
+            }
+        },
+        "weather": {
+            "timezone": {
+                "type": "string",
+                "default": "America/Chicago",
+                "value": "America/Chicago",
+                "description": "The timezone you're in"
+            },
+            "latitude": {
+                "type": "float",
+                "default": 41.2619,
+                "value": 41.2619,
+                "suffix": "deg.",
+                "description": "The Latitude of your city"
+            },
+            "longitude": {
+                "type": "float",
+                "default": -95.8608,
+                "value": -95.8608,
+                "suffix": "deg.",
+                "description": "The Longitude of your city"
+            }
+        }
+    },
+    "application": {
+        "panel_name": {
+            "type": "str",
+            "default": "",
+            "value": "",
+            "hidden": true,
+            "description": "What to call this panel. Shown in Info and on the web pages this panel serves. Empty means the application name."
+        },
+        "window": {
+            "size": {
+                "type": "list[float]",
+                "default": [
+                    1920.0,
+                    1080.0
+                ],
+                "value": [
+                    1920.0,
+                    1080.0
+                ],
+                "prefix": [
+                    "w",
+                    "h"
+                ],
+                "suffix": [
+                    "px",
+                    "px"
+                ],
+                "description": "Set the size of the window. NOTE: this doesn't effect the actual size, its a reference"
+            },
+            "position": {
+                "type": "list[int]",
+                "default": [
+                    1074,
+                    1701
+                ],
+                "value": [
+                    1074,
+                    1701
+                ],
+                "prefix": [
+                    "x",
+                    "y"
+                ],
+                "suffix": [
+                    "px",
+                    "px"
+                ],
+                "description": "Where the window will position itself on startup"
+            },
+            "auto_lock": {
+                "type": "bool",
+                "default": true,
+                "value": true,
+                "description": "Whether the app will automatically on startup, position at X and Y, then fullscreen"
+            }
+        },
+        "interaction_timeout": {
+            "type": "int",
+            "default": 60000,
+            "value": 60000,
+            "suffix": "ms",
+            "description": "Time of inactivity (no clicks/touches anywhere) before Client fires on_interaction_timeout. Used in the settings page to go home when no interaction has happened for a while."
+        },
+        "updates": {
+            "check_interval": {
+                "type": "int",
+                "default": 6,
+                "value": 6,
+                "suffix": "hrs",
+                "description": "How often to ask GitHub whether a newer version exists. This is a single small request, not a download - nothing is fetched until you choose to update. Set to 0 to never check automatically."
+            },
+            "restart_on_crash": {
+                "type": "bool",
+                "default": true,
+                "value": true,
+                "description": "Whether the launcher automatically restarts the app if it crashes. Turn this off to have a crash simply stop the app."
+            },
+            "max_restart_attempts": {
+                "type": "int",
+                "default": 5,
+                "value": 5,
+                "description": "How many times in a row the launcher will restart after a crash before giving up. Prevents a boot loop when something is genuinely broken."
+            },
+            "crash_window": {
+                "type": "int",
+                "default": 120,
+                "value": 120,
+                "suffix": "sec",
+                "description": "If the app ran longer than this before crashing, the restart counter resets. A long-lived session that later dies is not a boot loop."
+            },
+            "update_grace_period": {
+                "type": "int",
+                "default": 60,
+                "value": 60,
+                "suffix": "sec",
+                "description": "If a freshly-applied update crashes within this window, the launcher rolls back to the previous version and relaunches it."
+            }
+        },
+        "backlight": {
+            "mode": {
+                "type": "string",
+                "default": "auto",
+                "value": "auto",
+                "description": "How to dim the screen. 'auto' tries real backlight control and falls back to the overlay. 'overlay' never touches the hardware. Or name one: sysfs, logind, ddcutil, brightnessctl, light."
+            },
+            "device": {
+                "type": "string",
+                "default": "",
+                "value": "",
+                "description": "Which display, if the machine has more than one. A name from /sys/class/backlight, or a ddcutil display number. Blank picks the first that works."
+            },
+            "floor": {
+                "type": "int",
+                "default": 0,
+                "value": 0,
+                "suffix": "%",
+                "description": "Below this the dark overlay takes over, for monitors whose own minimum is still too bright. 0 lets the hardware cover the whole range."
+            }
+        }
+    },
+    "assistant": {
+        "enabled": {
+            "type": "bool",
+            "default": true,
+            "value": true,
+            "description": "Whether the voice assistant runs at all. Turn this off to stop the speech-to-text process entirely."
+        },
+        "speech": {
+            "model": {
+                "type": "enum",
+                "default": "parakeet-v3",
+                "value": "parakeet-v3",
+                "options": [
+                    "parakeet-v3",
+                    "parakeet-v2"
+                ],
+                "description": "What transcribes the phrase you said.\n\nparakeet-v3 is NVIDIA's, run through onnx-asr. It covers 25 European languages, and unlike whisper it does not invent words out of silence - which is why nothing here has to filter its output. parakeet-v2 is English-only and slightly faster.\n\nThe weights download once on first use, after you are asked. See 'parakeet_precision' for how large that is."
+            },
+            "parakeet_precision": {
+                "type": "enum",
+                "options": [
+                    "int8",
+                    "float32"
+                ],
+                "default": "int8",
+                "value": "int8",
+                "description": "Which Parakeet weights to use. Ignored on the whisper models.\n\n'int8' is 700MB, loads faster and runs faster on a panel with no GPU. 'float32' is the full-size export - 2.5GB to download and several times the memory - and is more accurate on long audio, which a phrase said to a wall panel is not. Change this and the new weights download the next time the assistant starts."
+            }
+        },
+        "wake": {
+            "wake_word": {
+                "type": "enum",
+                "default": "alexa",
+                "value": "alexa",
+                "description": "The word that wakes the assistant, spotted by openWakeWord - a model trained for the job rather than a transcription that gets read.\n\nThe list is the words openWakeWord ships models for. Anything else would need a model trained for it, which is a real piece of work and not something the panel can do.\n\nPlugins use this as the default wake word for their skills. The assistant restarts itself when this changes.",
+                "options": [
+                    "alexa",
+                    "hey jarvis",
+                    "hey mycroft",
+                    "hey rhasspy"
+                ]
+            },
+            "wake_listen_timeout": {
+                "type": "int",
+                "default": 12,
+                "value": 12,
+                "suffix": "sec",
+                "description": "How long the panel keeps listening after the wake word before giving up. Too short and it stops mid-thought; too long and it sits listening to the room."
+            },
+            "session_silence": {
+                "type": "int",
+                "default": 800,
+                "value": 800,
+                "suffix": "ms",
+                "description": "How long a pause ends your sentence once the assistant is in a conversation. Lower reacts faster; too low and a breath mid-sentence is treated as the end, which splits one question into several and sends each of them separately. 800ms suits normal speech."
+            },
+            "wake_sensitivity": {
+                "type": "float",
+                "default": 0.5,
+                "value": 0.5,
+                "min": 0.05,
+                "max": 0.95,
+                "step": 0.05,
+                "description": "How sure openWakeWord has to be before it counts as the wake word.\n\n0.5 is the library's own suggestion. LOWER hears the word through more noise - a fan, music, a room away - and also fires on more things that were not it. HIGHER wants a clearer say of it and misses more.\n\nWorth moving in steps of 0.05 and living with for a day: the cost of going too low is the panel waking up on its own, which is more annoying than saying the word twice. The assistant restarts itself when this changes."
+            }
+        },
+        "feedback": {
+            "voice_bar": {
+                "type": "bool",
+                "default": true,
+                "value": true,
+                "description": "Show the thin activity bar along the bottom of the screen while the assistant is listening."
+            },
+            "voice_bar_hold": {
+                "type": "int",
+                "default": 6,
+                "value": 6,
+                "suffix": "sec",
+                "description": "Minimum time the activity bar keeps a transcript on screen. Longer transcripts are held longer than this automatically."
+            },
+            "greet_on_start": {
+                "type": "bool",
+                "default": false,
+                "value": false,
+                "description": "Whether the assistant says hello out loud when it starts listening. The notification appears either way; this is only whether it is spoken. Off by default - a panel that restarts itself at four in the morning should not announce it."
+            }
+        }
+    },
+    "debug": {
+        "enabled": {
+            "type": "bool",
+            "default": false,
+            "value": false,
+            "description": "Developer controls and extra logging. Plugins may add their own switches while this is on."
+        }
+    }
 }

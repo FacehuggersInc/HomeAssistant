@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QPushButton, QScrollArea, QFrame, QSizePolicy, QScroller,
+    QGraphicsOpacityEffect,
 )
 from PyQt6.QtCore import Qt, QTimer, QPropertyAnimation, QEasingCurve
 from PyQt6.QtGui import QColor, QPainter, QBrush, QPen
@@ -22,6 +23,19 @@ if TYPE_CHECKING:
 # ── Notification history item ─────────────────────────────────────────────────
 
 class NotificationHistoryItem(QFrame):
+    """
+    One entry, with a cross and a swipe.
+
+    Both, rather than one: the cross is 24px and this is a wall panel read
+    from a step away, and a swipe is what a hand already expects a
+    notification to answer to.
+    """
+
+    #How far sideways before it goes. About a third of the panel.
+    SWIPE_DISTANCE = 150
+    #And how much more sideways than up before it is a swipe rather than the
+    #list being scrolled past it.
+    SWIPE_BIAS = 1.4
 
     def __init__(self, history: "NotificationHistory",
                  icon: str, title: str, body: str,
@@ -88,6 +102,79 @@ class NotificationHistoryItem(QFrame):
         set_style(dismiss_btn, "notification", "notification-dismiss")
         dismiss_btn.clicked.connect(self._remove)
         layout.addWidget(dismiss_btn)
+
+    ## -- swiping it away
+
+    def mousePressEvent(self, event) -> None:
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._swipe_from = event.globalPosition().toPoint()
+            self._swiping = False
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event) -> None:
+        start = getattr(self, "_swipe_from", None)
+        if start is None:
+            super().mouseMoveEvent(event)
+            return
+
+        delta = event.globalPosition().toPoint() - start
+        if not getattr(self, "_swiping", False):
+            if abs(delta.x()) < 12 \
+                    or abs(delta.x()) < abs(delta.y()) * self.SWIPE_BIAS:
+                super().mouseMoveEvent(event)
+                return
+            # Decided once, and taken off the scroller. The list is driven by
+            # a QScroller on the viewport, which claims a drag the moment it
+            # passes its own start distance - so a sideways drag has to be
+            # claimed here first, and the scroller told to let go of the one
+            # it may already have started.
+            self._swiping = True
+            self._stop_scroller()
+
+        self.move(self.x() + delta.x() - getattr(self, "_swipe_shift", 0), self.y())
+        self._swipe_shift = delta.x()
+        # Fading as it goes, so the gesture says what it is doing before it
+        # is finished doing it.
+        gone = min(1.0, abs(delta.x()) / float(self.SWIPE_DISTANCE))
+        self._fade(1.0 - gone * 0.8)
+
+    def mouseReleaseEvent(self, event) -> None:
+        start = getattr(self, "_swipe_from", None)
+        swiping = getattr(self, "_swiping", False)
+        self._swipe_from = None
+        self._swiping = False
+
+        if start is not None and swiping:
+            travelled = abs((event.globalPosition().toPoint() - start).x())
+            if travelled >= self.SWIPE_DISTANCE:
+                self._remove()
+                return
+            # Not far enough. Back where it was, at full strength.
+            self.move(self.x() - getattr(self, "_swipe_shift", 0), self.y())
+            self._swipe_shift = 0
+            self._fade(1.0)
+            return
+        super().mouseReleaseEvent(event)
+
+    def _fade(self, amount: float) -> None:
+        effect = self.graphicsEffect()
+        if effect is None:
+            effect = QGraphicsOpacityEffect(self)
+            self.setGraphicsEffect(effect)
+        try:
+            effect.setOpacity(max(0.0, min(1.0, amount)))
+        except Exception:
+            pass
+
+    def _stop_scroller(self) -> None:
+        try:
+            viewport = self.parent()
+            while viewport is not None and not isinstance(viewport, QScrollArea):
+                viewport = viewport.parent()
+            if viewport is not None:
+                QScroller.scroller(viewport.viewport()).stop()
+        except Exception:
+            pass
 
     def _remove(self) -> None:
         self._history.remove(self._timestamp)
@@ -286,9 +373,20 @@ class NotificationPanel(Panel):
 
         #header — title and clear-history. Tapping outside closes it.
         header = QHBoxLayout()
+        header.setContentsMargins(0, 0, 0, 0)
+        header.setSpacing(8)
+
         title_lbl = QLabel("Notifications")
         title_lbl.setFont(make_font(20, bold=True))
         set_style(title_lbl, "common", "text-strong")
+        header.addWidget(title_lbl)
+        header.addStretch()
+
+        self._clear_btn = QPushButton("Clear all")
+        self._clear_btn.setFixedHeight(30)
+        set_style(self._clear_btn, "notification", "notification-clear")
+        self._clear_btn.clicked.connect(self._clear_all)
+        header.addWidget(self._clear_btn)
 
         outer.addLayout(header)
 
@@ -347,7 +445,21 @@ class NotificationPanel(Panel):
 
         self._anim.start()
 
+    def _clear_all(self) -> None:
+        """
+        Empty the history.
+
+        No confirmation. A notification has already been seen by the time it
+        is in here - this is the pile of them, not the thing itself - and a
+        dialog in front of "clear the list I have already read" is a tap for
+        nothing. Anything that still matters is somewhere other than a
+        notification.
+        """
+        self.manager.history.clear()
+        self._populate()
+
     def _populate(self) -> None:
+        self._clear_btn.setVisible(bool(self.manager.history.items))
         while self._list_layout.count() > 1:
             item = self._list_layout.takeAt(0)
             if item.widget():
