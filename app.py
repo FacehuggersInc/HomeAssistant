@@ -36,6 +36,12 @@ from src.constants import (
     EXIT_RESTART,
     LAUNCHER_ENV_FLAG,
 )
+from src.crash import install as install_crash_handlers
+
+# Before anything else can fail. A panel that dies takes its reason with it
+# otherwise: the launcher restarts it, whatever was on stderr is gone, and
+# what is left to work from is "it crashed on the night page".
+install_crash_handlers()
 
 
 USAGE = """Usage:

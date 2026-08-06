@@ -151,8 +151,11 @@ class NightPage(PageFramework):
 
     ## -- weather
 
-    @staticmethod
-    def _moon_when(weather: dict):
+    # NOT a staticmethod. It reads `self.client` for the astronomy module,
+    # which a static one has no way to reach - so the debug moon phases
+    # raised NameError the moment one was picked, and the caller's try/except
+    # turned every layer in the scene off to report it.
+    def _moon_when(self, weather: dict):
         """
         The date to work the moon out from.
 
