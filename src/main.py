@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import gc
+import inspect
 import json
 import multiprocessing
 import os
@@ -31,6 +32,7 @@ from src.timing import TimeoutScheduler
 from src.mixins import MixinManager, mixin_target
 from src.plugin.loader import PluginManager
 from src.registries.api_registry import APIRegistry
+from src.registries.context_registry import ContextRegistry
 from src.registries.public_registry import PublicRegistry
 from src.registries.page_registry import PageRegistry
 from src.registries.secret_registry import SecretRegistry
@@ -159,6 +161,53 @@ class InteractionWatcher(QObject):
 
 
 ##CLIENT
+
+#Whether an event handler will take a second argument.
+#
+#Some events carry more than the thing that happened - `on_assistant_fallback`
+#carries the phrase AND what was last asked. Every handler written before that
+#takes one argument, and calling those with two raises a TypeError that
+#`iterate_event_callables` reads as a broken handler and UNSUBSCRIBES. A
+#plugin would be quietly disconnected by an event gaining an argument, which
+#is the most expensive way to add one.
+#
+#Cached on the underlying function: bound methods are rebuilt on every
+#attribute access, so caching the bound object would never hit.
+_ARITY_CACHE: dict = {}
+
+
+def _accepts_two(callable_) -> bool:
+    key = getattr(callable_, "__func__", callable_)
+    try:
+        cached = _ARITY_CACHE.get(key)
+    except TypeError:
+        cached = None                       # unhashable: ask every time
+        key = None
+    if cached is not None:
+        return cached
+
+    try:
+        parameters = list(inspect.signature(callable_).parameters.values())
+    except (TypeError, ValueError):
+        # Builtins and C callables have no readable signature. One argument
+        # is what every existing handler takes, so that is the safe guess.
+        return False
+
+    accepts = False
+    positional = 0
+    for parameter in parameters:
+        if parameter.kind is parameter.VAR_POSITIONAL:
+            accepts = True
+            break
+        if parameter.kind in (parameter.POSITIONAL_ONLY,
+                              parameter.POSITIONAL_OR_KEYWORD):
+            positional += 1
+    accepts = accepts or positional >= 2
+
+    if key is not None:
+        _ARITY_CACHE[key] = accepts
+    return accepts
+
 
 class Client:
 
@@ -355,6 +404,9 @@ class Client:
         # and nothing owned the dict, so an unloaded plugin left its objects
         # behind for anything still holding a reference to call into.
         self.API = APIRegistry(self)
+        # What was last asked and answered. Written here and nowhere else -
+        # see registries/context_registry.py for why it is not per-plugin.
+        self.CONTEXT      = ContextRegistry(self)
         self.SECRETS      = SecretRegistry(self)
         for _key in self.CORE_SECRETS:
             self.SECRETS.register("client", _key)
@@ -392,6 +444,24 @@ class Client:
         # What "stop" means right now. Whatever can be cancelled
         # registers its own words and its own condition.
         self.CANCEL         = CancelRegistry(self)
+        # An answer panel is one of them, and it is registered HERE rather
+        # than by whichever plugin put it up. Any plugin can raise an answer,
+        # a long one is read aloud for as long as it takes, and "stop" has
+        # to mean the same thing whoever asked - a per-plugin registration
+        # would work for that plugin's answers and silently not for anyone
+        # else's.
+        self.CANCEL.register(
+            "client", "answer_panel",
+            keywords=["stop", "nevermind", "never mind", "quiet", "be quiet",
+                      "shut up", "enough", "thats enough", "cancel that",
+                      "stop talking", "stop reading"],
+            handler=self._cancel_answer,
+            is_active=self._answer_is_open,
+            # Under the AI fallback's own panel, which is a conversation and
+            # a bigger thing to be closing.
+            priority=40,
+            description="stop reading the answer and close it",
+        )
         self.USERS          = UserRegistry(
             self, get_data_dir(APP_NAME) / "users.json")
         self.DEFAULT_PAGE   = ""
@@ -582,13 +652,16 @@ class Client:
         self.iterate_event_callables(on_call_type, event)
 
     def iterate_event_callables(self, on_call_type: EVENTS, event,
-                                hide_logging: bool = False) -> None:
+                                hide_logging: bool = False, extra=None) -> None:
         if not hide_logging:
             self.log("info", f"Event '{on_call_type}' was called")
         to_be_removed = []
         for callable_ in self.EVENTS["on_call"].get(on_call_type, []):
             try:
-                callable_(event)
+                if extra is None or not _accepts_two(callable_):
+                    callable_(event)
+                else:
+                    callable_(event, extra)
             except Exception as e:
                 self.log("error", f"'{str(callable_)}' had an error: {e}")
                 to_be_removed.append((on_call_type, callable_))
@@ -1084,9 +1157,45 @@ class Client:
         QTimer.singleShot(1600, self.start_assistant)
         self.subscribe_to_event("on_settings_saved", self.on_assistant_settings_saved)
 
+    def _answer_panels(self) -> list:
+        """Every answer currently on screen."""
+        try:
+            from src.ui.panels.answer import AnswerPanel
+            host = self.OVERLAYS
+            if host is None:
+                return []
+            return [p for p in host.findChildren(AnswerPanel) if p.open]
+        except Exception:
+            return []
+
+    def _answer_is_open(self) -> bool:
+        return bool(self._answer_panels())
+
+    def _cancel_answer(self) -> None:
+        """
+        Stop reading an answer, and take it down.
+
+        Both halves. Closing the card while the reply carries on reading is
+        a voice with nothing on screen behind it, and stopping the voice
+        while the card sits there is somebody having to tap it as well.
+        """
+        try:
+            tts = getattr(self, "TTS", None)
+            if tts is not None:
+                tts.stop()
+        except Exception as e:
+            self.log("debug", f"[Client] Could not stop speech: {e}")
+        for panel in self._answer_panels():
+            try:
+                self.call_on_ui(panel.close_panel)
+            except Exception:
+                pass
+
     def answer(self, icon: str, title: str, lines: list = None,
                tint: str = "#4f9de0", timeout: int = None,
-               speak: str = None, on_closed=None, on_built=None) -> None:
+               speak: str = None, on_closed=None, on_built=None,
+               image: bytes = None, caption: str = None,
+               action: tuple = None, hold_open=None) -> None:
         """
         Show an answer, and say it.
 
@@ -1094,6 +1203,17 @@ class Client:
         notification is for something to report. Both go through here so a
         skill never has to know which UI class does it.
         """
+        # Recorded against whichever turn the intent engine opened, so a
+        # skill gets its context kept without doing anything about it. The
+        # title and the lines rather than the spoken form: the spoken one is
+        # abbreviated on purpose, and what somebody is looking at is what
+        # "that" refers to.
+        try:
+            shown = ". ".join([str(title)] + [str(line) for line in (lines or [])])
+            self.CONTEXT.record_answer(shown, speak or "")
+        except Exception:
+            pass
+
         if speak:
             try:
                 # Given the shape of a sentence if it is too short to be one.
@@ -1110,7 +1230,9 @@ class Client:
         def build():
             try:
                 from src.ui.panels.answer import AnswerPanel
-                panel = AnswerPanel(self, icon, title, lines, tint, timeout)
+                panel = AnswerPanel(self, icon, title, lines, tint, timeout,
+                                    image=image, caption=caption, action=action,
+                                    hold_open=hold_open)
                 # Told when it goes, so a caller whose answer stands for
                 # something still happening - a timer making a noise - can
                 # deal with that when the answer is dismissed.

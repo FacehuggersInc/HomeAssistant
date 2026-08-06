@@ -471,22 +471,33 @@ class AlarmService:
             self.client.TIMEOUTS.add(int(self.plugin.setting_value(
                                          "alerts.alarm_give_up_after",
                                          self.GIVE_UP_AFTER)),
-                                     lambda k=alarm.key: self._dismissed(k),
+                                     lambda k=alarm.key: self._dismissed(k, gave_up=True),
                                      key, transient=True)
             self.client.TIMEOUTS.start(key)
         except Exception:
             pass
 
-    def _dismissed(self, key: str) -> None:
+    def _dismissed(self, key: str, gave_up: bool = False) -> None:
         """
         Somebody answered it - by tapping the panel, by saying stop, or by
         nobody answering for long enough.
 
         A repeating alarm is rescheduled rather than removed; a one-off goes.
+
+        `gave_up` separates the third of those from the first two. They end
+        the same way and mean opposite things: one is somebody dealing with
+        an alarm, the other is an alarm going off in an empty house. Only the
+        give-up timer passes it.
         """
         alarm = self.alarms.get(key)
         if alarm is None:
             return
+        try:
+            self.client.trigger_on_call_event_iteration(
+                "on_alarm_timed_out" if gave_up else "on_alarm_dismissed",
+                alarm)
+        except Exception as e:
+            self.client.log("debug", f"[Alarms] Event failed: {e}")
         self._silence_sound()
         self._close_panel(key)
         if alarm.repeats:

@@ -493,6 +493,9 @@ class ChatPanel(QWidget):
     def __init__(self, client: "Client"):
         super().__init__()
         self.client = client
+        # Set before anything can connect a signal that reads them.
+        self._follow = True
+        self._adjusting = False
         set_style(self, "common", "transparent")
 
         outer = QVBoxLayout(self)
@@ -537,6 +540,23 @@ class ChatPanel(QWidget):
         self.scroll.setWidget(self.inner)
         outer.addWidget(self.scroll, stretch=1)
 
+        # Follow the bottom as the content GROWS, not once when a message is
+        # added.
+        #
+        # `add_message` already scrolled to the maximum on the next event
+        # loop turn, and that is too early: a bubble is a markdown body that
+        # sizes itself to its text, so at that moment the new one is a few
+        # pixels tall and the maximum it scrolls to is the old one. A long
+        # reply then landed below the fold and stayed there, which on a
+        # session of any length means the answer is never the thing on
+        # screen.
+        #
+        # `rangeChanged` fires every time the content's height changes, which
+        # is exactly when the bottom moves.
+        bar = self.scroll.verticalScrollBar()
+        bar.rangeChanged.connect(self._range_changed)
+        bar.valueChanged.connect(self._value_changed)
+
         # At the bottom, where the voice bar would be if this card were not
         # covering it.
         self.status = StatusPill(client)
@@ -547,6 +567,10 @@ class ChatPanel(QWidget):
     def add_message(self, text: str, from_user: bool, usage=None) -> None:
         row = _Row(Bubble(self.client, text, from_user, usage=usage))
         self.messages.insertWidget(self.messages.count() - 1, row)
+        # A new turn is the reason this panel is on screen, so it is always
+        # followed - even if somebody had scrolled up to reread something.
+        # Growth of an existing bubble is what respects where they are.
+        self._follow = True
         QTimer.singleShot(0, self._scroll_to_end)
 
     def set_totals(self, prompt: int, completion: int) -> None:
@@ -561,9 +585,38 @@ class ChatPanel(QWidget):
         """A message from the plugin. Empty hands the pill back to the state."""
         self.status.set_message(text)
 
+    #How far off the bottom still counts as being at the bottom. A scroll
+    #area rarely lands exactly on its maximum, and a few pixels short is
+    #somebody at the end of the conversation rather than somebody who has
+    #scrolled away from it.
+    STICK_SLACK = 24
+
     def _scroll_to_end(self) -> None:
         bar = self.scroll.verticalScrollBar()
+        self._adjusting = True
         bar.setValue(bar.maximum())
+        self._adjusting = False
+
+    def _range_changed(self, _minimum: int, maximum: int) -> None:
+        """The content grew or shrank. Stay at the bottom if that is where we were."""
+        if not getattr(self, "_follow", True):
+            return
+        self._adjusting = True
+        self.scroll.verticalScrollBar().setValue(maximum)
+        self._adjusting = False
+
+    def _value_changed(self, value: int) -> None:
+        """
+        Somebody scrolled. Remember whether they are still at the end.
+
+        Ignored while this class is doing the scrolling, or every automatic
+        jump to the bottom would be read as a deliberate one and the flag
+        would only ever describe itself.
+        """
+        if getattr(self, "_adjusting", False):
+            return
+        bar = self.scroll.verticalScrollBar()
+        self._follow = value >= bar.maximum() - self.STICK_SLACK
 
     def clear(self) -> None:
         while self.messages.count() > 1:

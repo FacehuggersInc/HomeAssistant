@@ -74,6 +74,8 @@ class PocketTTSProcessing:
         self.speaking = False
         #Set by stop() and read between chunks of playback.
         self._interrupt = False
+        # A reply accepted but not yet playing - see is_speaking().
+        self._pending = False
         self.available = False
         self.error = ""
 
@@ -274,6 +276,18 @@ class PocketTTSProcessing:
         """
         if not self._wait_ready():
             return None
+
+        # Busy from HERE, not from when the speakers start.
+        #
+        # `speaking` was only true once `_play_audio` began, and generating a
+        # sentence takes seconds - so a stop() issued in that window found
+        # nothing to stop, returned False, and the reply played in full into
+        # a room where the panel had already gone. Closing the answer, saying
+        # "stop", tapping the card: all of them lost the race.
+        self._pending = True
+        # Cleared per REQUEST rather than per playback, so an interrupt
+        # raised during generation is still standing when the audio is ready.
+        self._interrupt = False
         # Rewritten for speech before the model sees it.
         #
         # An answer is written for the screen: "5 x 3 = 15" is unambiguous
@@ -297,12 +311,21 @@ class PocketTTSProcessing:
                                                   frames_after_eos=tail)
         except Exception as e:
             self.client.log("warning", f"[TTS] Could not synthesise: {e}")
+            self._pending = False
             return None
 
         self._report_head(spoken, audio)
 
+        # Asked for while it was being made, so it is not wanted now.
+        if self._interrupt:
+            self.client.log("debug",
+                            "[TTS] Stopped before it started - dropped.")
+            self._pending = False
+            return None
+
         if auto_play:
             self._play_audio(audio)
+        self._pending = False
         return audio
 
     def _report_head(self, spoken: str, audio) -> None:
@@ -349,7 +372,14 @@ class PocketTTSProcessing:
                             "[TTS] No audio output available to speak through.")
             return
 
+        # Already asked to stop before this got the chance to start.
+        if self._interrupt:
+            self.client.log("debug", "[TTS] Dropped before playback.")
+            self._pending = False
+            return
+
         self.speaking = True
+        self._pending = True
         try:
             data = self._pad(self._as_playable(audio))
             # A stream of its own, for the same reason the audio registry uses
@@ -417,7 +447,10 @@ class PocketTTSProcessing:
                 # anyway. A tenth of a second is short enough to feel immediate
                 # and long enough not to underrun.
                 step = max(1, int(rate * self.INTERRUPT_STEP))
-                self._interrupt = False
+                # NOT cleared here. This ran after generation, so a stop
+                # raised while the sentence was being made was wiped a
+                # moment before the loop that would have honoured it -
+                # which is the whole window a slow model spends.
                 for start in range(0, len(data), step):
                     if self._interrupt:
                         self.client.log("debug", "[TTS] Stopped part way.")
@@ -456,6 +489,7 @@ class PocketTTSProcessing:
             # of the panel's own speech.
             time.sleep(0.4)
             self.speaking = False
+            self._pending = False
             self._told_stt()
 
     def _told_stt(self) -> None:
@@ -578,7 +612,16 @@ class PocketTTSProcessing:
     ## -- helpers
 
     def is_speaking(self) -> bool:
-        return self.speaking
+        """
+        Whether a reply is on its way out, generating or playing.
+
+        Generation counts. Everything asking this wants to know "is the panel
+        in the middle of saying something" - and it is, from the moment the
+        text is accepted. Answering False for the seconds a sentence takes to
+        synthesise made an answer panel time out over a reply that had not
+        started yet.
+        """
+        return bool(self.speaking or getattr(self, "_pending", False))
 
     def stop(self) -> bool:
         """
@@ -586,8 +629,12 @@ class PocketTTSProcessing:
 
         The reply is abandoned rather than paused: somebody who interrupts is
         not asking for the rest of it later.
+
+        The flag is raised whether or not audio is playing. A sentence still
+        being generated cannot be interrupted mid-word, but it can be thrown
+        away when it arrives, and that is what this asks for.
         """
-        if not self.speaking:
+        if not self.is_speaking():
             return False
         self._interrupt = True
         return True

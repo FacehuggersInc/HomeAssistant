@@ -21,6 +21,7 @@ from .skills.helpers import (
     _overlap,
     _spoken_wait,
     _spoken_duration,
+    wikipedia_subject,
 )
 
 from src.styling import make_font, SIZES, set_style
@@ -57,9 +58,28 @@ class CoreSkills(Plugin):
     def load(self, carryover=None):
         # Registered before the skills, so a skill built during load_skills
         # that wants it finds it there rather than on the second try.
+        # Declared before anything can subscribe - subscribe_to_event indexes
+        # straight into the event table, so a name that has not been created
+        # is a KeyError rather than a quiet no-op.
+        for name in ("on_dictionary_lookup_failed",
+                     "on_wikipedia_lookup_failed"):
+            if name not in self.client.EVENTS["on_call"]:
+                self.client.create_on_call_event(name)
+
+        # A word the dictionary does not have is very often a proper noun, a
+        # place, or a species - the things an encyclopedia has and a
+        # dictionary does not. Wired through the event rather than by calling
+        # one handler from the other, so anything else can answer a missed
+        # word too and this plugin has no special claim on it.
+        self.client.subscribe_to_event("on_dictionary_lookup_failed",
+                                       self.on_dictionary_missed)
+
         from .api.dictionary import DictionaryAPI
+        from .api.wikipedia import WikipediaAPI
         self.client.API.register_api("coreskillsbundle", "dictionary",
                                      DictionaryAPI(self, self.client))
+        self.client.API.register_api("coreskillsbundle", "wikipedia",
+                                     WikipediaAPI(self, self.client))
         self.load_skills()
         self.client.subscribe_to_event("on_update", self.update_assistant)
         self.client.subscribe_to_event("on_assistant_transcribed", self.on_routed)
@@ -79,7 +99,10 @@ class CoreSkills(Plugin):
         self.load_voice_bar()
 
     def unload(self, carryover=None):
+        self.client.unsubscribe_from_event("on_dictionary_lookup_failed",
+                                           self.on_dictionary_missed)
         self.client.API.unregister_api("coreskillsbundle", "dictionary")
+        self.client.API.unregister_api("coreskillsbundle", "wikipedia")
         self.client.unsubscribe_from_event("on_update", self.update_assistant)
         self.client.unsubscribe_from_event("on_assistant_transcribed", self.on_routed)
         self.client.unsubscribe_from_event("on_transcribing_assistant",
@@ -154,8 +177,13 @@ class CoreSkills(Plugin):
             return
         self.client.call_on_ui(lambda: self.voice_bar.mark_heard(True))
 
-    def on_fallback(self, event=None):
-        """Nothing took it. The grey stays, and now it means something."""
+    def on_fallback(self, event=None, context=None):
+        """
+        Nothing took it. The grey stays, and now it means something.
+
+        `context` is the turn before this one, which this handler has no use
+        for - it is here so the signature matches what the event now sends.
+        """
         if self.voice_bar is None:
             return
         self.client.call_on_ui(lambda: self.voice_bar.mark_heard(False))
@@ -991,6 +1019,258 @@ class CoreSkills(Plugin):
             pass
         return said + "."
 
+    ## WIKIPEDIA
+
+    def _wikipedia(self):
+        api = self.client.API.get("wikipedia")
+        if api is None:
+            self._respond("The encyclopedia isn't available.")
+        return api
+
+    def _why(self, api_key: str) -> str:
+        """Why the last lookup on `api_key` came back empty."""
+        api = self.client.API.get(api_key)
+        if api is None:
+            return "unavailable"
+        return getattr(api, "last_failure", "") or "missing"
+
+    @staticmethod
+    def _not_found(subject: str, dictionary: str, encyclopedia: str) -> str:
+        """
+        One sentence naming what was asked and what came back from each.
+
+        Spelled out because the two failures need different things done about
+        them. "Not a word" means try a different word; "couldn't reach it"
+        means check the network, and answering both with "I couldn't find it"
+        sends somebody hunting for a spelling mistake that is not there.
+        """
+        offline = [name for name, why in (("the dictionary", dictionary),
+                                          ("Wikipedia", encyclopedia))
+                   if why in ("offline", "unavailable")]
+        if len(offline) == 2:
+            return (f"I couldn't reach the dictionary or Wikipedia, so I "
+                    f"can't look up {subject} right now.")
+        if offline:
+            other = "Wikipedia" if offline[0] == "the dictionary" else "the dictionary"
+            return (f"{subject} isn't in {other}, and I couldn't reach "
+                    f"{offline[0]} to check there.")
+        return (f"{subject} isn't in the dictionary, and Wikipedia doesn't "
+                f"have an article on it either.")
+
+    def _while_speaking(self):
+        """
+        A `hold_open` that keeps an answer up until the panel stops reading it.
+
+        No check for quiet mode, and none needed: with replies turned off the
+        panel never speaks, so this is never true and the answer times out
+        the ordinary way. A second condition asking the same question through
+        a setting would be one more thing to keep in step with the first.
+        """
+        def speaking():
+            try:
+                tts = getattr(self.client, "TTS", None)
+                return bool(tts is not None and tts.is_speaking())
+            except Exception:
+                return False
+        return speaking
+
+    def _miss(self, subject: str) -> None:
+        """Say that the encyclopedia had nothing, for anything listening."""
+        try:
+            self.client.trigger_on_call_event_iteration(
+                "on_wikipedia_lookup_failed", subject)
+        except Exception as e:
+            self.client.log("debug", f"[CoreSkills] Miss event failed: {e}")
+
+    def _open_page(self, url: str):
+        """A callback that puts a URL on the built-in browser page."""
+        def go():
+            self.client.goto("#webpage", data={"url": url}, override=True)
+        return go
+
+    def looks_like(self, subject: str = "", phrase: str = ""):
+        """"what does an axolotl look like", "show me the eiffel tower"."""
+        api = self._wikipedia()
+        if api is None:
+            return
+
+        subject = (subject or "").strip()
+        if not subject and phrase:
+            subject = wikipedia_subject(phrase)
+        if not subject:
+            self._respond("What would you like to see?")
+            return
+
+        found = api.look_up(subject)
+        if not found:
+            self._miss(subject)
+            self._respond(
+                f"I couldn't reach Wikipedia to look up {subject}."
+                if self._why("wikipedia") in ("offline", "unavailable") else
+                f"Wikipedia doesn't have anything called {subject}.")
+            return
+
+        image = api.picture(found)
+
+        # The caption if the article wrote one, its short description if not,
+        # and nothing at all rather than a made-up sentence about a picture
+        # nobody has described.
+        caption = found.get("caption") or found.get("description") or ""
+
+        try:
+            self.client.CONTEXT.note(subject=found["title"], url=found["url"])
+        except Exception:
+            pass
+
+        if image:
+            lines, spoken = [], f"Here's what {found['title']} looks like."
+        else:
+            # No picture is not no answer. The article was found, and what it
+            # says about the thing is worth more than an apology about a
+            # photograph - so the question gets answered in words and the
+            # missing picture is mentioned rather than being the whole reply.
+            lines = [api.first_blob(found["extract"], sentences=2)
+                     or caption or "No description available."]
+            spoken = (f"I don't have a picture of {found['title']}, "
+                      f"but here's what it is.")
+
+        self.client.answer(
+            "mdi.image-search-outline" if image else "mdi.image-off-outline",
+            found["title"], lines,
+            tint="#6a8ab0", image=image, caption=caption if image else "",
+            action=("Read more", self._open_page(found["url"]))
+                   if found["url"] else None,
+            # Held while it is being read. A Wikipedia summary takes longer
+            # to speak than the panel's 30 seconds, so the card used to
+            # vanish mid-sentence.
+            hold_open=self._while_speaking(),
+            speak=spoken)
+
+    def wiki_search(self, subject: str = "", phrase: str = ""):
+        """"search for the eiffel tower", "look up mount fuji on wikipedia"."""
+        api = self._wikipedia()
+        if api is None:
+            return
+
+        subject = (subject or "").strip()
+        if not subject and phrase:
+            subject = wikipedia_subject(phrase)
+        if not subject:
+            self._respond("What should I look up?")
+            return
+
+        found = api.look_up(subject)
+        if not found or not found["extract"]:
+            self._miss(subject)
+            self._respond(
+                f"I couldn't reach Wikipedia to look up {subject}."
+                if self._why("wikipedia") in ("offline", "unavailable") else
+                f"Wikipedia doesn't have an article on {subject}.")
+            return
+
+        if found["type"] == "disambiguation":
+            # The extract of a disambiguation page reads like an answer and is
+            # not one - "Mercury may refer to:" followed by nothing. Saying so
+            # is better than reading the preamble of a list out loud.
+            self._respond(f"There's more than one {found['title']}. "
+                          f"Can you be more specific?")
+            return
+
+        # Two paragraphs, from the fuller intro rather than the summary's
+        # lead. The first paragraph says what kind of thing something is and
+        # the second says what is worth knowing about it - stopping at the
+        # first is the half that reads like a dictionary entry.
+        blob = api.first_paragraphs(found.get("intro") or found["extract"])
+        image = api.picture(found)
+
+        try:
+            self.client.CONTEXT.note(subject=found["title"], url=found["url"])
+        except Exception:
+            pass
+
+        # One line per paragraph. Passed as a single string the panel draws
+        # it as one block with a blank line inside a label, which wraps as a
+        # wall rather than as two paragraphs.
+        lines = [part.strip() for part in blob.split("\n\n") if part.strip()]
+
+        self.client.answer(
+            "mdi.book-search-outline", found["title"], lines,
+            tint="#6a8ab0", image=image,
+            caption=found.get("description") or "",
+            action=("Read on Wikipedia", self._open_page(found["url"]))
+                   if found["url"] else None,
+            # Held while it is being read. A Wikipedia summary takes longer
+            # to speak than the panel's 30 seconds, so the card used to
+            # vanish mid-sentence.
+            hold_open=self._while_speaking(),
+            # All of it, not the first sentence. Somebody who asked to be
+            # told about something wants to be told about it, and cutting the
+            # reply short to save them time answers a question they did not
+            # ask. Saying "stop" ends it, and so does pressing the button or
+            # tapping the card - the way out is cheap, so the default can be
+            # generous.
+            speak=blob)
+
+    def on_dictionary_missed(self, word=None):
+        """
+        A word the dictionary did not have. Try the encyclopedia.
+
+        The two cover different ground: a dictionary has words and an
+        encyclopedia has things, so "petrichor" is in one and "Xochimilco" is
+        in the other, and being told neither exists is wrong about half of
+        them.
+
+        This is where the apology ends up, because this is the last place
+        that looks - and it says WHICH of the two came up empty. Both used to
+        answer with the same sentence, so a word that is simply not a word
+        and a panel that cannot reach the internet were indistinguishable
+        from the room.
+        """
+        word = str(word or "").strip()
+        if not word:
+            return
+
+        api = self.client.API.get("wikipedia")
+        why_dictionary = self._why("dictionary")
+        if api is None:
+            self._respond(self._not_found(word, why_dictionary, "unavailable"))
+            return
+
+        found = api.look_up(word)
+        if found and found["type"] == "disambiguation":
+            self._respond(f"There's more than one {found['title']}. "
+                          f"Can you be more specific?")
+            return
+        if not found or not found["extract"]:
+            self._respond(self._not_found(word, why_dictionary,
+                                          self._why("wikipedia")))
+            return
+
+        blob = api.first_paragraphs(found.get("intro") or found["extract"],
+                                    count=1)
+        lines = [part.strip() for part in blob.split("\n\n") if part.strip()]
+
+        try:
+            self.client.CONTEXT.note(subject=found["title"], url=found["url"])
+        except Exception:
+            pass
+
+        self.client.answer(
+            "mdi.book-search-outline", found["title"], lines,
+            tint="#6a8ab0", image=api.picture(found),
+            caption=found.get("description") or "",
+            action=("Read on Wikipedia", self._open_page(found["url"]))
+                   if found["url"] else None,
+            # Held while it is being read. A Wikipedia summary takes longer
+            # to speak than the panel's 30 seconds, so the card used to
+            # vanish mid-sentence.
+            hold_open=self._while_speaking(),
+            # Said, because it is not the answer that was asked for. Somebody
+            # who asked what a word means and gets an encyclopedia entry
+            # should know which of the two they are being read.
+            speak=f"That's not in the dictionary, but Wikipedia has "
+                  f"{found['title']}. " + (lines[0] if lines else ""))
+
     ## SUN AND MOON
 
     def _astronomy(self):
@@ -1137,6 +1417,11 @@ class CoreSkills(Plugin):
 
         source, target = pair
         try:
+            self.client.CONTEXT.note(amount=amount, source=source[2],
+                                     target=target[2])
+        except Exception:
+            pass
+        try:
             result = units.convert(amount, source, target)
         except Exception as e:
             self.client.log("warning", f"[CoreSkills] Conversion failed: {e}")
@@ -1194,8 +1479,28 @@ class CoreSkills(Plugin):
 
         entry = api.look_up(cleaned)
         if entry is None:
-            self._respond(f"I couldn't find {cleaned}.")
+            # Announced rather than apologised for. Something else may know
+            # the word - the encyclopedia usually does - and this plugin
+            # subscribes to its own event to try exactly that. The apology
+            # belongs to whoever runs out of places to look, which is not
+            # here.
+            try:
+                self.client.trigger_on_call_event_iteration(
+                    "on_dictionary_lookup_failed", cleaned)
+            except Exception as e:
+                self.client.log("warning",
+                                f"[CoreSkills] Lookup event failed: {e}")
+                self._respond(self._not_found(cleaned, self._why("dictionary"),
+                                              "missing"))
             return cleaned, None
+
+        # The word itself, kept beside the turn. The answer says what it
+        # means and never repeats it, so "where does that come from" has
+        # nothing to work from in the prose alone.
+        try:
+            self.client.CONTEXT.note(word=entry.get("word") or cleaned)
+        except Exception:
+            pass
         return cleaned, entry
 
     def define_word(self, word: str = "", phrase: str = ""):
@@ -1271,15 +1576,34 @@ class CoreSkills(Plugin):
 
     ## TIMERS
 
-    def start_timer(self, time: str = None, name: str = None):
+    def start_timer(self, time: str = None, name: str = None,
+                    phrase: str = ""):
         """
         "set a timer for 10 minutes", "make a timer called Eggs for 5 minutes".
 
         `time` arrives as spoken text - "10 minutes", "1 hour" - because a
         transcript is untrusted and normalisation converts most spoken numbers
         but is not a guarantee. Parsed here rather than trusted.
+
+        The whole phrase is taken as well, and only used to catch a qualifier
+        the capture threw away. `extract_args` trims leading stopwords off a
+        span, so "half an hour" comes back as "hour" - a thirty minute timer
+        set for an hour, which is worse than not understanding at all because
+        it looks like it worked.
         """
         seconds = _spoken_duration(time)
+        if phrase:
+            whole = _spoken_duration(phrase)
+            # Only where a qualifier is present and the two disagree. The
+            # captured span is the more precise reading everywhere else -
+            # "call it 10 minute wash" is a name, not a duration - so the
+            # phrase is a correction rather than the default.
+            if whole and abs(whole - seconds) > 1 and any(
+                    word in phrase.lower() for word in ("half", "quarter")):
+                self.client.log("debug",
+                                f"[CoreSkills] '{time}' lost a qualifier; "
+                                f"reading {whole:.0f}s from the phrase.")
+                seconds = whole
         if not seconds:
             self._respond("I did not catch how long for. Try 'set a timer for "
                           "five minutes'.")

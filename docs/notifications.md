@@ -55,11 +55,65 @@ self.client.answer(
 A panel with an icon, a headline and however many detail lines the answer has.
 Closes itself after 30 seconds, and on a tap.
 
+**It can carry a picture and a button.** `image=` takes raw image bytes and
+`caption=` the words that go under them; `action=("Read more", callback)` adds
+a button that stops any speech, runs the callback, and closes the panel.
+
+The button is the one thing inside an answer that is not transparent to the
+mouse, and **the body holding it must not be transparent either**. Qt's hit
+testing skips the entire subtree of a widget marked
+`WA_TransparentForMouseEvents` - `childAt` does not descend into one - so a
+button inside a transparent body can never be reached by a real press whatever
+its own flags say. It passes a test that calls `.click()`, because that does
+not go through hit testing, and it looks to anybody using it like a button
+that does nothing.
+
+**Something can hold it open.** `hold_open=` takes a callable asked when the
+timeout comes round: while it answers True the clock is simply asked again,
+and when it stops the card gets a short grace and then goes. A fixed timeout
+is the wrong measure for an answer being read aloud - a Wikipedia summary
+takes longer to speak than thirty seconds, so the card vanished mid-sentence
+and left a voice talking about something no longer on screen.
+
+The panel does not know what it is waiting for, and should not: it is
+client-level and the reasons are not. The Wikipedia skills pass "while the
+panel is still speaking", which needs no check for quiet mode - with replies
+turned off the panel never speaks, so the hold is never true and the answer
+times out the ordinary way. A second condition asking the same question
+through a setting is one more thing to keep in step with the first.
+
+**Dismissing takes the voice with it.** A tap on the card and the timeout both
+go through `dismiss()`, which stops the speech first - a panel going while the
+reply carries on is an answer read to an empty screen. Displacement does not:
+`client.answer()` starts speaking *before* it builds the panel, so the reply
+on its way out belongs to the answer arriving, and silencing there would kill
+the new one on behalf of the old.
+
+**"Stop" works on any answer.** The client registers a cancel action for the
+answer panel itself, not each plugin that raises one: a long answer is read
+aloud for as long as it takes, and "stop" has to mean the same thing whoever
+asked. It silences the speech *and* closes the card - closing while the reply
+carries on is a voice with nothing behind it, and stopping the voice while the
+card sits there means tapping it as well.
+
 **It grows to hold what it is given.** The headline wraps, so a long event
 title makes the card taller — and wider first, since wrapping is what makes a
-card tall and the same title needs half the height in a wider one. It stops at
-the screen; an answer that still does not fit is trimmed and says so in the
-log rather than quietly losing its last lines.
+card tall and the same title needs half the height in a wider one. A picture is capped at `IMAGE_RATIO` of the screen height rather than a fixed
+number of pixels, and a card holding one may grow wider than a card of text -
+a photograph is what somebody asked to see, and the words beside it are a
+caption. It stops at the screen, and where there is a picture the picture
+gives way first - the
+words are the answer and cannot be made shorter, and a paragraph, a photograph
+and a button want 603px on a 600px panel. Trimming that would lose the button
+and the end of the sentence to keep a photograph full size. Where shrinking is not enough - a paragraph, a photograph and a button do not
+fit together on an 800x480 panel at any picture size worth having - the
+picture goes entirely, and after that detail lines go from the **end**. That
+order matters: clipping takes whatever is lowest on the card, and what is
+lowest is the button, which is the way to read the part that did not fit.
+Losing the tail of a second paragraph and keeping the link is the right trade;
+the reverse is a card showing less and offering no way to see more. The first
+line and the button always survive. One that still does not fit is trimmed and
+says so in the log rather than quietly losing it.
 
 **Only one is ever up.** Every answer is the same card in the same corner, so
 a second one would land on top of the first rather than beside it — and

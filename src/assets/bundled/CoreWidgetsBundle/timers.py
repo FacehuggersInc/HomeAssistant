@@ -176,10 +176,16 @@ class TimerService:
         self._colour_index += 1
         return colour
 
-    def cancel(self, key: str) -> bool:
+    def cancel(self, key: str, announce_event: bool = True) -> bool:
         timer = self.timers.pop(key, None)
         if timer is None:
             return False
+        if announce_event:
+            try:
+                self.client.trigger_on_call_event_iteration(
+                    "on_timer_cancelled", timer)
+            except Exception as e:
+                self.client.log("debug", f"[Timers] Event failed: {e}")
         # Silence first. Cancelling a timer that is currently making noise and
         # having it carry on is the one thing nobody expects.
         try:
@@ -188,6 +194,26 @@ class TimerService:
             pass
         self.client.call_on_ui(lambda: self._remove_widget(key))
         return True
+
+    def _gave_up(self, key: str) -> None:
+        """
+        The finished timer cleared itself with nobody acknowledging it.
+
+        Separate from `_dismissed`, which is somebody dealing with it. Both
+        end with the timer gone and they mean opposite things - one is a
+        kitchen with a person in it, the other is a noise in an empty room -
+        and nothing downstream could tell them apart.
+        """
+        timer = self.timers.get(key)
+        if timer is not None:
+            try:
+                self.client.trigger_on_call_event_iteration(
+                    "on_timer_timed_out", timer)
+            except Exception as e:
+                self.client.log("debug", f"[Timers] Event failed: {e}")
+        # Not announced as a cancellation as well. It was not cancelled, it
+        # ran out - two events for one ending is a listener counting it twice.
+        self.cancel(key, announce_event=False)
 
     def _dismissed(self, key: str) -> None:
         """
@@ -368,7 +394,7 @@ class TimerService:
         key = f"timer_done:{timer.key}"
         try:
             self.client.TIMEOUTS.add(self.DONE_TIMEOUT,
-                                     lambda k=timer.key: self.cancel(k),
+                                     lambda k=timer.key: self._gave_up(k),
                                      key, transient=True)
             self.client.TIMEOUTS.start(key)
         except Exception:

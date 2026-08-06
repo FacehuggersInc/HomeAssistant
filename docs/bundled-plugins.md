@@ -77,10 +77,49 @@ and quick access in one place.
 activity bar along the bottom of the screen.
 
 Skills cover the time and relative dates, opening and clearing notifications,
-weather, the sun and moon, looking a word up, converting units, the next
-calendar event, timers, and quitting the app.
+weather, the sun and moon, looking a word up, searching Wikipedia, converting
+units, the next calendar event, timers, and quitting the app.
 
-Weather is four skills rather than one, because they are four different
+Every skill it registers, and one way to reach each:
+
+| Group         | Skill                        | Said as                            |
+|---------------|------------------------------|------------------------------------|
+| Time and date | `tell-time`                  | "what time is it"                  |
+|               | `tell-relative-date`         | "what day is it"                   |
+| Notifications | `notifications-open`         | "open my notifications"            |
+|               | `notifications-empty`        | "clear my notifications"           |
+| Weather       | `weather-update`             | "what's the weather"               |
+|               | `weather-precipitation`      | "is it raining / will it snow"     |
+|               | `weather-week`               | "what's the forecast for the week" |
+|               | `weather-wind`               | "how windy is it"                  |
+|               | `weather-humidity`           | "is it muggy"                      |
+|               | `weather-uv`                 | "do I need sunscreen"              |
+|               | `weather-air-quality`        | "how's the air quality"            |
+| Sun and moon  | `sun-times`                  | "when does it get dark"            |
+|               | `moon-phase`                 | "is it a full moon"                |
+| Words         | `define-word`                | "what does petrichor mean"         |
+|               | `word-synonyms`              | "other words for tired"            |
+| Encyclopedia  | `wiki-look-like`             | "what does an axolotl look like"   |
+|               | `wiki-search`                | "tell me about the Roman Empire"   |
+| Conversions   | `convert-units`              | "how many mm in an inch"           |
+| Timers        | `set-timer`                  | "set a timer for 10 minutes"       |
+|               | `cancel-timer`               | "cancel my timers"                 |
+|               | `check-timers`               | "how long is left on my timer"     |
+| Alarms        | `set-alarm`                  | "set an alarm at 4:40 PM"          |
+|               | `cancel-alarm`               | "cancel my alarms"                 |
+|               | `check-alarms`               | "what alarms do I have"            |
+| Quiet         | `quiet-on / quiet-off`       | "do not disturb"                   |
+|               | `mute-on / mute-off`         | "be quiet"                         |
+|               | `mic-mute-on / mic-mute-off` | "mute the microphone"              |
+| Navigation    | `go-to-page`                 | "show the calendar"                |
+|               | `open-bookmark`              | "open scryfall"                    |
+| System        | `nevermind`                  | "nevermind"                        |
+|               | `quit-application`           | "quit the application"             |
+
+The phrasings above are one example each; every skill accepts many, and the
+matching is described in [Voice assistant](assistant.md) rather than here.
+
+Weather is seven skills rather than one, because they are seven different
 answers and a single skill covering everything outdoors answers "is the air
 clean" with a wind speed:
 
@@ -185,6 +224,70 @@ settings, where they are already configured - a second copy is a second thing
 to edit and a second thing to be wrong. With no location set it says so
 instead of answering: sunrise at 0,0 is a real time in the Gulf of Guinea,
 which looks right and is hours out.
+
+### Wikipedia
+
+`wiki-look-like` answers "what does an axolotl look like" with a picture and
+the article's own caption - the words somebody wrote under that photograph
+explaining what is in it, which is exactly what was asked for and is nowhere
+in the summary endpoint. `wiki-search` answers "tell me about the Roman
+Empire" with the first few sentences, a picture, and a button that opens the
+article on `#webpage`.
+
+Four endpoints, because the answer is spread across all of them: search turns
+a spoken phrase into an exact title (the summary endpoint 404s on anything
+else), summary gives the thumbnail, the media list gives the caption, and
+`prop=extracts&exintro` gives the **whole** introduction. That last one is
+needed because the REST summary returns the lead paragraph only, and the
+second paragraph of a Wikipedia introduction is usually where the useful part
+is - the first says what category a thing is in, the second says what is
+interesting about it. `first_paragraphs()` takes two, whole where they fit and
+cut at a sentence where they do not. A descriptive `User-Agent` is not optional - Wikimedia blocks
+anonymous clients that do not identify themselves, and the failure is a 403
+rather than anything that reads as "say who you are".
+
+`wiki-search` has a leader, so its subject is a payload. `wiki-look-like` does
+not: the subject of "what does an axolotl look like" sits in the **middle**,
+and a payload runs to the end of the utterance - which here is "look like". It
+is matched on the trailing verb and the subject read off the phrase, the same
+way `define-word` handles "what does X mean". `look up` is deliberately not an
+anchor here; it belongs to the dictionary, where it was first.
+
+**No subjects in `wiki-look-like`'s examples.** They named an axolotl, a
+pangolin, Mount Fuji and Saturn, and every one of those words became the
+skill's vocabulary - a `wants_phrase` skill has no payload, so its examples
+are scored whole. "What is an axolotl" then matched on the word "axolotl"
+alone and went hunting for a picture, while "what is a black hole" went to the
+search skill. Which one answered depended on whether the noun happened to
+appear in an example. The examples say "what does **it** look like" now, so
+the only thing the skill knows is the shape.
+
+"What is X" belongs to `wiki-search`, as a deliberately weak pattern: it
+scores near zero, so any skill that actually knows the subject beats it, and
+it only wins when nothing else does - which is exactly when looking it up is
+the right answer.
+
+A disambiguation page is caught and refused rather than read out. Its extract
+looks like an answer and is not one - "Mercury may refer to:" followed by
+nothing.
+
+**A word the dictionary misses lands here.** `define-word` fires
+`on_dictionary_lookup_failed` instead of apologising, and this plugin
+subscribes to its own event to try the encyclopedia. The two cover different
+ground - a dictionary has words and an encyclopedia has things, so
+"petrichor" is in one and "Xochimilco" is in the other, and being told neither
+exists is wrong about half of them. Through the event rather than one handler
+calling the other, so anything else can answer a missed word too. The apology
+belongs to whoever runs out of places to look, which is the encyclopedia.
+
+**And it says which one came up empty, and why.** Both clients record whether
+the last lookup failed because the thing is not there or because they could
+not be reached, and the reply names both sources: *"xochimilco isn't in the
+dictionary, and Wikipedia doesn't have an article on it either"* against
+*"I couldn't reach the dictionary or Wikipedia"*. The two need different
+things done about them - one means try a different word, the other means
+check the network - and answering both with "I couldn't find it" sends
+somebody hunting for a spelling mistake that is not there.
 
 See [Voice assistant](assistant.md) for how skills are declared and matched.
 

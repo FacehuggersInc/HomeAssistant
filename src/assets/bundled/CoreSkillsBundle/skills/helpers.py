@@ -465,3 +465,67 @@ def _spoken_wait(seconds) -> str:
     if minutes:
         parts.append(f"{minutes} minute{'s' if minutes != 1 else ''}")
     return " and ".join(parts)
+
+
+#What somebody is asking about, out of a whole question.
+#
+#The subject of "what does an axolotl look like" sits in the MIDDLE, with the
+#question wrapped around it, so no payload anchor can reach it - an anchor
+#takes everything after itself to the end of the utterance, and here the end
+#is "look like". These read it out instead.
+#
+#Longest and most specific first: "show me a picture of X" must not be read by
+#the "show me X" rule as "a picture of X".
+import re as _re
+
+_WIKI_SHAPES = (
+    _re.compile(r"\bwhat\s+(?:do|does|did)\s+(?:an?\s+|the\s+)?(.+?)\s+look\s+like", _re.I),
+    _re.compile(r"\bwhat(?:'s|s)\s+(?:an?\s+|the\s+)?(.+?)\s+look\s+like", _re.I),
+    _re.compile(r"\b(?:show|find)\s+me\s+(?:a|an|the)?\s*"
+                r"(?:picture|image|photo|photograph)s?\s+of\s+(?:an?\s+|the\s+)?(.+)", _re.I),
+    _re.compile(r"\b(?:show|find)\s+me\s+(?:an?\s+|the\s+)?(.+)", _re.I),
+    _re.compile(r"\bwhat\s+(?:an?\s+|the\s+)?(.+?)\s+looks?\s+like", _re.I),
+    _re.compile(r"\bsearch\s+(?:wikipedia\s+)?(?:for\s+)?(.+)", _re.I),
+    _re.compile(r"\blook\s+up\s+(.+)", _re.I),
+    _re.compile(r"\btell\s+me\s+about\s+(.+)", _re.I),
+    _re.compile(r"\bwho\s+(?:is|was|are|were)\s+(.+)", _re.I),
+    # The contraction as well as the two words. "Whats an axolotl" is one
+    # token to spaCy and two characters to a regex, and matching only "what
+    # is" left the commonest spoken form finding no subject at all.
+    _re.compile(r"\bwhat(?:'s|s|\s+is|\s+are|\s+was|\s+were)\s+"
+                r"(?:an?\s+|the\s+)?(.+)", _re.I),
+)
+
+#Trailing scaffolding, which is where a question's own words end up when the
+#subject is taken from the middle of one.
+_WIKI_TAIL = _re.compile(
+    r"\s*(?:on\s+wikipedia|in\s+wikipedia|from\s+wikipedia|wikipedia|"
+    r"look\s+like|looks\s+like|please|for\s+me|exactly|again)\s*$", _re.I)
+
+
+def wikipedia_subject(phrase: str) -> str:
+    """
+    What to look up, from a whole question. "" when there is nothing.
+
+    Runs the shapes in order and takes the first that matches, so the most
+    specific wording wins - "show me a picture of a puffin" is a puffin, not
+    a picture of a puffin.
+    """
+    text = " ".join((phrase or "").split())
+    for shape in _WIKI_SHAPES:
+        found = shape.search(text)
+        if not found:
+            continue
+        subject = found.group(1).strip(" .,?!;:")
+        # Repeated: "tell me about the eiffel tower on wikipedia please" has
+        # two of these stacked on the end.
+        for _ in range(3):
+            trimmed = _WIKI_TAIL.sub("", subject).strip(" .,?!;:")
+            if trimmed == subject:
+                break
+            subject = trimmed
+        while subject.lower().startswith(("a ", "an ", "the ")):
+            subject = subject.split(" ", 1)[1]
+        if subject:
+            return subject
+    return ""

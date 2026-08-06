@@ -9,6 +9,11 @@ works on a machine with no internet.
 Everything is escaped before any tag is inserted. The input is trusted - these
 are files shipped with the app - but the renderer is reachable without auth, so
 it is written as though it were not.
+
+That ordering is worth remembering when adding an inline rule: by the time one
+runs, `<` and `>` are `&lt;` and `&gt;`, so a pattern written against the raw
+characters silently matches nothing. The autolink rule looks for the entities
+for exactly that reason.
 """
 
 from __future__ import annotations
@@ -290,6 +295,15 @@ _BOLD = re.compile(r"\*\*([^*]+)\*\*")
 _ITALIC = re.compile(r"(?<![*\w])\*([^*\n]+)\*(?!\*)")
 _LINK = re.compile(r"\[([^\]]*)\]\(([^)\s]+)\)")
 _BARE_URL = re.compile(r"(?<![\"'=(])\bhttps?://[^\s<>\)\"']+")
+#`<https://example.org>` - markdown's autolink form.
+#
+#Matched AFTER escaping, which is why it looks for the entities rather than
+#the brackets: by the time inline markup runs, `<` and `>` are `&lt;` and
+#`&gt;`. Without this the bare-URL rule below saw no angle brackets to stop
+#at - they were letters by then - and swallowed the closing `&gt` into the
+#address, so every autolink in the docs pointed at a 404 with `&gt` on the
+#end of it.
+_AUTOLINK = re.compile(r"&lt;(https?://.+?)&gt;")
 
 
 def inline(text: str) -> str:
@@ -311,6 +325,9 @@ def inline(text: str) -> str:
     out = _LINK.sub(
         lambda m: keep(f'<a href="{html.escape(link_target(m.group(2)), quote=True)}">'
                        f"{m.group(1)}</a>"), out)
+    # Before the bare-URL rule, which would otherwise take the closing
+    # bracket's entity as part of the address.
+    out = _AUTOLINK.sub(lambda m: keep(bare_link(html.unescape(m.group(1)))), out)
     out = _BARE_URL.sub(lambda m: keep(bare_link(m.group(0))), out)
     out = _BOLD.sub(r"<strong>\1</strong>", out)
     out = _ITALIC.sub(r"<em>\1</em>", out)

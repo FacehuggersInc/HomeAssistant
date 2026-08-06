@@ -10,6 +10,7 @@ from PyQt6.QtCore import Qt, QUrl, QTimer
 
 from src.ui.page import PageFramework
 from src.ui.controls.buttons import IconButton
+from src.ui.icons import icon
 from src.styling import make_font, SIZES, set_style
 
 if TYPE_CHECKING:
@@ -615,7 +616,7 @@ class WebPage(PageFramework):
                 self.view.page().setBackgroundColor(QColor("#151517"))
             except Exception:
                 pass
-            self.lock_glyph.setVisible(bool(self.lock_base))
+            self.lock_action.setVisible(bool(self.lock_base))
             # A kiosk should not offer "open in new window" or "view source".
             self.view.setContextMenuPolicy(Qt.ContextMenuPolicy.NoContextMenu)
             self.view.loadStarted.connect(self._load_started)
@@ -710,14 +711,21 @@ class WebPage(PageFramework):
             "color: rgba(255,255,255,225); background: transparent;"
             "border: 0; border-bottom: 1px solid rgba(255,255,255,40);"
             "padding: 2px 6px;")
+        # The padlock lives INSIDE the field, the way a browser draws one.
+        #
+        # It used to be a disabled IconButton sitting next to the address, and
+        # a disabled widget does not accept mouse events - Qt passes them to
+        # the parent, whose release handler opens the address editor. On a
+        # locked page that answers with "the address is fixed", so a tap
+        # anywhere near it looked like pressing a padlock button that existed
+        # only to refuse. It is not a control and should never have looked
+        # like one.
+        self.lock_action = self.address.addAction(
+            icon("mdi.lock-outline", color="#ffffffb4"),
+            QLineEdit.ActionPosition.LeadingPosition)
+        self.lock_action.setToolTip("This page is locked to one site")
+        self.lock_action.setVisible(False)
         row.addWidget(self.address, stretch=1)
-
-        self.lock_glyph = IconButton("mdi.lock-outline", lambda: None, size=16)
-        self.lock_glyph.setEnabled(False)
-        self.lock_glyph.setCursor(Qt.CursorShape.ArrowCursor)
-        self.lock_glyph.setToolTip("This page is locked to one site")
-        self.lock_glyph.hide()
-        row.addWidget(self.lock_glyph)
 
         self.top_btn = IconButton("mdi.arrow-collapse-up", self.scroll_top, size=20)
         row.addWidget(self.top_btn)
@@ -732,12 +740,31 @@ class WebPage(PageFramework):
         host.setStyleSheet("background: transparent;")
         host.setLayout(row)
         host.setCursor(Qt.CursorShape.PointingHandCursor)
-        host.mouseReleaseEvent = lambda _event: self._edit_address()
+        # Only where the address actually IS.
+        #
+        # The whole toolbar used to be the address field's hit area, so a tap
+        # that missed the close button by a few pixels - or landed in a gap
+        # between two buttons - opened the keyboard, or on a locked page said
+        # the address was fixed. The buttons take their own presses; this
+        # catches the field, which is transparent to the mouse so that it can
+        # be tapped as a whole rather than only on its text.
+        host.mouseReleaseEvent = self._bar_released
 
         wrapper = QHBoxLayout()
         wrapper.setContentsMargins(0, 0, 0, 0)
         wrapper.addWidget(host)
         return wrapper
+
+    def _bar_released(self, event) -> None:
+        """A tap on the toolbar. The address opens the keyboard; nothing else."""
+        try:
+            point = (event.position().toPoint() if hasattr(event, "position")
+                     else event.pos())
+            if not self.address.geometry().contains(point):
+                return
+        except Exception:
+            pass
+        self._edit_address()
 
     def _edit_address(self) -> None:
         if self.lock_address:

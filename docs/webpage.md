@@ -33,8 +33,17 @@ every link on the page live.
 
 `lock_base` is enforced at the engine, in `acceptNavigationRequest`, not by
 watching for a URL change and going back — by the time a URL has changed the
-page has already been fetched. A locked page shows a padlock beside its
+page has already been fetched. A locked page shows a padlock **inside** its
 address bar, and a refused navigation says so rather than doing nothing.
+
+Inside, not beside, and not a button. It used to be a disabled `IconButton` in
+the toolbar - and a disabled widget does not accept mouse events, so Qt passed
+them to the parent, whose release handler opens the address editor. On a
+locked page that answers "the address is fixed", so a tap that missed the
+close button by a few pixels looked like pressing a padlock button whose only
+purpose was to refuse. The toolbar's tap area is now the address field's own
+geometry rather than the whole row; the buttons take their own presses, and a
+tap in the gap between two of them does nothing at all.
 
 ```python
 self.client.goto("#webpage", data={

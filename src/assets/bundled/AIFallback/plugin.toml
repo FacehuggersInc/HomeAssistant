@@ -2,6 +2,12 @@
 name = "AI Fallback"
 key = "aifallback"
 order = 20
+# The music plugin, because a conversation holds the music down while it
+# talks and lets it go afterwards - see public.music["hold"] in main.py. Every
+# use is guarded, so a panel with no music plugin still answers questions;
+# declaring it means the load order is right on the first launch rather than
+# after a reload.
+dependencies = ["musicplugin"]
 icon = "robot"
 readme = "readme.md"
 

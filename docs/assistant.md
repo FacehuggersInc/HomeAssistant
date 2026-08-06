@@ -400,6 +400,50 @@ panel's words first. Saying the wake word first always gets through.
 A near miss - 0.5 or better and still refused - is logged at `debug` with its
 score, so the threshold can be read off a real transcript rather than guessed.
 
+### Stopping a reply that has not started
+
+`stop()` works from the moment the text is accepted, not from the moment the
+speakers begin. Generating a sentence takes seconds, and `speaking` used to be
+false for all of them - so a stop raised in that window found nothing to stop,
+returned False, and the reply played in full into a room where the panel had
+already gone. Closing the AI conversation, saying "stop", tapping an answer:
+all of them lost the same race, and all of them were calling `stop()`
+correctly.
+
+Two things had to change together. `is_speaking()` counts generation, because
+everything asking it wants to know whether the panel is in the middle of
+saying something - and it is, from the moment it agrees to. And the interrupt
+flag is cleared **per request** rather than immediately before the playback
+loop; clearing it there wiped any stop raised while the sentence was being
+made, which is exactly the window a slow model spends.
+
+A reply interrupted before playback is dropped rather than queued. Somebody
+who interrupts is not asking for the rest of it later.
+
+### Follow-ups have no subject
+
+"Tell me more", "what does that mean", "can you elaborate" carry one content
+word between them, and it is always a verb of asking. Scored normally,
+whichever skill happens to reduce to that same verb wins outright: `tell-time`
+took "tell me more" because its example is "tell me the time", and once a
+"tell me about X" skill existed it took it instead. Neither was ever right,
+and which one answered was decided by what else was installed.
+
+`SUBJECTLESS_LEMMAS` catches them. A phrase whose content words are **all** in
+that set has no topic of its own, so nothing here can be about it, and it goes
+straight to `on_assistant_fallback` with the previous turn attached - which is
+the only thing that can answer it.
+
+Refused before the Matcher, not after. A hand-written pattern can match one of
+these too: "what does that mean" fired the dictionary's trailing-verb pattern
+and came back with "Which word?", which is the panel asking somebody to repeat
+context it was holding all along.
+
+`GENERIC_LEMMAS` is the smaller companion rule, in the rule phase: a match
+whose *entire* lexical overlap with an example is bare asking-verbs is not a
+match. "Tell me a joke" and "tell me about Mount Fuji" agree about the word
+"tell", which is a grammatical accident rather than a shared subject.
+
 ### Speaking over a reply
 
 The wake word interrupts. It is never the panel hearing itself, because the

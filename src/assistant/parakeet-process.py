@@ -692,7 +692,8 @@ class ParakeetListener:
 
         return self.__dbfs(rms), self.__dbfs(peak), voiced
 
-    def __report_phrase(self, measured, speech_windows: int) -> None:
+    def __report_phrase(self, measured, speech_windows: int,
+                        raw_text: str = "") -> None:
         """
         Say what was in a phrase the model found nothing in.
 
@@ -713,6 +714,21 @@ class ParakeetListener:
                           "[Parakeet]: Nothing to transcribe - the buffer was empty.")
             return
 
+        # What the MODEL said, before anything here touched it.
+        #
+        # "The model found no words" was an inference and not a measurement:
+        # an empty transcript arrives identically whether the model produced
+        # nothing or produced something that cleaning then removed, and this
+        # line was confidently naming one of them. `__clean` logs when it
+        # discards or trims, but a silent path through it and a silent model
+        # still read the same in the log.
+        raw = str(raw_text or "").strip()
+        if raw:
+            self.send_log(
+                "info",
+                f"[Parakeet]: The model DID return {raw!r} - it was removed "
+                f"after it, not missed by it.")
+
         rms_db, peak_db, voiced = measured
         if peak_db < self.SILENT_DBFS:
             verdict = ("silent, so nothing was captured - the microphone was "
@@ -720,9 +736,12 @@ class ParakeetListener:
         elif rms_db < self.QUIET_DBFS:
             verdict = ("room tone, so nothing was said - something was "
                        "captured, but nobody spoke into it")
+        elif raw:
+            verdict = ("audible, and the model heard it - what emptied the "
+                       "transcript came after the model")
         else:
-            verdict = ("audible, so something was said - the model found no "
-                       "words in it")
+            verdict = ("audible, and the model returned nothing at all for "
+                       "it")
 
         self.send_log(
             "info",
@@ -856,9 +875,9 @@ class ParakeetListener:
         # process's own work, and folding it into the figure reported as
         # time in the model is how a slow decode gets blamed on the model.
         began = time.time()
-        text = self.parakeet.transcribe(audio)
+        raw_text = self.parakeet.transcribe(audio)
         model_ms = int((time.time() - began) * 1000)
-        text = self.__clean(text)
+        text = self.__clean(raw_text)
 
         if not text:
             # STILL ARMED. This is the important half of a wake that produced
@@ -873,7 +892,7 @@ class ParakeetListener:
             self.send_log("debug",
                           f"[Parakeet]: Nothing transcribed ({model_ms}ms in "
                           f"the model) - still listening.")
-            self.__report_phrase(measured, speech_windows)
+            self.__report_phrase(measured, speech_windows, raw_text)
 
             # STILL ARMED, BUT NOT FOR ANY LONGER.
             #

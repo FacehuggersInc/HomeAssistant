@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
@@ -82,6 +83,9 @@ class AIFallback(Plugin):
         self.chat = None
         self.history = []
         self.busy = False
+        # Only ever set for the first request of a conversation, and read
+        # by `_system_message()`, which can run outside one.
+        self._opening_context = None
         self.usage = Usage()
         self.session = None
         self._dismissed = False
@@ -140,12 +144,18 @@ class AIFallback(Plugin):
 
     ## EVENT
 
-    def on_fallback(self, event):
+    def on_fallback(self, event, context=None):
         """
         Nothing understood the phrase, so answer it with the AI.
 
         Runs off the event thread: this fires from inside the intent engine,
         and an HTTP round trip there would stall the whole STT pipeline.
+
+        `context` is the turn before this one, handed over by the client - a
+        `ContextEntry`, or None when there is nothing recent. The plugin does
+        not keep it and does not build it; it reads what it was given. Where
+        the history lives is the client's business, and a plugin keeping its
+        own copy is a second history to disagree with the first.
         """
         phrase = event if isinstance(event, str) else str(event or "")
         phrase = phrase.strip()
@@ -165,12 +175,12 @@ class AIFallback(Plugin):
                 return
             self.busy = True
 
-        Thread(target=self._converse, args=[phrase],
+        Thread(target=self._converse, args=[phrase, context],
                name="__ai_fallback", daemon=True).start()
 
     ## CONVERSATION
 
-    def _converse(self, first_phrase: str):
+    def _converse(self, first_phrase: str, context=None):
         """
         One conversation, start to finish, on one thread.
 
@@ -183,6 +193,12 @@ class AIFallback(Plugin):
         session = self.client.STT.new_session() if self.client.STT else None
         self.session = session
         self._dismissed = False
+        # Spent on the FIRST question only. The turn before this conversation
+        # is context for the thing that started it; by the third follow-up the
+        # conversation is its own context, and repeating a stale one every
+        # request pays for it in tokens and invites the model to keep
+        # answering the wrong question.
+        self._opening_context = context
         phrase = first_phrase
         dismissed = False
 
@@ -197,6 +213,8 @@ class AIFallback(Plugin):
                         # Nothing a follow-up can fix; do not hold the session
                         # open just to fail on the next question too.
                         break
+                    # Spent. From here the conversation carries itself.
+                    self._opening_context = None
 
                     phrase = session.wait_for_phrase()
                     if phrase is None:
@@ -304,6 +322,51 @@ class AIFallback(Plugin):
 
     ## API
 
+    def _system_message(self) -> str:
+        """
+        The configured prompt, plus what the model cannot work out for itself.
+
+        Appended at request time and NOT written into the setting. The setting
+        is somebody's prompt: editing it from code means their words and the
+        panel's grow into each other, and a date baked into a saved string is
+        wrong by the following morning.
+
+        The time goes on every request rather than only the first. A
+        conversation can run for several minutes, and a system message that
+        still claims it is Tuesday evening at half past midnight is worse
+        than none - the model has no way to notice.
+        """
+        parts = [str(self.option("conversation.system_prompt", "")).strip()]
+
+        try:
+            now = datetime.now()
+            parts.append(
+                "For reference, it is currently "
+                f"{now.strftime('%A, %B')} {now.day}, {now.year}, "
+                f"{now.strftime('%I:%M %p').lstrip('0')}.")
+        except Exception:
+            pass
+
+        # Offered, not asserted. The turn before is often unrelated - somebody
+        # asks the time and then asks something else entirely - and a model
+        # told "this is the context" will find a connection whether or not
+        # one is there.
+        entry = self._opening_context
+        if entry is not None:
+            try:
+                summary = entry.summary()
+            except Exception:
+                summary = ""
+            if summary:
+                parts.append(
+                    "Just before this, the panel handled another question. "
+                    + summary
+                    + " If the question you are being asked now follows on "
+                      "from that, use it. If it does not, ignore it entirely "
+                      "and do not mention it.")
+
+        return "\n\n".join(part for part in parts if part)
+
     def _ask(self, phrase: str) -> tuple[str, str, bool, Usage]:
         """
         (reply, error, fatal, usage). Never raises - a failed call becomes a
@@ -318,8 +381,7 @@ class AIFallback(Plugin):
         if not key:
             return "", "No OpenAI key is set for this plugin.", True, Usage()
 
-        messages = [{"role": "system",
-                     "content": str(self.option("conversation.system_prompt", ""))}]
+        messages = [{"role": "system", "content": self._system_message()}]
         messages.extend(self.history)
         messages.append({"role": "user", "content": phrase})
 

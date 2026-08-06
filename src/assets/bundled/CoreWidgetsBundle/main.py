@@ -96,8 +96,17 @@ class CoreWidgetsBundle(Plugin):
         # Declared before anything can subscribe - subscribe_to_event indexes
         # straight into the event table, so a name that has not been created
         # is a KeyError rather than a quiet no-op.
-        if "on_timer_finished" not in self.client.EVENTS["on_call"]:
-            self.client.create_on_call_event("on_timer_finished")
+        for name in ("on_timer_finished",
+                     # Nobody acknowledged it and it cleared itself. Apart
+                     # from `on_timer_finished`, which says a timer RANG -
+                     # this says the room was empty when it did, which is a
+                     # different thing to know and the only one a listener
+                     # can act on afterwards.
+                     "on_timer_timed_out",
+                     # Stopped before it ever finished.
+                     "on_timer_cancelled"):
+            if name not in self.client.EVENTS["on_call"]:
+                self.client.create_on_call_event(name)
 
         # Alarms. A wall clock time rather than a countdown - see alarms.py
         # for the three ways that makes it a different thing.
@@ -105,8 +114,13 @@ class CoreWidgetsBundle(Plugin):
         self.alarms = AlarmService(self)
         self.alarms.start_watching()
 
-        if "on_alarm_fired" not in self.client.EVENTS["on_call"]:
-            self.client.create_on_call_event("on_alarm_fired")
+        for name in ("on_alarm_fired",
+                     # Rang its full length with nobody answering.
+                     "on_alarm_timed_out",
+                     # Somebody answered it - tapped it, or said stop.
+                     "on_alarm_dismissed"):
+            if name not in self.client.EVENTS["on_call"]:
+                self.client.create_on_call_event(name)
 
         from src.assets.bundled.CoreWidgetsBundle.timers import describe
 

@@ -104,7 +104,7 @@ sidebar rather than here:
 | [Transient widgets and timers](/docs/plugin/corewidgetsbundle/transient-widgets) | Core Widgets    |
 | [Stickers](/docs/plugin/corewidgetsbundle/stickers)                              | Core Widgets    |
 | [Nighttime Clock](/docs/plugin/nighttimeclock/nighttime)                         | Nighttime Clock |
-| [The calendar registry](/docs/plugin/calendarplugin/registry)                    | Calendar        |
+| [The calendar registry](/docs/plugin/calendar/registry)                          | Calendar        |
 
 
 ## Reading these

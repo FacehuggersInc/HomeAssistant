@@ -20,6 +20,39 @@ PRIMARY_THRESHOLD = 0.70
 # do the wrong thing, so the highest threshold with zero misfires wins.
 FALLBACK_DEFAULT_RULE_SCORE = 0.55
 
+#Words that can carry a request but can never BE one.
+#
+#"Tell me more" and "what does that mean" have exactly one content word each -
+#`tell` and `mean` - and no subject at all. Every skill whose command reduces
+#to that same word therefore scores 1.0 against them, so "tell me more" was
+#answered with the time, and once a "tell me about X" skill existed it was
+#answered with a Wikipedia search instead. Which one wins is an accident of
+#what else is installed.
+#
+#A phrase made ONLY of these is a follow-up to something already said. It has
+#no topic of its own, so no skill can be about it, and the only thing that can
+#answer it is whatever holds the conversation - which is the fallback, and
+#which is now handed the turn before it.
+SUBJECTLESS_LEMMAS = frozenset({
+    "tell", "say", "speak", "talk", "mean", "explain", "elaborate",
+    "expand", "clarify", "describe", "detail", "continue", "repeat",
+    "more", "further", "else", "again", "go", "know", "understand",
+    "thing", "one", "ok", "okay", "yeah", "yes", "sure", "please",
+    # "What" is never a subject. It survives the stopword filter in phrases
+    # like "what else", where it is the only alphabetic lemma left, and
+    # without it here that phrase is not recognised as the follow-up it is.
+    "what",
+})
+
+#And the subset of those that are bare verbs of asking. A rule-phase match
+#whose ENTIRE overlap is one of these has agreed with an example about the
+#word "tell" and nothing else, which is not agreement about anything.
+GENERIC_LEMMAS = frozenset({
+    "tell", "say", "show", "give", "find", "get", "know", "ask", "want",
+    "need", "look", "go", "do", "make", "take", "more", "thing", "one",
+    "please", "help", "use", "put", "let", "speak", "talk",
+})
+
 # Above this, a Matcher hit is taken without consulting the rule phase. Below
 # it, the rule phase gets to contest - a pattern can only ever match the words
 # somebody wrote into an example, so a phrase carrying an arbitrary name or an
@@ -508,6 +541,17 @@ class SkillIntentEngine:
 		return s
 	
 	def __skill_call_with_status_update(self, best_skill:Skill, match):
+		# A turn opens here, before the skill runs, so any answer it produces
+		# lands against the question that caused it. Opening it inside the
+		# skill would mean every skill remembering to - and the ones that
+		# forgot would be invisible, because a missing turn looks exactly
+		# like a question nobody asked.
+		try:
+			self.client.CONTEXT.begin(
+				best_skill.key,
+				match.text if hasattr(match, "text") else str(match))
+		except Exception:
+			pass
 		args = best_skill.extract_args(match)
 		# The payload wins where both name the same argument: it is the
 		# verbatim value, and extract_args would have trimmed it.
@@ -625,6 +669,13 @@ class SkillIntentEngine:
 				precision = len(used) / max(1, len(content))
 				score = (2 * recall * precision / (recall + precision)) if (recall + precision) else 0.0
 
+				# An overlap made only of bare asking-verbs is not an
+				# overlap. "Tell me a joke" and the example "tell me about
+				# mount fuji" agree about the word "tell", which is a
+				# grammatical accident rather than a shared subject.
+				if used and used <= GENERIC_LEMMAS:
+					continue
+
 				if score > best_score:
 					best_score, best_skill = score, skill
 
@@ -655,6 +706,39 @@ class SkillIntentEngine:
 			# against at all. Fall back to every alphabetic lemma so the fuzzy
 			# comparison still has something to work with.
 			input_content = {t.lemma_.lower() for t in match_doc if _is_content(t)}
+
+		# A follow-up has no subject, so nothing here can be about it.
+		#
+		# "Tell me more", "what does that mean", "can you elaborate" carry one
+		# content word between them and it is always a verb of asking. Scored
+		# normally, whichever skill happens to reduce to that same verb wins
+		# outright - the time skill did, until a Wikipedia skill was added and
+		# took it instead. Neither was ever right, and which one answered was
+		# decided by what else was installed.
+		#
+		# Refused before the Matcher rather than after it, because a
+		# hand-written pattern can match one of these too: "what does that
+		# mean" fired the dictionary's trailing-verb pattern and got back
+		# "Which word?", which is the panel asking the person to repeat the
+		# context it was holding all along.
+		#
+		# What CAN answer it is whatever remembers the turn before, and that
+		# is the fallback - which is handed exactly that.
+		if input_content and input_content <= SUBJECTLESS_LEMMAS:
+			self.client.log("info",
+				f"[SkillIntentEngine] '{phrase}' is a follow-up with no "
+				f"subject of its own - passing it on.")
+			self.client.ASSIST_STATUS = "LIVE"
+			if use_skill:
+				context = None
+				try:
+					context = self.client.CONTEXT.last
+				except Exception:
+					pass
+				self.client.iterate_event_callables(
+					"on_assistant_fallback", phrase, extra=context)
+			return None, None
+
 		candidates = [self.id2skill[m[0]] for m in results]
 
 		for skill in candidates:
@@ -724,7 +808,19 @@ class SkillIntentEngine:
 				# Nothing understood it. Anything subscribed gets a chance to
 				# answer instead - see the AI fallback plugin. Only on the real
 				# input path, so a use_skill=False probe stays side-effect free.
-				self.client.iterate_event_callables("on_assistant_fallback", phrase)
+				# The turn before this one goes with it. A phrase nothing
+				# understood is very often a follow-up - "where does that
+				# come from" names nothing and matches nothing - and the
+				# question it follows is the only thing that makes it
+				# answerable. Handlers that take one argument still get one;
+				# see `_accepts_two` in main.py.
+				context = None
+				try:
+					context = self.client.CONTEXT.last
+				except Exception:
+					pass
+				self.client.iterate_event_callables(
+					"on_assistant_fallback", phrase, extra=context)
 			return None, None
 		else:
 			if use_skill:

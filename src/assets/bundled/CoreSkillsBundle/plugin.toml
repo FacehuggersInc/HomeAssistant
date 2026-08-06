@@ -8,7 +8,9 @@ order = 5
 # guarded, so the skills degrade rather than fail without either; declaring
 # them means the load order is right and they work on the first launch rather
 # than after a reload.
-dependencies = ["corewidgetsbundle", "astronomy"]
+# ...and the calendar, which the next-event skill reads through
+# public.calendar.
+dependencies = ["corewidgetsbundle", "astronomy", "calendar"]
 icon = "microphone"
 
 [settings]

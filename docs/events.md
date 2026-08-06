@@ -17,6 +17,27 @@ Two ways a name becomes real:
   plugin owns - the calendar does this for `on_calendar_changed`, guarded by
   an `in` test so a reload does not clear the subscribers.
 
+### An event that carries two things
+
+`on_assistant_fallback` sends the phrase **and** the turn before it - a
+`ContextEntry` from `client.CONTEXT`, or `None` when there is nothing recent.
+A handler that wants it takes a second parameter:
+
+```python
+def on_fallback(self, phrase, context=None):
+    if context is not None:
+        print(context.query, context.answer)
+```
+
+**A handler that does not is still called with one argument.** Every handler
+written before the event gained a second one takes exactly one, and calling
+those with two raises a `TypeError` - which `iterate_event_callables` reads as
+a broken handler and responds to by unsubscribing it. A plugin would be
+quietly disconnected by an event gaining an argument, which is the most
+expensive way to add one. `_accepts_two()` in `main.py` reads the signature
+and decides, and only when an event actually carries something extra, so
+nothing is paid on the events that fire every tick.
+
 Adding a `subscribe_to_event` without doing one of those is the mistake, and
 it is not visible until something subscribes: the event fires perfectly well
 with nobody listening, so the crash arrives on the first plugin that wants it
@@ -49,7 +70,7 @@ A fixed set of built-in events the Client fires itself, at predictable moments.
 | `on_woke_assistant`        | The wake word was heard.                                | The wake word                   |
 | `on_assistant_transcribed` | A phrase was transcribed.                               | The transcript                  |
 | `on_assistant_cancelled`   | The user cancelled mid-conversation.                    | `None`                          |
-| `on_assistant_fallback`    | A phrase matched no skill.                              | The transcript                  |
+| `on_assistant_fallback`    | A phrase matched no skill.                              | The transcript, and the context |
 | `on_transcribing_assistant`| Audio captured; the model is working on it.             | `None`                          |
 | `on_transcribed_assistant` | The model finished, whatever it found.                  | `None`                          |
 | `on_heard_assistant`       | A finished transcript, before anything routes it.       | The transcript                  |
@@ -336,11 +357,29 @@ The bundled plugins define these. They exist only while their plugin is
 loaded, so guard the subscription - a panel with Core Widgets disabled has
 no timers to finish.
 
-| Event                 | From                | Fires when                                                     | Payload                                |
-|-----------------------|---------------------|----------------------------------------------------------------|----------------------------------------|
-| `on_timer_finished`   | `corewidgetsbundle` | A countdown reaches zero.                                      | The timer                              |
-| `on_alarm_fired`      | `corewidgetsbundle` | A wall-clock alarm goes off.                                   | The alarm                              |
-| `on_calendar_changed` | `calendar`          | An event is added, edited or removed, or a subscription syncs. | The event, the calendar key, or `None` |
+| Event                         | From                | Fires when                                                     | Payload                                |
+|-------------------------------|---------------------|----------------------------------------------------------------|----------------------------------------|
+| `on_timer_finished`           | `corewidgetsbundle` | A countdown reaches zero.                                      | The timer                              |
+| `on_timer_timed_out`          | `corewidgetsbundle` | A finished timer cleared itself with nobody acknowledging it.  | The timer                              |
+| `on_timer_cancelled`          | `corewidgetsbundle` | A timer was stopped before it finished.                        | The timer                              |
+| `on_alarm_fired`              | `corewidgetsbundle` | A wall-clock alarm goes off.                                   | The alarm                              |
+| `on_alarm_dismissed`          | `corewidgetsbundle` | Somebody answered an alarm - tapped it, or said stop.          | The alarm                              |
+| `on_alarm_timed_out`          | `corewidgetsbundle` | An alarm rang its full length with nobody answering.           | The alarm                              |
+| `on_calendar_changed`         | `calendar`          | An event is added, edited or removed, or a subscription syncs. | The event, the calendar key, or `None` |
+| `on_dictionary_lookup_failed` | `coreskillsbundle`  | A word was asked for and the dictionary does not have it.      | The word                               |
+| `on_wikipedia_lookup_failed`  | `coreskillsbundle`  | A subject was asked for and the encyclopedia does not have it. | The subject                            |
+
+**A plugin's events belong to that plugin.** Each of the above is created in
+the `load()` of the plugin that owns the thing it is about, and fired from the
+code that does it - there is no central place they are declared, and adding
+one to the client's table would make it something every panel has whether or
+not the plugin is installed.
+
+The pairs are worth reading as pairs. `on_timer_finished` says a timer *rang*;
+`on_timer_timed_out` says the room was empty when it did. `on_alarm_dismissed`
+is somebody dealing with an alarm and `on_alarm_timed_out` is one going off in
+an empty house. They used to end through the same function with nothing able
+to tell them apart, which made the interesting half of each pair invisible.
 
 `create_on_call_event` and `trigger_on_call_event_iteration` will raise if you pass one of the built-in event names — those are reserved for the Client and must be triggered through its own internal calls, not from plugin code.
 

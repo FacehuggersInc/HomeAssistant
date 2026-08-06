@@ -41,6 +41,16 @@ def build(plugin, wake: str, key: str) -> list:
                             "start a 45 second timer", "make a timer for 90 seconds",
                             "set an eggs timer for 30 seconds",
                             "set a timer for 1 minute and 30 seconds",
+                            # Durations said as words rather than digits.
+                            # `_spoken_duration` reads these correctly - "an
+                            # hour and a half" is 5400 seconds to it - but no
+                            # example said so, and the phrase scored against a
+                            # list that only ever counted in digits.
+                            "set a timer for an hour",
+                            "set a timer for half an hour",
+                            "set a timer for an hour and a half",
+                            "set a timer for a minute",
+                            "set a timer for a quarter of an hour",
                         ],
                         arguments={
                             # LEMMA, not LOWER: one entry covers singular and plural.
@@ -53,6 +63,24 @@ def build(plugin, wake: str, key: str) -> list:
                             # keeps the widest - which has to exist to be kept. Three
                             # parts is more than anybody says out loud.
                             "time": [
+                                # An article where a number would be.
+                                # `LIKE_NUM` is False for "a" and "an", so
+                                # "an hour and a half" matched none of the
+                                # patterns below and came back with no time
+                                # at all - the same assumption that broke the
+                                # date skills.
+                                [{"LOWER": {"IN": ["a", "an", "one"]}},
+                                 {"LEMMA": {"IN": DURATION_UNITS}},
+                                 {"LOWER": {"IN": DURATION_JOINERS}, "OP": "?"},
+                                 {"LOWER": {"IN": ["a", "an"]}, "OP": "?"},
+                                 {"LOWER": {"IN": ["half", "quarter"]}, "OP": "?"},
+                                 {"LIKE_NUM": True, "OP": "?"},
+                                 {"LEMMA": {"IN": DURATION_UNITS}, "OP": "?"}],
+                                # "half an hour", "a quarter of an hour".
+                                [{"LOWER": {"IN": ["half", "quarter"]}},
+                                 {"LOWER": "of", "OP": "?"},
+                                 {"LOWER": {"IN": ["a", "an"]}, "OP": "?"},
+                                 {"LEMMA": {"IN": DURATION_UNITS}}],
                                 [{"LIKE_NUM": True},
                                  {"LEMMA": {"IN": DURATION_UNITS}},
                                  {"LOWER": {"IN": DURATION_JOINERS}, "OP": "?"},
@@ -78,6 +106,10 @@ def build(plugin, wake: str, key: str) -> list:
                                  {"LOWER": {"IN": ["timer", "timers"]}}],
                             ],
                         },
+                        # The whole phrase too, to catch a "half" or
+                        # "quarter" that argument extraction trims off
+                        # the front of the duration it captured.
+                        wants_phrase=True,
                         func=plugin.start_timer,
                     ),
         Skill(

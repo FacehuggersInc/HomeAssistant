@@ -2,8 +2,43 @@
 
 Registries manage and store extendable, plugin-ownable objects — things like API endpoints or pages, that a plugin registers and expects to have cleaned up automatically when it's unloaded or reloaded.
 
-Nine concrete registries currently exist, and `BookmarkStore` sits alongside
+Ten concrete registries currently exist, and `BookmarkStore` sits alongside
 them below. They are not all shaped the same way.
+
+## `ContextRegistry` — `self.client.CONTEXT`
+
+What was last asked, and what the panel answered. The odd one out: nothing
+registers into it and nothing owns anything in it. **The client writes; plugins
+read.**
+
+```python
+entry = self.client.CONTEXT.last        # the turn before, or None
+entry.query                            # "what does petrichor mean"
+entry.answer                           # what the panel showed
+entry.data                             # whatever the skill noted
+self.client.CONTEXT.summary()          # both, as one line of prose
+```
+
+Two moments do the writing, both in the client. The intent engine opens a turn
+before a skill runs, and `client.answer()` fills in what was shown - so a skill
+gets its context kept without doing anything at all. A skill wanting to record
+something the prose does not contain calls `CONTEXT.note(word="petrichor")`;
+the dictionary answer says what a word means and never repeats the word, so
+"where does that come from" has nothing to work from otherwise.
+
+**Why the client and not the plugin that needs it.** Every plugin keeping its
+own idea of what was just said gives as many histories as there are plugins,
+all subtly disagreeing about which one was most recent - and the one that
+matters is whichever fired last, which no single plugin can see. The AI
+fallback reads this and does not build it.
+
+`last` returns `None` for a turn older than `RELEVANT_FOR` (five minutes).
+Somebody coming back after lunch is starting a new conversation, and answering
+them out of the old one is worse than having no memory. The turn is still in
+`history()`; it just stops being what "that" means.
+
+Nothing is persisted. A panel restarted an hour later resuming "that" from
+before the restart would be answering a question nobody remembers asking.
 
 ## `APIRegistry` — `self.client.API`
 

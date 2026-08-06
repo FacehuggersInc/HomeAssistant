@@ -36,6 +36,11 @@ class DictionaryAPI:
         self.plugin = plugin
         self.client = client
         self._cache: dict = {}
+        # Why the last lookup came back empty: "missing" when the word is not
+        # in there, "offline" when the service could not be reached. Both
+        # return None and they are not the same news - one is a word that
+        # does not exist and the other is a panel that cannot see.
+        self.last_failure = ""
 
     # ── Lookup ────────────────────────────────────────────────────────────
 
@@ -53,8 +58,11 @@ class DictionaryAPI:
         if not word:
             return None
 
+        self.last_failure = ""
         cached = self._cache.get(word)
         if cached is not None and time.time() - cached[0] < self.CACHE_SECONDS:
+            if cached[1] is None:
+                self.last_failure = "missing"
             return cached[1]
 
         try:
@@ -62,6 +70,7 @@ class DictionaryAPI:
                                     timeout=self.TIMEOUT)
         except Exception as e:
             self.client.log("warning", f"[Dictionary] '{word}' failed: {e}")
+            self.last_failure = "offline"
             return None
 
         if response.status_code == 404:
@@ -70,22 +79,28 @@ class DictionaryAPI:
             # row is one request.
             self.client.log("debug", f"[Dictionary] '{word}' is not a word.")
             self._remember(word, None)
+            self.last_failure = "missing"
             return None
         if response.status_code != 200:
             self.client.log("warning", f"[Dictionary] '{word}' returned "
                                        f"{response.status_code}.")
+            self.last_failure = "offline"
             return None
 
         try:
             entries = response.json()
         except Exception as e:
             self.client.log("warning", f"[Dictionary] '{word}' was not JSON: {e}")
+            self.last_failure = "offline"
             return None
         if not isinstance(entries, list) or not entries:
+            self.last_failure = "missing"
             return None
 
         parsed = self._parse(entries)
         self._remember(word, parsed)
+        if parsed is None:
+            self.last_failure = "missing"
         return parsed
 
     def _remember(self, word: str, value) -> None:
