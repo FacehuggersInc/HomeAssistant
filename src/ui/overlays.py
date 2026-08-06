@@ -12,6 +12,7 @@ from PyQt6.QtCore import (
 )
 from PyQt6.QtGui import (
     QColor, QPainter, QBrush, QPen, QRegion, QPixmap, QPainterPath,
+    QFontMetrics,
 )
 
 from src.styling import set_style, make_font, SIZES, get_style_sheet, style_scrollbar
@@ -783,7 +784,14 @@ class BaseDialog(QFrame):
     # Past this, body and detail text scrolls instead of growing. A dialog is
     # capped by MAX_HEIGHT, so without this a long body is simply clipped -
     # a commit message with a paragraph after its summary loses the paragraph.
-    SCROLL_BODY_AT = 320
+    #
+    # MEASURED, not counted. This used to scroll past 320 characters, which is
+    # a guess about how much room text takes and a wrong one at dialog width:
+    # 200 characters of short lines wraps to six rows in a 420px card and is
+    # clipped, while 340 characters of one long word is not. A wrapping QLabel
+    # reports the height it wants at its NATURAL width, so the layout gives it
+    # one line's worth and the rest goes over the edge - the same trap as the
+    # answer panel.
     BODY_MAX_HEIGHT = 260
     DETAIL_MAX_HEIGHT = 220
 
@@ -817,7 +825,8 @@ class BaseDialog(QFrame):
             label = self.make_body(body, muted=True)
             outer.addWidget(
                 self._scrollable(label, self.BODY_MAX_HEIGHT)
-                if len(body) > self.SCROLL_BODY_AT else label
+                if self._too_tall(body, label.font(), 48, self.BODY_MAX_HEIGHT)
+                else label
             )
 
         # Kept, so a subclass can hand the spare height to its content rather
@@ -831,7 +840,10 @@ class BaseDialog(QFrame):
             block = self.make_detail(detail)
             outer.addWidget(
                 self._scrollable(block, self.DETAIL_MAX_HEIGHT)
-                if len(detail) > self.SCROLL_BODY_AT else block
+                # 48 for the dialog's own margins, 28 more for the block's.
+                if self._too_tall(detail, make_font(SIZES.S1), 76,
+                                  self.DETAIL_MAX_HEIGHT)
+                else block
             )
 
         outer.addStretch()
@@ -842,6 +854,32 @@ class BaseDialog(QFrame):
         outer.addLayout(self.buttons)
 
         self._outer = outer
+
+    def _too_tall(self, text: str, font, chrome: int, cap: int) -> bool:
+        """
+        Whether `text` wraps to more than `cap` at this dialog's width.
+
+        Asked of the font rather than of the string's length, because the
+        question is how many ROWS it becomes and that depends on the words and
+        the width, not on the character count.
+        """
+        try:
+            width = max(60, self.width() - chrome)
+            rect = QFontMetrics(font).boundingRect(
+                QRect(0, 0, width, 10_000),
+                int(Qt.TextFlag.TextWordWrap), str(text))
+            # The cap is whichever is smaller: the constant, or a share of
+            # the room this dialog actually has. On a short panel the height
+            # limit does the squeezing, and text under the constant is still
+            # clipped because there was never that much room to give it.
+            room = self.maximumHeight()
+            if room > 0:
+                cap = min(cap, max(110, int(room * 0.45)))
+            return rect.height() > cap
+        except Exception:
+            # A guess is better than a crash, and the old guess is the one
+            # every dialog written before this was sized against.
+            return len(str(text)) > 320
 
     def expand_content(self) -> None:
         """
@@ -1126,9 +1164,25 @@ class BaseDialog(QFrame):
         # adjustSize() grows a widget to its hint but never shrinks it, so a
         # dialog whose content got smaller keeps its old height and sits
         # off-centre - or off-screen.
-        hint = self.sizeHint().height()
-        if hint < self.height():
-            self.resize(self.width(), hint)
+        #
+        # And the hint is not enough on its own. A layout's sizeHint SUMS its
+        # children's sizeHints, and a word-wrapped QLabel's sizeHint is the
+        # height it wants at its OWN natural width - not at the width the
+        # dialog turned out to be. On a narrow panel the dialog is squeezed by
+        # `_fits_across`, the text wraps to more rows than the hint described,
+        # and the last line or two is simply cut off the bottom. Asking the
+        # layout `heightForWidth` is the same question at the real width.
+        wanted = self.sizeHint().height()
+        layout = self.layout()
+        if layout is not None and layout.hasHeightForWidth():
+            asked = layout.heightForWidth(self.width())
+            if asked > 0:
+                wanted = max(wanted, asked)
+        cap = self.maximumHeight()
+        if cap > 0:
+            wanted = min(wanted, cap)
+        if wanted != self.height():
+            self.resize(self.width(), wanted)
         self.move(max(0, (host.width() - self.width()) // 2),
                   max(0, (host.height() - self.height()) // 2))
 

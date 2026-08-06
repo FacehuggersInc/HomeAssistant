@@ -38,12 +38,51 @@ class PendingPlugin:
 	def __repr__(self):
 		return f"PendingPlugin({self.key}, missing={self.missing})"
 
+class ConflictingPlugin:
+	"""
+	A plugin folder that will never load, because its key is already taken.
+
+	Keyed by FOLDER rather than by key, which is the whole point: the key is
+	the thing it collides on, so two records under it would be one record.
+
+	It used to be dropped with a line in the log. That is the correct decision
+	and the wrong way to report it: the folder is on disk, it looks installed,
+	and every list said nothing about it - so the answer to "why is my plugin
+	not there" was a warning nobody was going to scroll back for.
+	"""
+
+	def __init__(self, folder: str, key: str, name: str, path: Path,
+				 config: dict, blocked_by: Path, icon=None):
+		self.folder = folder
+		self.key = key
+		self.name = name
+		self.path = path
+		self.config = config
+		self.blocked_by = blocked_by
+		self.icon = icon
+
+	@property
+	def bundled_winner(self) -> bool:
+		"""Whether the folder that won is one that ships with the app."""
+		try:
+			return "assets" in Path(self.blocked_by).parts and \
+				   "bundled" in Path(self.blocked_by).parts
+		except Exception:
+			return False
+
+	def __repr__(self):
+		return f"ConflictingPlugin({self.folder}, key={self.key})"
+
+
 class PluginManager():
 	def __init__(self, client, dirs:list[Asset]):
 		self.client = client
 		self.dirs = dirs
 		self.plugins = Settings()
 		self.registered : dict[str, Path] = {}
+		# Folders that will never load because their key is already taken.
+		# Keyed by folder name - see ConflictingPlugin.
+		self.conflicts : dict[str, ConflictingPlugin] = {}
 
 		self.pending : dict[str, PendingPlugin] = {}
 
@@ -105,7 +144,18 @@ class PluginManager():
 
 				key = config["plugin"]["key"]
 				if key in scanned:
-					self.client.log("warning", f"[PluginManager] Duplicate plugin key '{key}' found at '{plugin_path}' — keeping the first one scanned ('{scanned[key]['_scan_path']}')")
+					winner = scanned[key]["_scan_path"]
+					self.client.log("warning", f"[PluginManager] Duplicate plugin key '{key}' found at '{plugin_path}' — keeping the first one scanned ('{winner}')")
+					# Remembered, not merely logged. See ConflictingPlugin.
+					self.conflicts[plugin_path.name] = ConflictingPlugin(
+						folder     = plugin_path.name,
+						key        = key,
+						name       = config["plugin"].get("name", plugin_path.name),
+						path       = plugin_path,
+						config     = config,
+						blocked_by = winner,
+						icon       = config["plugin"].get("icon", None),
+					)
 					continue
 
 				# Registered for every scanned plugin, including ones held back
@@ -474,6 +524,35 @@ class PluginManager():
 			self.client.QUICK.unregister(plugin_key)
 
 			# etc b. Remove from plugin registry
+			#
+			# ...and put it back on the PENDING list on the way out.
+			#
+			# An unloaded plugin used to disappear entirely: it is gone from
+			# `plugins` and was never in `pending`, so it vanished from the
+			# settings list, from the dashboard, and from every count - with
+			# no way to load it again short of restarting the panel. Unloading
+			# something should stop it, not hide it.
+			try:
+				config = plugin.config.to_dict() if hasattr(plugin.config, "to_dict") \
+					else dict(plugin.config)
+			except Exception:
+				config = {}
+			path = self.registered.get(plugin_key)
+			if path is not None and plugin_key not in self.pending:
+				section = config.get("plugin") or {}
+				self.pending[plugin_key] = PendingPlugin(
+					key          = plugin_key,
+					name         = section.get("name", plugin_key),
+					path         = path,
+					config       = config,
+					# Nothing is missing - it ran a moment ago. This is
+					# "installed and stopped", which is a different state
+					# from "held back for a package" and reads the same way
+					# on the list: present, and not running.
+					missing      = [],
+					requirements = [],
+					icon         = section.get("icon", None),
+				)
 			del self.plugins[plugin_key]
 			self.client.SKILLS.un_register( plugin_key )
 			self.client.public.clear( plugin_key )
@@ -653,6 +732,10 @@ class PluginManager():
 
 	## DEPENDENCIES
 
+	def conflicting_plugins(self) -> list:
+		"""Folders held back by a key clash, newest scan last."""
+		return sorted(self.conflicts.values(), key=lambda c: c.name.lower())
+
 	def pending_plugins(self, include_declined: bool = True) -> list[PendingPlugin]:
 		items = [p for p in self.pending.values()
 				 if include_declined or not p.declined]
@@ -709,6 +792,96 @@ class PluginManager():
 
 		self.client.call_on_ui(lambda: self.load_pending_plugin(plugin_key))
 		return True, output
+
+	def discover(self, plugin_path) -> str:
+		"""
+		Notice a plugin folder that arrived after startup. Returns its key.
+
+		The scan that fills `pending` runs once, at boot, over the folders
+		that existed then. A plugin uploaded while the panel is running is on
+		disk and invisible to everything - `load_pending_plugin` refuses it
+		because it is not pending, and it does not appear in any list until
+		the next restart.
+
+		Returns "" when the folder is not a plugin, which is a fact about the
+		folder rather than an error: the caller has just written it and wants
+		to know whether it can be offered.
+		"""
+		from pathlib import Path
+		plugin_path = Path(plugin_path)
+		if not plugin_path.is_dir() or not (plugin_path / "main.py").exists():
+			return ""
+
+		config = self.scan_plugin_toml(plugin_path)
+		if config is None:
+			self.client.log("warning", f"[PluginManager] '{plugin_path.name}' "
+									   f"has no readable plugin.toml.")
+			return ""
+
+		key = config["plugin"]["key"]
+		if key in self.plugins:
+			running = getattr(self, "registered", {}).get(key)
+			if running is None or Path(running).name == plugin_path.name:
+				# The same folder, or a folder that cannot be identified. Its
+				# files may have changed, which is a reload rather than a
+				# discovery.
+				#
+				# An unknown path is treated as the same folder on purpose: a
+				# false conflict blocks a plugin that works, and a missed one
+				# is caught by the scan on the next start.
+				return key
+			# A DIFFERENT folder claiming a key that is already running. The
+			# scan gives the key to whichever folder is read first, so this
+			# one can never load - recorded as a conflict so it is listed and
+			# explained rather than silently ignored.
+			self.conflicts[plugin_path.name] = ConflictingPlugin(
+				folder     = plugin_path.name,
+				key        = key,
+				name       = config["plugin"].get("name", plugin_path.name),
+				path       = plugin_path,
+				config     = config,
+				blocked_by = running or Path(key),
+				icon       = config["plugin"].get("icon", None),
+			)
+			self.client.log(
+				"warning",
+				f"[PluginManager] '{plugin_path.name}' claims the key '{key}', "
+				f"which is already loaded from "
+				f"'{Path(running).name if running else key}'. It cannot load.")
+			return ""
+
+		if key in self.pending:
+			pending = self.pending[key]
+			if Path(pending.path).name != plugin_path.name:
+				self.conflicts[plugin_path.name] = ConflictingPlugin(
+					folder     = plugin_path.name,
+					key        = key,
+					name       = config["plugin"].get("name", plugin_path.name),
+					path       = plugin_path,
+					config     = config,
+					blocked_by = pending.path,
+					icon       = config["plugin"].get("icon", None),
+				)
+				self.client.log(
+					"warning",
+					f"[PluginManager] '{plugin_path.name}' claims the key "
+					f"'{key}', which belongs to '{Path(pending.path).name}'.")
+				return ""
+
+		self.register_secrets(key, config)
+		requirements = pipdeps.requirements_of(config)
+		self.pending[key] = PendingPlugin(
+			key          = key,
+			name         = config["plugin"].get("name", key),
+			path         = plugin_path,
+			config       = config,
+			missing      = pipdeps.missing(requirements) if requirements else [],
+			requirements = requirements,
+			icon         = config["plugin"].get("icon", None),
+		)
+		self.client.log("info", f"[PluginManager] Found a new plugin "
+								f"'{key}' at '{plugin_path.name}'.")
+		return key
 
 	def load_pending_plugin(self, plugin_key: str) -> bool:
 		pending = self.pending.get(plugin_key)

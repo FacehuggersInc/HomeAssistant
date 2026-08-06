@@ -71,9 +71,15 @@ FIELD_CSS = """ input,textarea,select{width:100%;padding:13px;border-radius:9px;
 # pages written before it kept flat grey ones - so the same panel looked like
 # two products depending on which button somebody pressed. Styling the plain
 # elements here means a page gets it by using them, with no page to edit.
+# A labelled button is a FLEX row, not a line of text with an svg dropped into
+# it. An inline <svg> sits on the text baseline, which puts a 16px icon a few
+# pixels low beside a 15px label - on every button in the app that has one,
+# which is most of them now.
 CONTROL_CSS = """ button,.btn{min-height:50px;padding:0 22px;border-radius:11px;
       font-family:inherit;font-size:15px;font-weight:600;cursor:pointer;
-      border:1px solid var(--line);background:var(--card);color:var(--text)}
+      border:1px solid var(--line);background:var(--card);color:var(--text);
+      display:inline-flex;align-items:center;justify-content:center;gap:9px}
+ button svg,.btn svg{flex:none}
  button:hover,.btn:hover{border-color:var(--accent);color:var(--accent)}
  button:active,.btn:active{transform:scale(.99)}
  button[type=submit],.btn.primary{border:none;color:#0d1a12;
@@ -161,10 +167,60 @@ def back_button(token: str, label: str = "Dashboard", href: str = "/") -> str:
             f'token={escape(token)}">{_CHEVRON}<span>{escape(label)}</span></a>')
 
 
+# A sticky row of sibling pages, for a section with more than one.
+#
+# Sticky because these are long pages - a list of files, a form - and a set of
+# tabs that scrolls away is a set of tabs somebody scrolls back up to reach.
+# It sits above the content rather than beside it: at phone width there is no
+# beside.
+SUBNAV_CSS = """ .subnav{position:sticky;top:0;z-index:20;display:flex;
+      margin:0 -18px 16px;padding:10px 18px;background:var(--bg);
+      border-bottom:1px solid var(--line);overflow-x:auto;
+      -webkit-overflow-scrolling:touch}
+ /* Centred by an inner row rather than by justify-content on the scroller.
+    A flex container that both centres AND scrolls clips the overflow at the
+    START in Chromium, and what is cut off cannot be scrolled back to - so
+    the first tab would vanish on a narrow phone. `margin:auto` centres while
+    there is room and gives up cleanly when there is not. */
+ .subnav .row{display:flex;gap:6px;margin:0 auto}
+ .subnav a{display:inline-flex;align-items:center;gap:8px;flex:0 0 auto;
+      text-decoration:none;color:var(--muted);background:var(--card);
+      border:1px solid var(--line);border-radius:10px;padding:10px 14px;
+      font-size:14.5px;font-weight:600;white-space:nowrap}
+ .subnav a:active{background:#26262b}
+ .subnav a.on{color:var(--accent);border-color:var(--accent);
+      background:linear-gradient(150deg,rgba(47,240,142,.14),var(--card) 70%)}
+ .subnav a svg{flex:none;opacity:.85}"""
+
+
+def subnav(items, current: str = "", token: str = "") -> str:
+    """
+    The sibling pages of a section, as a sticky row.
+
+    `items` is a list of (href, label, icon). The current page is still a link
+    rather than a dead span - a tab that does nothing when tapped reads as
+    broken, and reloading the page you are on is a harmless thing for it to
+    do.
+
+    Include SUBNAV_CSS on any page using this.
+    """
+    from src.webicons import svg
+
+    parts = []
+    for href, label, icon in items:
+        joiner = "&" if "?" in href else "?"
+        target = f"{escape(href)}{joiner}token={escape(token)}" if token \
+            else escape(href)
+        on = " class=\"on\"" if href == current else ""
+        parts.append(f'<a href="{target}"{on}>{svg(icon, 18)}'
+                     f'<span>{escape(label)}</span></a>')
+    return f'<nav class="subnav"><div class="row">{"".join(parts)}</div></nav>'
+
+
 def chrome_css() -> str:
     """Everything a page needs that is not its own layout."""
     return "\n".join((FONTS, PALETTE, LAYOUT_CSS, FIELD_CSS, BACK_CSS,
-                      CONTROL_CSS, BANNER_CSS, POSITION_CSS))
+                      CONTROL_CSS, BANNER_CSS, POSITION_CSS, SUBNAV_CSS))
 
 
 def banner(message: str, bad: bool = False) -> str:
@@ -228,7 +284,7 @@ PAGE = """<!DOCTYPE html>
 </style>
 </head>
 <body>
-{back}{heading}{blurb}{banner}
+{back}{nav}{heading}{blurb}{banner}
 {body}
 {script}
 </body>
@@ -239,7 +295,8 @@ PAGE = """<!DOCTYPE html>
 def page(title: str, body: str, token: str = "", heading: str = "",
          blurb: str = "", message: str = "", bad: bool = False,
          css: str = "", script: str = "", back: bool = True,
-         back_label: str = "Dashboard", back_href: str = "/") -> str:
+         back_label: str = "Dashboard", back_href: str = "/",
+         nav: str = "") -> str:
     """
     A whole served page.
 
@@ -257,6 +314,13 @@ def page(title: str, body: str, token: str = "", heading: str = "",
         chrome=chrome_css(),
         css=css,
         back=back_button(token, back_label, back_href) if back else "",
+        # Above the heading, not under it. A section's tabs are how somebody
+        # moves between its pages, and putting them below the title makes the
+        # title look like it belongs to the tabs rather than to the page they
+        # chose. Sticky as well, so this is also the only position where what
+        # sticks to the top is the row of controls rather than a stray
+        # heading.
+        nav=nav,
         heading=f"<h1>{escape(heading)}</h1>" if heading else "",
         blurb=f'<p class="sub">{escape(blurb)}</p>' if blurb else "",
         banner=banner(message, bad),

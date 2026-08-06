@@ -165,10 +165,9 @@ Two things about the matching are worth knowing before adding phrasings:
 
 * **A payload anchor must not be the whole command.** The anchor is cut out
   before patterns are generated, so an anchor of `"whats"` leaves nothing to
-  generate from and the resulting pattern matches every question on the
-  panel. With it in the list, "whats the weather", "whats the date" and
-  "whats the uv index" all arrived as words to look up. The anchors here all
-  carry a word of their own - `definition of`, `the meaning of`, `look up`.
+  generate from and the resulting pattern matches every question on the panel
+  - "whats the weather" and "whats the date" included. Every anchor here
+  carries a word of its own: `definition of`, `the meaning of`, `look up`.
 * **"what does X mean" has no leader**, so it is matched on its trailing verb
   and the word is read off the phrase. An argument pattern cannot do it:
   `extract_args` strips leading verbs and auxiliaries from the span it

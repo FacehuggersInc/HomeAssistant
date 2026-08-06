@@ -7,8 +7,8 @@ merely the last thing that got a chance to run.
 ## When it starts and then dies
 
 Look in **`logs/crash.log`** first. It is appended to, so the interesting crash
-is often not the last one in the file, and it catches three different endings
-that used to look identical from outside:
+is often not the last one in the file. It catches three different endings,
+which look identical from outside:
 
 * an unhandled exception on the main thread
 * one on a worker thread, which Python routes separately and which otherwise
@@ -18,10 +18,10 @@ that used to look identical from outside:
   `try/except` anywhere in the app can see it. `faulthandler` writes the stack
   instead.
 
-The launcher restarting the panel is what made these invisible: the process
-comes back, whatever was on stderr went with the old one, and what is left to
-work from is which page was on screen. The file is written before anything else
-in `app.py` runs, so a crash during startup is caught too.
+The file matters because the launcher restarts the panel: the process comes
+back, whatever was on stderr goes with the old one, and the only thing left to
+work from is which page was on screen. The handlers are installed before
+anything else in `app.py` runs, so a crash during startup is caught too.
 
 ## Narrow it down in one run
 

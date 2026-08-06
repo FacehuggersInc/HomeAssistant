@@ -77,6 +77,24 @@ class WeatherPage(PageFramework):
         back.clicked.connect(lambda: client.goto(client.DEFAULT_PAGE or "#root"))
         layout.addWidget(back)
 
+        # Binding something to a button: the CHECKED FLAG COMES FIRST.
+        #
+        # `clicked` emits a bool, and PyQt fills the lambda's first
+        # positional parameter with it. So this is wrong:
+        #
+        #     button.clicked.connect(lambda key=item.key: load(key))
+        #
+        # `key` is overwritten with False on every press and `load(False)`
+        # is what runs - which finds nothing and looks exactly like the
+        # thing being loaded not existing. Take the flag first:
+        #
+        #     button.clicked.connect(
+        #         lambda _checked=False, key=item.key: load(key))
+        #
+        # A lambda taking NO parameters is also safe - PyQt drops arguments
+        # a slot cannot accept. It is only the ones that accept one that
+        # are caught by it, which is exactly the ones binding a value.
+
         # What plugins are allowed to do to this page.
         self.add_features({
             "set_reading": self.set_reading,

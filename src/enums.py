@@ -72,3 +72,24 @@ class Asset(Path):
 	@property
 	def is_deletable(self) -> bool:
 		return object.__getattribute__(self, "deletable_flag") if "deletable_flag" in self.__dict__ else False
+
+	def mark_guarded(self) -> "Asset":
+		"""
+		Uploads here need somebody at the panel to agree, every time.
+
+		A third flag rather than a stricter reading of `uploadable`, because
+		it answers a different question. Uploadable is "may this be added to
+		from the API"; guarded is "is what lands here **run**". A sound file
+		or a wallpaper is data - the worst a bad one does is look wrong. A
+		plugin is code with the run of the house, and being logged in is not
+		the same as being in the room.
+
+		The permission system already decides WHO may upload. This decides
+		that being allowed is not sufficient on its own.
+		"""
+		object.__setattr__(self, "guarded_flag", True)
+		return self
+
+	@property
+	def is_guarded(self) -> bool:
+		return object.__getattribute__(self, "guarded_flag") if "guarded_flag" in self.__dict__ else False

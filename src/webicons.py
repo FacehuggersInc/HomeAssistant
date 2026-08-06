@@ -50,8 +50,18 @@ PATHS = {
     "message-text":      "M4 5h16v11H9l-5 4z",
     "bell":              "M12 3a5 5 0 015 5v4l2 3H5l2-3V8a5 5 0 015-5z"
                          "M10 19a2 2 0 004 0",
+    "puzzle":            "M10 4h4v2a2 2 0 104 0V4h2v4h-2a2 2 0 100 4h2v8h-6v-2"
+                         "a2 2 0 10-4 0v2H4v-6H2a2 2 0 100-4h2V4h6z",
+    "plus-box":          "M4 4h16v16H4zM12 8v8M8 12h8",
+    "folder-plus":       "M4 6h5l2 2h9v10H4zM12 12v4M10 14h4",
+    "playlist-check":    "M4 7h10M4 12h10M4 17h6M15 15l2 2 4-4",
+    "play":              "M8 5l11 7-11 7z",
+    "stop":              "M6 6h12v12H6z",
+    "file-document":     "M7 3h7l4 4v14H7zM14 3v4h4M10 12h6M10 16h6",
+    "shield-key":        "M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6l8-3z"
+                         "M12 10a2 2 0 100 4 2 2 0 000-4zM12 14v3",
+    "alert":             "M12 4l9 16H3zM12 10v4M12 17h.01",
 }
-
 #Everything else.
 FALLBACK = "M12 8a4 4 0 100 8 4 4 0 000-8z"
 

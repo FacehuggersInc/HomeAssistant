@@ -367,23 +367,23 @@ UI thread, and none of the callers are on it:
 * `on_update` fires from the update loop.
 * A skill runs on its own thread, so `PLAYER.next()` arrives from there.
 
-Ducking is triggered from the first two, so **every volume change reached
-`runJavaScript` from the wrong thread**. Qt does not raise for that — it aborts
-the process, which is why it only ever showed as a crash while music was
-playing, and never as a traceback.
+Ducking is triggered from the first two, so a volume change that called
+`runJavaScript` directly would reach it from the wrong thread. Qt does not
+raise for that — it aborts the process, so the symptom is a crash while music
+is playing and never a traceback. Everything touching the page goes through
+`client.call_on_ui()`.
 
 ## What the card shows
 
 The page is asked what is playing, and **what the search found is the
 fallback**. A page does not always report an artist — the watch page has to be
-scraped for one, and a scrape that misses leaves a title with nothing under it —
-while the search already knew, so throwing it away was the only reason the card
-was ever blank.
+scraped for one, and a scrape that misses leaves a title with nothing under it.
+The search already knew, so it is kept rather than discarded.
 
 YouTube's own pages log a steady stream of console warnings: unused preloads,
-unrecognised permissions policies. None of it is actionable and all of it went
-to stderr, so a page nobody can see is no longer allowed to narrate. Genuine
-JavaScript errors are still kept, at debug.
+unrecognised permissions policies. None of it is actionable, so console output
+from the hidden page is dropped. Genuine JavaScript errors are kept, at
+debug.
 
 ## History
 

@@ -77,10 +77,11 @@ Keep these in mind as you read on — nearly everything else in these docs is on
 A plugin that registers no page, no widget and no skill, and exists so more
 than one plugin can share something. `AstronomyLibrary` is the first.
 
-It came about because Core Widgets loads **before** Nighttime Clock, so the
-night clock could not own the sun-and-moon maths that both wanted - a
-dependency in that direction is a cycle. With no dependencies of its own, a
-library can sit under everything.
+A library declares no dependencies of its own, which is what lets everything
+else depend on it. Sun-and-moon arithmetic is wanted by both Core Widgets and
+Nighttime Clock; Core Widgets loads first, so neither can own it without the
+other depending upwards, and a dependency in that direction is a cycle. A
+library sits under both.
 
 Why a plugin rather than `src/`: nothing in the client needs to know where
 the moon is. `src/` is the panel's own machinery, and a thing that can be

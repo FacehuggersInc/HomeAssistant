@@ -378,8 +378,9 @@ not the plugin is installed.
 The pairs are worth reading as pairs. `on_timer_finished` says a timer *rang*;
 `on_timer_timed_out` says the room was empty when it did. `on_alarm_dismissed`
 is somebody dealing with an alarm and `on_alarm_timed_out` is one going off in
-an empty house. They used to end through the same function with nothing able
-to tell them apart, which made the interesting half of each pair invisible.
+an empty house. Each pair ends through the same code, and the flag that
+separates them is set only on the give-up path - so a listener can tell an
+answered alarm from an ignored one.
 
 `create_on_call_event` and `trigger_on_call_event_iteration` will raise if you pass one of the built-in event names — those are reserved for the Client and must be triggered through its own internal calls, not from plugin code.
 

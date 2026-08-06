@@ -353,8 +353,8 @@ every other occurrence, and anything acting on it can find the stored event.
 
 `expand()` matches a window against the days an occurrence **covers**, not only
 the day it starts. An occurrence beginning before the window can still run into
-it, and filtering on the start day alone meant `on_day()` returned nothing for a
-span that `in_month()` was drawing across the whole week.
+it, so filtering on the start day alone would hide from `on_day()` a span that
+`in_month()` draws across the whole week.
 
 | Call                                  | Does                                           |
 |---------------------------------------|------------------------------------------------|
@@ -367,9 +367,10 @@ span that `in_month()` was drawing across the whole week.
 
 An occurrence's key is `<stored>@<date>`, and nothing is stored under it.
 `get()`, `remove()` and `update()` all resolve it back to the stored event, so
-acting on something the day view handed you works. Without that, `remove()`
-matched nothing, returned a falsy value every caller discarded, and deleting an
-occurrence looked exactly like nothing happening.
+acting on something the day view handed you works. Without that resolution
+`remove()` would match nothing and return a falsy value that most callers
+discard, and deleting an occurrence would look exactly like nothing
+happening.
 
 Editing an occurrence edits the **series**. An occurrence carries no recurrence
 of its own — `occurrence_on()` clears `repeat` and `repeat_until` — so an editor

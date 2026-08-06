@@ -339,7 +339,31 @@ class Client:
         audio_asset = Asset(AUDIO_DIR)
         audio_asset.mark_uploadable()
         self.register_asset("sounds", audio_asset, "FOLDER")
-        self.register_asset("plugins", Asset(cwd / "plugins"),                  "FOLDER")
+        # Plugins, uploadable but GUARDED.
+        #
+        # This is the one asset whose contents are executed. Everything else
+        # that can be uploaded is data - a sound, a wallpaper, a sticker - and
+        # the worst a bad one does is look wrong. A plugin runs with the same
+        # reach as the app, so being permitted to upload is deliberately not
+        # enough on its own: somebody has to be at the panel.
+        #
+        # Deletable is NOT set. Adding a plugin is recoverable by removing
+        # what was added; emptying the folder from a phone takes every plugin
+        # on the panel with it, and that is not a mistake anybody makes on
+        # purpose.
+        # Uploads waiting to be shown, and installs waiting to be agreed to.
+        # Both hold state between two requests, so they live on the client
+        # rather than inside the Flask app - a blueprint rebuilt on a settings
+        # change would take the pending questions with it.
+        from src.plugin.staging import Staging
+        from src.plugin.gate import InstallGate
+        self.PLUGIN_STAGING = Staging()
+        self.PLUGIN_GATE = InstallGate(self)
+
+        plugins_asset = Asset(cwd / "plugins")
+        plugins_asset.mark_uploadable()
+        plugins_asset.mark_guarded()
+        self.register_asset("plugins", plugins_asset, "FOLDER")
         self.register_asset("fonts",   Asset(cwd / "src" / "assets" / "fonts"), "FOLDER")
         self.register_asset("icons",   Asset(cwd / "src" / "assets" / "icons"), "FOLDER")
         self.register_asset("styles",  Asset(cwd / "src" / "assets" / "styles"), "FOLDER")

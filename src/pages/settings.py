@@ -663,8 +663,16 @@ def _build_users_page(client) -> list:
         # Said out loud, because a device showing its browser name is a device
         # nobody has named yet - and that is a thing to finish, not a state.
         waiting = "  ·  choosing their own name" if user.awaiting_name else ""
+        # Permissions on the card, not only in the menu. What a device is
+        # ALLOWED to do is the thing somebody scanning this list wants to
+        # see, and a capability that is only visible after opening a menu is
+        # one nobody audits.
+        from src.registries.user_registry import PERMISSIONS
+        held = [label for key, label, _h in PERMISSIONS if user.may(key)]
+        granted = ("  ·  " + ", ".join(held).lower()) if held else ""
         detail = QLabel(
-            f"{user.address or 'unknown address'}  ·  last seen {seen}{waiting}")
+            f"{user.address or 'unknown address'}  ·  last seen "
+            f"{seen}{waiting}{granted}")
         detail.setFont(make_font(SIZES.S1))
         set_style(detail, "common", "text-muted")
         column.addWidget(detail)
@@ -699,11 +707,47 @@ def _build_users_page(client) -> list:
                 destructive = True,
             )
 
-        row.addWidget(row_menu(client, user.name, [
+        # One entry per permission, saying what it currently is rather than
+        # what pressing it does. A menu of "Manage plugins" with no state is a
+        # menu that has to be opened to find out whether it is on.
+        from src.registries.user_registry import PERMISSIONS
+        entries = [
             ("Rename this device", _rename, Icons.PENCIL, "secondary"),
-            ("Revoke its access", _revoke, Icons.ACCOUNT_REMOVE,
-             "destructive"),
-        ]))
+        ]
+        for key, label, _help in PERMISSIONS:
+            holds = user.may(key)
+
+            def _toggle(token=user.token, permission=key, name=user.name,
+                        label=label, on=holds):
+                if on:
+                    client.USERS.revoke_permission(token, permission)
+                    client.goto("#settings", override=True)
+                    return
+                # Asked before granting, not after. This is the panel handing
+                # a device the ability to put code on it, and the one moment
+                # where the person doing it is definitely in the room.
+                client.confirm(
+                    f"Allow {label.lower()}?",
+                    f"'{name}' will be able to upload, load and reload "
+                    f"plugins. Plugins run with the same reach as the panel "
+                    f"itself.",
+                    on_confirm=lambda: (client.USERS.grant(token, permission),
+                                        client.goto("#settings", override=True)),
+                    confirm_text="Allow",
+                    cancel_text="No",
+                    destructive=True,
+                )
+
+            entries.append((
+                f"{label}: {'on' if holds else 'off'}",
+                _toggle,
+                Icons.KEY,
+                "secondary" if holds else "secondary",
+            ))
+
+        entries.append(("Revoke its access", _revoke, Icons.ACCOUNT_REMOVE,
+                        "destructive"))
+        row.addWidget(row_menu(client, user.name, entries))
         widgets.append(card)
 
     return widgets
@@ -1218,7 +1262,8 @@ class SettingsPage(PageFramework):
     def new_subcategory(self, parent: str, name: str, controls: list,
                          label: str = None, plugin=None, plugin_key: str = None,
                          icon: str = None, readme: str = None,
-                         pending=None) -> None:
+                         pending=None, conflict=None,
+                         inactive: str = "") -> None:
         if parent not in self.categories:
             self.client.log("warning", f"[SettingsPage.new_subcategory] parent category '{parent}' does not exist — call new_category() first")
             return
@@ -1231,6 +1276,10 @@ class SettingsPage(PageFramework):
             "icon":       icon,
             "readme":     readme,
             "pending":    pending,
+            "conflict":   conflict,
+            # What the nav should say beside the name, for a plugin that is
+            # present and not running.
+            "inactive":   inactive,
         }
 
     def insert_block(self, category: str, index: int, content: QWidget) -> None:
@@ -1351,6 +1400,9 @@ class SettingsPage(PageFramework):
         for item in self.client.PLUGIN.pending_plugins():
             overview.append(self._build_pending_header(item))
 
+        for item in self.client.PLUGIN.conflicting_plugins():
+            overview.append(self._build_conflict_header(item))
+
         self.new_category("plugins", overview, label="Plugins", system=True)
 
         for plugin, key in plugins:
@@ -1371,7 +1423,87 @@ class SettingsPage(PageFramework):
                 label=item.name,
                 icon=item.icon,
                 pending=item,
+                inactive="stopped" if not item.missing else "not installed",
             )
+
+        # Keyed by FOLDER, not by key. The key is what it collides on, so a
+        # subcategory named after it would land on top of the plugin that won.
+        for item in self.client.PLUGIN.conflicting_plugins():
+            self.new_subcategory(
+                "plugins", f"conflict:{item.folder}", [],
+                label=item.name,
+                icon=item.icon,
+                conflict=item,
+                inactive="blocked",
+            )
+
+    def _build_conflict_header(self, item) -> QFrame:
+        """
+        A folder that cannot load because its key belongs to something else.
+
+        No buttons at all. There is nothing to press: installing packages
+        will not help, loading it will not work, and the only fix is to change
+        the key in its `plugin.toml` or remove the folder - both of which
+        happen away from this screen.
+        """
+        card = QFrame()
+        set_style(card, "settings", "category-header-pending")
+        card.sort_label = item.name
+        card.sort_dependants = 0
+
+        layout = QVBoxLayout(card)
+        layout.setContentsMargins(16, 14, 16, 14)
+        layout.setSpacing(4)
+
+        top_row = QHBoxLayout()
+        top_row.setContentsMargins(0, 0, 0, 0)
+        top_row.setSpacing(10)
+
+        if item.icon:
+            q_icon = resolve_plugin_icon(item.icon, size=28)
+            if q_icon:
+                icon_lbl = QLabel()
+                icon_lbl.setPixmap(q_icon.pixmap(QSize(28, 28)))
+                set_style(icon_lbl, "common", "transparent")
+                top_row.addWidget(icon_lbl)
+
+        title = QLabel(item.name)
+        title.setFont(make_font(SIZES.M1, bold=True))
+        title.setMinimumHeight(line_height(SIZES.M1, bold=True))
+        set_style(title, "common", "text-pending")
+        top_row.addWidget(title)
+
+        badge = QLabel("CONFLICT")
+        badge.setFont(make_font(SIZES.S1, bold=True))
+        set_style(badge, "settings", "pending-badge")
+        top_row.addWidget(badge)
+        top_row.addStretch()
+        layout.addLayout(top_row)
+
+        sub = QLabel(f"{item.folder}  \u00b7  key '{item.key}'")
+        sub.setFont(make_font(SIZES.S1))
+        set_style(sub, "common", "text-muted")
+        layout.addWidget(sub)
+
+        owner = ("a plugin that ships with the app"
+                 if item.bundled_winner else
+                 f"'{Path(str(item.blocked_by)).name}'")
+        why = QLabel(
+            f"This cannot be loaded. The key '{item.key}' already belongs to "
+            f"{owner}, which is scanned first and wins. Change the key in this "
+            f"plugin's plugin.toml, or remove the folder.")
+        why.setFont(make_font(SIZES.S1))
+        why.setWordWrap(True)
+        set_style(why, "common", "text-muted")
+        layout.addWidget(why)
+        return card
+
+    @staticmethod
+    def _pending_version(item) -> str:
+        try:
+            return str((item.config.get("plugin") or {}).get("version") or "")
+        except Exception:
+            return ""
 
     def _build_pending_header(self, item) -> QFrame:
         from src.plugin import dependencies as deps
@@ -1403,11 +1535,59 @@ class SettingsPage(PageFramework):
         set_style(title, "common", "text-pending")
         top_row.addWidget(title)
 
-        badge = QLabel("NOT INSTALLED")
+        # Two different states share this card, and they are not the same
+        # news. A plugin held back for missing packages is NOT INSTALLED and
+        # needs pip; a plugin somebody unloaded is installed, complete and
+        # simply not running, and needs a button that says so.
+        stopped = not item.missing
+
+        badge = QLabel("STOPPED" if stopped else "NOT INSTALLED")
         badge.setFont(make_font(SIZES.S1, bold=True))
         set_style(badge, "settings", "pending-badge")
         top_row.addWidget(badge)
         top_row.addStretch()
+
+        if stopped:
+            load_btn = QPushButton("Load")
+            load_btn.setFont(make_font(SIZES.S2, bold=True))
+            load_btn.setFixedHeight(44)
+            load_btn.setMinimumWidth(100)
+            load_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            set_style(load_btn, "settings", "plugin-action-install")
+            # `_checked` first, and it matters.
+            #
+            # `clicked` emits a bool, and PyQt fills the lambda's first
+            # positional parameter with it. Written as `lambda k=item.key:`
+            # the key default is overwritten by False on every press, so this
+            # called load_pending_plugin(False) - which finds nothing and
+            # reports that the plugin would not load. Every other connection
+            # in the tree already takes the flag first; this was the one that
+            # did not.
+            load_btn.clicked.connect(
+                lambda _checked=False, k=item.key: self._load_pending_plugin(k))
+            top_row.addWidget(load_btn)
+            layout.addLayout(top_row)
+
+            sub = QLabel(f"{item.key}  \u00b7  v{self._pending_version(item)}"
+                         if self._pending_version(item) else item.key)
+            sub.setFont(make_font(SIZES.S1))
+            set_style(sub, "common", "text-muted")
+            layout.addWidget(sub)
+
+            note = QLabel("Installed, and not running. Nothing it registers "
+                          "is available until it is loaded.")
+            note.setFont(make_font(SIZES.S1))
+            note.setWordWrap(True)
+            set_style(note, "common", "text-muted")
+            layout.addWidget(note)
+
+            if item.error:
+                err = QLabel(item.error)
+                err.setFont(make_font(SIZES.S1))
+                err.setWordWrap(True)
+                set_style(err, "common", "text-muted")
+                layout.addWidget(err)
+            return card
 
         install_btn = QPushButton("Install")
         install_btn.setFont(make_font(SIZES.S2, bold=True))
@@ -1447,6 +1627,15 @@ class SettingsPage(PageFramework):
 
         return card
 
+    def _load_pending_plugin(self, plugin_key: str) -> None:
+        """Start a plugin that is installed and stopped."""
+        def _go():
+            if not self.client.PLUGIN.load_pending_plugin(plugin_key):
+                self.client.simple_notify(
+                    "error", "Plugins", f"'{plugin_key}' would not load.")
+            self._refresh_if_on_settings()
+        self.client.call_on_ui(_go)
+
     def _install_pending_plugin(self, item) -> None:
         def _go() -> None:
             def worker() -> None:
@@ -1474,7 +1663,10 @@ class SettingsPage(PageFramework):
     def _build_category_header(self, label: str, plugin=None, plugin_key: str = None,
                                 in_list: bool = False,
                                 has_content: bool = True, icon: str = None,
-                                readme: str = None, pending=None) -> QFrame:
+                                readme: str = None, pending=None,
+                                conflict=None) -> QFrame:
+        if conflict is not None:
+            return self._build_conflict_header(conflict)
         if pending is not None:
             return self._build_pending_header(pending)
 
@@ -1533,7 +1725,22 @@ class SettingsPage(PageFramework):
         layout.addLayout(top_row)
 
         if plugin_key:
-            sub = QLabel(plugin_key)
+            # The key, and the version beside it.
+            #
+            # The version was in `plugin.toml` and shown nowhere at all, so
+            # the panel could not answer "which one is installed" - which is
+            # the first question anybody has after uploading a new one.
+            line = plugin_key
+            try:
+                version = ""
+                if plugin is not None and hasattr(plugin, "config"):
+                    version = str(plugin.config.get_path("plugin.version", "")
+                                  or "")
+                if version:
+                    line = f"{plugin_key}  \u00b7  v{version}"
+            except Exception:
+                pass
+            sub = QLabel(line)
             sub.setFont(make_font(SIZES.S1))
             set_style(sub, "common", "text-muted")
             layout.addWidget(sub)
@@ -2084,7 +2291,19 @@ class SettingsPage(PageFramework):
 
     # ── Navigation ───────────────────────────────────────────────────────────
 
-    def _make_nav_button(self, label: str, indent: bool, icon: str = None) -> QPushButton:
+    def _make_nav_button(self, label: str, indent: bool, icon: str = None,
+                         inactive_plugin: str = "") -> QPushButton:
+        """
+        One nav entry.
+
+        `inactive_plugin` marks a plugin that is present and not running -
+        "stopped" or "blocked". A nav list where a loaded plugin and an
+        unloaded one look identical is a list you have to open every entry of
+        to find out what is going on, and the answer is on the card behind it
+        rather than in the list you are reading.
+        """
+        if inactive_plugin:
+            label = f"{label}  \u00b7  {inactive_plugin}"
         btn = QPushButton(label)
         btn.setFont(make_font(SIZES.S1 if indent else SIZES.S2))
         btn.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -2098,6 +2317,15 @@ class SettingsPage(PageFramework):
                 btn.setIcon(q_icon)
                 btn.setIconSize(QSize(18, 18))
         self._apply_nav_style(btn, "inactive", indent)
+        if inactive_plugin:
+            # Dimmed and italic on top of whatever the state style does, so
+            # it still highlights when selected and still reads as "here, but
+            # not running" when it is not.
+            font = btn.font()
+            font.setItalic(True)
+            btn.setFont(font)
+            btn.setProperty("plugin_state", inactive_plugin)
+            set_style(btn, "settings", "settings-nav-inactive")
         return btn
 
     @mixin_target("settings.setup.tab.generation")
@@ -2149,7 +2377,10 @@ class SettingsPage(PageFramework):
                     rail_layout.setSpacing(4)
                     for sub_key, sub_entry in subs.items():
                         sub_path = (cat_key, sub_key)
-                        sub_btn = self._make_nav_button(sub_entry["label"], indent=True, icon=sub_entry.get("icon"))
+                        sub_btn = self._make_nav_button(
+                            sub_entry["label"], indent=True,
+                            icon=sub_entry.get("icon"),
+                            inactive_plugin=sub_entry.get("inactive") or "")
                         sub_btn.clicked.connect(lambda _, p=sub_path: self._switch_tab(p))
                         rail_layout.addWidget(sub_btn)
                         self._nav_buttons[sub_path] = sub_btn
@@ -2252,6 +2483,7 @@ class SettingsPage(PageFramework):
             icon=target.get("icon"),
             readme=target.get("readme"),
             pending=target.get("pending"),
+            conflict=target.get("conflict"),
         )
         self._content_layout.insertWidget(self._content_layout.count() - 1, header)
 

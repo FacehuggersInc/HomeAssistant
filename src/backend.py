@@ -19,7 +19,7 @@ def _pretty_size(total: int) -> str:
 
 from urllib.parse import urlencode
 
-from flask import Flask, jsonify, redirect, send_from_directory, request, render_template, make_response, send_file
+from flask import Flask, jsonify, redirect, send_from_directory, request, render_template, make_response, send_file, Response
 
 ADDRESS = "0.0.0.0"
 PORT = 5000
@@ -102,6 +102,21 @@ def FlaskApp(client):
 				"back_button": back_button}
 
 	# AUTH & HELPERS
+	def _token() -> str:
+		"""
+		The calling device's token, from wherever it arrived.
+
+		The same three places `auth()` looks. A route that reads only
+		`request.args` works from a link and silently does not from a form
+		post or a fetch with a header, which is the kind of difference that
+		shows up as one page in a section behaving unlike the others.
+		"""
+		return (request.args.get("token")
+				or request.form.get("token")
+				or request.headers.get("X-Client-Token")
+				or request.cookies.get(TOKEN_COOKIE)
+				or "").strip()
+
 	def _wants_html() -> bool:
 		"""
 		Whether this looks like a browser rather than a script.
@@ -217,8 +232,15 @@ def FlaskApp(client):
 		from src.webresult import wants_page, render
 		if not wants_page(request):
 			return payload, status
-		token = (request.args.get("token")
-				 or request.headers.get("X-Client-Token") or "")
+		# `_token()`, which also reads the cookie.
+		#
+		# This used to look in the query string and the header only. An
+		# approved phone browses on its cookie and puts no ?token= on the
+		# address bar, so `token` was EMPTY on exactly the devices this is
+		# rendered for - which passes `auth()` (it checks the cookie) and
+		# then fails every permission check and writes an empty token into
+		# every link on the page.
+		token = _token()
 		return render(payload, token=token, status=status), status, \
 			{"Content-Type": "text/html; charset=utf-8"}
 
@@ -366,8 +388,15 @@ def FlaskApp(client):
 		err = auth()
 		if err: return err
 
-		token = (request.args.get("token")
-				 or request.headers.get("X-Client-Token") or "")
+		# `_token()`, which also reads the cookie.
+		#
+		# This used to look in the query string and the header only. An
+		# approved phone browses on its cookie and puts no ?token= on the
+		# address bar, so `token` was EMPTY on exactly the devices this is
+		# rendered for - which passes `auth()` (it checks the cookie) and
+		# then fails every permission check and writes an empty token into
+		# every link on the page.
+		token = _token()
 		query = str(request.values.get("q") or "").strip()
 
 		if not query:
@@ -677,6 +706,12 @@ def FlaskApp(client):
 		#collect all uploadable FOLDER assets with stats
 		uploadable = []
 		for key, asset in client.ASSETS.get("FOLDER", {}).items():
+			# Guarded assets are not listed as ordinary uploads. They have
+			# their own page, with their own confirmation, and offering a
+			# drag-and-drop box for one here would be a second way in that
+			# skipped it.
+			if getattr(asset, "is_guarded", False):
+				continue
 			if not getattr(asset, "is_uploadable", False):
 				continue
 			info = {"key": key, "path": str(asset), "exists": False,
@@ -713,6 +748,11 @@ def FlaskApp(client):
 
 		if not getattr(path, "is_uploadable", False):
 			return {"request": "Failed", "reason": f"Asset '{key}' is not marked as uploadable"}, 403
+
+		if getattr(path, "is_guarded", False):
+			return {"request": "Failed",
+					"reason": f"Asset '{key}' holds code and is uploaded "
+							  f"through its own page, not here."}, 403
 
 		token = request.args.get("token", "")
 		# The shared chrome rather than a copy in the template. Two templates
@@ -850,6 +890,16 @@ def FlaskApp(client):
 		if not getattr(path, "is_uploadable", False):
 			return {"request": "Failed", "reason": f"Asset '{key}' is not marked as uploadable"}, 403
 
+		# A guarded asset holds code, and this route cannot handle it in
+		# either sense. It flattens a zip to its basenames - right for a
+		# folder of sounds, and for a plugin it means every file landing in
+		# `plugins/` with its folders gone - and it writes on the strength of
+		# a login alone, where a guarded asset needs somebody at the panel.
+		if getattr(path, "is_guarded", False):
+			return {"request": "Failed",
+					"reason": f"Asset '{key}' holds code and is uploaded "
+							  f"through its own page, not here."}, 403
+
 		if "file" not in request.files:
 			return {"request": "Failed", "reason": "No file in request"}, 400
 
@@ -975,8 +1025,15 @@ def FlaskApp(client):
 		err = auth()
 		if err: return err
 
-		token = (request.args.get("token")
-				 or request.headers.get("X-Client-Token") or "")
+		# `_token()`, which also reads the cookie.
+		#
+		# This used to look in the query string and the header only. An
+		# approved phone browses on its cookie and puts no ?token= on the
+		# address bar, so `token` was EMPTY on exactly the devices this is
+		# rendered for - which passes `auth()` (it checks the cookie) and
+		# then fails every permission check and writes an empty token into
+		# every link on the page.
+		token = _token()
 		user = request.environ.get("ha.user")
 
 		from src.webicons import svg
@@ -1006,6 +1063,19 @@ def FlaskApp(client):
 							"something on it.",
 			 "auth": True, "icon": "clipboard-text"},
 		]
+
+		# Only for a device allowed to use it. A drawer entry leading to a
+		# refusal is a door with a lock and no handle - it tells somebody the
+		# room exists and then stops them, every time they look.
+		try:
+			if client.USERS.may(token, "plugins"):
+				pages.append(
+					{"url": "/plugins", "label": "Plugins",
+					 "description": "What this panel is running, and how to "
+									"add or update one.",
+					 "auth": True, "icon": "puzzle"})
+		except Exception as e:
+			client.log("debug", f"[Index] Could not check plugin access: {e}")
 		for endpoint in client.API.gui_endpoints():
 			pages.append({"url": f"/public/{endpoint.key}", "label": endpoint.gui,
 						  "description": endpoint.description,
@@ -1123,8 +1193,15 @@ def FlaskApp(client):
 		err = auth()
 		if err: return err
 
-		token = (request.args.get("token")
-				 or request.headers.get("X-Client-Token") or "")
+		# `_token()`, which also reads the cookie.
+		#
+		# This used to look in the query string and the header only. An
+		# approved phone browses on its cookie and puts no ?token= on the
+		# address bar, so `token` was EMPTY on exactly the devices this is
+		# rendered for - which passes `auth()` (it checks the cookie) and
+		# then fails every permission check and writes an empty token into
+		# every link on the page.
+		token = _token()
 		user = request.environ.get("ha.user")
 		message = str(request.values.get("message") or "").strip()
 		sender = str(request.values.get("from") or "").strip()
@@ -1585,7 +1662,385 @@ def FlaskApp(client):
 				"requirements": client.PLUGIN.plugin_requirements(key),
 			})
 
+		if _wants_html():
+			# A browser gets the section; a script gets the same JSON it
+			# always got. One route rather than two paths to the same list,
+			# so they cannot come to disagree about what is installed.
+			token = _token()
+			refusal = _may_plugins()
+			if refusal:
+				return refusal
+			from src import webplugins
+			# A note carried back from a failed action, so the reason survives
+			# the reload that re-reads the real state.
+			note = (request.args.get("note") or "").strip()
+			return webplugins.installed_page(_plugin_entries(), token,
+											 message=note, bad=bool(note))
+
 		return {"request": "Success", "loaded": loaded, "pending": pending}, 200
+
+	## -- the Plugins section -------------------------------------------------
+
+	def _may_plugins():
+		"""The refusal, or None. Every route in this section starts here."""
+		token = _token()
+		try:
+			if client.USERS.may(token, "plugins"):
+				return None
+		except Exception as e:
+			client.log("error", f"[Plugins] Permission check failed: {e}")
+		if _wants_html():
+			return webplugins_denied(token), 403
+		return {"request": "Failed",
+				"reason": "This device does not have the 'plugins' "
+						  "permission."}, 403
+
+	def webplugins_denied(token):
+		from src.webui import page
+		return page(
+			"Plugins", '<section class="empty">This device is approved, but '
+			'does not have permission to manage plugins. A panel user with '
+			'access can grant it in Settings &rarr; Users.</section>',
+			token=token, heading="Plugins",
+			blurb="Not permitted on this device.")
+
+	def _pending_version(item):
+		try:
+			return str((item.config.get("plugin") or {}).get("version") or "")
+		except Exception:
+			return ""
+
+	def _taken_keys():
+		"""
+		{key: folder} for every plugin the panel knows about.
+
+		Loaded, stopped and already-conflicting alike. All three hold the key
+		as far as a scan is concerned, so an upload claiming one of them can
+		never load whichever list it is currently on.
+		"""
+		from pathlib import Path as _Path
+		taken = {}
+		try:
+			for plugin, key in client.PLUGIN.get_plugins():
+				path = getattr(plugin, "path", None) or client.PLUGIN.registered.get(key)
+				taken[key] = _Path(str(path)).name if path else key
+			for item in client.PLUGIN.pending_plugins():
+				key = getattr(item, "key", None)
+				if key and key not in taken:
+					taken[key] = _Path(str(getattr(item, "path", ""))).name or key
+			for item in client.PLUGIN.conflicting_plugins():
+				taken.setdefault(item.key, _Path(str(item.blocked_by)).name)
+		except Exception as e:
+			client.log("debug", f"[Plugins] Could not list keys in use: {e}")
+		return taken
+
+	def _plugin_entries():
+		"""Every plugin the panel knows about, loaded or not."""
+		from pathlib import Path
+		bundled_root = (Path(os.getcwd()) / "src" / "assets" / "bundled").resolve()
+		entries = []
+		seen = set()
+		for plugin, key in client.PLUGIN.get_plugins():
+			path = getattr(plugin, "path", None) or getattr(plugin, "directory", None)
+			bundled = False
+			try:
+				bundled = bundled_root in Path(str(path)).resolve().parents
+			except Exception:
+				pass
+			seen.add(key)
+			entries.append({
+				"key": key,
+				"name": client.PLUGIN.plugin_name(key) or key,
+				"loaded": True,
+				"bundled": bundled,
+				# The FOLDER, which is not the key. `plugins/AnimePlugin`
+				# holds the plugin `anime`, and a download has to find the
+				# first from the second.
+				"folder": Path(str(path)).name if path else "",
+				"version": plugin.config.get_path("plugin.version", "") if
+						   hasattr(plugin, "config") else "",
+				"icon": plugin.config.get_path("plugin.icon", "puzzle") if
+						hasattr(plugin, "config") else "puzzle",
+				"description": plugin.config.get_path("plugin.description", "") if
+							   hasattr(plugin, "config") else "",
+				"dependants": client.PLUGIN.get_dependants(key),
+			})
+		for item in client.PLUGIN.pending_plugins():
+			key = getattr(item, "key", None) or str(item)
+			if key in seen:
+				continue
+			entries.append({"key": key, "name": getattr(item, "name", key),
+							"loaded": False, "bundled": False,
+							"version": _pending_version(item),
+							"folder": Path(str(getattr(item, "path", ""))).name,
+							"icon": getattr(item, "icon", None) or "puzzle",
+							"description": "Installed and not running."
+										   if not getattr(item, "missing", None)
+										   else "Waiting on packages: "
+												+ ", ".join(item.missing),
+							"dependants": []})
+		# Folders that will never load because their key is taken. Shown, and
+		# shown as unloadable - the folder is on disk and looks installed, so
+		# leaving it out answers "where is my plugin" with silence.
+		# Guarded like the rest of this function. A whole page failing because
+		# one of its three lists could not be built is a worse answer than the
+		# page without that list.
+		try:
+			clashes = client.PLUGIN.conflicting_plugins()
+		except Exception as e:
+			client.log("debug", f"[Plugins] Could not list conflicts: {e}")
+			clashes = []
+		for item in clashes:
+			owner = ("a plugin that ships with the app"
+					 if item.bundled_winner
+					 else f"'{Path(str(item.blocked_by)).name}'")
+			entries.append({
+				"key": item.key,
+				"name": item.name,
+				"loaded": False,
+				"blocked": True,
+				"bundled": False,
+				"version": _pending_version(item),
+				"folder": item.folder,
+				"icon": item.icon or "alert",
+				"description": (f"Cannot load. The key '{item.key}' already "
+								f"belongs to {owner}. Change the key in this "
+								f"plugin's plugin.toml, or remove the folder."),
+				"dependants": [],
+			})
+
+		entries.sort(key=lambda e: (e["bundled"], e["name"].lower()))
+		return entries
+
+	@app.route("/plugins/new", methods=["GET", "POST"])
+	def plugins_new():
+		log()
+		err = auth()
+		if err: return err
+		err = _may_plugins()
+		if err: return err
+
+		from src.plugin.skeleton import build, as_zip, BadSkeleton
+		from src import webplugins
+		token = _token()
+
+		if request.method == "GET":
+			return webplugins.create_page(token)
+
+		values = {k: (request.form.get(k) or "").strip()
+				  for k in ("name", "key", "description", "settings", "version")}
+		try:
+			folder, files = build(values["name"], values["key"],
+								  values["description"], values["settings"],
+								  values["version"])
+		except BadSkeleton as e:
+			return webplugins.create_page(token, message=str(e), bad=True,
+										  values=values), 400
+
+		# Refused here rather than at upload. A skeleton with a key that is
+		# already taken is a folder somebody writes code in and then cannot
+		# install, and the cost of saying so now is one field.
+		import tomllib as _tomllib
+		chosen = str((_tomllib.loads(files["plugin.toml"].decode())
+					  .get("plugin") or {}).get("key") or "")
+		owner = _taken_keys().get(chosen)
+		if owner and owner != folder:
+			return webplugins.create_page(
+				token, values=values, bad=True,
+				message=(f"The key '{chosen}' already belongs to the plugin in "
+						 f"'{owner}'. Pick another - the first folder scanned "
+						 f"wins, so a second plugin with this key would never "
+						 f"load.")), 409
+
+		client.log("info", f"[Plugins] Skeleton for '{folder}' downloaded.")
+		return Response(
+			as_zip(files), mimetype="application/zip",
+			headers={"Content-Disposition":
+					 f'attachment; filename="{folder}.zip"'})
+
+	@app.route("/plugins/upload", methods=["GET", "POST"])
+	def plugins_upload():
+		log()
+		err = auth()
+		if err: return err
+		err = _may_plugins()
+		if err: return err
+
+		from src.plugin import install as installer
+		from src.plugin.install import Refusal
+		from src.plugin.staging import report
+		from src import webplugins
+		token = _token()
+		user = client.USERS.get(token)
+		who = user.name if user else "a device"
+
+		if request.method == "GET":
+			return webplugins.upload_page(token)
+
+		upload = request.files.get("file")
+		if upload is None or not upload.filename:
+			return webplugins.upload_page(
+				token, message="Choose a zip file first.", bad=True), 400
+
+		try:
+			data = upload.read()
+			files, found = installer.read_zip(
+				data, name=(request.form.get("folder") or "").strip())
+			plan = installer.plan(files, found or upload.filename,
+								  client.asset("FOLDER", "plugins"),
+								  version=(request.form.get("version") or "").strip(),
+								  taken=_taken_keys())
+		except Refusal as e:
+			return webplugins.upload_page(token, message=str(e), bad=True), 400
+		except Exception as e:
+			client.log("error", f"[Plugins] Upload failed: {e}")
+			return webplugins.upload_page(
+				token, message="That upload could not be read.", bad=True), 400
+
+		loaded = client.PLUGIN.has_plugin(plan.key)
+		staged = client.PLUGIN_STAGING.stage(plan, who)
+		return webplugins.preview_page(
+			report(plan, loaded=loaded), staged.token, token)
+
+	@app.route("/plugins/upload/apply", methods=["POST"])
+	def plugins_upload_apply():
+		log()
+		err = auth()
+		if err: return err
+		err = _may_plugins()
+		if err: return err
+
+		from src.plugin.install import Refusal, apply as apply_plan
+		from src.plugin.staging import report
+		from src import webplugins
+		token = _token()
+		user = client.USERS.get(token)
+		who = user.name if user else "a device"
+
+		staged, refusal = client.PLUGIN_STAGING.claim(request.form.get("staged"))
+		if staged is None:
+			return webplugins.upload_page(token, message=refusal, bad=True), 409
+
+		plan = staged.plan
+		# A plugin that is not here yet needs somebody in the room. An update
+		# to one already installed does not - that decision was made when it
+		# was first accepted, and asking again for every bug fix trains people
+		# to press yes without reading.
+		if plan.is_new:
+			client.PLUGIN_GATE.ask(plan, token, who)
+			return webplugins.waiting_page(plan.name, token)
+
+		try:
+			summary = apply_plan(plan)
+		except Refusal as e:
+			return webplugins.upload_page(token, message=str(e), bad=True), 500
+
+		# The files are on disk; the running plugin is not them. Offered
+		# rather than done - see webplugins.result_page.
+		loaded = client.PLUGIN.has_plugin(plan.key)
+		if not loaded:
+			client.PLUGIN.discover(plan.target)
+		note = f"{plan.name} updated - {summary['written']} files written."
+		client.log("info", f"[Plugins] {note}")
+		return webplugins.result_page(
+			plan.name, plan.key, note,
+			"reload" if loaded else ("load" if summary["written"] else ""),
+			token)
+
+	@app.route("/plugins/<plugin_key>/download", methods=["GET"])
+	def plugins_download(plugin_key):
+		"""
+		The plugin as it is on disk right now, zipped.
+
+		The point of it is a round trip: take what is installed, change
+		something, send it back. Without this the only copy of a plugin that
+		has been updated three times over the network is the one on the panel,
+		and the only way to get at it is a keyboard - which is the problem
+		this whole section exists to remove.
+		"""
+		log()
+		err = auth()
+		if err: return err
+		err = _may_plugins()
+		if err: return err
+
+		from src.plugin.install import pack, Refusal, safe_folder_name
+
+		entry = next((e for e in _plugin_entries()
+					  if e["key"] == plugin_key), None)
+		if entry is None:
+			return {"request": "Failed",
+					"reason": f"No plugin '{plugin_key}'."}, 404
+		if entry.get("bundled"):
+			# Bundled plugins are part of the app and travel with it. Offering
+			# a download would hand somebody a copy that a project update
+			# silently replaces, which is a confusing thing to own.
+			return {"request": "Failed",
+					"reason": f"'{plugin_key}' ships with the app and is "
+							  f"updated with it."}, 403
+
+		folder = entry.get("folder") or ""
+		root = client.asset("FOLDER", "plugins")
+		name = safe_folder_name(folder)
+		if not name or not (root / name).is_dir():
+			return {"request": "Failed",
+					"reason": f"'{plugin_key}' is not in the plugins "
+							  f"folder."}, 404
+
+		try:
+			data = pack(root / name)
+		except Refusal as e:
+			return {"request": "Failed", "reason": str(e)}, 500
+
+		version = entry.get("version") or ""
+		filename = f"{name}-{version}.zip" if version else f"{name}.zip"
+		client.log("info", f"[Plugins] '{plugin_key}' downloaded as {filename}.")
+		return Response(data, mimetype="application/zip",
+						headers={"Content-Disposition":
+								 f'attachment; filename="{filename}"'})
+
+	@app.route("/plugins/upload/status", methods=["GET"])
+	def plugins_upload_status():
+		"""Whether the panel has answered yet. Polled by the waiting page."""
+		err = auth()
+		if err: return err
+		err = _may_plugins()
+		if err: return err
+		found = client.PLUGIN_GATE.status(request.args.get("name") or "")
+		if found is None:
+			return {"state": "gone",
+					"detail": "That request is no longer waiting."}, 200
+		return found, 200
+
+	@app.route("/plugins/installed", methods=["GET"])
+	def plugins_installed():
+		"""
+		Where the waiting page lands once the panel has agreed.
+
+		The plugin is on disk and not running. It is made discoverable here
+		rather than at install time, because the install happens on the UI
+		thread inside a dialog callback and the loader's scan is not
+		something to do from there.
+		"""
+		err = auth()
+		if err: return err
+		err = _may_plugins()
+		if err: return err
+
+		from src import webplugins
+		token = _token()
+		name = (request.args.get("name") or "").strip()
+		found = client.PLUGIN_GATE.status(name)
+		if not found or found.get("state") != "approved":
+			return webplugins.upload_page(
+				token, message="That plugin was not installed.", bad=True), 409
+
+		folder = client.asset("FOLDER", "plugins") / name
+		key = client.PLUGIN.discover(folder) or found.get("key") or ""
+		client.PLUGIN_GATE.forget(name)
+		return webplugins.result_page(
+			name, key, f"{name} installed.",
+			"reload" if client.PLUGIN.has_plugin(key) else "load", token)
 
 	@app.route("/plugins/<plugin_key>/<endpoint>", methods=["GET"])
 	def plugin_endpoint(plugin_key, endpoint):

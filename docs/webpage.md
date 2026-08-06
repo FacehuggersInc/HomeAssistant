@@ -36,14 +36,15 @@ watching for a URL change and going back — by the time a URL has changed the
 page has already been fetched. A locked page shows a padlock **inside** its
 address bar, and a refused navigation says so rather than doing nothing.
 
-Inside, not beside, and not a button. It used to be a disabled `IconButton` in
-the toolbar - and a disabled widget does not accept mouse events, so Qt passed
-them to the parent, whose release handler opens the address editor. On a
-locked page that answers "the address is fixed", so a tap that missed the
-close button by a few pixels looked like pressing a padlock button whose only
-purpose was to refuse. The toolbar's tap area is now the address field's own
-geometry rather than the whole row; the buttons take their own presses, and a
-tap in the gap between two of them does nothing at all.
+The padlock is a `QLineEdit` action, not a widget in the toolbar row. It is an
+indicator rather than a control, and a disabled widget beside the field would
+be worse than useless: Qt passes a disabled widget's mouse events to its
+parent, and the parent's release handler opens the address editor - which on a
+locked page answers "the address is fixed".
+
+The toolbar's tap area is the address field's own geometry, not the whole row.
+The buttons take their own presses, and a tap in the gap between two of them
+does nothing.
 
 ```python
 self.client.goto("#webpage", data={

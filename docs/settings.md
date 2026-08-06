@@ -45,11 +45,10 @@ A saved device that is not plugged in right now stays in the dropdown.
 Dropping it would silently rewrite the setting to whatever came first, so a
 panel booted with its speaker unplugged would forget which speaker it had.
 
-A saved name that IS a known plugin is different: it was never a device, and
-an earlier version of this list is how it got chosen. That one is reset to
-`Default` with a warning rather than preserved - `AUDIO.is_helper()` is the
-distinction, and an unknown name is deliberately not a helper, because it may
-be hardware that is simply unplugged.
+A saved name that IS a known plugin is different: it is not a device at all.
+That one is reset to `Default` with a warning rather than preserved.
+`AUDIO.is_helper()` draws the distinction, and an unknown name is deliberately
+not a helper, because it may be hardware that is simply unplugged.
 
 `Default` means "follow the system". That is right for most panels and wrong
 for one with an array that takes the output as well as the input when it

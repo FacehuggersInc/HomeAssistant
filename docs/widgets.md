@@ -63,10 +63,10 @@ without it is pinned to an anchor zone - `DEFAULT_ANCHOR`, which is
 `bottom-left`. Nothing about the drag is broken when that happens; the widget
 is doing what it was declared to do.
 
-**Floatable widgets start floating.** Declaring `FLOATABLE = True` and
-letting it start anchored made it both at once: it drew inside an anchor
-zone, and a drag had to tear it out of that zone before it could go anywhere
-- so it would not pick up cleanly and kept landing back where it began.
+**Floatable widgets start floating.** A `FLOATABLE` widget that started
+anchored would be both at once: drawn inside an anchor zone, and needing a
+drag to tear it out of that zone before it could go anywhere - so it would not
+pick up cleanly and would land back where it began.
 
 | The class says                                  | It starts                 |
 |-------------------------------------------------|---------------------------|
@@ -765,8 +765,8 @@ removed looks exactly like a key belonging to a widget not built yet, so a
 removed widget's entry survives and the next load restores it.
 
 `remove()` therefore calls `forget_layout(key)`, which drops that one entry from
-the file directly. Without it, clearing the home page of stickers worked until
-the page was reopened.
+the file directly. Without it, clearing the home page of stickers holds only
+until the page is reopened.
 
 ## A button on the chrome
 

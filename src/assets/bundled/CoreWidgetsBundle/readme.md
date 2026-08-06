@@ -179,13 +179,13 @@ nearly down, and that is read before any word on the tile. Night draws the
 moon as a lit disc with a shadow offset across it, which gives every phase
 rather than eight named pictures.
 
-Three things that were wrong and are worth not repeating:
+Three things worth knowing before changing it:
 
 - `sun_times` answers in **UTC with a timezone attached**, and comparing one
-  of those to `datetime.now()` raises rather than returning False. The
-  day/night test threw, the handler swallowed it, and the tile showed the day
-  face at midnight while claiming it had no location. Everything is converted
-  to local naive time on the way in.
+  of those to `datetime.now()` raises rather than returning False. A raise
+  swallowed by the handler leaves the tile on its day face at midnight,
+  claiming it has no location. Everything is converted to local naive time on
+  the way in.
 - `%-I` is a **glibc extension**. Windows raises on it, and a format string is
   a poor place to lose a whole platform.
 - The failure branch resets **everything**, not just the times. Half-reset

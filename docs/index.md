@@ -68,6 +68,7 @@ can subscribe to.
 | [Architecture](architecture.md)                     | How the client, backend and plugins fit together.       |
 | [Plugins](plugins.md)                               | `plugin.toml`, `main.py`, and the full lifecycle.       |
 | [Bundled plugins](bundled-plugins.md)               | The nine that ship, and what each provides.             |
+| [Remote plugins](plugins-remote.md)                 | Installing and updating a plugin over the network.      |
 | [Pages](pages.md)                                   | Registering a page, a full example, sub-pages.          |
 | [Widgets](widgets.md)                               | Writing and registering widgets, layout, persistence.   |
 | [Tiles](tiles.md)                                   | Writing and registering tiles, the grid and panel.      |

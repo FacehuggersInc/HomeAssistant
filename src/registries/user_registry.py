@@ -24,13 +24,33 @@ from typing import Callable, Optional
 PENDING_TTL = 300
 
 
+#What a device may do beyond the ordinary.
+#
+#Approval is the door; this is what somebody may touch once inside. Kept as a
+#SET of named permissions rather than a flag per capability, so the next one to
+#exist is a string in this tuple and a checkbox, not another column in the
+#saved file and another migration for every install that predates it.
+#
+#Nobody has any of these by default, including a device approved long before
+#they existed. A permission that arrives switched on for everybody is not a
+#permission.
+PERMISSIONS = (
+    ("plugins", "Manage plugins",
+     "Upload, load, unload and reload plugins. Plugins are code and run with "
+     "the same reach as the panel itself."),
+)
+
+PERMISSION_KEYS = frozenset(key for key, _label, _help in PERMISSIONS)
+
+
 class User:
     """One approved device."""
 
     def __init__(self, token: str, name: str, address: str = "",
                  approved_at: float = None, last_seen: float = None,
                  note: str = "", awaiting_name: bool = False,
-                 awaiting_decision: bool = False):
+                 awaiting_decision: bool = False,
+                 permissions=None):
         self.token = token
         self.name = name
         self.address = address
@@ -46,12 +66,21 @@ class User:
         # screen is how it ended up naming itself over the top of somebody
         # halfway through naming it.
         self.awaiting_decision = awaiting_decision
+        # Only names that still exist. A permission removed from the app
+        # should not linger in a saved file and come back if the name is ever
+        # reused for something else.
+        self.permissions = {str(p) for p in (permissions or [])
+                            if str(p) in PERMISSION_KEYS}
+
+    def may(self, permission: str) -> bool:
+        return str(permission) in self.permissions
 
     def to_dict(self) -> dict:
         return {"token": self.token, "name": self.name, "address": self.address,
                 "approved_at": self.approved_at, "last_seen": self.last_seen,
                 "note": self.note, "awaiting_name": self.awaiting_name,
-                "awaiting_decision": self.awaiting_decision}
+                "awaiting_decision": self.awaiting_decision,
+                "permissions": sorted(self.permissions)}
 
     @classmethod
     def from_dict(cls, raw: dict) -> Optional["User"]:
@@ -66,6 +95,9 @@ class User:
             note=str(raw.get("note") or ""),
             awaiting_name=bool(raw.get("awaiting_name", False)),
             awaiting_decision=bool(raw.get("awaiting_decision", False)),
+            # Absent in a file written before permissions existed, which
+            # means none - see PERMISSIONS.
+            permissions=raw.get("permissions") or [],
         )
 
 
@@ -272,6 +304,65 @@ class UserRegistry:
         # and neither is the question about who names it.
         user.awaiting_name = False
         user.awaiting_decision = False
+        self.save()
+        self._notify()
+        return True
+
+    ## -- permissions
+
+    def may(self, token: str, permission: str) -> bool:
+        """
+        Whether this device holds `permission`.
+
+        Approval is checked here too, not assumed. A revoked device keeps its
+        token, and a permission read off a user object without asking whether
+        that user is still let in is a door that stays open after the lock is
+        changed.
+        """
+        if not self.is_approved(token):
+            return False
+        # The panel itself is not a device with permissions. It IS the thing
+        # granting them, and nothing it does goes over the network.
+        if self.is_panel(token):
+            return True
+        user = self.get(token)
+        return bool(user and user.may(permission))
+
+    def grant(self, token: str, permission: str) -> bool:
+        if str(permission) not in PERMISSION_KEYS:
+            return False
+        user = self.users.get(token)
+        if user is None or permission in user.permissions:
+            return False
+        user.permissions.add(str(permission))
+        self.client.log("info", f"[Users] '{user.name}' granted "
+                                f"'{permission}'.")
+        self.save()
+        self._notify()
+        return True
+
+    def revoke_permission(self, token: str, permission: str) -> bool:
+        user = self.users.get(token)
+        if user is None or permission not in user.permissions:
+            return False
+        user.permissions.discard(str(permission))
+        self.client.log("info", f"[Users] '{user.name}' no longer has "
+                                f"'{permission}'.")
+        self.save()
+        self._notify()
+        return True
+
+    def set_permissions(self, token: str, permissions) -> bool:
+        """Replace the whole set, for a form that submits every checkbox."""
+        user = self.users.get(token)
+        if user is None:
+            return False
+        wanted = {str(p) for p in (permissions or []) if str(p) in PERMISSION_KEYS}
+        if wanted == user.permissions:
+            return False
+        user.permissions = wanted
+        self.client.log("info", f"[Users] '{user.name}' permissions are now "
+                                f"{sorted(wanted) or 'none'}.")
         self.save()
         self._notify()
         return True

@@ -181,6 +181,15 @@
     letter-spacing: 1px;
 }
 
+/* A plugin that is present and not running. Dimmed and set apart from the
+   ones that are, because a nav list where a loaded plugin and an unloaded one
+   look identical has to be opened entry by entry to find out which is which -
+   and the answer is behind the entry rather than in the list being read. */
+.settings-nav-inactive {
+    color: rgba(255,255,255,110);
+    border-left: 2px solid rgba(224,176,112,140);
+}
+
 .settings-nav-rail {
     /* wraps a category's indented sub-category buttons — the left border is... */
     background: transparent;

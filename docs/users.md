@@ -185,6 +185,56 @@ The Calendar plugin uses this to attribute an imported event to the device that
 sent it. Treat it as *who*, not as permission — every approved device can do
 everything the API exposes.
 
+## Permissions
+
+Approval is the door. A permission is what a device may touch once it is
+inside, and the two are separate because they answer different questions -
+"is this phone allowed here" and "may this phone put code on the machine" are
+not the same decision and should not be made by the same yes.
+
+| Permission | What it allows                           |
+|------------|------------------------------------------|
+| `plugins`  | Upload, load, unload and reload plugins. |
+
+They live as a **set of names** on the user rather than a flag each. Adding
+one is a string in `PERMISSIONS` and a checkbox, rather than a new column in
+the saved file that every existing install has to be migrated for. A name not
+in `PERMISSION_KEYS` is dropped when the file is read, so a permission removed
+from the app and later reused for something else cannot come back attached to
+somebody.
+
+**Nobody holds any by default.** A device is approved and holds nothing until
+it is granted something, whenever it was approved. A permission that arrives
+switched on for everybody is not a permission.
+
+`USERS.may(token, name)` re-checks approval rather than reading the flag off a
+user object. A revoked device keeps its token, and a permission read without
+asking whether that device is still let in is a door that stays open after the
+lock is changed. The panel's own token holds everything: it is the thing
+granting permissions, not a device with them.
+
+Granted on the panel - **Settings → Users**, the menu on a device's card - and
+never over the API. Turning one on asks for confirmation; turning it off does
+not, because taking a capability away is not a thing to be talked out of. What
+a device holds is shown on its card, since a capability visible only after
+opening a menu is one nobody audits.
+
+## Reading the token in a route
+
+`auth()` looks in three places - the query string, the `X-Client-Token`
+header, and the cookie - because a device arrives by all three: a link carries
+the token, a script sends the header, and a browser that has been here before
+sends the cookie and nothing else.
+
+**A route that reads only the first two passes `auth()` and then behaves as
+though nobody is there.** The cookie satisfies the check, so the request is
+allowed; the route's own `token` is empty, so every permission test on it
+fails and every link it renders carries `token=`. On a phone - which is the
+only place these pages are ever opened - that is the whole of the failure, and
+it looks exactly like the permission not having been granted.
+
+Use `_token()`. It is the same three places, in the same order.
+
 ## Where it lives
 
 `users.json` in the user data directory, written `0600` because it holds
