@@ -32,6 +32,8 @@ Nothing starts it.
 | `assistant.speech.parakeet_precision` | `int8`        | `int8` is ~700MB. `float32` is ~2.5GB and several times the memory.       |
 | `assistant.wake.wake_word`            | `alexa`       | One of the four openWakeWord ships.                                       |
 | `assistant.wake.wake_listen_timeout`  | `12` sec      | How long to wait for a phrase after waking.                               |
+| `assistant.wake.max_phrase_seconds`   | `8` sec       | The longest one phrase may run before it is discarded.                    |
+| `assistant.wake.wake_diagnostics`     | `off`         | Explain every wake in the log. See [What woke it](#what-woke-it).         |
 | `assistant.wake.session_silence`      | `800` ms      | How long a pause ends a sentence inside a conversation.                   |
 | `assistant.feedback.voice_bar`        | `on`          | The activity bar along the bottom.                                        |
 | `assistant.feedback.voice_bar_hold`   | `6` sec       | Minimum time a transcript stays on it.                                    |
@@ -84,7 +86,8 @@ answers as the word completes, which is before the question starts.
 | Wake audio                          | Discarded. It is the wake word, not the phrase.              |
 | The 250ms after it (`WAKE_TAIL_MS`) | Lead-in only. It cannot start a phrase.                      |
 | Armed for                           | `assistant.wake.wake_listen_timeout`, from the last capture. |
-| A phrase ends on                    | 700ms of silence, or 18s of speech.                          |
+| A phrase ends on                    | 700ms of silence.                                            |
+| A phrase is DISCARDED at            | `assistant.wake.max_phrase_seconds` of continuous speech.    |
 | Disarmed when                       | A transcript comes back **with words in it**.                |
 
 Both ways of speaking work. Run straight on - "alexa what is the weather" -
@@ -122,6 +125,34 @@ both are refused: a name spoken in the room waking the panel is worse than one
 more retry.
 
 
+## What woke it
+
+`assistant.wake.wake_diagnostics` explains every wake in the log. Two lines
+per wake, and they answer different questions:
+
+```
+[Parakeet]: Woke on 'alexa' at 0.62 (bar 0.50).
+[Parakeet]: Wake context: "so I asked her about the whole thing"
+```
+
+The score says how sure openWakeWord was and what bar it had to clear. A wake
+at 0.94 and a wake at 0.51 are the same event from outside the panel and
+completely different from inside it.
+
+The transcript says what it was sure ABOUT, which the score cannot. Two
+seconds of audio ending at the wake are kept in a ring and run through
+Parakeet - so a wake nobody caused reads back as whatever was on television.
+A wake that transcribes to nothing was not speech at all.
+
+The ring is filled on **every** window rather than on the capture path,
+because the spotter runs while muted and while disarmed. A ring filled where
+audio is captured would be empty for exactly the wakes worth explaining.
+
+Off by default: it holds two seconds of audio and runs the speech model an
+extra time per wake. Turn it on, find out what is waking the panel, raise
+`assistant.wake.wake_sensitivity` if the scores are marginal, and turn it off
+again.
+
 ## The phrase
 
 Parakeet is NVIDIA's, run through `onnx-asr` rather than NeMo - four megabytes
@@ -138,7 +169,7 @@ text and no segments.
 | `int8`    | ~650MB  | The default. Faster on a CPU.                         |
 | `float32` | ~2.4GB  | More accurate past 20-30 seconds of continuous audio. |
 
-A phrase caps at 18 seconds, so the two are hard to tell apart on anything
+A phrase caps at eight seconds, so the two are hard to tell apart on anything
 said to a panel.
 
 The precision is sent to the child in its config: it decides which files are
@@ -198,7 +229,7 @@ transcriber; `ParakeetServer` owns the ports and the protocol.
 | `PRE_CONTEXT_MS` | 420   | Lead-in, so a phrase does not start mid-word. |
 | `SILENCE_MS`     | 700   | Ends a phrase in wake mode.                   |
 | `MIN_SPEECH_MS`  | 200   | Below this it is a cough, not a phrase.       |
-| `MAX_PHRASE_MS`  | 18000 | `onnx-asr` guidance is 20-30s.                |
+| `MAX_PHRASE_MS`  | 8000  | Past this it is a television. Discarded.      |
 | `LEVEL_EVERY`    | 3     | One meter report per three speech windows.    |
 
 Two threads, and the audio thread never waits. Anything longer than a window -
@@ -345,6 +376,47 @@ Playback is written in tenth-of-a-second pieces so a stop lands where it was
 asked for. The stream is **stopped** before it is closed - closing directly
 discards pending buffers and every reply loses its final syllables.
 
+### Who owns the voice
+
+Speaking is one shared thing, and the most recent speaker owns it.
+`TTS.claim()` hands out a token; `client.say()` takes one on every reply, and
+`client.speech_owner()` gives it back to whoever caused it.
+
+`TTS.stop(owner=token)` means *stop this only if it is still mine*. A holder
+that has since been displaced is refused, because the voice it would cut off
+belongs to whatever replaced it.
+
+That is the whole point. An answer panel outlives its own voice: a weather
+answer sits on screen, something else is asked, the new answer speaks and
+opens its own panel - and then the weather panel times out and stops the
+speech. An unconditional stop there cuts off a reply that was never its own.
+Both the answer panel and the AI fallback's conversation therefore keep the
+token they spoke under and hand it back when they close.
+
+`TTS.stop()` with no token stops whatever is talking. That is for a person:
+the wake word spoken over a reply, a finger on the action button, an explicit
+cancel. A person outranks whatever the panel is in the middle of saying.
+
+### A cancel word during the grace
+
+`heard_itself()` is a **clock**, not a comparison: anything transcribed within
+`SELF_HEARING_GRACE` of the panel finishing is treated as the tail of its own
+voice. That is right for a fragment of prose and wrong for the one word
+somebody is most likely to say at exactly that moment.
+
+The wake word is already exempt, for the stated reason that the panel never
+says its own wake word. A registered cancel phrase is exempt for the same
+reason and one more: the panel does not speak in single words, so a transcript
+that is *only* "stop" cannot be a fragment of a reply it just read.
+
+Matched on the WHOLE phrase against `client.CANCEL.keywords()` - "stop the
+timer" is a targeted cancel and goes through normal routing; "it stopped
+raining" is prose. `echoed()` still runs afterwards, so a genuine echo that
+happens to be short is still caught by content.
+
+Without it, saying "stop" the moment a long reply ended did nothing, and the
+panel had to be woken again before it would hear the word that means stop.
+
 ### Hearing itself
 
 **Nothing is captured while the panel is speaking.** `client.say()` sends
@@ -469,6 +541,56 @@ panel spoke, and the transcriber only runs on silence, so the last thing it
 was saying arrives just after it was stopped, looking like a question.
 
 
+## Speech that is not for the panel
+
+A television talks for minutes. A wake it caused is followed by whatever was
+being said, and the old behaviour transcribed it: at the length cap the
+buffer was finalised, so two sentences of somebody else's dialogue went to
+the skill engine to be matched against. Long enough and some of it matches.
+
+Past `assistant.wake.max_phrase_seconds` the audio is **discarded** and the
+wake stands down. Nothing that long was said to the panel, so there is
+nothing in the buffer worth keeping, and the next thing said starts a fresh
+prompt rather than landing in the middle of an abandoned one.
+
+The spotter is reset along with the wake state. It carries context between
+frames, and context from audio that has just been thrown away describes
+something no longer adjacent to what comes next.
+
+Eight seconds is longer than any question anybody asks a wall panel and
+shorter than any programme. The limit is counted in 30ms windows, so what is
+set is rounded to the nearest one, and two seconds is the floor.
+
+## Cancelling
+
+"Stop" reaches the answer panel through `client.CANCEL`, and stopping it is
+three things rather than one.
+
+The reply stops and the card closes - both, because a voice with nothing on
+screen behind it and a card nobody can dismiss by voice are each half a
+cancel.
+
+The cut is **marked as an interruption**, the same as a wake word spoken over
+a reply. `tts.stop()` returns before the room does: there is still audio in
+the output buffer and in the air, and the first thing captured after a cancel
+is that tail. Unmarked, it is transcribed, matched against skills, and acted
+on. `spoke_until` is cleared at the same time, because a reply cut mid-word
+has no tail left to overhear and the grace would only suppress the next real
+thing said.
+
+And the **child is told**. This is the half that is easy to miss: clearing
+the panel's wake state leaves the listener process exactly as it was.
+`switch_mode()` therefore disarms and resets the spotter as well as bumping
+the generation - an armed child goes on capturing whatever it hears next, so
+a cancel that only cleared the panel's own state took the next sound in the
+room as a phrase and put the panel back into LISTENING with nobody having
+said the word. Saying "stop" again re-entered the same state, which is why it
+took several.
+
+Both callers of `switch_mode()` are deliberate transitions - opening a
+conversation and leaving one - and neither wants a previous wake carried
+across.
+
 ## Routing a transcript
 
 ```
@@ -575,6 +697,52 @@ The notification always appears when the microphone comes up; whether it is
 spoken is `assistant.feedback.greet_on_start`, off by default. It names
 `client.wake_word` - the configured one, not whichever skill registered first.
 
+**A muted microphone gets a different greeting.** Every ordinary greeting
+promises to be listening, which is exactly wrong when the mixer has the
+microphone muted: the panel says it is ready, the wake word then does
+nothing, and nothing on screen connects the two. Somebody stands there
+repeating a word at a device that told them it was listening.
+
+So `greet()` asks `client.mic_muted()` and picks from `MUTED_GREETINGS`
+instead - each of which says the microphone is muted and none of which claims
+to be listening. The wake word is left out of that version entirely: telling
+somebody to say it while nothing can hear them is the problem being
+described, not the fix for it. When it is spoken aloud, the whole sentence is
+said rather than just the opening, because the explanation is the second half.
+
+
+## Saying it rather than writing it
+
+`speakable.py` runs the opposite way to `normalize.py`: an answer written for
+the screen, turned into something a speech model can pronounce. It matters
+most for the AI fallback, whose replies arrive as written prose.
+
+Deliberately narrow, and shape-driven rather than word-for-word:
+
+| Written              | Said                             |
+|----------------------|----------------------------------|
+| `3.14`               | 3 point 14                       |
+| `The answer is 5.`   | unchanged - a full stop          |
+| `(programming lang)` | `, programming lang,` - a pause  |
+| `and/or`             | and slash or                     |
+| `6 / 2`              | 6 divided by 2                   |
+| `21°C`               | 21 degrees celsius               |
+| `https://…`          | a link                           |
+
+A period is only a decimal point with digits hard against it on both sides.
+`5. Then` is two sentences and stays that way; `v1.2` is a version and reads
+correctly as "one point two" anyway.
+
+Brackets become a pause rather than a word. Nobody says "open parenthesis",
+and reading straight through runs two clauses together - "Python programming
+language" instead of "Python, programming language". The tidying afterwards
+matters as much as the substitution: a bracket closing a sentence would
+otherwise leave `,.`, and one at the end would leave a comma hanging.
+
+Order matters. URLs and code are removed first, so a slash inside an address
+is never "divided by"; units are expanded before bare symbols, so `°C` does
+not become `degreesC`; and the generic slash runs after the between-numbers
+rules, so `6 / 2` is division and `and/or` is not.
 
 ## Cross-platform note
 

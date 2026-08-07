@@ -59,11 +59,65 @@ GENERIC_LEMMAS = frozenset({
 # unanticipated determiner reaches the Matcher as a weak partial hit at best.
 MATCHER_CONFIDENT_SCORE = 0.75
 
+#How many skills get a turn at one phrase before it goes to the fallback.
+#
+#Every decline is another handler running, and a handler that declines has
+#usually already done the work that told it to - a lookup, a title check. Four
+#is more than any real phrase needs and short enough that a pathological one
+#cannot spend a second walking the whole registry.
+MAX_SKILL_ATTEMPTS = 4
+
+
+class SkillDeclined(Exception):
+    """
+    Raised by a skill that matched but cannot answer after all.
+
+    Matching happens on the words, and the words are sometimes not enough.
+    A Wikipedia skill only knows the question was not for it once the article
+    comes back and its title turns out to be about somebody else; a lookup
+    skill only knows the subject is not a series once it has looked. Both are
+    the highest-scoring skill for the phrase and both are wrong, and the
+    engine cannot tell before the handler runs.
+
+    Declining hands the phrase to the next-best skill, and to the fallback if
+    nothing else takes it. It is NOT an error: the skill worked correctly and
+    the answer is that this was not its question.
+
+    Raise it before showing anything. A panel that opens and then reports a
+    failure is worse than one that never opened - the phrase still has
+    somewhere else to go, and the person watching cannot tell the difference
+    between "not mine" and "broken".
+    """
+
+    def __init__(self, reason: str = ""):
+        super().__init__(reason or "not this skill")
+        self.reason = reason or "not this skill"
+
+
+#Returned instead of raising, for a handler that would rather not.
+DECLINED = SkillDeclined
+
 # Words that carry no intent and vary freely between speakers. Made optional
 # in generated patterns so their presence or absence never decides a match.
 # Rule-phase tuning. FUZZY_MIN_RATIO is deliberately generous: the phase only
 # runs when the Matcher found nothing, and it is thresholded afterwards.
 FUZZY_MIN_RATIO = 0.78
+
+#The bar a fuzzy match has to clear when it is the ONLY thing holding a match
+#together - no lemma matched exactly and the whole score rests on one word
+#being nearly another.
+#
+#Fuzzy matching exists to rescue a mishearing inside a phrase that otherwise
+#matches, and against real mishearings it has room to spare: "whether" for
+#"weather" is 0.857, "notifcation" 0.957, "aplication" 0.952. The words it
+#must NOT accept sit a clear step below - "ocean" against "clean" is 0.800,
+#and so is "timer" against "tiger".
+#
+#It matters most on a short question, because a phrase whose only content
+#word is the misread one gets precision 1.0 for free: "what is the ocean"
+#reduces to {ocean}, which matched "clean" in the air-quality skill's "is the
+#air clean" and routed a question about the sea to the weather.
+FUZZY_SOLE_RATIO = 0.85
 FUZZY_MIN_LENGTH = 4
 
 OPTIONAL_LEMMAS = {
@@ -540,37 +594,77 @@ class SkillIntentEngine:
 		s = re.sub(r"\s+", " ", s)
 		return s
 	
-	def __skill_call_with_status_update(self, best_skill:Skill, match):
-		# A turn opens here, before the skill runs, so any answer it produces
-		# lands against the question that caused it. Opening it inside the
-		# skill would mean every skill remembering to - and the ones that
-		# forgot would be invisible, because a missing turn looks exactly
-		# like a question nobody asked.
+	def __skill_call_with_status_update(self, ranked, match):
+		"""
+		Run the best skill, and the next one if it declines.
+
+		`ranked` is every skill that scored, best first. Most phrases use the
+		first and stop; a skill that raises SkillDeclined says the words
+		matched but the question was not for it, and the phrase carries on
+		down the list. When nothing takes it the fallback gets it, which is
+		the same place a phrase that matched nothing would have gone.
+		"""
+		text = match.text if hasattr(match, "text") else str(match)
+
+		for attempt, skill in enumerate(ranked[:MAX_SKILL_ATTEMPTS]):
+			# A turn opens per attempt, before the skill runs, so any answer
+			# it produces lands against the question that caused it. Opening
+			# it inside the skill would mean every skill remembering to - and
+			# the ones that forgot would be invisible, because a missing turn
+			# looks exactly like a question nobody asked.
+			#
+			# Re-opened on each attempt rather than once: a declining skill
+			# may have opened a turn of its own, and leaving it there
+			# attributes the answer to whichever skill did not give one.
+			try:
+				self.client.CONTEXT.begin(skill.key, text)
+			except Exception:
+				pass
+
+			args = skill.extract_args(match)
+			# The payload wins where both name the same argument: it is the
+			# verbatim value, and extract_args would have trimmed it.
+			args.update(skill.payload_value(match))
+			if skill.wants_phrase:
+				args["phrase"] = text
+			if attempt:
+				self.client.log("info",
+					f"[SkillIntentEngine] Trying '{skill.key}' instead.")
+			self.client.log("info", f"Intent Args: {args}")
+
+			try:
+				skill.call(**args) if args else skill.call()
+			except SkillDeclined as declined:
+				# Not an error. The skill ran, worked, and established that
+				# this was not its question - which is a thing only it could
+				# have known and only after looking.
+				self.client.log("info",
+					f"[SkillIntentEngine] '{skill.key}' declined: "
+					f"{declined.reason}")
+				continue
+			except Exception:
+				self.client.log("error",
+					f"Error calling skill '{skill.key}'"
+					f"{' with args' if args else ''}:\n---start---\n"
+					f"{traceback.format_exc().strip()}\n---end---")
+
+			# Taken. Either it answered or it failed in a way of its own,
+			# and neither is the next skill's business.
+			self.client.ASSIST_STATUS = "LIVE"
+			return
+
+		# Nobody took it. The same destination as a phrase that matched
+		# nothing at all, because from the outside that is what happened.
+		self.client.log("info",
+			"[SkillIntentEngine] Every skill declined - passing it on.")
+		self.client.ASSIST_STATUS = "LIVE"
+		context = None
 		try:
-			self.client.CONTEXT.begin(
-				best_skill.key,
-				match.text if hasattr(match, "text") else str(match))
+			context = self.client.CONTEXT.last
 		except Exception:
 			pass
-		args = best_skill.extract_args(match)
-		# The payload wins where both name the same argument: it is the
-		# verbatim value, and extract_args would have trimmed it.
-		args.update(best_skill.payload_value(match))
-		if best_skill.wants_phrase:
-			args["phrase"] = match.text if hasattr(match, "text") else str(match)
-		self.client.log("info", f"Intent Args: {args}")
-		if args:
-			try:
-				best_skill.call(**args)
-			except Exception as e:
-				self.client.log("error", f"Error calling skill '{best_skill.key}' with args:\n---start---\n{traceback.format_exc().strip()}\n---end---")
-		else:
-			try:
-				best_skill.call()
-			except Exception as e:
-				self.client.log("error", f"Error calling skill '{best_skill.key}':\n---start---\n{traceback.format_exc().strip()}\n---end---")
-			
-		self.client.ASSIST_STATUS = "LIVE"
+		self.client.iterate_event_callables(
+			"on_assistant_fallback", text, extra=context)
 
 	def rebuild_idf(self) -> None:
 		"""
@@ -647,6 +741,8 @@ class SkillIntentEngine:
 				matched = 0.0
 				total = 0.0
 				used = set()
+				exact = False
+				loosest = 1.0
 				for lemma in example:
 					weight = self.lemma_weight(lemma)
 					total += weight
@@ -658,8 +754,20 @@ class SkillIntentEngine:
 					if best_token:
 						matched += weight * best_token
 						used.add(best_match)
+						if best_token >= 1.0:
+							exact = True
+						else:
+							loosest = min(loosest, best_token)
 
 				if not total:
+					continue
+
+				# Nothing matched outright, so everything here rests on words
+				# that merely resemble each other. That is what fuzzy
+				# matching is for, but it has to be surer of itself when it
+				# is carrying the match alone than when it is repairing one
+				# word inside a phrase that already agrees.
+				if not exact and loosest < FUZZY_SOLE_RATIO:
 					continue
 
 				recall = matched / total
@@ -696,6 +804,10 @@ class SkillIntentEngine:
 		results = self.matcher(match_doc)
 		best_skill : Skill = None
 		best_score = -1
+		#Every skill that scored, by key, with its best score. A skill can
+		#decline once it has looked, and the phrase then needs somewhere to
+		#go - which means knowing who came second.
+		scored: dict = {}
 
 		input_lemmas = {t.lemma_.lower() for t in match_doc if _is_content(t)}
 		input_content = {t.lemma_.lower() for t in match_doc
@@ -739,7 +851,14 @@ class SkillIntentEngine:
 					"on_assistant_fallback", phrase, extra=context)
 			return None, None
 
-		candidates = [self.id2skill[m[0]] for m in results]
+		# `.get`, not indexing. The Matcher is shared across the process,
+		# so it can hold a pattern id this engine has no skill for - a
+		# plugin unloaded mid-phrase, or a second engine in a test. Indexed
+		# directly that is a KeyError out of parse(), which takes the whole
+		# utterance down rather than the one pattern that went stale.
+		candidates = [found for found in
+					  (self.id2skill.get(m[0]) for m in results)
+					  if found is not None]
 
 		for skill in candidates:
 			# A payload skill is scored on its command words alone. Its value
@@ -769,6 +888,8 @@ class SkillIntentEngine:
 				precision = overlap / max(1, len(skill_lemmas))
 				score = (2 * recall * precision / (recall + precision)
 				         if (recall + precision) else 0.0)
+				if score > scored.get(skill.key, (-1.0, None))[0]:
+					scored[skill.key] = (score, skill)
 				if score > best_score:
 					best_score = score
 					best_skill = skill
@@ -780,6 +901,7 @@ class SkillIntentEngine:
 			# these by accident (0 beat its -1 starting value) and dropping
 			# them now would be a silent regression.
 			best_skill, best_score = candidates[0], 0.0
+			scored.setdefault(best_skill.key, (0.0, best_skill))
 
 		if not best_skill or best_score < MATCHER_CONFIDENT_SCORE:
 			# The rule phase, which used to run only when the Matcher found
@@ -797,8 +919,11 @@ class SkillIntentEngine:
 			# to beat the rule phase, which scores against content words with
 			# their discriminating weight.
 			rule_skill, rule_score = self.rule_match(input_content, match_doc)
-			if rule_skill is not None and rule_score > best_score:
-				best_skill, best_score = rule_skill, rule_score
+			if rule_skill is not None:
+				if rule_score > scored.get(rule_skill.key, (-1.0, None))[0]:
+					scored[rule_skill.key] = (rule_score, rule_skill)
+				if rule_score > best_score:
+					best_skill, best_score = rule_skill, rule_score
 
 
 		if not best_skill:
@@ -831,7 +956,15 @@ class SkillIntentEngine:
 				# understood from one that was not.
 				self.client.iterate_event_callables("on_skill_called",
 												   best_skill.key)
-				Thread(target = self.__skill_call_with_status_update, args = [best_skill, match_doc]).start()
+				# Best first, and everything else behind it in case the best
+				# turns out not to want it after all.
+				ranked = [skill for _score, skill in
+						  sorted(scored.values(), key=lambda pair: -pair[0])]
+				if best_skill in ranked:
+					ranked.remove(best_skill)
+				ranked.insert(0, best_skill)
+				Thread(target = self.__skill_call_with_status_update,
+					   args = [ranked, match_doc]).start()
 			else:
 				self.client.ASSIST_STATUS = "LIVE"
 			self.client.log("info", f"[SkillIntentEngine] Matcher found '{best_skill.key}' @ {best_score} : {time.time() - start}s")

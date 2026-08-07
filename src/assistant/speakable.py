@@ -52,6 +52,21 @@ BETWEEN_NUMBERS = [
     (r"(?<=\d)\s+-\s+(?=\d)",     " minus "),
 ]
 
+#Punctuation that is read rather than heard, handled by shape rather than by
+#being swapped for a word.
+PUNCTUATION = [
+    # A decimal point, and only that. A full stop is the end of a sentence
+    # and must stay one, so this needs digits hard against it on both sides:
+    # "3.14" is a number, "5. Then" is two sentences, and "v1.2" is a version
+    # that reads correctly as "one point two" anyway.
+    (r"(?<=\d)\.(?=\d)", " point "),
+    # Brackets become a pause. Nobody says "open parenthesis", and reading
+    # the contents straight through runs two clauses together - "Python
+    # programming language" instead of "Python, programming language".
+    (r"\s*\(\s*", ", "),
+    (r"\s*\)", ","),
+]
+
 #Read as words rather than spelled out.
 UNITS = [
     (r"(?<=\d)\s*°C\b", " degrees celsius"),
@@ -156,10 +171,26 @@ def speakable(text: str) -> str:
     for pattern, spoken in BETWEEN_NUMBERS:
         said = re.sub(pattern, spoken, said)
 
+    # After BETWEEN_NUMBERS, so "6 / 2" has already become "divided by" and
+    # what is left is a slash between words - "and/or", "TV/film" - which is
+    # said rather than skipped over.
+    said = said.replace("/", " slash ")
+
+    for pattern, spoken in PUNCTUATION:
+        said = re.sub(pattern, spoken, said)
+
     # Markdown emphasis is invisible when spoken and confuses the model's own
     # text preparation, which capitalises and punctuates what it is given.
     said = _MARKDOWN.sub(" ", said)
 
     said = _SPACES.sub(" ", said)
     said = re.sub(r"\s+([,.;:!?])", r"\1", said)
+
+    # Tidying after the brackets. A closing bracket that ended a sentence
+    # leaves ",." and one at the very end leaves a comma hanging; two commas
+    # meet where a bracket sat next to existing punctuation.
+    said = re.sub(r",\s*([.,;:!?])", r"\1", said)
+    said = re.sub(r"([.,;:!?])\s*,", r"\1", said)
+    said = re.sub(r"\s*,\s*$", "", said)
+    said = _SPACES.sub(" ", said)
     return said.strip()

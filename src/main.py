@@ -1203,12 +1203,32 @@ class Client:
         a voice with nothing on screen behind it, and stopping the voice
         while the card sits there is somebody having to tap it as well.
         """
+        stopped = False
         try:
             tts = getattr(self, "TTS", None)
             if tts is not None:
-                tts.stop()
+                stopped = bool(tts.stop())
         except Exception as e:
             self.log("debug", f"[Client] Could not stop speech: {e}")
+
+        # Marked as an interruption, the same as a wake word spoken over a
+        # reply. A reply cut off mid-word still has audio in the room and in
+        # the output buffer after `stop()` returns, and without this the
+        # first thing captured afterwards is that tail - transcribed, matched
+        # against skills, and acted on. The word that did the cancelling was
+        # heard; what follows it is the panel, not the person.
+        stt = getattr(self, "STT", None)
+        if stt is not None:
+            try:
+                stt.interrupted_at = time.time()
+                # Whatever else was going to be said is not coming, so the
+                # self-hearing grace would only suppress the next real thing.
+                stt.spoke_until = 0.0
+                if stopped and hasattr(stt, "note_interrupted"):
+                    stt.note_interrupted()
+            except Exception as e:
+                self.log("debug", f"[Client] Could not mark the stop: {e}")
+
         for panel in self._answer_panels():
             try:
                 self.call_on_ui(panel.close_panel)
@@ -1251,12 +1271,22 @@ class Client:
                 except Exception:
                     pass
 
+        # Captured out here, not inside build(): build() runs on the UI
+        # thread whenever it gets there, and by then something else may have
+        # spoken. The token that belongs to this answer is the one taken when
+        # THIS answer spoke.
+        owner = self.speech_owner() if speak else 0
+
         def build():
             try:
                 from src.ui.panels.answer import AnswerPanel
                 panel = AnswerPanel(self, icon, title, lines, tint, timeout,
                                     image=image, caption=caption, action=action,
                                     hold_open=hold_open)
+                # What this panel is entitled to silence. Without it, a panel
+                # closing on its timeout stops whatever is talking - which by
+                # then may be a different answer entirely.
+                panel.speech_owner = owner
                 # Told when it goes, so a caller whose answer stands for
                 # something still happening - a timer making a noise - can
                 # deal with that when the answer is dismissed.
@@ -1921,6 +1951,15 @@ class Client:
         with self._spoken_lock:
             return list(self._spoken)
 
+    def speech_owner(self) -> int:
+        """
+        The token for the most recent thing said, or 0.
+
+        Held by whoever caused it, and handed back to `TTS.stop(owner=...)`
+        so a stop applies only while that speech is still the current one.
+        """
+        return int(getattr(self, "_speech_owner", 0) or 0)
+
     def say(self, text: str, thread: bool = True) -> bool:
         """
         Speak. Returns whether a person actually heard it.
@@ -1973,6 +2012,14 @@ class Client:
             # second or two on a long reply, and a silent panel in that gap
             # looks like nothing happened.
             self.log("debug", f"[Assistant] Speaking: {text[:80]!r}")
+            # Claimed before it starts. Whatever spoke last owns the voice,
+            # and anything holding an older token has been displaced - so a
+            # panel that closes later cannot silence a reply that replaced
+            # its own. See TTS.claim().
+            try:
+                self._speech_owner = self.TTS.claim()
+            except Exception:
+                self._speech_owner = 0
             with self.thinking("speaking"):
                 self.TTS.play(text, thread=thread)
             return True

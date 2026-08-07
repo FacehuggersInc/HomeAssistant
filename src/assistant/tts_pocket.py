@@ -74,6 +74,11 @@ class PocketTTSProcessing:
         self.speaking = False
         #Set by stop() and read between chunks of playback.
         self._interrupt = False
+        # Who is entitled to stop the voice. Bumped by claim(), which the
+        # client calls for every new thing said - so the most recent speaker
+        # owns it and anything older has been displaced.
+        self._owner = 0
+        self._claim_lock = Lock()
         # A reply accepted but not yet playing - see is_speaking().
         self._pending = False
         self.available = False
@@ -623,17 +628,29 @@ class PocketTTSProcessing:
         """
         return bool(self.speaking or getattr(self, "_pending", False))
 
-    def stop(self) -> bool:
+    def stop(self, owner: int = None) -> bool:
         """
         Stop speaking now. Returns whether there was anything to stop.
 
         The reply is abandoned rather than paused: somebody who interrupts is
         not asking for the rest of it later.
 
+        `owner` is a token from `claim()`. Passing one means "stop this only
+        if it is still mine" - a caller that has since been displaced is
+        refused, because the voice it would be cutting off belongs to
+        whatever replaced it. Passing nothing stops unconditionally, which is
+        what the wake word and an explicit cancel do: a person interrupting
+        outranks whatever is talking.
+
         The flag is raised whether or not audio is playing. A sentence still
         being generated cannot be interrupted mid-word, but it can be thrown
         away when it arrives, and that is what this asks for.
         """
+        if owner is not None and owner != self._owner:
+            self.client.log(
+                "debug", f"[TTS] Not stopping - token {owner} was replaced "
+                         f"by {self._owner}.")
+            return False
         if not self.is_speaking():
             return False
         self._interrupt = True
@@ -659,6 +676,31 @@ class PocketTTSProcessing:
     WARMUP_S = 0.45
 
     ## -- interface
+
+    def claim(self) -> int:
+        """
+        Take ownership of the voice. Returns the token that now owns it.
+
+        Speaking is a shared, single resource, and the thing that most
+        recently started talking is the thing that owns it. Anything holding
+        an OLDER token has been displaced and must not silence what replaced
+        it.
+
+        The problem this solves: an answer panel stops speech when it closes,
+        which is right while it is the thing talking and wrong a minute later.
+        A weather answer left on screen, a question asked, the AI fallback
+        opening its own panel and beginning to speak - and then the weather
+        panel times out, calls stop(), and cuts off a reply that was never
+        its own.
+        """
+        with self._claim_lock:
+            self._owner += 1
+            return self._owner
+
+    @property
+    def owner(self) -> int:
+        """The token currently entitled to stop the voice."""
+        return self._owner
 
     def play(self, text: str = None, audio: list = None,
              thread: bool = True) -> None:

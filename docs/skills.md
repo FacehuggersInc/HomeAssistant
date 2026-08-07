@@ -430,9 +430,67 @@ An utterance no skill claims fires `on_assistant_fallback`. The bundled
 [AI Fallback](bundled-plugins.md) plugin subscribes to it and answers with an
 LLM; you can subscribe too.
 
+A skill that matched but [declined](#declining-after-you-have-looked) ends up
+here too, which is deliberate: from outside the panel, a phrase nobody would
+answer and a phrase everybody handed on are the same event.
+
 Being unmatched is a valid outcome and the threshold protects it — scoring
 every skill against every phrase would always produce a nearest match, and
 "the assistant did the wrong thing" is worse than "the assistant did nothing".
+
+## Declining after you have looked
+
+Matching happens on words, and words are sometimes not enough to know whether
+a question was yours. Raise `SkillDeclined` and the phrase carries on to the
+next-best skill, and to the fallback if nothing takes it:
+
+```python
+from src.assistant.skill import SkillDeclined
+
+def wiki_search(self, subject: str = "", phrase: str = ""):
+    found = api.look_up(subject)
+    if not found:
+        raise SkillDeclined(f"nothing for {subject!r}")
+    if not title_matches(subject, found["title"]):
+        raise SkillDeclined(f"asked {subject!r}, got {found['title']!r}")
+    ...
+```
+
+This is not an error. The skill ran, worked, and established something only
+it could know and only after looking: Wikipedia answers every query with its
+nearest article, so "what is the ocean like" comes back as *Frank Ocean*. No
+score computed before the handler ran could have seen that.
+
+**No subject is a decline, not a question.** A skill that matched but cannot
+work out what it was asked about should hand the phrase on rather than ask
+for it. "When is the next season *or* the ramparts of ice" - one mis-heard
+word - broke the anime skill's payload anchor, so the Wikipedia skill won at
+0.18, found no subject, and replied "what should I look up?" It was holding a
+phrase that named the thing perfectly well, and it ended the turn on behalf
+of every skill that was never tried.
+
+**Decline before you show anything.** A panel that opens and then reports a
+failure is worse than one that never opened — the phrase still has somewhere
+to go, and nobody watching can tell "not mine" from "broken".
+
+**An outage is not a decline either.** "No such thing" is a judgement about
+your own subject matter and belongs to the next skill. "The service is down"
+is not - nothing about it established that the question was not yours, and
+handing it on has the next skill answering for somebody else's network. Say
+so instead.
+
+**An ordinary exception is not a decline.** A skill that raises `ValueError`
+is broken, and the phrase is *not* handed on: a crash is not a judgement
+about whose question it was, and passing it along would have the next skill
+answering for a bug.
+
+At most `MAX_SKILL_ATTEMPTS` skills get a turn. Every decline is another
+handler running, and a handler that declines has usually already done the
+work that told it to.
+
+Only skills that **scored** are in the queue. A phrase matched by exactly one
+skill has nowhere to fall but the fallback, which is the right destination
+anyway.
 
 ## Matching something with an unpredictable name
 

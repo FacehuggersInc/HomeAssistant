@@ -193,24 +193,39 @@ def resolve_plugin_page(slug: str):
     return None
 
 
+def plugin_readme(directory: Path) -> Optional[Path]:
+    """The readme a plugin ships, whatever it capitalised it as."""
+    return next((directory / name for name in ("readme.md", "README.md")
+                 if (directory / name).is_file()), None)
+
+
 def bundled_plugins() -> list:
     """
     [(slug, display, path)] for bundled plugins shipping a readme.
 
-    Read off disk rather than listed here, so a plugin added to the bundle
-    appears in the sidebar without anyone remembering to register it.
+    Bundled only - this is what the bundled-plugins page lists. Anything that
+    RESOLVES a slug must use `all_plugins()` instead, or an installed plugin
+    gets a sidebar entry pointing at a page nothing can find.
+    """
+    return [entry for entry in all_plugins()
+            if entry[2].parent.parent == BUNDLED_DIR]
+
+
+def all_plugins() -> list:
+    """
+    [(slug, display, path)] for every plugin shipping a readme.
+
+    Bundled and installed alike, because a readme is a readme. The sidebar is
+    built from `plugin_docs()`, which walks `plugin_dirs()` and therefore
+    includes installed plugins - so a resolver that only knew about the
+    bundled ones listed pages it could not open.
     """
     out = []
-    if not BUNDLED_DIR.is_dir():
-        return out
-    for directory in sorted(BUNDLED_DIR.iterdir()):
-        if not directory.is_dir() or directory.name.startswith((".", "__")):
-            continue
-        readme = next((directory / n for n in ("readme.md", "README.md")
-                       if (directory / n).is_file()), None)
-        if readme is None:
-            continue
-        out.append((directory.name.lower(), plugin_display(directory), readme))
+    for directory in plugin_dirs():
+        readme = plugin_readme(directory)
+        if readme is not None:
+            out.append((directory.name.lower(), plugin_display(directory),
+                        readme))
     return out
 
 
@@ -229,8 +244,16 @@ def plugin_display(directory: Path) -> str:
 
 
 def resolve_plugin(slug: str) -> Optional[Path]:
-    for candidate, _, readme in bundled_plugins():
-        if candidate == slug.strip().strip("/").lower():
+    """
+    A plugin's readme, by folder name. Installed plugins included.
+
+    Matched on the folder name, which is what `plugin_docs()` builds its
+    slugs from - so `plugin/animeplugin` finds the folder called
+    `AnimePlugin` whatever its `key` in plugin.toml happens to be.
+    """
+    wanted = slug.strip().strip("/").lower()
+    for candidate, _, readme in all_plugins():
+        if candidate == wanted:
             return readme
     return None
 

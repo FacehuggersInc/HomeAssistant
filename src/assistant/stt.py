@@ -586,6 +586,29 @@ class STTProcessing():
 				f"what the panel said (needs {self.ECHO_RATIO}).")
 		return False
 
+	def is_cancel_word(self, transcribed: str) -> bool:
+		"""
+		Whether this transcript is nothing but a registered cancel phrase.
+
+		The WHOLE phrase, matched against what `client.CANCEL` answers to -
+		not a word found somewhere inside one. A reply mentioning "stop" in
+		passing is the panel; a transcript that is only "stop" is somebody
+		saying it, because the panel does not speak in single words.
+
+		Content, where `heard_itself()` is a clock. That is the point: the
+		clock cannot tell a person from an echo, and this can - a cancel word
+		on its own is never a fragment of prose the panel just read.
+		"""
+		phrase = " ".join(str(transcribed or "").lower().split())
+		phrase = phrase.strip(" .,!?;:")
+		if not phrase:
+			return False
+		try:
+			return phrase in {" ".join(str(word).lower().split())
+							  for word in self.client.CANCEL.keywords()}
+		except Exception:
+			return False
+
 	def interrupt_for_wake(self, transcribed: str) -> bool:
 		"""
 		Whether the wake word was heard, and anything playing was stopped.
@@ -830,6 +853,19 @@ class STTProcessing():
 			# clearly means somebody wants to say something now.
 			if self.interrupt_for_wake(transcribed):
 				pass
+			elif self.is_cancel_word(transcribed):
+				# A bare cancel word gets through too, for the same reason
+				# the wake word does: this is precisely the window somebody
+				# says it in.
+				#
+				# The guard is a clock, not a comparison - anything within a
+				# couple of seconds of the panel finishing is treated as its
+				# tail. "Stop", said the moment a long reply ends, lands
+				# squarely inside it and was dropped, so the panel had to be
+				# woken again before it would hear the word that means stop.
+				self.client.log("debug",
+					f"[STTProcessing] '{transcribed}' is a cancel word - "
+					f"letting it through the self-hearing guard.")
 			else:
 				# Info, not debug. From outside this looks like the panel
 				# hearing somebody and then doing nothing, which is the
@@ -921,6 +957,19 @@ class STTProcessing():
 		"Back up and running. Just say the word.",
 	)
 
+	#For a panel whose microphone is muted at the mixer.
+	#
+	#Every greeting above promises to be listening, which is exactly wrong
+	#here: the panel starts, says it is listening, and then ignores the wake
+	#word - and nothing about that says the microphone is the reason. Somebody
+	#stands there repeating the word at a device that told them it was ready.
+	MUTED_GREETINGS = (
+		"Hello. I'm up, but the microphone is muted so I can't hear you.",
+		"I'm back. The microphone is muted at the moment, so I'm not listening.",
+		"Hello there. I'm running, but my microphone is muted.",
+		"I'm here, though the microphone is muted so nothing reaches me.",
+	)
+
 	def greet(self) -> None:
 		"""
 		Say hello now that the microphone is up.
@@ -944,8 +993,26 @@ class STTProcessing():
 		except Exception:
 			wake = ""
 
-		greeting = random.choice(self.GREETINGS)
-		spoken = f"{greeting} Say {wake} when you need me." if wake else greeting
+		# Asked at the mixer rather than assumed. A greeting that promises to
+		# be listening while the microphone is muted is worse than no greeting
+		# at all: the wake word does nothing afterwards, and nothing on the
+		# panel connects the two.
+		muted = False
+		try:
+			muted = bool(self.client.mic_muted())
+		except Exception as e:
+			self.client.log("debug",
+				f"[STTProcessing] Could not read the microphone: {e}")
+
+		if muted:
+			greeting = random.choice(self.MUTED_GREETINGS)
+			# No "say the wake word" here. Telling somebody to say it while
+			# nothing can hear them is the whole problem being described.
+			spoken = f"{greeting} Unmute it and I'll be listening."
+		else:
+			greeting = random.choice(self.GREETINGS)
+			spoken = (f"{greeting} Say {wake} when you need me."
+					  if wake else greeting)
 
 		self.client.simple_notify(
 			"assistant",
@@ -956,7 +1023,10 @@ class STTProcessing():
 
 		try:
 			if bool(self.client.setting("assistant.feedback.greet_on_start.value", False)):
-				self.client.say(greeting)
+				# The full sentence when muted, not just the opening. What
+				# matters is the part explaining why the wake word will not
+				# work, and that is in the second half.
+				self.client.say(spoken if muted else greeting)
 		except Exception as e:
 			self.client.log("debug", f"[STTProcessing] Could not greet: {e}")
 
@@ -1493,6 +1563,14 @@ class STTProcessing():
 				# How long the child keeps waiting for a phrase after a wake
 				# before standing down on its own.
 				"wake_listen_timeout": self.wake_timeout_seconds(),
+				# The longest a single phrase may run before it is thrown away.
+				# What passes this is a television rather than a question.
+				"max_phrase_ms": int(max(2.0, float(self.client.setting(
+					"assistant.wake.max_phrase_seconds.value", 8) or 8)) * 1000),
+				# Whether every wake is explained in the log - the score, and a
+				# transcript of what was being said around it.
+				"wake_diagnostics": bool(self.client.setting(
+					"assistant.wake.wake_diagnostics.value", False)),
 				# How sure the spotter has to be. Read here rather than held,
 				# because the child is respawned when it changes.
 				"wake_sensitivity": float(self.client.setting(

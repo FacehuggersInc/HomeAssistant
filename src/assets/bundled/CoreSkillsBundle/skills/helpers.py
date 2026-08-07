@@ -529,3 +529,72 @@ def wikipedia_subject(phrase: str) -> str:
         if subject:
             return subject
     return ""
+
+
+#Leading words that are grammar rather than subject. Dropped from both sides
+#before comparing, so "the eiffel tower" and "Eiffel Tower" are the same
+#thing said twice.
+_LEADING = ("the", "a", "an")
+
+#Below this a "subject" is not one. Two characters matching the front of a
+#title is an accident.
+_MIN_SUBJECT = 3
+
+
+def _normalise_title(text: str) -> list:
+    """A title as comparable words: lowercase, unpunctuated, article-free."""
+    import re
+    # A parenthetical is Wikipedia disambiguating itself - "Python
+    # (programming language)" - and nobody says it out loud.
+    text = re.sub(r"\([^)]*\)", " ", str(text or ""))
+    cleaned = re.sub(r"[^a-z0-9]+", " ", text.lower())
+    words = cleaned.split()
+    while words and words[0] in _LEADING:
+        words.pop(0)
+    return words
+
+
+def title_matches(subject: str, title: str) -> bool:
+    """
+    Whether an article is about what was actually asked for.
+
+    Wikipedia answers every query with its nearest article, and the nearest
+    article to a question that was not an encyclopedia question is somebody
+    with the right surname. "What is the ocean like" reaches Frank Ocean;
+    "what is hyvee, spelled h y v e e" reaches Hy-Vee and is not a request
+    for an encyclopedia entry at all - it is somebody spelling a word out for
+    a panel that misheard it, which is a question for the fallback.
+
+    Two ways to match, and a title has to satisfy one of them.
+
+    **The same word, spelled apart.** "Hy-Vee" against "hyvee" is one word
+    hyphenated by an editor, so the letters are compared with the gaps
+    removed.
+
+    **The title BEGINS with what was asked.** "Great Wall of China" begins
+    with "great wall" and is the article somebody meant; "Frank Ocean" ends
+    with "ocean" and is not. A title carrying extra words in FRONT of the
+    subject is a different thing that happens to contain the word - which is
+    exactly the surname case - while extra words behind it are Wikipedia
+    being more precise than the question was.
+
+    Extra words in the SUBJECT fail both, which is the point. Somebody who
+    said more than the title is not asking for the title.
+
+    Strict on purpose. A wrong accept reads a stranger's biography out loud;
+    a wrong decline hands the phrase to the fallback, which answers it.
+    """
+    wanted = _normalise_title(subject)
+    got = _normalise_title(title)
+    if not wanted or not got:
+        return False
+
+    if len("".join(wanted)) < _MIN_SUBJECT:
+        return False
+
+    if "".join(wanted) == "".join(got):
+        return True
+
+    # Word-aligned, not a character prefix: "oceanography" must not count as
+    # beginning with "ocean".
+    return got[:len(wanted)] == wanted

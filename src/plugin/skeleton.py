@@ -91,7 +91,10 @@ icon = "puzzle"
 
 SETTINGS_BLOCK = '''
 [settings]
-path = "plugins/{folder}/{settings}"
+# Relative to this plugin's own folder, so renaming the folder changes
+# nothing. A path naming the folder as well resolves only while the folder
+# keeps the name it was created with.
+path = "{settings}"
 '''
 
 SETTINGS_JSON = {
@@ -153,7 +156,7 @@ def build(name: str, key: str = "", description: str = "",
     files["plugin.toml"] = TOML.format(
         name=name, key=key, version=version,
         description=str(description or "").replace('"', "'"),
-        settings_block=(SETTINGS_BLOCK.format(folder=folder, settings=settings)
+        settings_block=(SETTINGS_BLOCK.format(settings=settings)
                         if settings else ""),
     ).encode("utf-8")
 

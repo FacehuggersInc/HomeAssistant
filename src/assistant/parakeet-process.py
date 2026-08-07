@@ -132,10 +132,19 @@ class ParakeetListener:
     # prepended, so its length says nothing about how much was said.
     MIN_SPEECH_MS = 200
 
-    # onnx-asr's own guidance is 20-30 seconds for these models. A phrase
-    # that runs past this is a television, and cutting it is better than
-    # feeding the model something it will handle badly.
-    MAX_PHRASE_MS = 18000
+    # A phrase that runs this long is not somebody asking a question. It is
+    # a television, a conversation in the room, or a radio - and onnx-asr's
+    # own guidance of 20-30 seconds is about what the MODEL can handle, not
+    # about what a person says to a wall panel.
+    #
+    # Overridden by `assistant.wake.max_phrase_seconds`.
+    MAX_PHRASE_MS = 8000
+
+    # How much audio before a wake is kept for the diagnostic, when it is
+    # on. Two seconds is longer than any wake word and long enough to carry
+    # the words on either side of it - which is the point: "alexa" scored
+    # 0.6 says nothing, and "let's ask her about it" says everything.
+    WAKE_CONTEXT_MS = 2000
 
     # How long after a wake the audio is still the wake word.
     #
@@ -176,6 +185,8 @@ class ParakeetListener:
                  wake_listen_timeout: float = 0.0,
                  vad_aggressiveness: int = 3,
                  mic_processing: str = "software",
+                 max_phrase_ms: int = 0,
+                 wake_diagnostics: bool = False,
                  wake_sensitivity: float = 0.5,
                  wake_sensitivity_speaking: float = 0.0,
                  initial_mode: str = "wake"):
@@ -210,7 +221,17 @@ class ParakeetListener:
         self.silence_windows = self._windows(self.SILENCE_MS)
         self.session_silence_windows = self._windows(session_silence_ms)
         self.min_speech_windows = max(1, self._windows(self.MIN_SPEECH_MS))
+        if max_phrase_ms:
+            self.MAX_PHRASE_MS = max(2000, int(max_phrase_ms))
         self.max_phrase_windows = self._windows(self.MAX_PHRASE_MS)
+
+        # Off by default. It keeps a rolling two seconds of audio and runs
+        # the model over it every time the spotter fires, which is work
+        # nobody needs until they are asking why the panel woke up.
+        self.wake_diagnostics = bool(wake_diagnostics)
+        self.wake_context = collections.deque(
+            maxlen=self._windows(self.WAKE_CONTEXT_MS)
+            if self.wake_diagnostics else 1)
         self.listen_timeout = float(wake_listen_timeout or self.LISTEN_TIMEOUT)
 
         self.running = False
@@ -436,6 +457,17 @@ class ParakeetListener:
         the panel flashes THINKING, nothing is woken so nothing comes of it,
         and it stands back down. Three queued phrases is three flashes on a
         panel nobody is talking to.
+
+        The WAKE STATE is abandoned with it. Bumping the generation throws
+        away audio captured under the old mode but leaves `armed` exactly as
+        it was, and an armed child goes on capturing whatever it hears next -
+        so a cancel that cleared the panel's wake state left the child still
+        listening, took the next sound in the room as a phrase, and put the
+        panel back into LISTENING with nobody having said the word. Saying
+        "stop" again re-entered the same state, which is why it took several.
+
+        Both callers are deliberate transitions - opening a conversation and
+        leaving one - and neither wants the previous wake carried across.
         """
         self.mode = mode if mode in ("wake", "passthrough") else "wake"
         self.switching = True
@@ -445,6 +477,18 @@ class ParakeetListener:
                 self.audio_queue.get_nowait()
             except queue.Empty:
                 break
+
+        self.armed = False
+        self.waiting_since = time.time()
+        if self.spotter is not None:
+            try:
+                # The model carries context between frames. Context from
+                # before a mode change describes audio that is no longer
+                # adjacent to what comes next, and a wake scored against it
+                # is scored against a join that never happened.
+                self.spotter.reset()
+            except Exception:
+                pass
 
     ## -- LISTENING -----------------------------------------------------
 
@@ -529,6 +573,14 @@ class ParakeetListener:
             # "say the wake word to ask something else" has no detector
             # running: the word would have to survive being transcribed,
             # matched as text, and passed by every self-hearing guard first.
+            if self.wake_diagnostics:
+                # Every window, ahead of every other decision. What explains
+                # a wake is what the SPOTTER heard, and the spotter runs
+                # while muted and while disarmed - so a ring filled only on
+                # the capture path would be empty for exactly the wakes
+                # worth explaining.
+                self.wake_context.append(window)
+
             if self.mode == "passthrough" or not self.armed:
                 try:
                     # Muted means the panel is speaking. Same detector, a
@@ -538,8 +590,9 @@ class ParakeetListener:
                               else self.wake_sensitivity)
                     if self.spotter.threshold != wanted:
                         self.spotter.threshold = wanted
-                    if self.spotter.feed(window) is not None:
-                        self.__woke()
+                    fired = self.spotter.feed(window)
+                    if fired is not None:
+                        self.__woke(fired)
                         if self.mode == "wake":
                             reset_phrase()
                             continue
@@ -595,11 +648,25 @@ class ParakeetListener:
                     self.__report_level(window)
 
                 if len(phrase) >= self.max_phrase_windows:
-                    self.send_log("debug",
-                                  "[Parakeet]: Phrase hit the length limit - "
-                                  "finalising what there is.")
-                    self.__finalise(phrase, speech_windows)
+                    # DISCARDED, not finalised.
+                    #
+                    # What runs past the limit is a television, and
+                    # transcribing it hands the skill engine two sentences of
+                    # someone else's dialogue to match against - which is how
+                    # a panel ends up acting on a programme. Nothing that
+                    # long was said to it, so there is nothing here worth
+                    # keeping.
+                    #
+                    # The wake state goes with it, so the next thing said
+                    # starts a fresh prompt rather than landing mid-phrase.
+                    self.send_log(
+                        "info",
+                        f"[Parakeet]: {len(phrase) * self.WINDOW_MS}ms of "
+                        f"continuous speech - past the "
+                        f"{self.MAX_PHRASE_MS}ms limit. Discarding and "
+                        f"standing down.")
                     reset_phrase()
+                    self.__stand_down("phrase ran past the length limit")
                 continue
 
             # SILENCE.
@@ -634,17 +701,59 @@ class ParakeetListener:
         if callable(self.on_timeout):
             self.on_timeout("wake_timeout")
 
-    def __woke(self) -> None:
+    def __stand_down(self, why: str) -> None:
+        """
+        Drop the wake state and go back to waiting for the word.
+
+        The spotter is reset as well as disarmed. It carries context between
+        frames, and context from audio that has just been thrown away
+        describes something no longer adjacent to what comes next - which is
+        the state a false wake leaves it in.
+        """
+        if not self.armed and self.mode == "wake":
+            return
+        self.armed = False
+        self.waiting_since = time.time()
+        if self.spotter is not None:
+            try:
+                self.spotter.reset()
+            except Exception:
+                pass
+        self.send_log("debug", f"[Parakeet]: Standing down - {why}.")
+        if callable(self.on_timeout):
+            self.on_timeout("phrase_limit")
+
+    def __woke(self, score: float = 0.0) -> None:
         """
         The word was heard. Now wait for the sentence.
 
-        The audio that fired the spotter is deliberately not kept. It is the
-        wake word, the phrase has not started, and keeping it is what made
-        "alexa" finalise as a phrase of its own.
+        The audio that fired the spotter is deliberately not kept as PHRASE
+        audio. It is the wake word, the phrase has not started, and keeping
+        it is what made "alexa" finalise as a phrase of its own.
+
+        The score travels with the log line. A wake at 0.94 and a wake at
+        0.51 are the same event from the outside and completely different
+        from in here, and without the number there is no way to tell a panel
+        that heard its name from one that heard a vowel shape on television.
         """
         self.armed = True
         self.armed_at = self.waiting_since = time.time()
-        self.send_log("debug", f"[Parakeet]: Woke on '{self.wake_word}'.")
+        self.send_log("debug", f"[Parakeet]: Woke on '{self.wake_word}' "
+                               f"at {float(score):.2f} "
+                               f"(bar {self.spotter.threshold:.2f}).")
+
+        # What was actually being said. Queued rather than run here: this is
+        # the audio thread, and a model run on it stalls capture for as long
+        # as it takes - which would drop the beginning of the question the
+        # wake was for.
+        if self.wake_diagnostics and self.wake_context:
+            try:
+                self.audio_queue.put_nowait(
+                    (b"".join(self.wake_context), time.time(),
+                     self.generation, -1))
+            except queue.Full:
+                pass
+
         if callable(self.on_wake):
             self.on_wake(self.wake_word)
 
@@ -811,6 +920,31 @@ class ParakeetListener:
             self.send_log("debug", f"[Parakeet]: Trimmed {text!r} -> {trimmed!r}")
         return trimmed
 
+    def __explain_wake(self, raw: bytes) -> None:
+        """
+        Transcribe the audio around a wake and put it in the log.
+
+        A score says how sure the spotter was. It cannot say what it was sure
+        ABOUT - and the wakes worth chasing are the ones where something on
+        television happened to carry the shape of the word. Reading the
+        sentence back is the only thing that answers that.
+
+        Failures here are logged and dropped. This is a diagnostic; it must
+        never be the reason the panel stops working.
+        """
+        try:
+            audio = np.frombuffer(raw, dtype=np.int16).astype(np.float32) / 32768.0
+            heard = self.__clean(self.parakeet.transcribe(audio))
+        except Exception as exc:
+            self.send_log("debug", f"[Parakeet]: Wake diagnostic failed: {exc}")
+            return
+        heard = " ".join(str(heard or "").split())
+        if heard:
+            self.send_log("info", f"[Parakeet]: Wake context: {heard!r}")
+        else:
+            self.send_log("info", "[Parakeet]: Wake context transcribed to "
+                                  "nothing - the wake was not speech.")
+
     def __processing_loop(self) -> None:
         while not self.stop_event.is_set():
             try:
@@ -842,6 +976,15 @@ class ParakeetListener:
             return False
 
         raw, finalised_at, generation, speech_windows = item
+
+        # A wake diagnostic rather than a phrase. Transcribed and logged and
+        # nothing else - it never announces itself, never reaches the client
+        # as a transcript, and never matches a skill. It exists to answer
+        # "what was said just then", which a score alone cannot.
+        if speech_windows == -1:
+            self.__explain_wake(raw)
+            return True
+
         if generation != self.generation:
             # Captured under a mode that has since been left. Dropped before
             # the announcement, so there is no "transcribing" to pair with.
@@ -972,6 +1115,8 @@ class ParakeetServer:
             # reads as the panel being slow to hear you.
             vad_aggressiveness=3,
             mic_processing=str(config.get("mic_processing") or "software"),
+            max_phrase_ms=int(config.get("max_phrase_ms") or 0),
+            wake_diagnostics=bool(config.get("wake_diagnostics")),
             wake_sensitivity=float(config.get("wake_sensitivity") or 0.5),
             wake_sensitivity_speaking=float(
                 config.get("wake_sensitivity_speaking") or 0.0),

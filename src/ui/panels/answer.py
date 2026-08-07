@@ -233,6 +233,9 @@ class AnswerPanel(Panel):
                     try:
                         tts = getattr(self.client, "TTS", None)
                         if tts is not None:
+                            # Unconditional: a finger on the button is a
+                            # person, and a person outranks whatever is
+                            # talking - the same rule as the wake word.
                             tts.stop()
                     except Exception:
                         pass
@@ -607,7 +610,14 @@ class AnswerPanel(Panel):
         try:
             tts = getattr(self.client, "TTS", None)
             if tts is not None:
-                tts.stop()
+                # Only if this panel's own reply is still the one being read.
+                #
+                # An answer left on screen outlives its voice. Ask something
+                # else, and the new answer speaks and opens its own panel
+                # while this one is still up - then this one times out, and
+                # an unconditional stop() cuts off a reply that was never
+                # its own. The token says whose voice it is.
+                tts.stop(owner=getattr(self, "speech_owner", None) or None)
         except Exception as e:
             self.client.log("debug", f"[AnswerPanel] Could not stop speech: {e}")
         self.close_panel()

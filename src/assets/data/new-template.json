@@ -429,6 +429,13 @@
                 "suffix": "sec",
                 "description": "How long the panel keeps listening after the wake word before giving up. Too short and it stops mid-thought; too long and it sits listening to the room."
             },
+            "max_phrase_seconds": {
+                "type": "int",
+                "default": 8,
+                "value": 8,
+                "suffix": "sec",
+                "description": "The longest a single phrase may run before it is thrown away and the panel stands down. Speech that goes on past this is a television or a conversation in the room rather than a question, and transcribing it hands whole sentences of it to the skills."
+            },
             "session_silence": {
                 "type": "int",
                 "default": 800,
@@ -453,6 +460,12 @@
                 "max": 0.95,
                 "step": 0.05,
                 "description": "The same bar, for the moment the panel is talking. 0 means use the ordinary sensitivity above.\n\nWhile a reply is being read out the microphone carries the panel's own voice alongside yours, so the wake word arrives buried in a way it never is in a quiet room - and the setting that works for the room is often too high for this.\n\nGoing lower costs less here than it does elsewhere: a false fire only interrupts a sentence the panel was already reading out. Try 0.05 below the ordinary one and keep going while it still refuses to be interrupted. The assistant restarts itself when this changes."
+            },
+            "wake_diagnostics": {
+                "type": "bool",
+                "default": false,
+                "value": false,
+                "description": "Explain every wake in the log: how sure the spotter was, and a transcript of what was being said around it. Turn this on to find out what has been waking the panel, and off again afterwards - it runs the speech model an extra time on every wake."
             }
         },
         "feedback": {

@@ -294,6 +294,13 @@ class AIFallback(Plugin):
             spoken = to_speech(reply)
             if spoken:
                 self.client.say(spoken, thread=False)
+                # Kept so the panel can silence its OWN reply and nothing
+                # else. A conversation that ends after something new has
+                # started talking would otherwise cut that off instead.
+                try:
+                    self._speech_owner = self.client.speech_owner()
+                except Exception:
+                    self._speech_owner = 0
 
         return True
 
@@ -626,9 +633,14 @@ class AIFallback(Plugin):
 
         # Stop mid-sentence. An answer being read aloud to a panel that is no
         # longer there is the same mistake as listening for a reply to it.
+        #
+        # Only this conversation's own reply, though. By the time a panel
+        # closes, the voice may belong to whatever was asked next, and
+        # silencing that on the way out is the bug this token exists for.
         try:
             if self.client.TTS is not None:
-                self.client.TTS.stop()
+                self.client.TTS.stop(
+                    owner=getattr(self, "_speech_owner", None) or None)
         except Exception as e:
             self.client.log("debug", f"[AIFallback] Could not stop speech: {e}")
 

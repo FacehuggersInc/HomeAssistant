@@ -8,7 +8,7 @@ from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFrame
 from PyQt6.QtCore import Qt
 
 from src.plugin.template import Plugin
-from src.assistant.skill import Skill
+from src.assistant.skill import Skill, SkillDeclined
 from .skills import build_all
 from .skills import units
 from .skills.helpers import (
@@ -21,6 +21,7 @@ from .skills.helpers import (
     _overlap,
     _spoken_wait,
     _spoken_duration,
+    title_matches,
     wikipedia_subject,
 )
 
@@ -1098,17 +1099,20 @@ class CoreSkills(Plugin):
         if not subject and phrase:
             subject = wikipedia_subject(phrase)
         if not subject:
-            self._respond("What would you like to see?")
-            return
+            raise SkillDeclined("no subject in the phrase")
 
         found = api.look_up(subject)
         if not found:
             self._miss(subject)
-            self._respond(
-                f"I couldn't reach Wikipedia to look up {subject}."
-                if self._why("wikipedia") in ("offline", "unavailable") else
-                f"Wikipedia doesn't have anything called {subject}.")
-            return
+            raise SkillDeclined(
+                f"Wikipedia had nothing for {subject!r} "
+                f"({self._why('wikipedia')})")
+
+        if not title_matches(subject, found["title"]):
+            self._miss(subject)
+            raise SkillDeclined(
+                f"asked for {subject!r}, Wikipedia offered "
+                f"{found['title']!r}")
 
         image = api.picture(found)
 
@@ -1156,17 +1160,36 @@ class CoreSkills(Plugin):
         if not subject and phrase:
             subject = wikipedia_subject(phrase)
         if not subject:
-            self._respond("What should I look up?")
-            return
+            # Declined, not asked. Having nothing to look up means the words
+            # matched and the question did not - which is a decline, and the
+            # phrase still has somewhere to go. Asking "what should I look
+            # up?" ends the turn on behalf of every skill that was never
+            # tried, and it does it while holding a phrase that names the
+            # thing perfectly well.
+            raise SkillDeclined("no subject in the phrase")
 
         found = api.look_up(subject)
         if not found or not found["extract"]:
+            # Declined rather than answered. Nothing came back, and the
+            # phrase still has somewhere to go: another skill, or the
+            # fallback, either of which may know what this was. Saying
+            # "Wikipedia doesn't have an article on that" ends the turn on
+            # behalf of everything else that was never asked.
             self._miss(subject)
-            self._respond(
-                f"I couldn't reach Wikipedia to look up {subject}."
-                if self._why("wikipedia") in ("offline", "unavailable") else
-                f"Wikipedia doesn't have an article on {subject}.")
-            return
+            raise SkillDeclined(
+                f"Wikipedia had nothing for {subject!r} "
+                f"({self._why('wikipedia')})")
+
+        if not title_matches(subject, found["title"]):
+            # The article is about something else that shares a word. This
+            # is the case the whole check exists for: Wikipedia answers
+            # every query with its nearest article, and the nearest article
+            # to a question that was not an encyclopedia question is usually
+            # a person with the right surname.
+            self._miss(subject)
+            raise SkillDeclined(
+                f"asked for {subject!r}, Wikipedia offered "
+                f"{found['title']!r}")
 
         if found["type"] == "disambiguation":
             # The extract of a disambiguation page reads like an answer and is

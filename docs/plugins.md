@@ -33,12 +33,29 @@ file beside it is never read, the plugin has no settings at all, and every
 option silently falls back to its default - which looks exactly like the
 settings page having lost them.
 
-A bundled plugin points at its settings with a path from the install root:
+The path is resolved **relative to the plugin's own folder**, so the filename
+on its own is all it needs:
 
 ```toml
 [settings]
-path = "src/assets/bundled/MyPlugin/settings.json"
+path = "settings.json"
 ```
+
+A path that names the folder as well - `plugins/MyPlugin/settings.json` -
+resolves through an overlap between the two, which holds only while the
+folder still carries the name the path was written with. Rename the folder
+and the two stop overlapping, leaving the folder joined to itself:
+
+```
+plugins/MyRenamedPlugin/plugins/MyPlugin/settings.json
+```
+
+The plugin then fails to instantiate, naming a path nothing put there. Give
+the filename alone and a folder can be called anything.
+
+The bundled plugins point at theirs from the install root
+(`src/assets/bundled/MyPlugin/settings.json`), which resolves by the same
+overlap and is why their folders are not renamed.
 
 Append `.DISABLED` to a folder name to stop it loading without deleting it.
 
@@ -70,13 +87,13 @@ And if you want editable settings that Users can interact with, in that same tom
 
 ```toml
 [settings]
-path = "/path/to/.json"
+path = "settings.json"
 ```
 
 * `name` = Display name
 * `key` = Unique identifier
 
-* `path` = a json file
+* `path` = a json file in this plugin's own folder
 
 the settings path will be joined into the default settings page under plugins for Public settings.
 
