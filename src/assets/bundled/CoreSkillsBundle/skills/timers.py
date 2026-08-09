@@ -16,7 +16,7 @@ def build(plugin, wake: str, key: str) -> list:
     """The skills in this group, wired to `plugin`'s handlers."""
     return [
         Skill(
-                        wake_word=wake, skill_key="set-timer", plugin_key=key,
+                        wake_word=wake, skill_key="set-timer", kind="act", plugin_key=key,
                         examples=[
                             "set a timer for 10 minutes", "can you create a timer for 5 minutes",
                             "make a timer for 11 minutes", "start a timer for 5 minutes",
@@ -113,7 +113,7 @@ def build(plugin, wake: str, key: str) -> list:
                         func=plugin.start_timer,
                     ),
         Skill(
-                        wake_word=wake, skill_key="cancel-timer", plugin_key=key,
+                        wake_word=wake, skill_key="cancel-timer", kind="act", plugin_key=key,
                         examples=[
                             # All of them
                             "cancel my timers", "stop all timers", "clear my timers",
@@ -168,10 +168,12 @@ def build(plugin, wake: str, key: str) -> list:
                         func=plugin.cancel_timers,
                     ),
         Skill(
-                        wake_word=wake, skill_key="check-timers", plugin_key=key,
+                        wake_word=wake, skill_key="check-timers", kind="act", plugin_key=key,
                         examples=[
                             "how long is left on my timer", "how much time is left",
                             "check my timers", "what timers are running",
+                "list my timers", "how many timers do i have",
+                "what timers do i have", "are there any timers running",
                             "how long until my timer is done", "how long on the timer",
                         ],
                         func=plugin.check_timers,

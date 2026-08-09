@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 import time
 import math
-from difflib import SequenceMatcher
+from rapidfuzz.distance import JaroWinkler
 import traceback
 from threading import Thread
 from typing import TYPE_CHECKING, Callable, Optional, List
@@ -59,6 +59,14 @@ GENERIC_LEMMAS = frozenset({
 # unanticipated determiner reaches the Matcher as a weak partial hit at best.
 MATCHER_CONFIDENT_SCORE = 0.75
 
+#The most a skill's own vocabulary can lift its score.
+#
+#Small on purpose. It says "this phrase carries a word that is mine", which
+#is evidence rather than an answer - large enough to lift a skill over the
+#floor when nothing else speaks for it, small enough that a skill matching
+#the SHAPE of the question still wins.
+DISTINCTIVE_BONUS = 0.20
+
 #How many skills get a turn at one phrase before it goes to the fallback.
 #
 #Every decline is another handler running, and a handler that declines has
@@ -99,25 +107,25 @@ DECLINED = SkillDeclined
 
 # Words that carry no intent and vary freely between speakers. Made optional
 # in generated patterns so their presence or absence never decides a match.
-# Rule-phase tuning. FUZZY_MIN_RATIO is deliberately generous: the phase only
-# runs when the Matcher found nothing, and it is thresholded afterwards.
-FUZZY_MIN_RATIO = 0.78
+#How alike two lemmas must be to count as the same word misheard.
+#
+#Measured on JaroWinkler, which weights a shared prefix - which is how a
+#mishearing behaves. Against real ones it has room: "axolata" for "axolotl"
+#scores 0.886, "whether" for "weather" 0.914, "narudo" for "naruto" 0.933,
+#"aplication" for "application" 0.976. The words it must NOT accept sit
+#below: "alarm" against "alert" is 0.787, "moon" against "noon" 0.833.
+FUZZY_MIN_RATIO = 0.86
 
-#The bar a fuzzy match has to clear when it is the ONLY thing holding a match
-#together - no lemma matched exactly and the whole score rests on one word
-#being nearly another.
+#The bar when a fuzzy match is the ONLY thing holding a match together - no
+#lemma matched outright and the whole score rests on one word being nearly
+#another.
 #
-#Fuzzy matching exists to rescue a mishearing inside a phrase that otherwise
-#matches, and against real mishearings it has room to spare: "whether" for
-#"weather" is 0.857, "notifcation" 0.957, "aplication" 0.952. The words it
-#must NOT accept sit a clear step below - "ocean" against "clean" is 0.800,
-#and so is "timer" against "tiger".
-#
-#It matters most on a short question, because a phrase whose only content
-#word is the misread one gets precision 1.0 for free: "what is the ocean"
-#reduces to {ocean}, which matched "clean" in the air-quality skill's "is the
-#air clean" and routed a question about the sea to the weather.
-FUZZY_SOLE_RATIO = 0.85
+#A single substituted character in a short word is indistinguishable from a
+#mishearing by any string metric: "timer" against "tiger" scores 0.893 and
+#"whether" against "weather" 0.914. Nothing separates those, so a lone fuzzy
+#match has to be surer of itself than one repairing a word inside a phrase
+#that already agrees.
+FUZZY_SOLE_RATIO = 0.90
 FUZZY_MIN_LENGTH = 4
 
 OPTIONAL_LEMMAS = {
@@ -150,6 +158,12 @@ def fuzzy_equal(a: str, b: str) -> float:
 	"notifcations", "aplication" - and no amount of extra example phrasings
 	recovers those. Short tokens are compared exactly, since at three or four
 	characters almost everything is close to everything.
+
+	JaroWinkler, because it weights a shared PREFIX and a mishearing keeps
+	one. A plain edit ratio does not, and inverts on the pairs that matter:
+	it puts "axolata" against "axolotl" at 0.714 and "ocean" against "clean"
+	at 0.800 - the wrong word closer than the right one, which no single
+	threshold can separate.
 	"""
 	if a == b:
 		return 1.0
@@ -173,7 +187,7 @@ def fuzzy_equal(a: str, b: str) -> float:
 	if a.startswith(b) or b.startswith(a):
 		return 0.0
 
-	ratio = SequenceMatcher(None, a, b).ratio()
+	ratio = JaroWinkler.normalized_similarity(a, b)
 	return ratio if ratio >= FUZZY_MIN_RATIO else 0.0
 
 
@@ -219,14 +233,364 @@ class SkillGroup:
 		return NotImplemented
 
 
+SKILL_KINDS = ("act", "ask")
+
+#Words that carry no information about WHICH skill was meant.
+#
+#Wider than spaCy's stop list, which is about grammar. These are words that
+#appear across so many skills that their presence says nothing: every skill
+#has a "what", a "how" and a "my", and half of them have a "get" or a "set".
+#
+#Used to work out what a skill's own vocabulary actually is - see
+#Skill.distinctive.
+FILLER_LEMMAS = frozenset({
+	"what", "which", "who", "when", "where", "why", "how", "whats",
+	"is", "are", "be", "am", "was", "were", "do", "does", "did", "have",
+	"has", "had", "get", "got", "make", "made", "give", "tell", "say",
+	"can", "could", "would", "will", "shall", "should", "may", "might",
+	"the", "a", "an", "this", "that", "these", "those", "it", "its",
+	"i", "me", "my", "you", "your", "we", "us", "our", "he", "she", "they",
+	"to", "of", "for", "in", "on", "at", "by", "with", "from", "about",
+	"and", "or", "but", "if", "so", "then", "than", "as", "like",
+	"please", "thanks", "now", "just", "some", "any", "all", "much", "many",
+	"there", "here", "long", "until", "till", "go", "come", "want", "need",
+	"s", "t", "re", "ve", "ll", "nt", "not",
+})
+
+#Stopwords that inverse a command rather than decorate it.
+#
+#Scoring drops stopwords because "the" and "your" distinguish nothing - but
+#between two halves of a switch these are the only words that do. "Turn the
+#sound back on" and "turn off your sounds" share every content word.
+POLARITY_LEMMAS = frozenset({
+	"on", "off", "back", "no", "not", "never", "again", "un",
+	"up", "down", "out", "in", "stop", "start", "enable", "disable",
+	"resume", "pause", "cancel", "clear",
+})
+
+#Words that hold a frame together rather than distinguish it. A frame may
+#lose any of these to a mishearing and still be the frame it was; losing one
+#of its own telling words means it is a different question.
+FRAME_GRAMMAR = frozenset({
+	"what", "whats", "which", "who", "whos", "when", "where", "why", "how",
+	"is", "are", "was", "were", "be", "am", "s",
+	"do", "does", "did", "done",
+	"a", "an", "the", "of", "for", "to", "in", "on", "at", "by", "with",
+	"i", "me", "my", "you", "your", "it", "its", "that", "this", "there",
+	"can", "could", "would", "will", "should", "please", "some", "any",
+	"and", "or", "else", "up", "about",
+})
+
+#Marks the hole in a frame. One per frame - a question has one subject, and a
+#second hole makes the boundary between them unknowable.
+HOLE = re.compile(r"\{(\w+)\}")
+
+
+class Frame:
+	"""
+	A fixed phrase with a hole in it: `what does {subject} mean`.
+
+	Matching is ALIGNMENT rather than scoring. The words before the hole must
+	open the utterance, the words after it must close it, and something has
+	to sit in between. That is the whole test.
+
+	It exists because word overlap cannot separate two questions that differ
+	only in where the subject sits. "What does X mean" and "what does X look
+	like" share every leading word; the part that decides comes AFTER the
+	hole, and a bag of lemmas has thrown the order away by then. Scored on
+	overlap the two are indistinguishable, and which one wins is noise.
+
+	The hole is also how the subject gets extracted, and extracted EXACTLY.
+	A prefix anchor takes everything to the end of the utterance, so "how
+	many episodes does frieren have" yields `frieren have` and needs a list
+	of trailing words to strip afterwards - a list that has to know "have" is
+	scaffolding and "Air" is a real title. A frame knows where the subject
+	ends because it says so.
+	"""
+
+	#How far the subject boundaries may move from where the fixed wording says
+	#they are. One word covers a dropped article or a contraction, which is
+	#what a transcriber actually does; more turns the search into a scan.
+	SLACK = 2
+
+	#Charged per word sitting where fixed wording should be that the frame
+	#did not account for.
+	SPARE_PENALTY = 0.05
+
+	#What a validated typed hole adds. The predicate has confirmed the subject
+	#against real data, which is evidence of a different order from words
+	#lining up - and the alternative is a coin toss on a hundredth of a point.
+	TYPED_BONUS = 0.12
+
+	#Below this the frame did not fit. It is not the routing floor - that is
+	#MINIMUM_SCORE, applied to everything - only the point past which a
+	#partial alignment stops being worth reporting.
+	MINIMUM = 0.35
+
+	def __init__(self, text: str, model, skill=None):
+		self.text = " ".join(str(text or "").split())
+		found = HOLE.search(self.text)
+		if not found:
+			raise BadSkill(
+				f"{getattr(skill, 'key', '?')}: the frame {text!r} has no "
+				f"hole in it. A frame needs one - \"what does {{subject}} "
+				f"mean\" - or it is just a phrase.")
+		if len(HOLE.findall(self.text)) > 1:
+			raise BadSkill(
+				f"{getattr(skill, 'key', '?')}: the frame {text!r} has more "
+				f"than one hole. Where one ends and the next begins cannot "
+				f"be worked out from the words between them.")
+
+		self.name = found.group(1)
+		before = self.text[:found.start()].strip()
+		after = self.text[found.end():].strip()
+
+		# Compared as lowercase text, not lemmas. A frame is a fixed phrase
+		# and its whole value is being literal: lemmatising "does" to "do"
+		# would let "what do X mean" align, which is fine, but lemmatising
+		# the SUFFIX is what blurs "mean" and "meaning" into the same frame
+		# as everything else.
+		self.prefix = tuple(t.lower_ for t in model(before) if not t.is_space)
+		self.suffix = tuple(t.lower_ for t in model(after) if not t.is_space)
+
+		if not self.prefix and not self.suffix:
+			raise BadSkill(
+				f"{getattr(skill, 'key', '?')}: the frame {text!r} is "
+				f"nothing but a hole, so it matches every utterance.")
+
+		# Why a typed hole last refused, if it refused by raising. Read by
+		# align_frames so a broken predicate is reported once per utterance
+		# rather than silently losing its skill for good.
+		self._validator_error = ""
+
+		# Every word the frame supplies itself, for the no-subject check.
+		self._fixed = set(self.prefix) | set(self.suffix)
+
+		# The words that make this frame what it is, as opposed to the
+		# grammar holding it together. "Definition", "mean", "look", "like" -
+		# not "what", "is", "the", "of".
+		#
+		# They are not interchangeable evidence. "What is the definition of
+		# {word}" matches "what is the capital of peru" on four fixed words
+		# out of five, and the one it misses is the only one that mattered -
+		# so a question about Peru arrived at the dictionary. A frame that
+		# loses its own distinguishing wording has not been recognised, it
+		# has been approximated.
+		self._telling = {word for word in self._fixed
+						 if word.isalpha() and word not in FRAME_GRAMMAR}
+
+		# How specific this frame is. The frame with the most fixed words
+		# wins, which is the entire ranking rule - no weighting, no IDF.
+		# IDF exists to GUESS which words carry the meaning; a frame says so.
+		self.weight = len(self.prefix) + len(self.suffix)
+
+	@staticmethod
+	def _same(said: str, wanted: str) -> float:
+		"""
+		1.0 for the same word, less for one nearly it, 0 for neither.
+
+		The same repair the act track applies, for the same reason. A frame
+		compares fixed WORDING, and nobody says a fixed phrase the same way
+		twice: "mean" arrives as "means", "definition" as "definiton",
+		"about" as "abut", "seasons" as "season". Compared literally every
+		one of those loses the frame outright - and losing it on a telling
+		word is worse than losing it on grammar, because the telling word is
+		what the guard below insists on.
+		"""
+		if said == wanted:
+			return 1.0
+
+		# The same word, inflected. Frames compare SURFACE forms - the act
+		# track lemmatises before it compares and frames deliberately do not,
+		# because a frame's value is being literal - so "mean" against
+		# "means" and "seasons" against "season" turn up constantly, and
+		# `fuzzy_equal` refuses them on the prefix rule. That rule is right
+		# where it is: after lemmatisation, one word being the front of
+		# another means they are different words. Here it is the ordinary
+		# case, and refusing it sent "how many season does naruto have" to
+		# the episode skill.
+		short, long = sorted((said, wanted), key=len)
+		if long.startswith(short) and len(short) >= 3:
+			if long[len(short):] in ("s", "es", "d", "ed", "ing", "n"):
+				return 0.97
+		if len(short) >= 4 and short.endswith("y") and \
+				long == short[:-1] + "ies":
+			return 0.97
+
+		return fuzzy_equal(said, wanted)
+
+	def align(self, words: tuple, validator=None):
+		"""
+		(score, subject) for how well this frame fits `words`, or None.
+
+		Scored, not binary, and scored on the SAME formula the act track
+		uses over lemma overlap - so a frame and an example produce numbers
+		that mean the same thing and can share one ranked list. Recall is
+		how much of the frame's fixed wording the utterance carried;
+		precision is how much of the utterance outside the subject the frame
+		accounted for; harmonic mean of the two. A frame that fits exactly
+		scores 1.0 for the same reason an identical example does.
+
+		Partial on purpose. Binary alignment is a cliff: the transcriber
+		contracts "what does" to "whats", one fixed word is gone, and the
+		frame that should have matched scores nothing at all. Allowing a
+		fixed word to be missing or wrong turns that into 0.86 instead of 0,
+		and the right frame still wins.
+
+		The boundaries are searched rather than assumed, because a missing
+		word moves them. `SLACK` bounds the search: without it a long
+		utterance would be scanned end to end for a subject that could be
+		anywhere.
+		"""
+		total_fixed = len(self.prefix) + len(self.suffix)
+		if not words or not total_fixed:
+			return None
+
+		best = None
+		lowest = max(0, len(self.prefix) - self.SLACK)
+		highest = min(len(words), len(self.prefix) + self.SLACK + 1)
+		for start in range(lowest, highest):
+			last = max(start + 1, len(words) - len(self.suffix) - self.SLACK)
+			for end in range(last, len(words) + 1):
+				if end <= start:
+					continue
+				head, tail = words[:start], words[end:]
+
+				# Counted from the OUTSIDE in: a prefix is anchored at the
+				# start of the utterance and a suffix at the end, so that is
+				# where each has to line up.
+				hit = sum(self._same(a, b) for a, b in zip(head, self.prefix))
+				hit += sum(self._same(a, b) for a, b in
+						   zip(reversed(tail), reversed(self.suffix)))
+				if not hit:
+					continue
+
+				# Precision is against the WHOLE utterance, subject included.
+				#
+				# The subject is a hole the frame did not explain, so it
+				# counts against it - which is what makes a frame's score
+				# reflect how much evidence it carries rather than only how
+				# cleanly it fitted. Measured against the non-subject words
+				# alone, "what is {subject}" scores a perfect 1.0 on any
+				# "what is X" whatsoever, and beat every skill that actually
+				# knew what X was: "what is the weather" went to the
+				# encyclopedia.
+				#
+				# It also puts specificity into the score instead of leaving
+				# it as a tie-break. Four fixed words explaining six beats
+				# two explaining four, which is the right order.
+				recall = hit / total_fixed
+				precision = hit / len(words)
+				if not (recall and precision):
+					continue
+				score = 2 * recall * precision / (recall + precision)
+
+				# Words sitting where fixed wording should be, that the frame
+				# did not account for. Without this a loose frame swallows a
+				# specific one: "what is {subject}" would take "does an
+				# axolotl look like" as its subject and score well on a
+				# fluke.
+				spare = max(0, len(head) - len(self.prefix)) \
+						+ max(0, len(tail) - len(self.suffix))
+				score -= self.SPARE_PENALTY * spare
+
+
+				# A frame has to keep its own telling words. Losing grammar
+				# to a mishearing is survivable; losing the word that names
+				# the question is not being recognised, it is being
+				# approximated.
+				if self._telling:
+					outer = tuple(head) + tuple(tail)
+					kept = sum(1 for word in self._telling
+							   if any(self._same(heard, word) for heard in outer))
+					if kept * 2 < len(self._telling):
+						continue
+
+				# The subject cannot be made only of the frame's own wording.
+				#
+				# Searching the boundaries means they can slide onto a fixed
+				# word: "what does mean" has nothing in the hole, but moving
+				# the start by one offers "does" as the subject and scores it
+				# 0.80. A question with no subject belongs to nobody, and
+				# looking up the word "does" is worse than not answering.
+				taken = words[start:end]
+				if all(word in self._fixed for word in taken):
+					continue
+
+				# A typed hole. The shape fitting is not enough when the
+				# shape is ambiguous: "when is the next holiday" and "when is
+				# my dentist appointment" both fit `when is {holiday}`, and
+				# only the data says neither is one.
+				#
+				# Checked inside the search, not after it, so a candidate
+				# whose subject is the wrong kind of thing gives way to a
+				# lower-scoring one whose subject is right.
+				typed = False
+				if validator is not None:
+					try:
+						if not validator(" ".join(taken)):
+							continue
+					except Exception as exc:
+						# Recorded, not swallowed. A predicate that raises
+						# rejects every alignment it is asked about, so the
+						# skill silently never matches - which looks exactly
+						# like a skill nobody said the right words to. The
+						# reason has to reach the log or there is nothing to
+						# find.
+						self._validator_error = f"{type(exc).__name__}: {exc}"
+						continue
+					typed = True
+
+				# A hole that was type-checked and passed is worth more than
+				# one holding whatever happened to be there. The data has
+				# confirmed the subject is the right KIND of thing, which no
+				# amount of word overlap can establish - "what date is
+				# easter" scored 0.857 as a shape against a date skill's
+				# 0.867 as a bag of words, and the shape was right about a
+				# real holiday while the bag of words had only "date".
+				#
+				# A margin, not a licence: it cannot lift a frame that did
+				# not fit, only settle one that did against a rival scoring
+				# on weaker evidence.
+				if typed:
+					score = min(1.0, score + self.TYPED_BONUS)
+
+				if score > 0 and (best is None or score > best[0]):
+					best = (score, " ".join(taken))
+
+		if best is None or best[0] < self.MINIMUM:
+			return None
+		return best
+
+	def __repr__(self):
+		return f"Frame({self.text!r})"
+
+
+class BadSkill(Exception):
+	"""
+	A skill declared in a way that cannot work.
+
+	Raised at construction, which is registration time - so a plugin with a
+	malformed skill fails to load and says why, rather than loading and
+	quietly never matching. A skill that never matches looks exactly like a
+	skill nobody has said the right words to, and that is a bug that hides
+	for months.
+	"""
+
+
 class Skill:
 	def __init__(
 		self,
 		wake_word: str,
 		skill_key: str,
 		plugin_key: str,
-		examples: List[str],
+		kind: str,
+		examples: List[str] = None,
+		frames: List[str] = None,
+		holes: dict = None,
 		patterns : list[list[dict]] = None,
+		opposite: str = None,
+		owns: List[str] = None,
 		arguments: dict[str, list[list[dict]]] = None,
 		payload: dict[str, list[str]] = None,
 		wants_phrase: bool = False,
@@ -238,6 +602,88 @@ class Skill:
 		self.wake = wake_word
 		self.key = skill_key
 		self.plugin = plugin_key
+
+		# What sort of thing this is, and therefore how it gets matched.
+		#
+		#   act   Something to DO. Matched on word overlap against examples,
+		#         with fuzzy repair for a misheard word. "Set a timer for ten
+		#         minutes", "cancel the alarm".
+		#
+		#   ask   Something to ANSWER. Matched on frames - a fixed phrase
+		#         with a hole in it - because what separates two questions is
+		#         usually where the subject sits rather than which words
+		#         appear. "What does {subject} mean" and "what does {subject}
+		#         look like" contain the same words in the same order and are
+		#         different questions.
+		#
+		# Two tracks that cannot reach each other, so asking about a thing
+		# can never run the command that changes it: "how many timers do i
+		# have" cancelled a timer, because both skills own the word.
+		self.kind = str(kind or "").strip().lower()
+		if self.kind not in SKILL_KINDS:
+			raise BadSkill(
+				f"{plugin_key}:{skill_key} declares kind={kind!r}. "
+				f"It has to be one of {', '.join(SKILL_KINDS)} - 'act' for "
+				f"something to do, 'ask' for something to answer.")
+
+		# The skill that undoes this one, by key.
+		#
+		# Two halves of a switch share every word except the one that
+		# inverts it, and that word is worth exactly as much as any other to
+		# a scorer over unordered lemmas. "Unmute the sounds" scored
+		# identically against mute-off, which matched "unmute", and mute-on,
+		# which matched only "sounds" - and the tie went to whichever was
+		# reached first, so asking for the sound back turned it off.
+		#
+		# Declared rather than inferred. Nothing in the words says these two
+		# are opposites; it is a fact about what the skills DO.
+		self.opposite = str(opposite).strip() if opposite else None
+
+		# Words that mean this skill, near-conclusively.
+		#
+		# Scoring weights a word by how FEW skills use it, which is a
+		# statistic about the example lists rather than a fact about meaning.
+		# It rates "calendar" at 2.75 and "today" at 2.28 - almost the same -
+		# so "whats on my calendar today" went to the date skill, which owns
+		# "today" thoroughly. No amount of weighting fixes that without
+		# moving every other skill's numbers too.
+		#
+		# A narrowing filter rather than a selector. Where an utterance
+		# carries an owned word, only the skills owning it compete, and
+		# scoring still picks between them - so several skills may own one
+		# word, and "calendar" belongs to the calendar's skills AND to
+		# go-to-page, which navigates to it.
+		#
+		# Own only what is conclusive. If a phrasing exists that carries the
+		# word and is not yours, it is not yours to own: "calendar" and
+		# "appointment" qualify, "event", "today" and "week" do not.
+		self.owns = {str(word).strip().lower()
+					 for word in (owns or []) if str(word).strip()}
+
+		examples = list(examples or [])
+		frames = list(frames or [])
+
+		if self.kind == "act" and not (examples or patterns):
+			raise BadSkill(
+				f"{plugin_key}:{skill_key} is an 'act' skill with no "
+				f"examples and no patterns. There is nothing to match it "
+				f"against, so it would register and never fire.")
+		if self.kind == "ask" and not frames:
+			raise BadSkill(
+				f"{plugin_key}:{skill_key} is an 'ask' skill with no frames. "
+				f"A frame is a phrase with a hole in it - "
+				f"\"what does {{subject}} mean\" - and without one there is "
+				f"nothing to align an utterance against.")
+		if self.kind == "act" and frames:
+			raise BadSkill(
+				f"{plugin_key}:{skill_key} is an 'act' skill carrying "
+				f"frames. Frames belong to 'ask' skills; an act skill "
+				f"matches on examples and patterns.")
+		if self.kind == "ask" and examples:
+			raise BadSkill(
+				f"{plugin_key}:{skill_key} is an 'ask' skill carrying "
+				f"examples. An ask skill matches on frames - the examples "
+				f"would be scored by nothing and silently ignored.")
 
 		# {name: [anchor phrase, ...]}. Everything after an anchor is the
 		# value, taken verbatim - see payload_span().
@@ -260,6 +706,50 @@ class Skill:
 					self._anchors.append((name, tokens))
 		# Longest first, so "put on" wins over "put".
 		self._anchors.sort(key=lambda entry: len(entry[1]), reverse=True)
+
+		# The words this skill is LIKELY to carry, filler removed.
+		#
+		# Built from everything it is matched against, so a skill listing
+		# "when is christmas", "when is easter" and "when is thanksgiving"
+		# ends up knowing those three words belong to it - without anyone
+		# writing them down twice.
+		#
+		# Not ownership. An owned word takes the phrase outright, which is
+		# too strong for a subject: "christmas" owned outright means asking
+		# what Christmas IS returns a date. This only raises confidence that
+		# the skill is the one being spoken to, and the rest of the pipeline
+		# still decides.
+		self.distinctive = set()
+		_sources = list(examples) + [HOLE.sub(" ", t) for t in frames]
+		for text in _sources:
+			for token in self.nlp(str(text)):
+				word = token.lemma_.lower()
+				if _is_content(token) and word not in FILLER_LEMMAS \
+						and len(word) > 2:
+					self.distinctive.add(word)
+
+		# What each hole is allowed to contain, by hole name.
+		#
+		# A predicate the skill supplies: `{"holiday": store.is_holiday}`.
+		# Where a hole has one, an alignment whose subject fails it is not a
+		# match at all - which is how "when is {holiday}" tells a holiday
+		# from a dentist appointment, since the wording is identical and only
+		# the data differs.
+		#
+		# It runs during MATCHING, so it has to be cheap and free of side
+		# effects - a set lookup, not a request. An exception is read as a
+		# refusal rather than propagated, so a broken predicate loses its own
+		# skill rather than the whole utterance.
+		self.holes = dict(holes or {})
+
+		# Frames, for an 'ask' skill. See Frame.
+		self.frames = [Frame(text, self.nlp, self) for text in frames]
+		unknown = set(self.holes) - {f.name for f in self.frames}
+		if unknown:
+			raise BadSkill(
+				f"{plugin_key}:{skill_key} types the hole(s) "
+				f"{sorted(unknown)}, which none of its frames has. A typed "
+				f"hole that matches no frame silently never runs.")
 
 		# Phrase Pattern Matching
 		self.matcher = nlp.shared_matcher()
@@ -452,6 +942,47 @@ class Skill:
 				return name, start, len(doc)
 		return None
 
+	def client_log(self, level: str, message: str) -> None:
+		"""Log through the client where there is one, print where there is not."""
+		client = getattr(self, "client", None)
+		if client is not None and hasattr(client, "log"):
+			client.log(level, message)
+		else:
+			print(message)
+
+	def align_frames(self, words: tuple):
+		"""
+		(weight, name, subject) for the most specific frame that fits, or None.
+
+		Most specific, meaning the one with the most fixed words. "What does
+		an axolotl look like" fits `what does {subject} look like` on four
+		fixed words and fits nothing else - `what does {subject} mean` is
+		refused outright because "mean" does not close the utterance, which
+		is the difference between a frame and a bag of words.
+		"""
+		best = None
+		for frame in self.frames:
+			frame._validator_error = ""
+			found = frame.align(words, self.holes.get(frame.name))
+			if frame._validator_error:
+				self.client_log("warning",
+					f"[Skill] {self.key}: the type on {{{frame.name}}} raised "
+					f"{frame._validator_error} - the frame {frame.text!r} "
+					f"cannot match while it does.")
+			if found is None:
+				continue
+			score, subject = found
+			# Score first, specificity only to break a tie. Two frames can
+			# both fit perfectly and both be true readings - "what is
+			# {subject}" and "what is the capital of {country}" - and the one
+			# with more fixed wording is the more particular reading.
+			key = (score, frame.weight)
+			if best is None or key > best[0]:
+				best = (key, frame.name, subject, frame)
+		if best is None:
+			return None
+		return (best[0][0], best[1], best[2])
+
 	def payload_value(self, doc) -> dict:
 		"""
 		The payload as {name: text}, taken **verbatim**.
@@ -594,7 +1125,7 @@ class SkillIntentEngine:
 		s = re.sub(r"\s+", " ", s)
 		return s
 	
-	def __skill_call_with_status_update(self, ranked, match):
+	def __skill_call_with_status_update(self, ranked, match, ask_args=None):
 		"""
 		Run the best skill, and the next one if it declines.
 
@@ -621,10 +1152,16 @@ class SkillIntentEngine:
 			except Exception:
 				pass
 
-			args = skill.extract_args(match)
-			# The payload wins where both name the same argument: it is the
-			# verbatim value, and extract_args would have trimmed it.
-			args.update(skill.payload_value(match))
+			if skill.kind == "ask":
+				# The frame already said where the subject begins and ends,
+				# so there is nothing to extract and nothing to trim. Its
+				# arguments ARE the match.
+				args = dict((ask_args or {}).get(skill.key) or {})
+			else:
+				args = skill.extract_args(match)
+				# The payload wins where both name the same argument: it is
+				# the verbatim value, and extract_args would have trimmed it.
+				args.update(skill.payload_value(match))
 			if skill.wants_phrase:
 				args["phrase"] = text
 			if attempt:
@@ -693,7 +1230,246 @@ class SkillIntentEngine:
 	def lemma_weight(self, lemma: str) -> float:
 		return getattr(self, "idf", {}).get(lemma, math.log(1 + len(self.skills()) or 1))
 
-	def rule_match(self, input_content: set, doc=None) -> tuple:
+	def boost_distinctive(self, scored: dict, content: set, doc=None):
+		"""
+		Raise the score of any skill whose own vocabulary the phrase carries.
+
+		A skill's distinctive words are the non-filler words from everything
+		it is matched against - so a holiday skill listing "when is
+		christmas" and "when is easter" knows those words are its own,
+		without anyone declaring them.
+
+		A BOOST, not a claim. Owning a word takes the phrase outright, which
+		is right for "calendar" and wrong for "christmas": a holiday name is
+		a subject and appears in every kind of question about it, so owning
+		it means asking what Christmas IS returns a date. Raising confidence
+		leaves the rest of the pipeline to decide - the encyclopedia's frame
+		for "what is X" outscores the lift and "when is X" does not.
+
+		Weighted by how few skills share the word, so one only this skill
+		uses is worth more than one it half-shares.
+		"""
+		if not content:
+			return
+		for skill in self.skills():
+			shared = skill.distinctive & content
+			if not shared:
+				continue
+			# Rarity across the whole registry, the same measure the scorer
+			# uses - a word every skill lists is not distinctive whatever one
+			# skill thinks of it.
+			rarity = max(self.lemma_weight(word) for word in shared)
+			lift = min(DISTINCTIVE_BONUS, DISTINCTIVE_BONUS * (rarity / 3.0))
+			if skill.key in scored:
+				scored[skill.key] = (min(1.0, scored[skill.key][0] + lift),
+									 skill)
+			# Deliberately NOT scored on demand.
+			#
+			# An owner is, because owning is a claim that the phrase is
+			# yours. This is only a claim that a word is yours, and scoring
+			# an unranked skill on it resurrects skills on the strength of a
+			# subject: "what is christmas" reduces to {christmas}, which is
+			# an exact content match for the holiday skill's "when is
+			# christmas" - the question word is the whole difference and
+			# content reduction has already thrown it away. Asking what
+			# Christmas IS returned a date.
+			#
+			# A skill that scored nothing had nothing to say about the
+			# phrase; carrying one of its words does not change that.
+
+	def settle_owners(self, scored: dict, lemmas: set, content=None, doc=None):
+		"""
+		The best-scoring skill that owns a word the utterance carries, or None.
+
+		Only when the top scorer does NOT own it. A skill claiming a word
+		conclusively should not lose a phrase containing it to one that
+		merely scored well on the words around it.
+
+		Returns None where nothing is owned, where the winner already owns
+		it, or where the owners all scored nothing - an owned word is a claim
+		about vocabulary, not a licence to answer a phrase the skill matched
+		no part of.
+		"""
+		if not scored:
+			return None
+		best = sorted(scored.values(), key=lambda pair: -pair[0])
+		top = best[0][1]
+
+		claimed = set()
+		for skill in self.skills():
+			claimed |= (skill.owns & lemmas)
+		if not claimed or (top.owns & claimed):
+			return None
+
+		owners = [(score, skill) for score, skill in scored.values()
+				  if skill.owns & claimed]
+		if not owners:
+			# Scored on demand. An owner usually has no score at all: the
+			# Matcher hands something else a confident match, the rule phase
+			# never runs, and the skill that claims the word is never
+			# compared with anything. That is exactly the case owning exists
+			# for, so it cannot be the case that disables it.
+			claimants = [skill for skill in self.skills()
+						 if skill.owns & claimed]
+			found, score = self.rule_match(content, doc, only=claimants)
+			if found is None:
+				return None
+			scored[found.key] = (score, found)
+			owners = [(score, found)]
+		owners.sort(key=lambda pair: -pair[0])
+		winner = owners[0][1]
+		self.client.log("info",
+			f"[SkillIntentEngine] '{winner.key}' over '{top.key}' - the "
+			f"phrase carries {sorted(claimed)}, which '{winner.key}' owns.")
+		return winner
+
+	def settle_opposites(self, scored: dict, content: set):
+		"""
+		Decide between two skills that undo each other, or leave them be.
+
+		Returns the skill that should win, or None where the question does
+		not arise. Only consulted when the top two are a declared pair -
+		everything else is settled on score as usual.
+
+		The rule is not "which scored higher" but "which one did the person
+		actually say". Each half of a pair owns the words the other does not
+		- `unmute`, `back` against `mute`, `silence`, `off` - and whichever
+		set the utterance contains is the answer, however the two happened to
+		score. Where both or neither appear, the score stands: the utterance
+		did not distinguish them and guessing is not better than scoring.
+		"""
+		# No "at least two scored" guard. The opposite is looked up rather
+		# than ranked, and the case that needs settling most is exactly the
+		# one where only ONE of the pair scored at all - the Matcher handed
+		# its twin a confident match and the other half was never compared
+		# with anything.
+		best = sorted(scored.values(), key=lambda pair: -pair[0])
+		if not best:
+			return None
+		top = best[0][1]
+		if not top.opposite:
+			return None
+
+		# Looked up in the registry, not in the ranking.
+		#
+		# The opposite often has no score at all: the Matcher can hand its
+		# twin a confident match, the rule phase never runs, and the other
+		# half is never scored against anything. "Turn the sound back on"
+		# gave mute-on 1.0 and mute-off nothing.
+		#
+		# It does not need a score. The question here is not which of the two
+		# scored higher - it is which of them the person said, and that is
+		# answered by the words alone.
+		second = next((skill for skill in self.skills()
+					   if skill.key == top.opposite), None)
+		if second is None or second.opposite != top.key:
+			return None
+
+		mine = self.exclusive_lemmas(top, second)
+		theirs = self.exclusive_lemmas(second, top)
+		said_mine = bool(mine & content)
+		said_theirs = bool(theirs & content)
+		if said_mine == said_theirs:
+			return None
+
+		winner = top if said_mine else second
+		if winner is not top:
+			self.client.log("info",
+				f"[SkillIntentEngine] '{second.key}' over '{top.key}' - the "
+				f"phrase carries {sorted(theirs & content)}, which only "
+				f"'{second.key}' owns.")
+		return winner
+
+	@staticmethod
+	def _pair_lemmas(skill) -> set:
+		"""
+		A skill's words for the purpose of telling it from its opposite.
+
+		Content words, plus the small set that INVERTS a command. Scoring
+		drops stopwords, and rightly - "the" and "your" distinguish nothing.
+		But "on", "off" and "back" are stopwords too, and between two halves
+		of a switch they are the only words that matter: "turn the sound back
+		on" and "turn off your sounds" share every content word they have.
+		"""
+		# Built from ALL lemmas, not the content ones.
+		#
+		# Stopword flagging is context-dependent: spaCy calls "make" a
+		# stopword in "you can make noise" and not in "stop making noise",
+		# so the same word survived into one skill's content lemmas and not
+		# the other's and looked like evidence for one of them. It is used
+		# by both and distinguishes nothing - and on that evidence the pair
+		# check flipped an exact 1.00 match to its opposite.
+		#
+		# Grammar is removed afterwards by the same rule either way, so
+		# membership no longer depends on which sentence a word appeared in.
+		found = set()
+		for group in skill.lemmas:
+			found |= group
+		# Determiners and pronouns distinguish nothing, and one appearing in
+		# only one skill's examples is an accident of how they were written:
+		# "mute the panel" put "the" in mute-on's exclusive set, so "turn THE
+		# sound back on" looked like evidence for both halves at once and the
+		# tie-break abstained. Grammar out, polarity kept - "on" is both.
+		return found - (FRAME_GRAMMAR - POLARITY_LEMMAS)
+
+	@classmethod
+	def exclusive_lemmas(cls, skill, other) -> set:
+		"""The words `skill` uses that its opposite never does."""
+		return cls._pair_lemmas(skill) - cls._pair_lemmas(other)
+
+	def ask_match(self, match_doc) -> list:
+		"""
+		Every 'ask' skill, scored by how well one of its frames fits.
+
+		[(score, skill, args)], best first. The score is on the same scale as
+		the act track's - both are a harmonic mean of the same two coverages
+		- so the two lists merge into one ranking without a conversion or a
+		precedence rule.
+
+		The args come out of the frame directly. A frame says where the
+		subject ends, so there is nothing to trim afterwards: "how many
+		episodes does frieren have" yields `frieren`, not `frieren have`.
+		"""
+		# Punctuation dropped, not only whitespace.
+		#
+		# Every transcript arrives with a full stop or a question mark on the
+		# end - "what is the ocean?" - and a frame compares WORD FOR WORD, so
+		# a stray "?" is a token that has to be accounted for. It lands where
+		# the suffix should be and wrecks the alignment: "what does an
+		# axolotl look like?" fell from 0.80 to 0.36, under the floor, and
+		# every question on the panel went to the fallback.
+		#
+		# The act track never saw this because `_is_content` filters
+		# punctuation on the way in. Frames tokenise the utterance directly
+		# and had no such step, so the two tracks disagreed about what a word
+		# was.
+		words = tuple(t.lower_ for t in match_doc
+					  if not (t.is_space or t.is_punct))
+		if not words:
+			return []
+
+		found = []
+		for skill in self.skills():
+			if skill.kind != "ask":
+				continue
+			aligned = skill.align_frames(words)
+			if aligned is None:
+				continue
+			score, name, subject = aligned
+			# The same floor the act track applies, because the two produce
+			# the same measurement. "Tell me a joke about penguins" fits
+			# `tell me about {subject}` - the words really are in that order
+			# - but only at 0.44, because most of the utterance ends up in
+			# the hole. That is a reading, not an answer, and it belongs to
+			# the fallback.
+			if score < FALLBACK_DEFAULT_RULE_SCORE:
+				continue
+			found.append((score, skill, {name: subject}))
+
+		found.sort(key=lambda entry: -entry[0])
+		return found
+
+	def rule_match(self, input_content: set, doc=None, only=None) -> tuple:
 		"""
 		Fallback for phrases the Matcher missed: how much of a skill's example
 		does this utterance cover?
@@ -710,7 +1486,9 @@ class SkillIntentEngine:
 		if not hasattr(self, "idf"):
 			self.rebuild_idf()
 
-		for skill in self.skills():
+		for skill in (only if only is not None else self.skills()):
+			if skill.kind != "act":
+				continue
 			# Same reason as the Matcher phase: a payload is not command
 			# vocabulary and must not be scored as though it were.
 			content = input_content
@@ -782,6 +1560,20 @@ class SkillIntentEngine:
 				# mount fuji" agree about the word "tell", which is a
 				# grammatical accident rather than a shared subject.
 				if used and used <= GENERIC_LEMMAS:
+					continue
+
+				# A single bare noun is not a command.
+				#
+				# One content word gets precision for free - it covers all of
+				# what was said, whatever it matched - so "timer" scored 0.74
+				# against "cancel the timer" and cancelled one. The word
+				# names a thing; it does not say what to do with it, and the
+				# word that WOULD say is the one missing.
+				#
+				# Exact matches are unaffected: "unmute", "silence",
+				# "nevermind" and "stop" are whole commands and are caught by
+				# the identical-phrase check above, which never reaches here.
+				if len(content) == 1 and len(example) > 1:
 					continue
 
 				if score > best_score:
@@ -861,6 +1653,8 @@ class SkillIntentEngine:
 					  if found is not None]
 
 		for skill in candidates:
+			if skill.kind != "act":
+				continue
 			# A payload skill is scored on its command words alone. Its value
 			# is words no example contains, so leaving it in makes a longer
 			# request score worse - the opposite of what it should do.
@@ -881,9 +1675,10 @@ class SkillIntentEngine:
 				# reason.
 				if not example_lemmas:
 					continue
-				overlap = len(skill_lemmas & example_lemmas)
-				if not overlap:
+				shared = skill_lemmas & example_lemmas
+				if not shared:
 					continue
+				overlap   = len(shared)
 				recall    = overlap / len(example_lemmas)
 				precision = overlap / max(1, len(skill_lemmas))
 				score = (2 * recall * precision / (recall + precision)
@@ -893,6 +1688,17 @@ class SkillIntentEngine:
 				if score > best_score:
 					best_score = score
 					best_skill = skill
+
+		# The ask track, merged in rather than run instead. Both produce a
+		# harmonic mean of the same two coverages, so the numbers mean the
+		# same thing and a frame competes on score - no precedence rule.
+		ask_args: dict = {}
+		for score, skill, args in self.ask_match(match_doc):
+			ask_args[skill.key] = args
+			if score > scored.get(skill.key, (-1.0, None))[0]:
+				scored[skill.key] = (score, skill)
+			if score > best_score:
+				best_score, best_skill = score, skill
 
 		if best_skill is None and candidates:
 			# A pattern matched on something that is not a lemma - a number, a
@@ -925,6 +1731,32 @@ class SkillIntentEngine:
 				if rule_score > best_score:
 					best_skill, best_score = rule_skill, rule_score
 
+
+		# Two skills that undo each other are settled on which one the phrase
+		# The phrase's own vocabulary, before anything is settled - a skill
+		# lifted over the floor here can then be compared like any other.
+		self.boost_distinctive(scored, input_content, match_doc)
+		if scored:
+			lifted = max(scored.values(), key=lambda pair: pair[0])
+			if lifted[0] > best_score:
+				best_score, best_skill = lifted
+		# actually names, not on which scored higher - see settle_opposites.
+		if best_skill is not None:
+			owned = self.settle_owners(scored, input_lemmas,
+									   input_content, match_doc)
+			if owned is not None and owned is not best_skill:
+				best_score = scored[owned.key][0]
+				best_skill = owned
+
+		if best_skill is not None:
+			settled = self.settle_opposites(scored, input_lemmas)
+			if settled is not None and settled is not best_skill:
+				# It keeps the score its twin won on. The pair was settled on
+				# which one the phrase names, not on which scored higher -
+				# and the winner often has no score of its own, because it
+				# was never compared with anything.
+				scored[settled.key] = (best_score, settled)
+				best_skill = settled
 
 		if not best_skill:
 			self.client.log("info", f"[SkillIntentEngine] Matcher found Nothing : {round(time.time() - start, 3)}s")
@@ -964,7 +1796,7 @@ class SkillIntentEngine:
 					ranked.remove(best_skill)
 				ranked.insert(0, best_skill)
 				Thread(target = self.__skill_call_with_status_update,
-					   args = [ranked, match_doc]).start()
+					   args = [ranked, match_doc, ask_args]).start()
 			else:
 				self.client.ASSIST_STATUS = "LIVE"
 			self.client.log("info", f"[SkillIntentEngine] Matcher found '{best_skill.key}' @ {best_score} : {time.time() - start}s")

@@ -10,6 +10,10 @@ dynaconf
 # ── NLP / Intent Engine ───────────────────────────────────────────────────────
 spacy
 # After install run: python -m spacy download en_core_web_sm
+#Compares two lemmas that are nearly the same word. JaroWinkler weights a
+#shared prefix, which is how a mishearing behaves - see fuzzy_equal() in
+#src/assistant/skill.py. C++ backed, so the comparison is not what costs.
+rapidfuzz
 # word2number removed: it raised on ordinary input ("zero", a trailing
 # "and") and a transcript is untrusted text. See src/assistant/normalize.py
 

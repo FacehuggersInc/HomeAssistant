@@ -16,7 +16,7 @@ def build(plugin, wake: str, key: str) -> list:
     """The skills in this group, wired to `plugin`'s handlers."""
     return [
         Skill(
-            wake_word=wake, skill_key="tell-time", plugin_key=key,
+            wake_word=wake, skill_key="tell-time", kind="act", plugin_key=key,
             examples=[
                 "what time is it", "whats the time", "what is the time",
                 "tell me the time", "do you have the time",
@@ -26,7 +26,7 @@ def build(plugin, wake: str, key: str) -> list:
             func=plugin.tell_time,
         ),
         Skill(
-            wake_word=wake, skill_key="tell-relative-date", plugin_key=key,
+            wake_word=wake, skill_key="tell-relative-date", kind="act", plugin_key=key,
             examples=[
                 "what is today", "what was yesterday",
                 "what is the day before today", "what is tomorrow",

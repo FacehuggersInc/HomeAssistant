@@ -20,7 +20,7 @@ def build(plugin, wake: str, key: str) -> list:
     """The skills in this group, wired to `plugin`'s handlers."""
     return [
         Skill(
-                        wake_word=wake, skill_key="set-alarm", plugin_key=key,
+                        wake_word=wake, skill_key="set-alarm", kind="act", plugin_key=key,
                         examples=[
                             # A clock time
                             "set an alarm at 4:40 PM", "set an alarm for 7 am",
@@ -69,7 +69,7 @@ def build(plugin, wake: str, key: str) -> list:
                         func=plugin.set_alarm,
                     ),
         Skill(
-                        wake_word=wake, skill_key="cancel-alarm", plugin_key=key,
+                        wake_word=wake, skill_key="cancel-alarm", kind="act", plugin_key=key,
                         examples=[
                             # All of them
                             "cancel my alarms", "cancel all my alarms",
@@ -112,11 +112,11 @@ def build(plugin, wake: str, key: str) -> list:
                         func=plugin.cancel_alarms,
                     ),
         Skill(
-                        wake_word=wake, skill_key="check-alarms", plugin_key=key,
+                        wake_word=wake, skill_key="check-alarms", kind="act", plugin_key=key,
                         examples=[
-                            "what alarms do i have", "what alarms are set",
                             "when is my alarm", "when is my next alarm",
-                            "do i have an alarm set", "list my alarms",
+                            "do i have an alarm set",
+                "are there any alarms set", "are any alarms set", "list my alarms",
                             "check my alarms", "what time is my alarm",
                         ],
                         func=plugin.check_alarms,

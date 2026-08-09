@@ -33,7 +33,7 @@ def build(plugin, wake: str, key: str) -> list:
     """The skills in this group, wired to `plugin`'s handlers."""
     return [
         Skill(
-            wake_word=wake, skill_key="convert-units", plugin_key=key,
+            wake_word=wake, skill_key="convert-units", kind="act", plugin_key=key,
             examples=[
                 "how many cups in a liter",
                 "how many tablespoons in a cup",
@@ -60,6 +60,12 @@ def build(plugin, wake: str, key: str) -> list:
                 "how many pounds is 5 kilograms",
                 "how many mm in an inch",
                 "how many inches in a foot",
+                # Time units. The list covered volume, length and mass and
+                # nothing else, so "how many minutes in 5 hours" reached a
+                # timer skill on the strength of "minutes" alone.
+                "how many minutes in an hour", "how many minutes in 5 hours",
+                "how many seconds in a minute", "how many hours in a day",
+                "how many days in a year", "how many weeks in a year",
             ],
             # Matched on SHAPE, not on the units named.
             #

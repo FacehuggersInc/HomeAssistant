@@ -11,7 +11,7 @@ def build(plugin, wake: str, key: str) -> list:
     """The skills in this group, wired to `plugin`'s handlers."""
     return [
         Skill(
-                        wake_word=wake, skill_key="notifications-open", plugin_key=key,
+                        wake_word=wake, skill_key="notifications-open", kind="act", plugin_key=key,
                         examples=[
                             "open my notifications", "show me my notifications",
                             "check notifications", "display notifications",
@@ -21,7 +21,7 @@ def build(plugin, wake: str, key: str) -> list:
                         func=plugin.open_notifications,
                     ),
         Skill(
-                        wake_word=wake, skill_key="notifications-empty", plugin_key=key,
+                        wake_word=wake, skill_key="notifications-empty", kind="act", plugin_key=key,
                         examples=[
                             "empty notifications", "empty my notifications",
                             "empty all of my notifications", "please empty my notifications",

@@ -11,7 +11,8 @@ def build(plugin, wake: str, key: str) -> list:
     """The skills in this group, wired to `plugin`'s handlers."""
     return [
         Skill(
-                        wake_word=wake, skill_key="go-to-page", plugin_key=key,
+                        wake_word=wake, skill_key="go-to-page", kind="act",
+            owns=["calendar", "page"], plugin_key=key,
                         examples=[
                             "show the calendar", "open the calendar", "go to settings",
                             "show me the home page", "open settings", "go home",
@@ -26,7 +27,7 @@ def build(plugin, wake: str, key: str) -> list:
                         func=plugin.go_to_page,
                     ),
         Skill(
-                        wake_word=wake, skill_key="open-bookmark", plugin_key=key,
+                        wake_word=wake, skill_key="open-bookmark", kind="act", plugin_key=key,
                         examples=[
                             "open scryfall", "open my scryfall bookmark",
                             "go to scryfall", "open the bookmark for scryfall",

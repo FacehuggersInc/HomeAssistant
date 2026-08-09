@@ -15,14 +15,15 @@ def build(plugin, wake: str, key: str) -> list:
     """The skills in this group, wired to `plugin`'s handlers."""
     return [
         Skill(
-            wake_word=wake, skill_key="weather-update", plugin_key=key,
+            wake_word=wake, skill_key="weather-update", kind="act", plugin_key=key,
             examples=[
                 "whats the weather", "weather outside",
                 "what is the weather today", "can you tell me the weather",
                 "can you tell me the weather today", "weather today",
                 "the weather", "hows the weather", "whats the weather like",
                 "what is it like outside", "is it cold outside",
-                "is it warm outside", "whats the temperature",
+                "is it warm outside",
+                "is it warm out", "is it cold out", "is it nice out", "whats the temperature",
                 "how hot is it", "how cold is it",
             ],
             func=plugin.weather_update,
@@ -32,7 +33,7 @@ def build(plugin, wake: str, key: str) -> list:
         # question and it belongs here - and leaving it in both is the two
         # skills competing over the same phrase.
         Skill(
-            wake_word=wake, skill_key="weather-precipitation", plugin_key=key,
+            wake_word=wake, skill_key="weather-precipitation", kind="act", plugin_key=key,
             examples=[
                 "is it raining", "is it going to rain", "will it rain",
                 "will it rain today", "will it rain later",
@@ -53,7 +54,7 @@ def build(plugin, wake: str, key: str) -> list:
             func=plugin.precipitation_update,
         ),
         Skill(
-            wake_word=wake, skill_key="weather-wind", plugin_key=key,
+            wake_word=wake, skill_key="weather-wind", kind="act", plugin_key=key,
             examples=[
                 "how windy is it", "is it windy", "is it windy outside",
                 "whats the wind", "whats the wind speed",
@@ -64,7 +65,7 @@ def build(plugin, wake: str, key: str) -> list:
             func=plugin.wind_update,
         ),
         Skill(
-            wake_word=wake, skill_key="weather-uv", plugin_key=key,
+            wake_word=wake, skill_key="weather-uv", kind="act", plugin_key=key,
             examples=[
                 "whats the uv index", "hows the uv", "what is the uv",
                 "do i need sunscreen", "is the sun strong",
@@ -74,7 +75,7 @@ def build(plugin, wake: str, key: str) -> list:
             func=plugin.uv_update,
         ),
         Skill(
-            wake_word=wake, skill_key="weather-week", plugin_key=key,
+            wake_word=wake, skill_key="weather-week", kind="act", plugin_key=key,
             examples=[
                 "whats the forecast for the week", "whats the forecast",
                 "whats the weekly forecast", "hows the week looking",
@@ -82,11 +83,14 @@ def build(plugin, wake: str, key: str) -> list:
                 "whats the rest of the week look like",
                 "whats the weather this week", "give me the weekly forecast",
                 "seven day forecast", "whats the extended forecast",
+                "weather for the next few days",
+                "whats the weather for the next few days",
+                "forecast for the next few days",
             ],
             func=plugin.forecast_week,
         ),
         Skill(
-            wake_word=wake, skill_key="weather-humidity", plugin_key=key,
+            wake_word=wake, skill_key="weather-humidity", kind="act", plugin_key=key,
             examples=[
                 "whats the humidity", "how humid is it", "is it humid",
                 "how humid is it outside", "whats the humidity outside",
@@ -96,7 +100,7 @@ def build(plugin, wake: str, key: str) -> list:
             func=plugin.humidity_update,
         ),
         Skill(
-            wake_word=wake, skill_key="weather-air-quality", plugin_key=key,
+            wake_word=wake, skill_key="weather-air-quality", kind="act", plugin_key=key,
             examples=[
                 "hows the air quality", "whats the air quality",
                 "air quality", "is the air clean", "is the air bad",

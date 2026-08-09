@@ -11,7 +11,7 @@ def build(plugin, wake: str, key: str) -> list:
     """The skills in this group, wired to `plugin`'s handlers."""
     return [
         Skill(
-                        wake_word=wake, skill_key="nevermind", plugin_key=key,
+                        wake_word=wake, skill_key="nevermind", kind="act", plugin_key=key,
                         examples=[
                             "nevermind", "never mind", "cancel", "cancel that",
                             "forget it", "forget that", "stop listening",
@@ -24,7 +24,7 @@ def build(plugin, wake: str, key: str) -> list:
                         wants_phrase=True,
                     ),
         Skill(
-                        wake_word=wake, skill_key="quit-application", plugin_key=key,
+                        wake_word=wake, skill_key="quit-application", kind="act", plugin_key=key,
                         examples=[
                             "quit the application", "quit application",
                             "close the application", "close application",

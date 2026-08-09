@@ -11,6 +11,7 @@ from datetime import date, timedelta
 from typing import TYPE_CHECKING
 
 from src.assistant.skill import Skill
+from . import store
 
 if TYPE_CHECKING:
     from src.main import Client
@@ -24,18 +25,23 @@ def build(plugin) -> list:
 
     return [
         Skill(
-            wake_word=wake, plugin_key=key, skill_key="calendar-next-event",
+            wake_word=wake, plugin_key=key, skill_key="calendar-next-event", kind="act",
+            owns=["calendar", "appointment", "agenda"],
             examples=[
                 "what is next on my calendar",
                 "what is my next event",
                 "what have I got coming up",
                 "what is next",
                 "when is my next event",
+                "what is my next appointment",
+                "when is my next appointment",
+                "what is next on my agenda",
             ],
             func=answers.next_event,
         ),
         Skill(
-            wake_word=wake, plugin_key=key, skill_key="calendar-today",
+            wake_word=wake, plugin_key=key, skill_key="calendar-today", kind="act",
+            owns=["calendar", "appointment", "agenda"],
             examples=[
                 "what is on today",
                 "what is happening today",
@@ -46,27 +52,37 @@ def build(plugin) -> list:
             func=answers.today,
         ),
         Skill(
-            wake_word=wake, plugin_key=key, skill_key="calendar-tomorrow",
+            wake_word=wake, plugin_key=key, skill_key="calendar-tomorrow", kind="act",
+            owns=["calendar", "appointment", "agenda"],
             examples=[
                 "what is on tomorrow",
                 "what is happening tomorrow",
                 "anything on tomorrow",
                 "what have I got on tomorrow",
+                # The word this skill owns has to appear in something it
+                # is scored against. Owning is a claim about vocabulary,
+                # not a licence to win a phrase it matched no part of.
+                "what is on my calendar tomorrow",
+                "whats on my agenda tomorrow",
             ],
             func=answers.tomorrow,
         ),
         Skill(
-            wake_word=wake, plugin_key=key, skill_key="calendar-this-week",
+            wake_word=wake, plugin_key=key, skill_key="calendar-this-week", kind="act",
+            owns=["calendar", "appointment", "agenda"],
             examples=[
                 "what is on this week",
                 "what have I got this week",
                 "what is happening this week",
                 "anything on this week",
+                "what is on my calendar this week",
+                "whats on my agenda this week",
             ],
             func=answers.this_week,
         ),
         Skill(
-            wake_word=wake, plugin_key=key, skill_key="calendar-next-holiday",
+            wake_word=wake, plugin_key=key, skill_key="calendar-next-holiday", kind="act",
+            owns=["calendar", "appointment", "agenda"],
             examples=[
                 "when is the next holiday",
                 "what is the next holiday",
@@ -80,23 +96,38 @@ def build(plugin) -> list:
         # and one of them names a date the panel already knows.
         Skill(
             wake_word=wake, plugin_key=key, skill_key="calendar-named-holiday",
-            examples=[
-                "when is thanksgiving", "when is christmas",
-                "when is easter this year", "what day is thanksgiving",
-                "what day is christmas on", "how long until christmas",
-                "how many days until christmas",
-                "when is the fourth of july", "when is halloween",
-                "when is memorial day", "whens new years",
-                "what date is thanksgiving",
+            kind="ask",
+            # Frames, because the question WORD is the whole difference here
+            # and content-word scoring throws it away: "when is christmas"
+            # and "what is christmas" both reduce to {christmas}, scored an
+            # exact match against the same example, and asking what
+            # Christmas is returned a date.
+            frames=[
+                "when is {holiday}",
+                "whens {holiday}",
+                "when is {holiday} this year",
+                "what day is {holiday}",
+                "what day is {holiday} on",
+                "what date is {holiday}",
+                "what day of the week is {holiday}",
+                "how long until {holiday}",
+                "how many days until {holiday}",
+                "how many days till {holiday}",
             ],
-            # The whole phrase. A holiday name is matched against the phrase
-            # directly - see `store.holiday_named` - so nothing has to pull
-            # "the fourth of july" out of a sentence and get it right.
+            # And typed, because the shape alone is ambiguous. "When is the
+            # next holiday" and "when is my dentist appointment" fit `when is
+            # {holiday}` exactly as well as "when is christmas" does - only
+            # the data separates them.
+            #
+            # `holiday_named` is a whole-word alias lookup: no request, no
+            # disk, safe to run inside matching.
+            holes={"holiday": lambda text: bool(store.holiday_named(text))},
             wants_phrase=True,
             func=answers.named_holiday,
         ),
         Skill(
-            wake_word=wake, plugin_key=key, skill_key="calendar-how-long",
+            wake_word=wake, plugin_key=key, skill_key="calendar-how-long", kind="act",
+            owns=["calendar", "appointment", "agenda"],
             examples=[
                 "how long until my next event",
                 "how long until the next thing",
@@ -192,10 +223,15 @@ class _Answers:
                                      event.notes) if l],
                   icon=event.icon, tint=event.colour or "#4f9de0")
 
-    def named_holiday(self, phrase: str = "") -> None:
+    def named_holiday(self, holiday: str = "", phrase: str = "") -> None:
+        # `holiday` is the frame's hole - the subject, extracted exactly.
+        # The lookup still runs over the whole phrase, since `find_holiday`
+        # is a whole-word alias search and the subject is inside it either
+        # way. The parameter has to be accepted regardless: an ask skill is
+        # called with its hole as a keyword argument.
         api = self._api()
-        holiday = api["find_holiday"](phrase) if api else None
-        if holiday is None:
+        found = api["find_holiday"](phrase) if api else None
+        if found is None:
             # Matched the shape of the question but not a holiday it knows.
             # Naming what it does know would be a list of twenty-one read
             # aloud, so it says what kind of thing it wants instead.
@@ -204,9 +240,9 @@ class _Answers:
                       icon="mdi.calendar-question", tint="#8a8a8a")
             return
 
-        self._say(f"{holiday.title} is {api['describe_gap'](holiday)}.",
-                  lines=[self._full_date(holiday.day)],
-                  icon=holiday.icon, tint="#d8a24a")
+        self._say(f"{found.title} is {api['describe_gap'](found)}.",
+                  lines=[self._full_date(found.day)],
+                  icon=found.icon, tint="#d8a24a")
 
     @staticmethod
     def _full_date(day: str) -> str:

@@ -149,6 +149,54 @@ def meridiem(text: str) -> str:
     return _MERIDIEM_FORMS.sub(lambda m: m.group(1).lower() + "m", text)
 
 
+#Two bare numbers that are a clock time. The transcriber writes digits
+#directly as often as it writes words - "wake me up at 6 30" rather than "at
+#six thirty" - and `spoken_clock` only reads the word forms.
+#
+#Narrow on purpose, the same as `spoken_clock`. An hour of 1-12, a minute of
+#00-59 written as TWO digits, and a preposition in front. The two-digit rule
+#is what keeps "set a timer for 5 10" out: a minute is said "oh five", never
+#"five", so a bare single digit after an hour is somebody counting.
+_DIGIT_CLOCK = re.compile(
+    r"\b(?P<lead>at|for|by|until|till|around|about)\s+"
+    r"(?P<hour>1[0-2]|[1-9])\s+(?P<minute>[0-5]\d)"
+    r"(?P<tail>\s*(?:am|pm|a\.m\.|p\.m\.|o'?clock)\b)?",
+    re.IGNORECASE)
+
+
+def digit_clock(text: str) -> str:
+    """
+    "at 6 30" as 6:30, before anything reads it as two numbers.
+
+    Two adjacent integers are not a time in general - "for 5 10" is not
+    ten past five - so this needs the shape around them: a preposition in
+    front, an hour in range, and a minute written as two digits.
+
+    Without it the pair survives to the skill engine as `6` and `30`, and
+    every step downstream has already lost the time: the alarm skill sees two
+    unrelated integers, and `dateparser` reads "6 30" as the thirtieth of
+    June.
+    """
+    if not text:
+        return text
+
+    # A timer is a DURATION, not a time of day. "Set a timer for 5 10" is
+    # five minutes and ten seconds; reading it as ten past five would set it
+    # for the wrong thing entirely, and unlike an alarm there is no hour to
+    # be wrong about.
+    if re.search(r"\btimers?\b", text, re.IGNORECASE):
+        return text
+
+    def rewrite(match):
+        hour, minute = int(match.group("hour")), int(match.group("minute"))
+        if not (1 <= hour <= 12 and 0 <= minute <= 59):
+            return match.group(0)
+        tail = match.group("tail") or ""
+        return f"{match.group('lead')} {hour}:{minute:02d}{tail}"
+
+    return _DIGIT_CLOCK.sub(rewrite, text)
+
+
 def spoken_clock(text: str) -> str:
     """
     Clock times as digits, before the number pass can add them up.
@@ -283,6 +331,9 @@ def normalize(text: str) -> str:
     # so the clock pass has one spelling to look for.
     out = meridiem(out)
     out = spoken_clock(out)
+    # After the word forms, so "seven thirty" is already 7:30 and this only
+    # sees pairs the transcriber wrote as digits.
+    out = digit_clock(out)
     out = words_to_numbers(out)
     out = split_glued_units(out)
     out = expand_units(out)

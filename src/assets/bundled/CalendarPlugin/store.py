@@ -14,6 +14,8 @@ Events come from three places and are kept apart by `source`:
 
 from __future__ import annotations
 
+from rapidfuzz.distance import JaroWinkler
+
 import json
 import uuid
 from dataclasses import dataclass, field, asdict
@@ -436,6 +438,13 @@ HOLIDAY_ALIASES = {
 
 _ALIAS_ORDER = sorted(HOLIDAY_ALIASES, key=len, reverse=True)
 
+#How close a word has to be to a holiday name to count as that name misheard.
+#
+#Measured on the ones that actually happen: "easer" for "easter" is 0.947,
+#"chrismas" for "christmas" 0.979, "halloween"/"haloween" 0.978. The words it
+#must refuse sit well below - "monday" against "sunday" is 0.778.
+_HEARD_RATIO = 0.90
+
 
 def _flatten(text: str) -> str:
     """Lowercase, apostrophes and full stops gone, spaces collapsed."""
@@ -457,6 +466,29 @@ def holiday_named(phrase: str) -> str:
     for alias in _ALIAS_ORDER:
         if f" {alias} " in flat:
             return HOLIDAY_ALIASES[alias]
+
+    # Nothing matched outright, so try it as a mishearing.
+    #
+    # A holiday name is spoken, and the transcriber does to it what it does
+    # to every proper noun: "easter" comes back as "easer", "christmas" as
+    # "chrismas". Everything else on the way here forgives that - the wake
+    # word, the frame's fixed wording, the skill scoring - and an exact
+    # lookup at the end undoes all of it, dropping the question to whatever
+    # answers a phrase nobody claimed.
+    #
+    # Whole words still, and only against aliases of a similar length, so
+    # "may" cannot become "day" and a short alias cannot swallow a word it
+    # merely resembles.
+    said = [word for word in flat.split() if len(word) >= 4]
+    for alias in _ALIAS_ORDER:
+        parts = alias.split()
+        if len(parts) != 1 or len(alias) < 5:
+            continue
+        for word in said:
+            if abs(len(word) - len(alias)) > 2:
+                continue
+            if JaroWinkler.normalized_similarity(word, alias) >= _HEARD_RATIO:
+                return HOLIDAY_ALIASES[alias]
     return ""
 
 

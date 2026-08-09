@@ -1494,11 +1494,13 @@ class CoreSkills(Plugin):
 
         cleaned = api.clean(word)
         if not cleaned:
-            # The skill matched but caught no word - "what does that mean"
-            # with nothing before it. Asking again is the answer; guessing is
-            # not.
-            self._respond("Which word?")
-            return "", None
+            # The skill matched but caught no word. Declined rather than
+            # asked: this skill is now REACHED BY FALLING through another,
+            # so "what does an axolotl look like" arrives here when the
+            # encyclopedia declines a mis-transcribed subject - and "which
+            # word?" is the panel asking about a word nobody mentioned,
+            # while the phrase still has the fallback to go to.
+            raise SkillDeclined("no word in the phrase")
 
         entry = api.look_up(cleaned)
         if entry is None:

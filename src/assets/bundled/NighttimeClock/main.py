@@ -565,7 +565,7 @@ class NighttimeClockPlugin(Plugin):
         wake = self.client.wake_word()
         return [
             Skill(
-                wake_word=wake, skill_key="night-good-night",
+                wake_word=wake, skill_key="night-good-night", kind="act",
                 plugin_key=self.KEY,
                 examples=[
                     "good night", "goodnight", "night night",
@@ -576,7 +576,7 @@ class NighttimeClockPlugin(Plugin):
                 func=self.skill_good_night,
             ),
             Skill(
-                wake_word=wake, skill_key="night-good-morning",
+                wake_word=wake, skill_key="night-good-morning", kind="act",
                 plugin_key=self.KEY,
                 examples=[
                     "good morning", "im awake", "i am awake", "wake up",

@@ -130,6 +130,7 @@ class MusicPlugin(Plugin):
             Skill(
                 wake_word  = wake,
                 skill_key  = "play-music",
+                kind       = "act",
                 plugin_key = self.KEY,
                 examples   = ["play something", "put on some music",
                               "play a song", "listen to something"],
@@ -139,6 +140,7 @@ class MusicPlugin(Plugin):
             Skill(
                 wake_word  = wake,
                 skill_key  = "pause-music",
+                kind       = "act",
                 plugin_key = self.KEY,
                 examples   = ["pause the music", "stop the music",
                               "pause the song"],
@@ -147,6 +149,7 @@ class MusicPlugin(Plugin):
             Skill(
                 wake_word  = wake,
                 skill_key  = "resume-music",
+                kind       = "act",
                 plugin_key = self.KEY,
                 examples   = ["resume the music", "carry on with the music",
                               "keep playing"],
@@ -155,6 +158,7 @@ class MusicPlugin(Plugin):
             Skill(
                 wake_word  = wake,
                 skill_key  = "skip-music",
+                kind       = "act",
                 plugin_key = self.KEY,
                 examples   = ["skip this song", "next track", "skip this"],
                 func       = self.skill_skip,
@@ -162,6 +166,7 @@ class MusicPlugin(Plugin):
             Skill(
                 wake_word  = wake,
                 skill_key  = "whats-playing",
+                kind       = "act",
                 plugin_key = self.KEY,
                 examples   = ["what is playing", "what song is this",
                               "what is this song"],

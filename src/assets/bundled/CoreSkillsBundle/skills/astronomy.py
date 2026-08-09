@@ -22,7 +22,7 @@ def build(plugin, wake: str, key: str) -> list:
         # word in the phrase rather than a different question - so the
         # handler reads it, the way the rain and snow one does.
         Skill(
-            wake_word=wake, skill_key="sun-times", plugin_key=key,
+            wake_word=wake, skill_key="sun-times", kind="act", plugin_key=key,
             examples=[
                 "when is sunset", "when is sunrise", "what time is sunset",
                 "what time is sunrise", "when does the sun set",
@@ -36,7 +36,7 @@ def build(plugin, wake: str, key: str) -> list:
             func=plugin.sun_times,
         ),
         Skill(
-            wake_word=wake, skill_key="moon-phase", plugin_key=key,
+            wake_word=wake, skill_key="moon-phase", kind="act", plugin_key=key,
             examples=[
                 "what phase is the moon", "whats the moon phase",
                 "is it a full moon", "what is the moon doing",
