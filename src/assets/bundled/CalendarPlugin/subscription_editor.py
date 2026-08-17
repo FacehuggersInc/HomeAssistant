@@ -165,7 +165,7 @@ def subscription_row(client: "Client", feed, on_changed: Callable = None) -> QWi
         count = 0
         try:
             store = client.public.calendar["store"]
-            count = sum(1 for e in store.events.values()
+            count = sum(1 for e in store.snapshot()
                         if e.subscription == feed.key)
         except Exception:
             pass

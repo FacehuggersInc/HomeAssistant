@@ -440,10 +440,17 @@ class Calendar(Plugin):
 
         # Before anything syncs: an event the manager cannot recognise as its
         # own is an event the next sync duplicates rather than replaces.
+        #
+        # One batch for all three. Each step passes through a state nobody
+        # should be shown - orphans still listed, duplicates still doubled -
+        # and the tiles and widgets are already reading by now. Held together,
+        # the calendar goes from how it was to how it should be with nothing
+        # in between, and the file is written once instead of three times.
         try:
-            self.subscriptions.migrate_events()
-            self.subscriptions.orphans()
-            removed = self.store.deduplicate()
+            with self.store.batch():
+                self.subscriptions.migrate_events()
+                self.subscriptions.orphans()
+                removed = self.store.deduplicate()
             if removed:
                 self.client.log("info",
                                 f"[Calendar] Removed {removed} duplicate event(s).")
@@ -872,7 +879,7 @@ class Calendar(Plugin):
         """
         from collections import defaultdict
 
-        stored = list(self.store.events.values())
+        stored = self.store.snapshot()
         needle = (title or "").strip().lower()
 
         if needle or day:

@@ -3249,10 +3249,39 @@ class Client:
         self.log("info", "Closing Client ...")
         self.iterate_event_callables("on_close", event)
         self.PLUGIN.unload_plugins()
+        self.finish_ui_work()
         self.dump(self.settings_dict(), self.DATA)
         self.cleanup()
         self.window.hide()
         self.app.quit()
+
+    def finish_ui_work(self) -> None:
+        """
+        Run what is still queued for the UI thread, and honour deleteLater.
+
+        `call_on_ui` posts; it does not run. Anything still posted when
+        `app.quit()` returns from `exec()` is discarded - so a plugin whose
+        unload ends in `call_on_ui(self.player.stop)` never stops its player,
+        and nothing anywhere says the work was dropped.
+
+        That matters most for the embedded browser. A QWebEnginePage left
+        alive is torn down by the interpreter after Qt has finished with it,
+        and Chromium does not survive being taken apart in that order: the
+        process segfaults AFTER a completely clean shutdown, which the
+        launcher then reads as a crash and restarts.
+
+        `deleteLater` needs its own pass. It posts a DeferredDelete event,
+        which `processEvents` deliberately does not deliver - so the objects
+        the line above just asked to delete are still alive without it.
+        """
+        try:
+            # Queued calls first: they are what asks for the deletions.
+            self.app.processEvents()
+            self.app.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+            # And once more, for anything the deletions themselves posted.
+            self.app.processEvents()
+        except Exception as e:
+            self.log("debug", f"Could not finish queued UI work: {e}")
 
     @mixin_target("client.cleanup")
     def cleanup(self) -> None:

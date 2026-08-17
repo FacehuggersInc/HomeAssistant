@@ -17,6 +17,8 @@ from __future__ import annotations
 from rapidfuzz.distance import JaroWinkler
 
 import json
+from contextlib import contextmanager
+from threading import RLock
 import uuid
 from dataclasses import dataclass, field, asdict
 from datetime import date, datetime, timedelta
@@ -560,6 +562,39 @@ class CalendarStore:
 
     Holidays are merged in on read rather than stored - they are derivable, and
     saving them would mean a file that goes stale a year at a time.
+
+    **Everything here is under one lock.** Events are read from the UI thread
+    on every client tick and written by the subscription sync on its own
+    thread, and the two met in the middle: `all_events()` iterating
+    `self.events` while a sync replaced a feed's rows raised "dictionary
+    changed size during iteration" - which was the visible symptom, not the
+    problem. The invisible one is worse: a read that happens to survive the
+    race sees half of somebody else's change.
+
+    Reentrant, because these methods call each other constantly - `remove()`
+    goes through `resolve_key()`, `deduplicate()` ends in `save()`. A plain
+    lock would deadlock on the first of those.
+
+    ## Batches
+
+    A single change is atomic on its own. A change made OF SEVERAL is not,
+    and that is what `batch()` is for:
+
+        with store.batch():
+            store.remove_matching(old)
+            for event in fresh:
+                store.put(event)
+            store.deduplicate()
+
+    The lock is held for the whole block, so no reader sees the store
+    part-way through - not the moment after the old events went and before
+    the new ones arrived, and not the moment when a duplicate exists but
+    `deduplicate()` has not reached it yet. A reader asking during a batch
+    waits and then sees the finished state.
+
+    Saving is deferred to the end of the batch as well, so the same block
+    writes the file once instead of once per step. That is the difference
+    between one write and several hundred on a feed sync.
     """
 
     def __init__(self, path, log: Callable = None):
@@ -568,48 +603,133 @@ class CalendarStore:
         self.events: dict = {}          # key -> Event
         self._holiday_cache: dict = {}  # year -> [Event]
         self.hidden_holidays: set = set()   # holiday keys never to show
+        #Reentrant: the methods below call one another freely.
+        self._lock = RLock()
+        #How many batches deep. Nested ones are one batch - an inner block
+        #ending must not publish a change the outer one has not finished.
+        self._batch_depth = 0
+        #Whether anything asked to save while a batch was open.
+        self._batch_dirty = False
         self.load()
+
+    @contextmanager
+    def batch(self):
+        """
+        Hold the store still for a group of changes, and save once at the end.
+
+        Nesting is counted rather than refused: a caller wrapping its own work
+        should not have to know whether the method it calls does the same.
+        """
+        with self._lock:
+            self._batch_depth += 1
+            try:
+                yield self
+            finally:
+                self._batch_depth -= 1
+                if self._batch_depth == 0 and self._batch_dirty:
+                    self._batch_dirty = False
+                    # Outside the guard below, since that is what deferred it.
+                    self._write()
+
+    def _write(self) -> None:
+        """The actual file write. Callers want `save()`."""
+        with self._lock:
+            try:
+                self.path.parent.mkdir(parents=True, exist_ok=True)
+                payload = {"events": [e.to_dict() for e in self.events.values()],
+                           "hidden_holidays": sorted(self.hidden_holidays)}
+                self.path.write_text(json.dumps(payload, indent=2),
+                                     encoding="utf-8")
+            except OSError as e:
+                self.log("warning", f"[Calendar] Could not save events: {e}")
 
     ## -- persistence
 
     def load(self) -> None:
-        self.events = {}
-        try:
-            if not self.path.is_file():
+        with self._lock:
+            self.events = {}
+            try:
+                if not self.path.is_file():
+                    return
+                raw = json.loads(self.path.read_text(encoding="utf-8"))
+            except (OSError, ValueError) as e:
+                self.log("warning", f"[Calendar] Could not read events: {e}")
                 return
-            raw = json.loads(self.path.read_text(encoding="utf-8"))
-        except (OSError, ValueError) as e:
-            self.log("warning", f"[Calendar] Could not read events: {e}")
-            return
 
-        for item in (raw.get("events") if isinstance(raw, dict) else raw) or []:
-            event = Event.from_dict(item)
-            if event is not None:
-                self.events[event.key] = event
+            for item in (raw.get("events") if isinstance(raw, dict) else raw) or []:
+                event = Event.from_dict(item)
+                if event is not None:
+                    self.events[event.key] = event
 
-        if isinstance(raw, dict):
-            # Holidays are computed, so hiding one cannot be a flag on the
-            # event - there is no stored event to flag.
-            self.hidden_holidays = set(raw.get("hidden_holidays") or [])
-        self.log("info", f"[Calendar] Loaded {len(self.events)} events.")
+            if isinstance(raw, dict):
+                # Holidays are computed, so hiding one cannot be a flag on the
+                # event - there is no stored event to flag.
+                self.hidden_holidays = set(raw.get("hidden_holidays") or [])
+            self.log("info", f"[Calendar] Loaded {len(self.events)} events.")
 
     def save(self) -> None:
-        try:
-            self.path.parent.mkdir(parents=True, exist_ok=True)
-            payload = {"events": [e.to_dict() for e in self.events.values()],
-                       "hidden_holidays": sorted(self.hidden_holidays)}
-            self.path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-        except OSError as e:
-            self.log("warning", f"[Calendar] Could not save events: {e}")
+        with self._lock:
+            if self._batch_depth:
+                # Held back until the batch closes. Writing here would put a
+                # half-finished state on disk, and a crash mid-batch would
+                # make that state the one that loads next time.
+                self._batch_dirty = True
+                return
+            self._write()
 
     ## -- mutation
 
     def add(self, event: Event) -> Event:
         if event.source == "holiday":
             raise ValueError("Holidays are computed, not stored.")
-        self.events[event.key] = event
-        self.save()
-        return event
+        with self._lock:
+            self.events[event.key] = event
+            self.save()
+            return event
+
+    def put(self, event: Event) -> Event:
+        """
+        Store an event without validating where it came from.
+
+        For the subscription sync, which writes rows it has already built and
+        was previously assigning straight into `store.events` from its own
+        thread - outside the lock, and outside anything that could be batched.
+        """
+        with self._lock:
+            self.events[event.key] = event
+            self.save()
+            return event
+
+    def drop_where(self, predicate: Callable) -> int:
+        """
+        Remove every event the predicate accepts. Returns how many went.
+
+        The keys are collected before anything is deleted, so the dictionary
+        is not being changed while it is read - the same fault this lock
+        exists for, one scope smaller.
+        """
+        with self._lock:
+            doomed = [key for key, event in self.events.items()
+                      if predicate(key, event)]
+            for key in doomed:
+                del self.events[key]
+            if doomed:
+                self.save()
+            return len(doomed)
+
+    def snapshot(self) -> list:
+        """
+        The stored events as a plain list, taken under the lock.
+
+        For the few callers that want the raw rows rather than the expanded,
+        holiday-merged view `all_events()` gives. They were building this list
+        themselves straight off `self.events`, and building it IS the
+        iteration that raced the sync - `list(...)` around a live dictionary
+        is not a snapshot until something stops the dictionary changing while
+        it is copied.
+        """
+        with self._lock:
+            return list(self.events.values())
 
     def resolve_key(self, key: str) -> str:
         """
@@ -626,31 +746,34 @@ class CalendarStore:
         stored key, so an event whose own key contained an `@` is unaffected.
         """
         key = str(key or "")
-        if key in self.events:
-            return key
-        if "@" in key:
-            base = key.rsplit("@", 1)[0]
-            if base in self.events:
-                return base
+        with self._lock:
+            if key in self.events:
+                return key
+            if "@" in key:
+                base = key.rsplit("@", 1)[0]
+                if base in self.events:
+                    return base
         return key
 
     def remove(self, key: str) -> bool:
-        key = self.resolve_key(key)
-        if key in self.events:
-            del self.events[key]
-            self.save()
-            return True
-        return False
+        with self._lock:
+            key = self.resolve_key(key)
+            if key in self.events:
+                del self.events[key]
+                self.save()
+                return True
+            return False
 
     def update(self, key: str, **changes) -> Optional[Event]:
-        event = self.events.get(self.resolve_key(key))
-        if event is None:
-            return None
-        for name, value in changes.items():
-            if name in Event.__dataclass_fields__ and name != "key":
-                setattr(event, name, value)
-        self.save()
-        return event
+        with self._lock:
+            event = self.events.get(self.resolve_key(key))
+            if event is None:
+                return None
+            for name, value in changes.items():
+                if name in Event.__dataclass_fields__ and name != "key":
+                    setattr(event, name, value)
+            self.save()
+            return event
 
     def get(self, key: str) -> Optional[Event]:
         # `series@date` is one occurrence of a repeating event. Nothing stored
@@ -658,7 +781,8 @@ class CalendarStore:
         # view reported that the event no longer existed.
         if "@" in key:
             series_key, _, stamp = key.rpartition("@")
-            series = self.events.get(series_key)
+            with self._lock:
+                series = self.events.get(series_key)
             if series is not None:
                 try:
                     return series.occurrence_on(date.fromisoformat(stamp))
@@ -671,14 +795,16 @@ class CalendarStore:
             except (IndexError, ValueError):
                 return None
             return next((h for h in self.holidays(year) if h.key == key), None)
-        return self.events.get(key)
+        with self._lock:
+            return self.events.get(key)
 
     ## -- reading
 
     def holidays(self, year: int) -> list:
-        if year not in self._holiday_cache:
-            self._holiday_cache[year] = holidays_for(year)
-        return self._holiday_cache[year]
+        with self._lock:
+            if year not in self._holiday_cache:
+                self._holiday_cache[year] = holidays_for(year)
+            return self._holiday_cache[year]
 
     def all_events(self, include_holidays: bool = True,
                    years: tuple = None, expand_from: date = None,
@@ -694,19 +820,25 @@ class CalendarStore:
         start = expand_from or (today - timedelta(days=365))
         end = expand_to or (today + timedelta(days=365))
 
-        out = []
-        for event in self.events.values():
-            if event.hidden:
-                continue
-            if not event.recurring:
-                out.append(event)
-                continue
-            out.extend(self.expand(event, start, end))
+        with self._lock:
+            out = []
+            # This loop is where "dictionary changed size during iteration"
+            # came from: the reminder check runs it on the client tick while
+            # a feed sync replaces its rows. Under the lock a sync in
+            # progress simply finishes first, and what comes back is one
+            # coherent state rather than a torn one.
+            for event in self.events.values():
+                if event.hidden:
+                    continue
+                if not event.recurring:
+                    out.append(event)
+                    continue
+                out.extend(self.expand(event, start, end))
 
-        if include_holidays:
-            for year in (years or self._year_span()):
-                out.extend(h for h in self.holidays(year)
-                           if h.key not in self.hidden_holidays)
+            if include_holidays:
+                for year in (years or self._year_span()):
+                    out.extend(h for h in self.holidays(year)
+                               if h.key not in self.hidden_holidays)
 
         return sorted(self._collapse(out), key=_sort_key)
 
@@ -797,10 +929,11 @@ class CalendarStore:
         """Years worth computing holidays for: this year, and any with events."""
         today = date.today().year
         years = {today, today + 1}
-        for event in self.events.values():
-            when = event.date
-            if when:
-                years.add(when.year)
+        with self._lock:
+            for event in self.events.values():
+                when = event.date
+                if when:
+                    years.add(when.year)
         return range(min(years), max(years) + 1)
 
     def by_owner(self, owner: str, include_holidays: bool = False) -> list:
@@ -810,8 +943,9 @@ class CalendarStore:
 
     def owners(self) -> list:
         """Every name that owns something, for a filter or a summary."""
-        return sorted({e.owner for e in self.events.values()
-                       if e.owner and e.source != "holiday"})
+        with self._lock:
+            return sorted({e.owner for e in self.events.values()
+                           if e.owner and e.source != "holiday"})
 
     def on_day(self, when: date, include_holidays: bool = True) -> list:
         out, seen = [], set()
@@ -860,25 +994,27 @@ class CalendarStore:
 
     def skip_occurrence(self, series_key: str, when: date) -> bool:
         """Hide one occurrence of a series, leaving the rest alone."""
-        event = self.events.get(series_key)
-        if event is None or not event.recurring:
-            return False
-        stamp = when.isoformat()
-        if stamp not in event.skip:
-            event.skip.append(stamp)
-            self.save()
-        return True
+        with self._lock:
+            event = self.events.get(series_key)
+            if event is None or not event.recurring:
+                return False
+            stamp = when.isoformat()
+            if stamp not in event.skip:
+                event.skip.append(stamp)
+                self.save()
+            return True
 
     def unskip_occurrence(self, series_key: str, when: date) -> bool:
-        event = self.events.get(series_key)
-        if event is None:
+        with self._lock:
+            event = self.events.get(series_key)
+            if event is None:
+                return False
+            stamp = when.isoformat()
+            if stamp in event.skip:
+                event.skip.remove(stamp)
+                self.save()
+                return True
             return False
-        stamp = when.isoformat()
-        if stamp in event.skip:
-            event.skip.remove(stamp)
-            self.save()
-            return True
-        return False
 
     def skip_next(self, series_key: str, count: int = 1,
                   now: date = None) -> int:
@@ -888,36 +1024,41 @@ class CalendarStore:
         "Not for the next three Wednesdays" is one call rather than three
         trips into the calendar to find them.
         """
-        event = self.events.get(series_key)
-        if event is None or not event.recurring:
-            return 0
-        now = now or date.today()
-        upcoming = [o.date for o in self.expand(event, now, now + timedelta(days=800))]
-        hidden = 0
-        for when in upcoming[:max(0, count)]:
-            if self.skip_occurrence(series_key, when):
-                hidden += 1
-        return hidden
+        # One lock for the whole run, so a caller asking mid-way cannot see
+        # two of three occurrences hidden.
+        with self._lock, self.batch():
+            event = self.events.get(series_key)
+            if event is None or not event.recurring:
+                return 0
+            now = now or date.today()
+            upcoming = [o.date for o in self.expand(event, now, now + timedelta(days=800))]
+            hidden = 0
+            for when in upcoming[:max(0, count)]:
+                if self.skip_occurrence(series_key, when):
+                    hidden += 1
+            return hidden
 
     def set_hidden(self, key: str, hidden: bool = True) -> bool:
         """Silence a whole event or series without deleting it."""
-        if key.startswith("holiday:"):
-            if hidden:
-                self.hidden_holidays.add(key)
-            else:
-                self.hidden_holidays.discard(key)
+        with self._lock:
+            if key.startswith("holiday:"):
+                if hidden:
+                    self.hidden_holidays.add(key)
+                else:
+                    self.hidden_holidays.discard(key)
+                self.save()
+                return True
+            event = self.events.get(key)
+            if event is None:
+                return False
+            event.hidden = bool(hidden)
             self.save()
             return True
-        event = self.events.get(key)
-        if event is None:
-            return False
-        event.hidden = bool(hidden)
-        self.save()
-        return True
 
     def hidden_keys(self) -> list:
-        return sorted(self.hidden_holidays) + \
-               sorted(k for k, e in self.events.items() if e.hidden)
+        with self._lock:
+            return sorted(self.hidden_holidays) + \
+                   sorted(k for k, e in self.events.items() if e.hidden)
 
     def looks_like(self, event: Event, ignore_day: bool = True) -> list:
         """
@@ -939,30 +1080,32 @@ class CalendarStore:
             event.end_time or "",
         )
         out = []
-        for stored in self.events.values():
-            if stored.source == "holiday":
-                continue
-            candidate = (
-                (stored.owner or ""),
-                stored.title.strip().lower(),
-                stored.time or "",
-                stored.end_time or "",
-            )
-            if candidate != target:
-                continue
-            if not ignore_day and stored.day != event.day:
-                continue
-            out.append(stored)
+        with self._lock:
+            for stored in self.events.values():
+                if stored.source == "holiday":
+                    continue
+                candidate = (
+                    (stored.owner or ""),
+                    stored.title.strip().lower(),
+                    stored.time or "",
+                    stored.end_time or "",
+                )
+                if candidate != target:
+                    continue
+                if not ignore_day and stored.day != event.day:
+                    continue
+                out.append(stored)
         return out
 
     def remove_matching(self, event: Event, ignore_day: bool = True) -> int:
         """Remove every stored copy of `event`. Returns how many went."""
-        doomed = [e.key for e in self.looks_like(event, ignore_day=ignore_day)]
-        for key in doomed:
-            self.events.pop(key, None)
-        if doomed:
-            self.save()
-        return len(doomed)
+        with self._lock:
+            doomed = [e.key for e in self.looks_like(event, ignore_day=ignore_day)]
+            for key in doomed:
+                self.events.pop(key, None)
+            if doomed:
+                self.save()
+            return len(doomed)
 
     def deduplicate(self) -> int:
         """
@@ -975,37 +1118,38 @@ class CalendarStore:
 
         Holidays are excluded; they are computed and cannot be duplicated.
         """
-        seen, doomed = {}, []
-        for key, event in self.events.items():
-            if event.source == "holiday":
-                continue
-            # Source is deliberately not part of this. The same event stored
-            # twice under two different sources is exactly what a source that
-            # failed to round-trip produces, and matching on it would declare
-            # the pair different and keep both.
-            fingerprint = (
-                event.owner, event.title.strip().lower(),
-                event.day, event.end_day, event.time, event.end_time,
-                event.repeat, event.repeat_until,
-            )
-            if fingerprint in seen:
-                other = self.events[seen[fingerprint]]
-                # Keep whichever one a feed still owns: that is the copy the
-                # next sync will replace, and dropping it would strand the
-                # other beyond anything's reach.
-                if event.subscription and not other.subscription:
-                    doomed.append(seen[fingerprint])
-                    seen[fingerprint] = key
+        with self._lock:
+            seen, doomed = {}, []
+            for key, event in self.events.items():
+                if event.source == "holiday":
+                    continue
+                # Source is deliberately not part of this. The same event stored
+                # twice under two different sources is exactly what a source that
+                # failed to round-trip produces, and matching on it would declare
+                # the pair different and keep both.
+                fingerprint = (
+                    event.owner, event.title.strip().lower(),
+                    event.day, event.end_day, event.time, event.end_time,
+                    event.repeat, event.repeat_until,
+                )
+                if fingerprint in seen:
+                    other = self.events[seen[fingerprint]]
+                    # Keep whichever one a feed still owns: that is the copy the
+                    # next sync will replace, and dropping it would strand the
+                    # other beyond anything's reach.
+                    if event.subscription and not other.subscription:
+                        doomed.append(seen[fingerprint])
+                        seen[fingerprint] = key
+                    else:
+                        doomed.append(key)
                 else:
-                    doomed.append(key)
-            else:
-                seen[fingerprint] = key
+                    seen[fingerprint] = key
 
-        for key in doomed:
-            del self.events[key]
-        if doomed:
-            self.save()
-        return len(doomed)
+            for key in doomed:
+                del self.events[key]
+            if doomed:
+                self.save()
+            return len(doomed)
 
     def prune(self, older_than_days: int = 365, now: date = None) -> int:
         """
@@ -1014,19 +1158,20 @@ class CalendarStore:
         Series are never pruned - a weekly thing that started two years ago is
         still the same weekly thing, and its first date is not its last.
         """
-        now = now or date.today()
-        cutoff = now - timedelta(days=max(1, older_than_days))
-        doomed = [
-            key for key, event in self.events.items()
-            if not event.recurring
-            and event.last_date is not None
-            and event.last_date < cutoff
-        ]
-        for key in doomed:
-            del self.events[key]
-        if doomed:
-            self.save()
-        return len(doomed)
+        with self._lock:
+            now = now or date.today()
+            cutoff = now - timedelta(days=max(1, older_than_days))
+            doomed = [
+                key for key, event in self.events.items()
+                if not event.recurring
+                and event.last_date is not None
+                and event.last_date < cutoff
+            ]
+            for key in doomed:
+                del self.events[key]
+            if doomed:
+                self.save()
+            return len(doomed)
 
     ## -- relative helpers
     #

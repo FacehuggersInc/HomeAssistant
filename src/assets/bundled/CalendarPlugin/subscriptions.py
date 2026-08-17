@@ -206,31 +206,36 @@ class SubscriptionManager:
         """
         fixed = 0
         keys = {s.key for s in self.subscriptions}
-        for event in self.store.events.values():
-            if event.subscription:
-                continue
+        # A snapshot, and the whole repair inside one batch: this rewrites
+        # fields on many events, and a reader arriving half way through would
+        # see some adopted and the rest not - which is the state that makes a
+        # sync create duplicates in the first place.
+        with self.store.batch():
+            for event in self.store.snapshot():
+                if event.subscription:
+                    continue
 
-            # Source is not checked. "subscribed" was missing from SOURCES, so
-            # every one of these was rewritten to "local" on load - checking
-            # for it here would skip exactly the events that need repairing.
-            notes = event.notes or ""
-            for key in keys:
-                marker = f"[{key}]"
-                if notes.startswith(marker):
-                    event.subscription = key
-                    event.source = "subscribed"
-                    event.notes = notes[len(marker):].strip()
-                    fixed += 1
-                    break
+                # Source is not checked. "subscribed" was missing from SOURCES, so
+                # every one of these was rewritten to "local" on load - checking
+                # for it here would skip exactly the events that need repairing.
+                notes = event.notes or ""
+                for key in keys:
+                    marker = f"[{key}]"
+                    if notes.startswith(marker):
+                        event.subscription = key
+                        event.source = "subscribed"
+                        event.notes = notes[len(marker):].strip()
+                        fixed += 1
+                        break
 
-            # The key carries it too, for an event whose notes were edited or
-            # were empty enough to lose the marker.
-            if not event.subscription and event.key.startswith("sub:"):
-                parts = event.key.split(":")
-                if len(parts) >= 2 and parts[1] in keys:
-                    event.subscription = parts[1]
-                    event.source = "subscribed"
-                    fixed += 1
+                # The key carries it too, for an event whose notes were edited or
+                # were empty enough to lose the marker.
+                if not event.subscription and event.key.startswith("sub:"):
+                    parts = event.key.split(":")
+                    if len(parts) >= 2 and parts[1] in keys:
+                        event.subscription = parts[1]
+                        event.source = "subscribed"
+                        fixed += 1
         if fixed:
             self.store.save()
             self.client.log("info", f"[Calendar] Adopted {fixed} subscribed "
@@ -245,15 +250,12 @@ class SubscriptionManager:
         either way nothing will ever refresh them, so nothing should keep them.
         """
         keys = {s.key for s in self.subscriptions}
-        doomed = [k for k, e in self.store.events.items()
-                  if e.source == "subscribed" and e.subscription not in keys]
-        for key in doomed:
-            del self.store.events[key]
-        if doomed:
-            self.store.save()
-            self.client.log("info", f"[Calendar] Dropped {len(doomed)} orphaned "
+        dropped = self.store.drop_where(
+            lambda _k, e: e.source == "subscribed" and e.subscription not in keys)
+        if dropped:
+            self.client.log("info", f"[Calendar] Dropped {dropped} orphaned "
                                     f"subscribed event(s).")
-        return len(doomed)
+        return dropped
 
     def load(self) -> None:
         self.subscriptions = []
@@ -317,16 +319,13 @@ class SubscriptionManager:
         sync added a second copy of each instead of replacing them.
         """
         legacy = f"[{key}]"
-        doomed = [
-            k for k, e in self.store.events.items()
-            if e.source == "subscribed"
-            and (e.subscription == key or (e.notes or "").startswith(legacy))
-        ]
-        for k in doomed:
-            del self.store.events[k]
-        if doomed:
-            self.store.save()
-        return len(doomed)
+        # Through the store rather than into its dictionary. This ran on the
+        # sync thread while the UI read the same events on the client tick,
+        # which is where "dictionary changed size during iteration" came
+        # from - and reaching past the store meant its lock could not help.
+        return self.store.drop_where(
+            lambda _k, e: e.source == "subscribed"
+            and (e.subscription == key or (e.notes or "").startswith(legacy)))
 
     ## -- syncing
 
@@ -347,6 +346,17 @@ class SubscriptionManager:
             sub.last_sync = 0.0
             sub.last_error = ""
         self.save()
+        # Deliberately NOT one batch around the whole reset.
+        #
+        # A batch holds the store's lock, and every fetch below is a network
+        # round trip with a thirty second timeout. Holding it across those
+        # would stop every read in the app - the tiles, the widgets, the
+        # reminder check - for as long as the slowest feed takes to answer.
+        #
+        # Each piece is still atomic on its own: sync() replaces one feed's
+        # events in a single batch, and deduplicate() is one too. The gap this
+        # leaves is the feed's events being briefly absent, which is what a
+        # reset is: somebody asked for these to be cleared and fetched again.
         for sub in targets:
             if sub.enabled:
                 self.sync(sub)
@@ -391,10 +401,16 @@ class SubscriptionManager:
         # Replaced wholesale rather than merged. A feed is the authority for
         # its own events, so "what it sent" is the answer - and an event
         # deleted upstream has to disappear here too, which a merge would miss.
-        dropped = self._drop_events_of(sub.key)
-        for event in events:
-            self.store.events[event.key] = event
-        self.store.save()
+        # One batch: the old rows go and the new ones arrive without anything
+        # being able to look in between. Reading mid-way would have shown the
+        # feed's events missing entirely, which is the state this replacement
+        # passes through on its way to being correct.
+        #
+        # The file is written once at the end rather than once per event.
+        with self.store.batch():
+            dropped = self._drop_events_of(sub.key)
+            for event in events:
+                self.store.put(event)
 
         # Counted, because "replaced" and "added alongside" look identical on
         # screen and are one number apart in the log.

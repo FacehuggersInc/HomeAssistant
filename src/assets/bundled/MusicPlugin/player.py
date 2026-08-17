@@ -189,6 +189,12 @@ class WebPlayer(QObject):
                 self.page.setHtml("", QUrl(self.origin()))
                 self.page.setParent(None)
                 self.page.deleteLater()
+                # Written down because the alternative is invisible. This
+                # running at shutdown is what keeps Chromium from being torn
+                # apart by the interpreter afterwards, and if it is ever
+                # skipped again the only symptom is a segfault with no
+                # explanation attached to it.
+                self.client.log("debug", "[Music] Player page torn down.")
             except RuntimeError:
                 pass
         self.page = None
