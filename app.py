@@ -35,6 +35,7 @@ from src.constants import (
     EXIT_UPDATE,
     EXIT_RESTART,
     EXIT_RUNNING,
+    EXIT_MISSING,
     LAUNCHER_ENV_FLAG,
 )
 from src.crash import install as install_crash_handlers
@@ -88,14 +89,38 @@ def launch() -> int:
     # how the duplicate usually happens in the first place. A check the
     # launcher owns is a check that a bare `python app.py` walks straight
     # past.
-    from src.single_instance import already_running
-    running, why = already_running()
+    #
+    # Fails open. Not starting is the worst outcome this can produce, and it
+    # is a convenience check - if it cannot run, the right answer is to say
+    # so and carry on, not to leave somebody with a panel that will not boot
+    # and no idea why.
+    try:
+        from src.single_instance import already_running
+        running, why = already_running()
+    except Exception as e:
+        _log(f"Could not check for another panel ({type(e).__name__}: {e}). "
+             f"Starting anyway.")
+        running, why = False, ""
+
     if running:
         _log(why)
         _log("Not starting. Close the other one first, or use its window.")
         return EXIT_RUNNING
 
-    from src.main import Client
+    # The import that pulls in the whole application, and the one that finds
+    # out whether its packages are here.
+    #
+    # A missing package is not a crash and should not be treated as one: it
+    # cannot be fixed by restarting, and five attempts with a backoff turns
+    # one clear ImportError into two minutes of a panel looking broken. Named
+    # as its own exit code so the launcher can install what is missing and
+    # try once more.
+    try:
+        from src.main import Client
+    except ModuleNotFoundError as e:
+        _log(f"A required package is missing: {e.name or e}")
+        _log("The application cannot start until it is installed.")
+        return EXIT_MISSING
 
     client = Client()
     try:

@@ -50,7 +50,7 @@ from src.styling import COLORS, load_styles, set_style
 from src.constants import (
     APP_NAME, EVENTS, EVENT_LEVELS, CLIENT_EVENT_NAMES,
     EXIT_OK, EXIT_UPDATE, EXIT_RESTART,
-    get_data_dir,
+    get_data_dir, record_exit_intent,
 )
 
 if _platform.system() != "Windows":
@@ -3296,6 +3296,13 @@ class Client:
             code = exit_code if exit_code else EXIT_OK
 
         self.log("info", f"Exiting with code {code}")
+
+        # Written before the interpreter starts tearing Qt down, because that
+        # is what kills this process when it dies. Everything above has
+        # already finished; a segfault from here on says nothing about
+        # whether the run succeeded, and the launcher needs to be able to
+        # tell the difference between that and a real crash.
+        record_exit_intent(code)
 
         if self.LOG:
             self.LOG.close()

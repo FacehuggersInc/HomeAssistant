@@ -27,26 +27,41 @@ import socket
 from urllib.error import URLError, HTTPError
 from urllib.request import urlopen
 
-from src.backend import PORT
-
-#Localhost only. ADDRESS is 0.0.0.0 - what the server binds - which is not an
-#address to connect TO, and asking the machine's outward address would find a
-#panel on another machine and refuse to start because of it.
+#Localhost only. backend.ADDRESS is 0.0.0.0 - what the server binds - which
+#is not an address to connect TO, and asking the machine's outward address
+#would find a panel on another machine and refuse to start because of it.
 HOST = "127.0.0.1"
+
+#The port the panel serves on, if this cannot be asked for it.
+#
+#`src.backend` is where it really lives, but importing that module pulls in
+#Flask and everything the web layer needs, at the one moment nothing has
+#started yet. This check is not worth failing a launch over, so the import is
+#done when needed and the answer falls back to the value backend.py has
+#always used.
+DEFAULT_PORT = 5000
 
 #Short. This runs before the window opens, on a loopback connection to
 #something that either answers at once or is not there.
 TIMEOUT = 1.5
 
 
-def _port_open() -> bool:
+def port() -> int:
+    try:
+        from src.backend import PORT
+        return int(PORT)
+    except Exception:
+        return DEFAULT_PORT
+
+
+def _port_open(number: int) -> bool:
     """Whether anything at all is listening. Cheap, and usually the answer."""
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
         probe.settimeout(TIMEOUT)
-        return probe.connect_ex((HOST, PORT)) == 0
+        return probe.connect_ex((HOST, number)) == 0
 
 
-def _ping() -> dict | None:
+def _ping(number: int) -> dict | None:
     """
     /ping's reply, or None if nothing recognisable answered.
 
@@ -56,7 +71,7 @@ def _ping() -> dict | None:
     launcher holding a device credential to find out whether to start.
     """
     try:
-        with urlopen(f"http://{HOST}:{PORT}/ping", timeout=TIMEOUT) as reply:
+        with urlopen(f"http://{HOST}:{number}/ping", timeout=TIMEOUT) as reply:
             body = reply.read()
     except HTTPError as e:
         # 401 is the expected case - a running panel, refusing to say more.
@@ -90,12 +105,13 @@ def already_running() -> tuple[bool, str]:
     message about "another panel" would send somebody hunting for one that
     is not there.
     """
-    if not _port_open():
+    number = port()
+    if not _port_open(number):
         return False, ""
 
-    reply = _ping()
+    reply = _ping(number)
     if reply is None:
-        return True, (f"Something is already listening on port {PORT}, and it "
+        return True, (f"Something is already listening on port {number}, and it "
                       f"is not this panel - it did not answer /ping. The panel "
                       f"cannot serve its pages without that port.")
 
@@ -105,8 +121,8 @@ def already_running() -> tuple[bool, str]:
         page = reply.get("page")
         where = f", showing '{page}'" if page else ""
         return True, (f"{app} is already running on this machine{where}. "
-                      f"Two would share port {PORT}: the phone would reach one "
+                      f"Two would share port {number}: the phone would reach one "
                       f"of them and the screen would show the other.")
 
-    return True, (f"Port {PORT} is taken by something that answered "
+    return True, (f"Port {number} is taken by something that answered "
                   f"unexpectedly. Not starting a second panel.")
