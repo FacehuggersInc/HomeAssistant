@@ -642,6 +642,74 @@ class Client:
 
         Thread(target=apply, name="__minimum_volume", daemon=True).start()
 
+    #How often to check that a connected Bluetooth speaker is the one being
+    #played through.
+    #
+    #Slow on purpose. There is no signal for this - BlueZ publishes the
+    #connection and the sound server publishes the sink, and neither tells
+    #this application - so it is a poll, and a poll on a wall panel runs for
+    #months. Two `pactl` reads every fifteen seconds is nothing; the same
+    #two every second is a subprocess pair forever.
+    #
+    #Fifteen seconds is also about how long somebody takes to wonder why the
+    #speaker is not playing, which is the delay that actually matters.
+    BLUETOOTH_FOLLOW_SECONDS = 15
+
+    def follow_bluetooth_audio(self) -> None:
+        """
+        Put the sound where the speaker is, and keep it there.
+
+        Both jobs at once, because they are the same check: a speaker that
+        has just connected and a speaker that has been connected all along
+        while something else took the default look identical from here, and
+        both want the same correction.
+
+        On a thread, for the reason the volume minimum is: every backend is a
+        subprocess, and this runs on a timer.
+        """
+        if not self.setting("audio.devices.follow_bluetooth.value", True):
+            return
+        if getattr(self, "_bt_follow_busy", False):
+            return
+        self._bt_follow_busy = True
+
+        def work():
+            try:
+                from src.system import audio_follow
+
+                def announce(title: str, body: str) -> None:
+                    # Back to the UI thread. A toast builds widgets, and this
+                    # runs on a worker - the same reason the check itself is
+                    # off the UI thread in the first place.
+                    self.call_on_ui(
+                        lambda: self.simple_notify("bluetooth", title, body))
+
+                audio_follow.apply(log=self.log, announce=announce)
+            except Exception as e:
+                self.log("debug", f"[Audio] Bluetooth follow failed: {e}")
+            finally:
+                self._bt_follow_busy = False
+
+        Thread(target=work, name="__bt_follow", daemon=True).start()
+
+    def build_bluetooth_follow(self) -> None:
+        """
+        Start the check that keeps a Bluetooth speaker in charge of the sound.
+
+        The timer runs whatever the setting says, and the setting is read at
+        each tick rather than here - so turning it off takes effect without a
+        restart, and so does turning it back on. A timer that only exists
+        when a setting was true at boot is a setting that half works.
+        """
+        self._bt_follow_busy = False
+        self._bt_follow_timer = QTimer()
+        self._bt_follow_timer.timeout.connect(self.follow_bluetooth_audio)
+        self._bt_follow_timer.start(self.BLUETOOTH_FOLLOW_SECONDS * 1000)
+        # Once at startup too, without waiting out the first interval: a panel
+        # rebooting with the speaker already on should come up playing
+        # through it.
+        QTimer.singleShot(2000, self.follow_bluetooth_audio)
+
     def call_on_ui(self, fn: Callable) -> None:
         self.bridge.dispatch(fn)
 
@@ -1162,6 +1230,7 @@ class Client:
         self.register_core_sounds()
         self.report_missing_tooling()
         self.build_update_checker()
+        self.build_bluetooth_follow()
         self.build_user_approvals()
 
         self.window.show()

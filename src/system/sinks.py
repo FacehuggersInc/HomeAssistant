@@ -10,9 +10,15 @@ names with the second.
 
 So the sinks are read from the server and the ALSA layer is left to route:
 everything plays through PortAudio's `pulse` device, and which sink that
-lands on is chosen per stream with `PULSE_SINK`. Nothing here changes the
-system's default output - a panel is one program on the machine, and a
-dropdown inside it should not move every other program's audio.
+lands on is chosen per stream with `PULSE_SINK`. The output dropdown moves
+the panel's own audio only - a panel is one program on the machine, and a
+setting inside it should not move every other program's sound.
+
+`set_default_sink` is the one thing here that does. It exists for the
+Bluetooth follow, where the opposite is true: a speaker somebody just
+connected is meant to get everything, including the music, which plays
+through a browser page that follows the system default and cannot be routed
+per stream from in here.
 
 `pactl` talks to PipeWire through `pipewire-pulse`, which is how both a
 PipeWire and a PulseAudio system end up answering the same question the same
@@ -105,6 +111,120 @@ def name_for(description: str) -> str:
         if sink.get("name") == wanted:
             return sink["name"]
     return ""
+
+
+def description_for(name: str) -> str:
+    """The readable description behind a sink name, or the name itself."""
+    wanted = str(name or "").strip()
+    if not wanted:
+        return ""
+    for sink in sinks():
+        if sink.get("name") == wanted:
+            return sink.get("description") or wanted
+    return wanted
+
+
+def set_default_sink(name: str) -> bool:
+    """
+    Point the whole machine at one output.
+
+    This is the exception to the rule above, and it is deliberate. Per-stream
+    routing moves the panel's OWN audio and nothing else, which is right for
+    a program sharing a desktop and wrong for the one thing on a wall panel:
+    music plays through a hidden browser page, and a browser follows the
+    system default. Moving only what this process plays would put the
+    assistant's voice on a Bluetooth speaker and leave the music behind.
+
+    Used only by the Bluetooth follow, and only for a speaker somebody
+    deliberately connected.
+    """
+    wanted = str(name or "").strip()
+    if not wanted:
+        return False
+    try:
+        done = subprocess.run(["pactl", "set-default-sink", wanted],
+                              capture_output=True, text=True,
+                              timeout=CALL_TIMEOUT)
+    except Exception:
+        return False
+    return done.returncode == 0
+
+
+def _sink_names_by_index() -> dict:
+    """
+    `{index: name}` for every sink.
+
+    Needed because the two short listings do not speak the same language:
+    `sink-inputs` names the sink it is on by INDEX, while everything else
+    here works in names. Comparing the two directly compares "1" against
+    "bluez_output.…", which never matches - so every stream looks misplaced
+    and gets moved on every check.
+    """
+    out = _run(["pactl", "list", "short", "sinks"])
+    if not out:
+        return {}
+
+    table = {}
+    for line in out.splitlines():
+        parts = line.split("\t")
+        if len(parts) >= 2 and parts[0].strip().isdigit():
+            table[parts[0].strip()] = parts[1].strip()
+    return table
+
+
+def sink_inputs() -> list:
+    """
+    Streams currently playing, as `[(index, sink_name)]`.
+
+    Needed because a new default only applies to streams that START after it.
+    Everything already playing stays where it is, so switching while music is
+    on does nothing audible until the track changes - which reads as the
+    switch not having worked.
+    """
+    out = _run(["pactl", "list", "short", "sink-inputs"])
+    if not out:
+        return []
+
+    names = _sink_names_by_index()
+    found = []
+    for line in out.splitlines():
+        parts = line.split("\t")
+        if len(parts) < 2:
+            continue
+        index, sink = parts[0].strip(), parts[1].strip()
+        if not index.isdigit():
+            continue
+        # Left as-is when the index is unknown - a sink that appeared between
+        # the two listings. An unrecognised sink reads as "not where it
+        # should be", which is the safe way round: it gets moved.
+        found.append((index, names.get(sink, "")))
+    return found
+
+
+def move_streams_to(name: str) -> int:
+    """
+    Move everything already playing onto one sink. Returns how many moved.
+
+    Per stream rather than all at once: a stream can end between listing and
+    moving, and one that has gone should not stop the rest from arriving.
+    """
+    wanted = str(name or "").strip()
+    if not wanted:
+        return 0
+
+    moved = 0
+    for index, current in sink_inputs():
+        if current == wanted:
+            continue
+        try:
+            done = subprocess.run(["pactl", "move-sink-input", index, wanted],
+                                  capture_output=True, text=True,
+                                  timeout=CALL_TIMEOUT)
+        except Exception:
+            continue
+        if done.returncode == 0:
+            moved += 1
+    return moved
 
 
 def server_device_index(sounddevice) -> Optional[int]:

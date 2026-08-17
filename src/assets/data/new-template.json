@@ -92,6 +92,12 @@
                 "min": 0,
                 "max": 100,
                 "description": "The quietest the system volume is allowed to be. 0 turns this off.\n\nA machine that picks its own output device on boot inherits whatever volume that device was left at, which is sometimes nothing - and a panel that answers silently looks broken rather than quiet.\n\nA floor, not a level: it only ever raises the volume, so turning the panel down by hand still works down to this point. Applied when the panel starts and again whenever the wake word is heard, so a device that arrives later is caught too."
+            },
+            "follow_bluetooth": {
+                "type": "bool",
+                "default": true,
+                "value": true,
+                "description": "Whether a connected Bluetooth speaker becomes the system's output.\n\nConnecting a speaker and then choosing it in the system's sound settings is two steps for something with one sensible answer. With this on, the panel makes a connected speaker the default output and moves whatever is already playing onto it, so music does not carry on out of the panel until the next track.\n\nThis changes the default for the whole machine, not just the panel - which is the point, since music plays through a browser page that follows the system default. When the speaker disconnects, the output goes back to whatever had it before.\n\nChecked on a timer as well as on connection, so a speaker that drops and rejoins, or a sound server that restarts, is put right without anybody noticing it went wrong.\n\nTurn this off if something else on the machine manages audio routing."
             }
         },
         "speech": {
