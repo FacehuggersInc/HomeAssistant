@@ -61,6 +61,11 @@ PATHS = {
     "shield-key":        "M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6l8-3z"
                          "M12 10a2 2 0 100 4 2 2 0 000-4zM12 14v3",
     "alert":             "M12 4l9 16H3zM12 10v4M12 17h.01",
+    # A die with a second one behind it. Pips are zero-length segments, the
+    # same trick sticker-emoji uses for eyes - a stroked path has no fill to
+    # make a dot with.
+    "dice-multiple":     "M4 10h10v10H4zM10 4h10v10h-6"
+                         "M7 13h.01M11 13h.01M7 17h.01M11 17h.01M9 15h.01",
 }
 #Everything else.
 FALLBACK = "M12 8a4 4 0 100 8 4 4 0 000-8z"

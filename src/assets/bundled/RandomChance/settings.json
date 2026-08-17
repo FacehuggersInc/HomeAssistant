@@ -1,0 +1,104 @@
+{
+    "animation": {
+        "enabled": {
+            "type": "bool",
+            "default": true,
+            "value": true,
+            "description": "Animate the flip and the roll. Off shows the result straight away, for a panel that cannot keep up."
+        },
+        "flip_ms": {
+            "type": "int",
+            "default": 2200,
+            "value": 2200,
+            "suffix": "ms",
+            "description": "How long the coin is in the air."
+        },
+        "roll_ms": {
+            "type": "int",
+            "default": 1600,
+            "value": 1600,
+            "suffix": "ms",
+            "description": "How long the dice tumble before the first one settles."
+        },
+        "spin_ms": {
+            "type": "int",
+            "default": 3600,
+            "value": 3600,
+            "suffix": "ms",
+            "description": "How long the wheel turns before it stops."
+        },
+        "dice_collide": {
+            "type": "bool",
+            "default": true,
+            "value": true,
+            "description": "Let dice shove each other apart, and knock a settled one back into rolling. Never changes a result. Turn it off on a panel that struggles with a large roll."
+        },
+        "frame_ms": {
+            "type": "int",
+            "default": 33,
+            "value": 33,
+            "suffix": "ms",
+            "description": "Time between drawn frames. 33 is about 30 per second; raise it on a slow panel."
+        }
+    },
+    "stage": {
+        "title_ms": {
+            "type": "int",
+            "default": 1400,
+            "value": 1400,
+            "suffix": "ms",
+            "description": "How long a title banner is held before the coin appears."
+        },
+        "result_ms": {
+            "type": "int",
+            "default": 2400,
+            "value": 2400,
+            "suffix": "ms",
+            "description": "How long the result stays up for one thing - one coin, one die. More on the stage holds it longer."
+        },
+        "result_per_item_ms": {
+            "type": "int",
+            "default": 120,
+            "value": 120,
+            "suffix": "ms",
+            "description": "Added for each thing after the first."
+        },
+        "result_max_ms": {
+            "type": "int",
+            "default": 6500,
+            "value": 6500,
+            "suffix": "ms",
+            "description": "The longest it will ever hold, however much is on the stage."
+        },
+        "wheel_bonus_ms": {
+            "type": "int",
+            "default": 1600,
+            "value": 1600,
+            "suffix": "ms",
+            "description": "Added to a wheel's result, so it stays up long enough to look at where it stopped."
+        },
+        "outcome_ms": {
+            "type": "int",
+            "default": 2600,
+            "value": 2600,
+            "suffix": "ms",
+            "description": "How long an outcome banner stays up after the result."
+        }
+    },
+    "speech": {
+        "speak_result": {
+            "type": "bool",
+            "default": true,
+            "value": true,
+            "description": "Say the result out loud as well as showing it."
+        }
+    },
+    "notify": {
+        "remember_results": {
+            "type": "bool",
+            "default": true,
+            "value": true,
+            "description": "Keep every flip and roll in the notification history. No toast either way - the result is already on screen."
+        }
+    }
+}

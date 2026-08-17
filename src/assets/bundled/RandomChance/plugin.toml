@@ -1,0 +1,14 @@
+[plugin]
+name = "Random Chance"
+key = "randomchance"
+order = 30
+version = "0.1.0"
+description = "Coin flips and dice rolls, drawn on screen."
+icon = "dice-multiple"
+readme = "readme.md"
+dependencies = []
+
+# Without this the settings.json beside it is never read, and the plugin has
+# no settings at all - every option silently falls back to its default.
+[settings]
+path = "src/assets/bundled/RandomChance/settings.json"
