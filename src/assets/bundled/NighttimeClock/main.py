@@ -562,7 +562,7 @@ class NighttimeClockPlugin(Plugin):
         a skill that answers "I cannot do that" for anybody who removed it.
         """
         from src.assistant.skill import Skill
-        wake = self.client.wake_word()
+        wake = self.client.wake_word
         return [
             Skill(
                 wake_word=wake, skill_key="night-good-night", kind="act",

@@ -828,6 +828,16 @@ class WidgetFramework(QWidget):
                    state: dict = None, place_now: bool = True, **extra):
         entry = self.templates.get(template_key)
         if entry is None:
+            # A template that was never registered, not a template that
+            # failed. Returning None silently made the two look identical
+            # from the caller's side, and the caller has no way to tell:
+            # an endpoint reported a placement it had not made, with
+            # nothing written down anywhere.
+            self.client.log(
+                "error",
+                f"[WidgetFramework:{self.page_key}] No template "
+                f"'{template_key}' is registered - nothing to copy. "
+                f"Registered: {', '.join(sorted(self.templates)) or 'none'}.")
             return None
         widget_class, args, kwargs = entry
         # A chooser's answer, merged over whatever the template was

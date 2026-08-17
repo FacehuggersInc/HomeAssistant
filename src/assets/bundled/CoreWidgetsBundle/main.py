@@ -909,6 +909,15 @@ class CoreWidgetsBundle(Plugin):
         if framework is None:
             return False, "The home page is not on screen."
 
+        # Asked here, where the answer can still be returned to whoever
+        # asked. The build itself belongs to the UI thread and this function
+        # returns before it runs, so anything checkable on this side must be
+        # checked on this side or the caller is told a placement happened
+        # that has not been attempted yet.
+        if "sticker" not in framework.templates:
+            return False, ("The sticker widget is not registered on the home "
+                           "page, so there is nothing to place it with.")
+
         # `quadrant` stays the name on the wire - it is in bookmarks and
         # scripts - but it is one of the nine positions from here on.
         from src.ui.widget import normalise_position, POSITION_LABELS
@@ -945,6 +954,14 @@ class CoreWidgetsBundle(Plugin):
                     longest_side=longest,
                     **({"delete_after": wipe} if temporary else {}))
                 if widget is None:
+                    # create() has already said why - a missing template or a
+                    # constructor that raised. This says which sticker went
+                    # nowhere because of it, since the caller was told the
+                    # placement succeeded before this ever ran.
+                    self.client.log(
+                        "error",
+                        f"[Stickers] '{name}' was not placed: the home page's "
+                        f"widget framework would not build a sticker widget.")
                     return
 
                 if temporary:

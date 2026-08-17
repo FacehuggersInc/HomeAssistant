@@ -25,7 +25,48 @@ class MixinManager:
 		self.client = client
 		self._patched_targets = {}
 
+	def _run_hook(self, f, plugin, when, target, obj, args, kwargs):
+		"""
+		One hook, and never more than one thing going wrong.
+
+		Hooks used to be called in a bare loop, so the first one to raise
+		took everything after it with it. A `before` hook raising also meant
+		the target itself never ran - one plugin's bad line and the page it
+		was decorating did not build.
+
+		The damage was invisible as well as wide. Registrations that come
+		after the failure simply never happen, and nothing anywhere says a
+		hook was skipped: the CoreWidgetsBundle registers its five widget
+		templates at the END of its `sub.home` hook, so anything raising
+		above them leaves the home page with no sticker, sticky note,
+		bookmark, checklist or weather-event widget and no error to explain
+		it.
+
+		So each hook is isolated and every failure is written down, naming
+		the plugin and the target - the two facts needed to know whose it is
+		and what it was decorating.
+		"""
+		try:
+			owner = self.client.PLUGIN.plugins[plugin]
+		except KeyError:
+			self.client.log(
+				"error",
+				f"[Mixins] {target}: '{plugin}' declares a hook here "
+				f"({when}) but is not a loaded plugin - it was skipped.")
+			return
+		try:
+			f(owner, obj or self.client.PLUGIN, *args, **kwargs)
+		except Exception as e:
+			self.client.log(
+				"error",
+				f"[Mixins] {target}: the '{when}' hook from '{plugin}' raised "
+				f"{type(e).__name__}: {e} - it did not finish, so anything it "
+				f"had left to register is missing.",
+				include_traceback=True)
+
 	def _make_wrapper(self, attr, hooks, is_class_method=False):
+
+		target = getattr(attr, "_mixin_key", None) or getattr(attr, "__name__", "?")
 
 		@wraps(attr)
 		def wrapper(*args, **kwargs):
@@ -33,22 +74,12 @@ class MixinManager:
 			obj = args[0] if args else None
 
 			for f, plugin in hooks["before"]:
-				f(
-					self.client.PLUGIN.plugins[plugin],
-					obj or self.client.PLUGIN,  # fall back only if no obj
-					*args,
-					**kwargs
-				)
+				self._run_hook(f, plugin, "before", target, obj, args, kwargs)
 
 			result = attr(*args, **kwargs)
 
 			for f, plugin in hooks["after"]:
-				f(
-					self.client.PLUGIN.plugins[plugin],
-					obj or self.client.PLUGIN,
-					*args,
-					**kwargs
-				)
+				self._run_hook(f, plugin, "after", target, obj, args, kwargs)
 
 			return result
 
