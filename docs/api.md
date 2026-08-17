@@ -315,20 +315,12 @@ picker rather than a text field. See [Users](users.md).
 
 ## Writing a page endpoint
 
-Pages served to a phone are plain HTML strings - a form with a handful of
-fields, and a template engine for that is a dependency to maintain for
-something most people open twice. `src/webui.py` holds the parts that kept
-drifting between them:
+An endpoint may return HTML rather than JSON, which is how a plugin ships an
+interface for a phone without needing a page in the app.
 
-| From `src.webui`     | Gives you                                             |
-|----------------------|-------------------------------------------------------|
-| `chrome_css()`       | The palette, field styling and the back button's CSS. |
-| `back_button(token)` | A styled back control, with the token on it.          |
-| `escape(text)`       | `html.escape` with `quote=True`, for attributes.      |
-
-`chrome_css()` styles `select` and `option` as well as `input`. Styling only
-`input` is why one page's dropdown was the browser's own white control on an
-otherwise dark page.
+How to build one - `page()` for a form, `WebAssets` for anything with a script
+in it, the shared helpers and the icon set - is in
+**[Web UI](web-ui.md)**.
 
 ## Endpoints the bundled plugins add
 
@@ -353,13 +345,10 @@ See each plugin's own documentation for the full argument list.
 
 ## Plugin-served pages
 
-An endpoint may return HTML rather than JSON, which is how a plugin ships a
-small interface for a phone without needing a page in the app.
-
-The Calendar plugin does this with `calendar_form` — a mobile-sized page for
-adding an event, served at
-`/public/calendar_form?token=...`. See the Calendar plugin's own docs.
-
+Registered like any other plugin endpoint and served under `/public/`.
+Calendar has `calendar_form` for adding an event; Random Chance has
+`randomchance_page` and the asset endpoint beside it. See
+[Web UI](web-ui.md).
 
 ## Files
 

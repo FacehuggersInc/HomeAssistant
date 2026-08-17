@@ -1,0 +1,43 @@
+.tabs{display:flex;gap:8px;margin:0 0 18px}
+.tabs button{flex:1;background:var(--card);border:1px solid var(--line);
+  color:var(--muted);border-radius:12px;padding:12px 8px;font-size:16px}
+.tabs button.on{background:var(--card2);color:var(--text);
+  border-color:var(--accent)}
+.pane{display:none}
+.pane.on{display:block}
+.dice-types{display:flex;flex-wrap:wrap;gap:8px}
+.dice-types button{flex:1 1 26%;min-width:86px;padding:14px 6px;font-size:17px}
+.tray{display:flex;flex-wrap:wrap;gap:10px;margin-top:12px}
+.chip{display:flex;align-items:center;gap:2px;background:var(--card2);
+  border:1px solid var(--line);border-radius:999px;padding:4px}
+.chip b{font-size:16px;color:var(--text);min-width:62px;text-align:center}
+.chip button{background:none;border:none;color:var(--text);font-size:20px;
+  width:38px;height:38px;line-height:1;padding:0;border-radius:50%}
+.chip button:disabled{color:var(--line)}
+.chip .drop{color:var(--muted);font-size:18px}
+.rule{display:flex;gap:8px;align-items:center;background:var(--card2);
+  border:1px solid var(--line);border-radius:12px;padding:10px;
+  margin-bottom:8px;flex-wrap:wrap}
+.rule select{flex:0 0 30%}
+.rule input[type=number]{flex:0 0 24%}
+.rule input[type=text]{flex:1 1 100%}
+.rule .drop{flex:0 0 auto;background:none;border:none;color:var(--muted);
+  font-size:22px;padding:0 6px;margin-left:auto}
+#say{display:none}
+.tools{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+.tools button{flex:1 1 30%;min-width:110px;padding:12px 6px;font-size:15px}
+.witem{display:flex;gap:8px;align-items:center;background:var(--card2);
+  border:1px solid var(--line);border-radius:12px;padding:8px;
+  margin-bottom:8px}
+.witem input[type=text]{flex:1 1 auto;min-width:0}
+.witem input[type=number]{flex:0 0 74px}
+.witem .pc{color:var(--muted);font-size:14px}
+.witem .off input[type=text]{opacity:.45}
+.witem .toggle{flex:0 0 auto;width:52px;padding:8px 0;font-size:13px;
+  border-radius:999px;border:1px solid var(--line);background:var(--card);
+  color:var(--muted)}
+.witem .toggle.on{background:var(--accent);border-color:var(--accent);
+  color:#08120c}
+.witem .drop{flex:0 0 auto;background:none;border:none;color:var(--muted);
+  font-size:22px;padding:0 6px}
+.witem.off input{opacity:.45}

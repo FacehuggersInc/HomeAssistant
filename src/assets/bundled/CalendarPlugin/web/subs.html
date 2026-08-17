@@ -1,0 +1,37 @@
+<!--
+  Subscribed calendars, behind /public/calendar_subscriptions.
+
+  Static. The people and the subscription rows are filled in by subs.js from
+  window.PAGE - see docs/web-ui.md. A calendar's name and a feed's error text
+  both come from outside the panel, so they are written as text rather than
+  built into markup here.
+-->
+
+<section>
+  <form id="f">
+    <label for="user">Who is it for</label>
+    <select id="user" name="user" required></select>
+
+    <label for="name">Name it</label>
+    <input id="name" name="name" placeholder="Work, Family, Bins">
+
+    <label for="add">ICS address</label>
+    <input id="add" name="add" required
+           placeholder="https://... or webcal://...">
+
+    <div class="go"><button type="submit">Subscribe</button></div>
+  </form>
+</section>
+
+<ul id="rows"></ul>
+
+<details>
+  <summary>Where do I get the address?</summary>
+  <p><b>Google</b> - Settings for that calendar, then the secret address in
+     iCal format.<br>
+     <b>Apple</b> - share the calendar publicly and copy the webcal link.<br>
+     <b>Outlook</b> - publish the calendar and choose ICS.</p>
+  <p>Treat it as a password. Anyone holding it can read that calendar.</p>
+  <p>Google caches this feed for hours, so a change made on your phone will
+     not appear here straight away.</p>
+</details>

@@ -242,6 +242,42 @@ removes a saved wheel.
 A wheel needs two items turned on before it can be spun. One item is not a
 chance.
 
+### Where the page lives
+
+```
+RandomChance/
+    web/
+        page.html      the markup, static
+        page.css       inlined, it is small
+        page.js        served from its own endpoint, it is not
+    webpage.py         reads the three and hands them to the chrome
+```
+
+**Nothing is templated.** The files are served exactly as written — not
+formatted, not substituted into, not escaped. Everything the panel has to say
+arrives as one JSON object in `window.RC`, and `page.js` reads it.
+
+That is the point rather than a detail. Every bug this page has had was an
+escaping layer: a quote inside an HTML attribute inside a JavaScript string
+inside a Python string passes through two rounds of escape processing, and
+one of them eats the backslash — which once shipped a page that rendered as a
+row of tabs and nothing else, because the script died before it could reveal
+a single pane. `str.format()` would be worse: CSS and JavaScript are full of
+braces and it would try to substitute every one.
+
+Being files also means an editor highlights them, `node --check` runs on
+`page.js` directly, and a formatter can be pointed at any of them.
+
+**Small assets are inlined, large ones served.** A couple of kilobytes of CSS
+costs less inline than a second request does; sixteen kilobytes of script is
+worth fetching once and caching. A served asset carries a hash of its own
+contents in the URL, so a given URL can never go stale and it is cached hard
+— without that, an update leaves every phone holding the previous script
+against the new panel, which looks like the panel rather than the cache.
+
+Missing files are named **at load**, with their path, rather than becoming a
+500 the first time somebody opens the page.
+
 ## Every result is kept
 
 Flips and rolls go into the notification history, with the title if one was

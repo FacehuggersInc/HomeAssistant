@@ -1,0 +1,129 @@
+<!--
+  The Random Chance page body.
+
+  Static. Nothing here is substituted, formatted or escaped on the way out -
+  everything the panel has to say arrives as one JSON object in window.RC,
+  and the script reads it. Counts, die types and saved wheels are filled in
+  by page.js rather than being written in here.
+
+  The chrome around this - the header, the back control, the shared styling -
+  comes from src/webui.py. Plain elements inherit it, so there is nothing to
+  restate.
+-->
+
+<div id="say" class="banner"></div>
+
+<div class="tabs">
+  <button type="button" data-tab="coin" onclick="show('coin')">Coin</button>
+  <button type="button" data-tab="dice" onclick="show('dice')">Dice</button>
+  <button type="button" data-tab="wheel" onclick="show('wheel')">Wheel</button>
+</div>
+
+
+<!-- ── Coin ────────────────────────────────────────────────────────────── -->
+
+<div class="pane" data-pane="coin">
+  <form onsubmit="return send(this)">
+    <section class="card">
+      <label for="coin-title">What is being decided</label>
+      <input id="coin-title" name="title" placeholder="Who goes first?">
+      <p class="hint">Shown before the coin, if you give one.</p>
+    </section>
+
+    <section class="card">
+      <label>What the sides stand for</label>
+      <div class="row">
+        <input name="heads" placeholder="Heads">
+        <input name="tails" placeholder="Tails">
+      </div>
+      <p class="hint">The crown side is the first one. Leave both empty for
+        heads and tails.</p>
+    </section>
+
+    <input type="hidden" name="what" value="coin">
+    <button type="submit">Flip the coin</button>
+  </form>
+</div>
+
+
+<!-- ── Dice ────────────────────────────────────────────────────────────── -->
+
+<div class="pane" data-pane="dice">
+  <form onsubmit="return send(this)">
+    <section class="card">
+      <label for="dice-title">What is being decided</label>
+      <input id="dice-title" name="title" placeholder="Who buys lunch?">
+    </section>
+
+    <section class="card">
+      <label>Dice <span class="hint" id="count"></span></label>
+      <div class="dice-types" id="dice-types"></div>
+      <div class="tray" id="tray"></div>
+      <p class="hint">Tap a die to add one, then &minus; and + to change how
+        many of it. Up to <span id="dice-cap"></span> in a roll, and all of
+        them are drawn.</p>
+    </section>
+
+    <section class="card">
+      <label>Outcomes</label>
+      <p class="hint">Checked against the total, in order &mdash; the first
+        one that matches is the one shown. They last as long as this page is
+        open.</p>
+      <p class="hint" id="rule-note"></p>
+      <div id="rules"></div>
+      <button type="button" id="add-rule" onclick="addRule()">Add an
+        outcome</button>
+    </section>
+
+    <input type="hidden" name="what" value="dice">
+    <input type="hidden" name="groups" id="groups" value="[]">
+    <input type="hidden" name="outcomes" id="outcomes" value="[]">
+    <button type="submit" id="roll" disabled>Roll</button>
+  </form>
+</div>
+
+
+<!-- ── Wheel ───────────────────────────────────────────────────────────── -->
+
+<div class="pane" data-pane="wheel">
+  <section class="card">
+    <label for="wheel-pick">Wheel</label>
+    <select id="wheel-pick" onchange="chooseWheel(this.value)"></select>
+    <p class="hint">Saved wheels stay on the panel and can be used again.</p>
+  </section>
+
+  <form onsubmit="return send(this)">
+    <section class="card">
+      <label for="wheel-name">Name</label>
+      <input id="wheel-name" placeholder="Who buys lunch?">
+    </section>
+
+    <section class="card">
+      <label>Items <span class="hint" id="wheel-count"></span></label>
+      <div id="wheel-items"></div>
+      <div class="row">
+        <input id="new-item" placeholder="Add an item">
+        <button type="button" onclick="addItem()">Add</button>
+      </div>
+      <div class="tools">
+        <button type="button" onclick="enableAll(true)">Enable all</button>
+        <button type="button" onclick="enableAll(false)">Disable all</button>
+        <button type="button" onclick="evenShares()">Equal chances</button>
+      </div>
+      <p class="hint">A percentage is a share of the wheel, so changing one
+        moves the others &mdash; there is only ever 100 to go round. An item
+        at 0% is on the list and not on the wheel. Up to
+        <span id="item-cap"></span> items.</p>
+    </section>
+
+    <input type="hidden" name="what" value="wheel_spin">
+    <input type="hidden" name="wheel" id="wheel-json">
+    <button type="submit" id="spin" disabled>Spin the wheel</button>
+  </form>
+
+  <div class="row">
+    <button type="button" id="save" onclick="saveWheel()">Save</button>
+    <button type="button" id="drop" class="danger"
+            onclick="deleteWheel()">Delete</button>
+  </div>
+</div>

@@ -1,0 +1,9 @@
+textarea{min-height:90px;resize:vertical}
+ ul{list-style:none;padding:0;margin:18px 0 0}
+ li{display:flex;justify-content:space-between;gap:12px;padding:11px 0;
+    border-bottom:1px solid var(--line);font-size:14.5px}
+ li:last-child{border-bottom:0}
+ li span{color:var(--muted)}
+ .ok{display:none}
+ .go{margin-top:18px}
+ .go button{width:100%}

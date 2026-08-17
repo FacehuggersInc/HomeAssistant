@@ -1,0 +1,79 @@
+<!--
+  Putting a sticker on the panel, behind /public/sticker_add.
+
+  Static. The tile grid, the two dropdowns, every remembered answer, the
+  chosen cell of the position grid and the forms' actions are filled in by
+  sticker.js from window.PAGE - see docs/web-ui.md.
+
+  Upload, pick one, say where it goes and how long it stays. One page rather
+  than a folder to drop files into, because the folder was only reachable by
+  whoever set the panel up.
+-->
+
+<section>
+  <h2>Upload a new one</h2>
+  <form method="post" enctype="multipart/form-data" data-action>
+    <input type="file" name="file" id="pick" multiple
+           accept="image/*,video/mp4,video/webm" required hidden>
+    <label class="filebtn" for="pick">Choose files</label>
+    <span class="picked" id="picked">None chosen</span>
+    <button type="submit">Upload</button>
+  </form>
+</section>
+
+<section>
+  <h2 id="count"></h2>
+
+  <form method="post" data-action class="clearform"
+        onsubmit="return confirm('Take every sticker off the home page? They stay in your library.');">
+    <input type="hidden" name="clear_placed" value="1">
+    <button type="submit" class="danger">Clear the home page</button>
+  </form>
+
+  <form method="post" data-action id="place">
+    <input type="hidden" name="sticker" id="sticker" value="">
+    <div class="grid" id="grid"></div>
+
+    <label>Where should it go?</label>
+    <input type="hidden" name="quadrant" id="quadrant" value="center">
+    <div class="where" data-for="quadrant">
+      <button type="button" data-q="top-left">Top left</button>
+      <button type="button" data-q="top-center">Top</button>
+      <button type="button" data-q="top-right">Top right</button>
+      <button type="button" data-q="center-left">Left</button>
+      <button type="button" data-q="center">Middle</button>
+      <button type="button" data-q="center-right">Right</button>
+      <button type="button" data-q="bottom-left">Bottom left</button>
+      <button type="button" data-q="bottom-center">Bottom</button>
+      <button type="button" data-q="bottom-right">Bottom right</button>
+    </div>
+
+    <label for="mode">How long should it stay?</label>
+    <select id="mode" name="mode"></select>
+
+    <div id="timeoutRow" style="display:none">
+      <label for="timeout">Gone after (seconds)</label>
+      <input id="timeout" name="timeout" type="number" min="1" max="86400"
+             value="300">
+      <p class="hint">1 second is allowed - useful for testing placement.</p>
+      <label class="check">
+        <input type="checkbox" name="delete_after" id="delete_after"
+               value="1">
+        <span>Delete the file too, when it goes</span>
+      </label>
+    </div>
+
+    <label for="scale">How big?</label>
+    <select id="scale" name="scale"></select>
+    <div id="sizeRow" style="display:none">
+      <label for="size">Longest side (pixels)</label>
+      <input id="size" name="size" type="number" min="32" max="1200"
+             value="180" disabled>
+    </div>
+
+    <div class="go">
+      <button type="submit" id="go" disabled>Choose a sticker first</button>
+      <a class="danger manage" id="manage" href="#">Manage the library</a>
+    </div>
+  </form>
+</section>

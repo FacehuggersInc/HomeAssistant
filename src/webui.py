@@ -282,6 +282,7 @@ PAGE = """<!DOCTYPE html>
 {chrome}
 {css}
 </style>
+{head}
 </head>
 <body>
 {back}{nav}{heading}{blurb}{banner}
@@ -296,7 +297,7 @@ def page(title: str, body: str, token: str = "", heading: str = "",
          blurb: str = "", message: str = "", bad: bool = False,
          css: str = "", script: str = "", back: bool = True,
          back_label: str = "Dashboard", back_href: str = "/",
-         nav: str = "") -> str:
+         nav: str = "", head: str = "") -> str:
     """
     A whole served page.
 
@@ -326,4 +327,255 @@ def page(title: str, body: str, token: str = "", heading: str = "",
         banner=banner(message, bad),
         body=body,
         script=f"<script>{script}</script>" if script else "",
+        # Tags that belong in <head> - a stylesheet link for an asset too
+        # big to inline. A <link> placed in the body works, but it is read
+        # after the page has already been laid out once.
+        head=head,
     )
+
+
+# ── Pages that live in files ────────────────────────────────────────────────
+
+import hashlib as _hashlib
+import json as _json
+from pathlib import Path as _Path
+
+#anything bigger than this is served from its own URL rather than written
+#into the page
+INLINE_LIMIT = 4096
+
+#what a web folder may hold. A folder is not an allowlist by itself: globbing
+#it would publish an editor backup or a stray notes file the moment somebody
+#saved one next to the page.
+WEB_SUFFIXES = (".html", ".css", ".js")
+
+_WEB_TYPES = {
+    ".css": "text/css; charset=utf-8",
+    ".js": "text/javascript; charset=utf-8",
+    ".html": "text/html; charset=utf-8",
+}
+
+
+#The panel's own pages - the documentation viewer, the plugin manager - kept
+#in src/web/ for the same reason a plugin's are kept in its own web/ folder.
+#Declared here so the route that serves them and the pages that link them are
+#looking at one object rather than each building their own.
+CORE_ASSETS = None       # set by core_assets(), below
+
+
+def core_assets():
+    """
+    The panel's own web folder, made once.
+
+    Late rather than at import, because `WebAssets` is defined below this and
+    because a module that builds a page should not have to care whether it
+    was the first one to ask.
+    """
+    global CORE_ASSETS
+    if CORE_ASSETS is None:
+        CORE_ASSETS = WebAssets(_Path(__file__).with_name("web"),
+                                required=("docs.css", "docs.js",
+                                          "plugins.css"))
+        CORE_ASSETS.endpoint = "/web"
+    return CORE_ASSETS
+
+
+class WebAssets:
+    """
+    A page kept as files, rather than as strings inside Python.
+
+    Point it at a folder of `.html`, `.css` and `.js`, and it reads them,
+    serves the large ones, inlines the small ones and hands the whole thing to
+    `page()`. Nothing is formatted, substituted into or escaped on the way
+    out: what the panel has to tell the page arrives as one JSON object in
+    `window.PAGE`, and the script reads it.
+
+    That is the point rather than a detail. A quote inside an HTML attribute
+    inside a JavaScript string inside a Python string passes through two
+    rounds of escape processing, and one of them eats the backslash - which
+    has already shipped a page that rendered as a row of tabs and nothing
+    else, because the script died before it could reveal a single pane.
+    `str.format()` is worse again: CSS and JavaScript are full of braces and
+    it would try to substitute every one.
+
+    Being files also means an editor highlights them, `node --check` runs on
+    the script directly, and a formatter can be pointed at any of them.
+
+        ASSETS = WebAssets(Path(__file__).with_name("web"))
+
+        def load(self):
+            self.client.API.register(self.KEY, "thing_page", self.api_page,
+                                     requires_auth=True, gui="Thing")
+            ASSETS.register(self.client, self.KEY)
+
+        def api_page(self, **kwargs):
+            return ASSETS.page(title="Thing", token=token,
+                               endpoint="/public/thing_page",
+                               data={"things": [...]})
+    """
+
+    #the object the data is written into, the same on every page so a script
+    #never has to be told what its own plugin called it
+    GLOBAL = "PAGE"
+
+    def __init__(self, folder, required=("page.html",),
+                 inline_limit: int = INLINE_LIMIT):
+        self.folder = _Path(folder)
+        self.required = tuple(required)
+        self.inline_limit = int(inline_limit)
+        self.endpoint = ""
+
+    # ── Reading ─────────────────────────────────────────────────────────────
+
+    def names(self) -> list:
+        """Every asset in the folder, in a fixed order."""
+        return sorted(entry.name for entry in self.folder.glob("*")
+                      if entry.is_file() and entry.suffix in WEB_SUFFIXES)
+
+    def missing(self) -> list:
+        """
+        Which required files are not here.
+
+        Meant to be called when a plugin loads rather than when somebody opens
+        the page, so a file left out of a build is a line in the log with the
+        path in it instead of a 500 the first time it is wanted -
+        `verify_siblings()` does the same for Python modules.
+        """
+        return [name for name in self.required
+                if not (self.folder / name).is_file()]
+
+    def read(self, name: str) -> str:
+        """
+        One asset, by name.
+
+        Checked against what is actually in the folder rather than joined onto
+        it. `read("../main.py")` is a request this has to be able to refuse,
+        and comparing against a listing refuses it without any thinking about
+        separators, symlinks or encodings.
+        """
+        if str(name) not in self.names():
+            return ""
+        try:
+            return (self.folder / str(name)).read_text(encoding="utf-8")
+        except OSError:
+            return ""
+
+    def fingerprint(self, name: str) -> str:
+        """Eight characters of the file's own hash, for its URL."""
+        return _hashlib.sha256(
+            self.read(name).encode("utf-8")).hexdigest()[:8]
+
+    def content_type(self, name: str) -> str:
+        return _WEB_TYPES.get(_Path(str(name)).suffix,
+                              "text/plain; charset=utf-8")
+
+    # ── Serving ─────────────────────────────────────────────────────────────
+
+    def register(self, client, plugin_key: str, key: str = "") -> str:
+        """
+        Wire up the endpoint that serves the large files, and remember it.
+
+        Done here rather than by the caller because the URL has to appear in
+        two places - the handler that serves it and the markup that links it -
+        and two places kept in step by hand is one page linking a script
+        nobody serves, which is silent until somebody opens it.
+        """
+        key = key or f"{plugin_key}_asset"
+        client.API.register(plugin_key, key, self.serve, requires_auth=True)
+        self.endpoint = f"/public/{key}"
+        return self.endpoint
+
+    def serve(self, name: str = "", **_ignored):
+        """The endpoint. Returns what a plugin endpoint returns."""
+        body = self.read(str(name))
+        if not body:
+            return "Not found", 404, {"Content-Type": "text/plain"}
+        return body, 200, {
+            "Content-Type": self.content_type(name),
+            # The URL carries a hash of the contents, so a given URL can never
+            # go stale and this can be cached for as long as it likes.
+            "Cache-Control": "public, max-age=31536000, immutable",
+        }
+
+    def link(self, name: str) -> str:
+        """
+        The URL for one asset, with its own hash on it.
+
+        Public because a caller that builds its own document rather than
+        using `page()` - the documentation viewer has a sidebar and a table
+        of contents and belongs to no plugin - still wants the file served
+        and cached the same way.
+        """
+        return f"{self.endpoint}?name={name}&v={self.fingerprint(name)}"
+
+    def tag(self, name: str) -> str:
+        """A `<link>` or `<script>` for one asset, whichever it needs."""
+        if name.endswith(".css"):
+            return f'<link rel="stylesheet" href="{self.link(name)}">'
+        return f'<script src="{self.link(name)}" defer></script>'
+
+    def inline_or_link(self, name: str) -> tuple:
+        """
+        One asset as `(inline_text, tag)` - exactly one of them filled.
+
+        The same rule `page()` applies, for a document built by hand.
+        """
+        body = self.read(name)
+        if body and len(body) > self.inline_limit and self.endpoint:
+            return "", self.tag(name)
+        return body, ""
+
+    # ── The page ────────────────────────────────────────────────────────────
+
+    def data_block(self, data: dict) -> str:
+        """
+        The one thing that crosses from the panel into the script.
+
+        `json.dumps`, and then the angle brackets escaped: a value containing
+        `</script>` would otherwise end the block early and whatever followed
+        it would run.
+        """
+        blob = _json.dumps(dict(data or {}))
+        blob = blob.replace("<", "\\u003c").replace(">", "\\u003e")
+        return f"window.{self.GLOBAL} = {blob};"
+
+    def page(self, title: str, token: str = "", endpoint: str = "",
+             data: dict = None, heading: str = "", blurb: str = "",
+             message: str = "", bad: bool = False, body_file: str = "page.html",
+             css_file: str = "page.css", script_file: str = "page.js") -> str:
+        """The whole document, from the folder."""
+        gone = self.missing()
+        if gone:
+            return page(
+                title=title, heading=heading or title,
+                body="<section class=\"card\"><p class=\"empty\">This page is "
+                     "missing " + escape(", ".join(gone)) + ".</p></section>",
+                token=token,
+                message="The page's files are not installed.", bad=True)
+
+        payload = dict(data or {})
+        payload.setdefault("token", token)
+        payload.setdefault("endpoint", endpoint)
+
+        css = self.read(css_file)
+        script = self.read(script_file)
+        data = self.data_block(payload)
+        extra = ""
+
+        if script and len(script) > self.inline_limit and self.endpoint:
+            extra += self.tag(script_file)
+        else:
+            data = data + "\n" + script
+
+        head = ""
+        if css and len(css) > self.inline_limit and self.endpoint:
+            head = self.tag(css_file)
+            css = ""
+
+        return page(
+            title=title, heading=heading or title, blurb=blurb,
+            token=token, message=message, bad=bad,
+            css=css, script=data,
+            body=self.read(body_file) + extra,
+            head=head,
+        )

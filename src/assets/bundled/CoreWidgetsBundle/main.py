@@ -21,6 +21,7 @@ from .widgets.tiles.sun_tile import SunTile
 from .widgets.weather_event import (
     WeatherEventTile, WeatherEventWidget)
 from .widgets.tiles.switch_tiles import DEFAULT_TILES
+from . import ASSETS
 from .pages.home import HomePage
 from .api.openmeteo import OpenMeteoAPI
 
@@ -196,6 +197,15 @@ class CoreWidgetsBundle(Plugin):
             requires_auth=True,
             gui="Checklist", icon="check-network",
             description="Start a list, or add to one that is already up.")
+
+        # The pages this plugin serves are files in web/ - see docs/web-ui.md.
+        # register() wires the endpoint that serves the large ones and
+        # remembers its URL, so no page has to name it.
+        ASSETS.register(self.client, "corewidgetsbundle")
+        for name in ASSETS.missing():
+            self.client.log("error",
+                            f"[Core Widgets] A page cannot be drawn - "
+                            f"{name} is not in {ASSETS.folder}")
         self.client.API.register(
             "corewidgetsbundle", "timer_start", self.api_timer_start,
             requires_auth=True,

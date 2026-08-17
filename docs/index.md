@@ -25,6 +25,9 @@ you write any background work - it is the rule most easily broken by accident.
 ordinary plugins with no special privileges, so they are the worked examples
 for everything above.
 
+If you are shipping an interface for a phone, [Web UI](web-ui.md) covers
+how a plugin registers and serves one.
+
 If you want to drive the panel from another machine, everything is in
 [Backend API](api.md).
 

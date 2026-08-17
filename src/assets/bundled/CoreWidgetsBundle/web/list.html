@@ -1,0 +1,56 @@
+<!--
+  The checklist editor behind /public/list_add.
+
+  Static. The chooser's options, the colour swatches, which cell of the grid
+  is chosen and the form's own action are filled in by list.js from
+  window.PAGE - see docs/web-ui.md. Nothing here is substituted or escaped on
+  the way out.
+-->
+
+<form method="post" id="listform">
+  <section>
+    <label for="target">Which list</label>
+    <select name="target" id="target"></select>
+
+    <label for="title">Name</label>
+    <input type="text" name="title" id="title" placeholder="Shopping"
+           autocomplete="off">
+  </section>
+
+  <section>
+    <label>Items</label>
+    <div class="rows" id="rows"></div>
+    <div class="addrow">
+      <input type="text" id="newitem" placeholder="Milk" autocomplete="off">
+      <button type="button" id="additem">Add</button>
+    </div>
+    <textarea name="text" id="text" hidden></textarea>
+    <p class="hint">Tap the box to tick something off, the name to change it,
+      and the cross to take it away. Empty lines are dropped.</p>
+  </section>
+
+  <section>
+    <label>Colour</label>
+    <div class="swatches" id="swatches"></div>
+  </section>
+
+  <section id="wherebox">
+    <label>Where it goes</label>
+    <input type="hidden" name="quadrant" id="quadrant" value="top-right">
+    <div class="where" data-for="quadrant">
+      <button type="button" data-q="top-left">Top left</button>
+      <button type="button" data-q="top-center">Top</button>
+      <button type="button" data-q="top-right">Top right</button>
+      <button type="button" data-q="center-left">Left</button>
+      <button type="button" data-q="center">Middle</button>
+      <button type="button" data-q="center-right">Right</button>
+      <button type="button" data-q="bottom-left">Bottom left</button>
+      <button type="button" data-q="bottom-center">Bottom</button>
+      <button type="button" data-q="bottom-right">Bottom right</button>
+    </div>
+  </section>
+
+  <div class="go">
+    <button type="submit" id="verb">Put it up</button>
+  </div>
+</form>

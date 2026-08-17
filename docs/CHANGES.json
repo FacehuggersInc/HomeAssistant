@@ -1,6 +1,106 @@
 {
  "log": [
   {
+   "at": 1786980742.6874888,
+   "note": "",
+   "pages": [
+    {
+     "slug": "web-ui",
+     "state": "updated"
+    }
+   ]
+  },
+  {
+   "at": 1786978616.7372239,
+   "note": "",
+   "pages": [
+    {
+     "slug": "api",
+     "state": "updated"
+    },
+    {
+     "slug": "architecture",
+     "state": "updated"
+    },
+    {
+     "slug": "assistant",
+     "state": "updated"
+    },
+    {
+     "slug": "bundled-plugins",
+     "state": "updated"
+    },
+    {
+     "slug": "dialogs",
+     "state": "updated"
+    },
+    {
+     "slug": "events",
+     "state": "updated"
+    },
+    {
+     "slug": "index",
+     "state": "updated"
+    },
+    {
+     "slug": "notifications",
+     "state": "updated"
+    },
+    {
+     "slug": "pages",
+     "state": "updated"
+    },
+    {
+     "slug": "plugins-remote",
+     "state": "new"
+    },
+    {
+     "slug": "plugins",
+     "state": "updated"
+    },
+    {
+     "slug": "registries",
+     "state": "updated"
+    },
+    {
+     "slug": "settings",
+     "state": "updated"
+    },
+    {
+     "slug": "skills",
+     "state": "updated"
+    },
+    {
+     "slug": "styling",
+     "state": "updated"
+    },
+    {
+     "slug": "tiles",
+     "state": "updated"
+    },
+    {
+     "slug": "users",
+     "state": "updated"
+    },
+    {
+     "slug": "web-ui",
+     "state": "new"
+    },
+    {
+     "slug": "webpage",
+     "state": "updated"
+    },
+    {
+     "slug": "when-it-will-not-start",
+     "state": "updated"
+    },
+    {
+     "slug": "widgets",
+     "state": "updated"
+    }
+   ]
+  },
+  {
    "at": 1785940022.2201173,
    "note": "the audio settings are Linux only",
    "pages": [
@@ -1175,20 +1275,20 @@
  ],
  "pages": {
   "api": {
-   "at": 1785890075.0748465,
-   "hash": "559dd53728597544",
+   "at": 1786978616.7351778,
+   "hash": "224af80d08ccedc3",
    "opened": 0,
    "state": "updated"
   },
   "architecture": {
-   "at": 1785717333.2300634,
-   "hash": "1ef2520c21b1f1b3",
+   "at": 1786978616.73524,
+   "hash": "e979544b93bceb37",
    "opened": 0,
    "state": "updated"
   },
   "assistant": {
-   "at": 1785689288.047792,
-   "hash": "0c5f84ace201fb80",
+   "at": 1786978616.7353137,
+   "hash": "4e726b6cf216acf0",
    "opened": 0,
    "state": "updated"
   },
@@ -1205,8 +1305,8 @@
    "state": "updated"
   },
   "bundled-plugins": {
-   "at": 1785723555.8620312,
-   "hash": "07b88d0892dc8f7d",
+   "at": 1786978616.7354898,
+   "hash": "82b058f401622101",
    "opened": 0,
    "state": "updated"
   },
@@ -1217,14 +1317,14 @@
    "state": "updated"
   },
   "dialogs": {
-   "at": 1785709189.40583,
-   "hash": "02fe3960a333de27",
+   "at": 1786978616.7356021,
+   "hash": "2a37b10224a74256",
    "opened": 0,
    "state": "updated"
   },
   "events": {
-   "at": 1785939986.7028959,
-   "hash": "ba5e5d6c673568d6",
+   "at": 1786978616.735662,
+   "hash": "64e278bb6a18ec09",
    "opened": 0,
    "state": "updated"
   },
@@ -1235,9 +1335,9 @@
    "state": "seen"
   },
   "index": {
-   "at": 1785680032.7136004,
-   "hash": "a8b3e6a266e807cf",
-   "opened": 0,
+   "at": 1786978616.735767,
+   "hash": "8048499d633fc749",
+   "opened": 1786980734.76009,
    "state": "updated"
   },
   "installation": {
@@ -1271,14 +1371,14 @@
    "state": "updated"
   },
   "notifications": {
-   "at": 1785682556.2398314,
-   "hash": "45c0e5eb310e3b65",
+   "at": 1786978616.7360985,
+   "hash": "a87024d4df6b3cab",
    "opened": 0,
    "state": "updated"
   },
   "pages": {
-   "at": 1785682556.2398984,
-   "hash": "84da7be0f132ca25",
+   "at": 1786978616.7361548,
+   "hash": "bcb5f0759c7b1f1d",
    "opened": 0,
    "state": "updated"
   },
@@ -1295,10 +1395,16 @@
    "state": "updated"
   },
   "plugins": {
-   "at": 1785712297.911991,
-   "hash": "30ca7169c56b74f8",
+   "at": 1786978616.736368,
+   "hash": "7c328872bb41d456",
    "opened": 0,
    "state": "updated"
+  },
+  "plugins-remote": {
+   "at": 1786978616.7363,
+   "hash": "7fbdea4ef493645d",
+   "opened": 0,
+   "state": "new"
   },
   "quick-settings": {
    "at": 1785723863.3212175,
@@ -1307,26 +1413,26 @@
    "state": "updated"
   },
   "registries": {
-   "at": 1785717333.2309856,
-   "hash": "f69a5a0325dd8274",
+   "at": 1786978616.7364798,
+   "hash": "e7d605292bf914e7",
    "opened": 0,
    "state": "updated"
   },
   "settings": {
-   "at": 1785940022.2195895,
-   "hash": "bbf7b581c501657c",
+   "at": 1786978616.736548,
+   "hash": "5e00052fc0b7dfc6",
    "opened": 0,
    "state": "updated"
   },
   "skills": {
-   "at": 1785688599.6479852,
-   "hash": "847be23a345f1c8d",
+   "at": 1786978616.7366197,
+   "hash": "d49c3c6f1fe90b01",
    "opened": 0,
    "state": "updated"
   },
   "styling": {
-   "at": 1785680032.713855,
-   "hash": "8d6beb5cb4dbaa19",
+   "at": 1786978616.7366738,
+   "hash": "a7b16d8f5e2c4b56",
    "opened": 0,
    "state": "updated"
   },
@@ -1337,8 +1443,8 @@
    "state": "updated"
   },
   "tiles": {
-   "at": 1785723863.3216064,
-   "hash": "147fd282b465280b",
+   "at": 1786978616.7367918,
+   "hash": "19e4268af0c22f7f",
    "opened": 0,
    "state": "updated"
   },
@@ -1349,26 +1455,32 @@
    "state": "updated"
   },
   "users": {
-   "at": 1785680032.7139206,
-   "hash": "c797b82d301f8955",
+   "at": 1786978616.736895,
+   "hash": "cf32deca183962b5",
    "opened": 0,
    "state": "updated"
   },
+  "web-ui": {
+   "at": 1786980742.6871943,
+   "hash": "11f9f3416e0f1cf4",
+   "opened": 1786980746.2096624,
+   "state": "updated"
+  },
   "webpage": {
-   "at": 1785680032.7139354,
-   "hash": "2c38ebbb301ef95f",
+   "at": 1786978616.7370398,
+   "hash": "18f1476b6e5d707e",
    "opened": 0,
    "state": "updated"
   },
   "when-it-will-not-start": {
-   "at": 1785682895.1982813,
-   "hash": "2337f153d7196d01",
+   "at": 1786978616.7370923,
+   "hash": "d8fe778e339691e3",
    "opened": 0,
    "state": "updated"
   },
   "widgets": {
-   "at": 1785723863.3218668,
-   "hash": "7c7a9576c60322c1",
+   "at": 1786978616.7371612,
+   "hash": "cd658c6f4355daa3",
    "opened": 0,
    "state": "updated"
   },

@@ -27,6 +27,7 @@ from pathlib import Path
 from typing import Optional
 
 from src.constants import INSTALL_ROOT
+from src.webui import core_assets
 
 DOCS_DIR = INSTALL_ROOT / "docs"
 BUNDLED_DIR = INSTALL_ROOT / "src" / "assets" / "bundled"
@@ -81,6 +82,7 @@ NAV_GROUPS = [
         ("cancel.md",          "Cancelling"),
         ("api.md",             "Backend API"),
         ("users.md",           "Users"),
+        ("web-ui.md",          "Web UI"),
         ("webpage.md",         "The web page"),
     ]),
     ("The machine", [
@@ -1070,13 +1072,25 @@ def search_index() -> list:
 
 
 def shell(title: str, body: str, toc: str, current: str) -> str:
+    """
+    The whole document.
+
+    Its own rather than `page()`: this has a sidebar, a filter and a table of
+    contents, and belongs to no plugin. The styling and the script are still
+    files in `src/web/` and are served the same way - see docs/web-ui.md - so
+    the only thing built here is the shape.
+    """
+    assets = core_assets()
+    sheet, sheet_tag = assets.inline_or_link("docs.css")
+    script, script_tag = assets.inline_or_link("docs.js")
+
     return f"""<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{html.escape(title)} - Home Assistant docs</title>
-<style>{STYLE}</style>
+<style>{sheet}</style>{sheet_tag}
 </head>
 <body>
 <button class="menu" type="button" aria-label="Menu">&#9776;</button>
@@ -1093,383 +1107,11 @@ def shell(title: str, body: str, toc: str, current: str) -> str:
 </main>
 {toc}
 <script type="application/json" id="search-index">{json.dumps(search_index())}</script>
-<script>{SCRIPT}</script>
+<script>{script}</script>{script_tag}
 </body>
 </html>"""
 
 
-STYLE = """
-:root {
-  /* Chromium runs with forceDarkModeEnabled so ordinary sites come out dark.
-     A page declaring itself dark is skipped; one that does not is inverted
-     into a white rectangle, and this viewer is read on the panel itself. */
-  color-scheme:dark;
-  --bg:#151517; --panel:#1c1c1f; --line:#2c2c31; --text:#e6e6e8;
-  --muted:#9a9aa2; --accent:#2ff08e; --accent-dim:#1faf68; --code:#111114;
-  --inline:#7fe0b0;
-  /* Syntax tokens. Kept away from the accent green so a keyword is never
-     mistaken for a link. */
-  --t-kw:#8ab4ff; --t-str:#e3b673; --t-num:#d7a3ea; --t-com:#6f6f78;
-  --t-bui:#5ed4a8; --t-fn:#f0d67a; --t-dec:#c69cf0; --t-con:#e88f8f;
-  --t-key:#8ab4ff; --t-flg:#e3b673;
-}
-* { box-sizing:border-box; }
-body {
-  margin:0; background:var(--bg); color:var(--text);
-  font:16px/1.65 -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-  display:grid; grid-template-columns:270px minmax(0,1fr) 220px;
-}
-a { color:var(--accent); text-decoration:none; }
-a:hover { text-decoration:underline; }
 
-.sidebar {
-  position:sticky; top:0; height:100vh; overflow-y:auto;
-  background:var(--panel); border-right:1px solid var(--line); padding:22px 16px;
-}
-.brand { font-weight:600; font-size:17px; margin-bottom:16px; }
-.brand span { display:block; font-weight:400; font-size:12px; color:var(--muted);
-  text-transform:uppercase; letter-spacing:.09em; margin-top:2px; }
-.filter {
-  width:100%; padding:8px 10px; margin-bottom:14px; border-radius:7px;
-  border:1px solid var(--line); background:var(--bg); color:var(--text); font-size:14px;
-}
-.filter:focus { outline:none; border-color:var(--accent-dim); }
-.nav { display:flex; flex-direction:column; gap:1px; }
-.nav a {
-  color:var(--muted); padding:7px 10px; border-radius:7px; font-size:14.5px;
-  border-left:2px solid transparent;
-}
-.nav a:hover { background:#26262b; color:var(--text); text-decoration:none; }
 
-/* -- What changed --------------------------------------------------------- */
-.nav-count {
-  float:right; background:var(--accent); color:#10281c; border-radius:9px;
-  padding:0 7px; font-size:11px; font-weight:700; line-height:18px;
-  min-width:18px; text-align:center;
-}
-.doc-badge {
-  display:inline-block; margin-left:8px; padding:1px 7px; border-radius:8px;
-  font-size:10px; font-weight:700; text-transform:uppercase;
-  letter-spacing:.04em; vertical-align:middle;
-}
-.doc-badge.new     { background:rgba(47,240,142,.18); color:#7ef0b4; }
-.doc-badge.updated { background:rgba(120,170,255,.18); color:#9dc0ff; }
-.doc-badge.removed { background:rgba(224,138,138,.18); color:#e8a6a6; }
 
-.change-entry { border-left:2px solid var(--line); padding:2px 0 2px 16px;
-  margin:0 0 22px; }
-.change-when { color:var(--muted); font-size:13px; }
-.change-note { margin:4px 0 8px; font-size:15px; }
-.change-pages { list-style:none; padding:0; margin:0; }
-.change-pages li { padding:3px 0; font-size:15px; }
-.change-pages .doc-badge { margin:0 8px 0 0; }
-
-/* -- Previous / next ------------------------------------------------------ */
-.page-nav { display:flex; gap:10px; flex-wrap:wrap; margin:0 0 22px; }
-.page-nav.bottom { margin:34px 0 0; }
-.page-nav-link {
-  flex:1 1 220px; min-width:0; display:flex; align-items:center; gap:12px;
-  padding:10px 14px;
-  border:1px solid var(--line); border-radius:10px; background:var(--card);
-  text-decoration:none;
-}
-.page-nav-link.next { justify-content:space-between; }
-.page-nav-link.next .page-nav-words { text-align:right; }
-/* Big enough to be a control rather than punctuation, and in the text colour
- * so it does not read as a disabled thing. */
-.page-nav-arrow {
-  flex:none; font-size:22px; line-height:1; color:var(--text); opacity:.75;
-}
-.page-nav-link:hover .page-nav-arrow { color:var(--accent); opacity:1; }
-.page-nav-words { min-width:0; flex:1 1 auto; }
-.page-nav-link:hover { border-color:var(--accent); text-decoration:none; }
-/* The skipping one steps back, so the ordinary next page stays the obvious
- * thing to press and the shortcut is there when it is wanted. */
-.page-nav-link.skip { flex:0 1 auto; background:transparent; opacity:.72; }
-.page-nav-hint { display:block; color:var(--muted); font-size:12px; }
-.page-nav-title { display:block; color:var(--text); font-size:15px;
-  font-weight:600; overflow:hidden; text-overflow:ellipsis;
-  white-space:nowrap; }
-.page-nav-gap { flex:1 1 220px; }
-
-.results a small {
-  display:block; color:var(--muted); font-size:12px; line-height:1.5;
-  margin-top:3px; overflow:hidden;
-}
-.results a mark { background:rgba(47,240,142,.22); color:var(--text);
-  border-radius:3px; padding:0 2px; }
-.nav a.active { background:#26262b; color:var(--text); border-left-color:var(--accent); }
-.nav a.sub {
-  font-size:13.5px; padding-left:22px; color:#7f7f88;
-  border-left:2px solid var(--line); margin-left:9px; border-radius:0 7px 7px 0;
-}
-.nav a.sub:hover { color:var(--text); }
-.nav a.sub.active { color:var(--text); border-left-color:var(--accent); background:#26262b; }
-.nav-divider {
-  color:var(--muted); text-transform:uppercase; letter-spacing:.09em;
-  font-size:10.5px; margin:20px 0 4px; padding:0 10px;
-  border-top:1px solid var(--line); padding-top:14px;
-}
-.nav-plugin {
-  color:var(--text); font-size:14px; font-weight:600;
-  margin:10px 0 2px; padding:0 10px;
-}
-
-.results { display:flex; flex-direction:column; gap:1px; margin-top:4px; }
-.results-title {
-  color:var(--muted); text-transform:uppercase; letter-spacing:.09em;
-  font-size:10.5px; margin:12px 0 6px; padding-left:10px;
-}
-.results a {
-  display:flex; flex-direction:column; gap:1px; padding:6px 10px;
-  border-radius:7px; border-left:2px solid transparent; color:var(--muted);
-}
-.results a:hover { background:#26262b; text-decoration:none; }
-.results a span { color:var(--text); font-size:14px; }
-.results a em { font-style:normal; font-size:11.5px; color:#6f6f78; }
-.results .empty { color:var(--muted); font-size:13.5px; padding:10px; }
-
-.note {
-  padding:9px 14px; margin:0 0 20px; border-radius:8px;
-  background:#1a1a1e; border:1px solid var(--line); color:var(--muted);
-  font-size:14px;
-}
-
-main { min-width:0; padding:44px 52px 96px; }
-article { max-width:820px; }
-
-h1,h2,h3,h4 { line-height:1.25; scroll-margin-top:24px; }
-h1 { font-size:32px; margin:0 0 6px; }
-h2 { font-size:23px; margin:44px 0 12px; padding-top:20px; border-top:1px solid var(--line); }
-/* Sections separated by an explicit "---" already have a rule above them; the
-   heading must not draw a second one directly under it. */
-hr + h2 { border-top:none; padding-top:0; margin-top:34px; }
-h3 { font-size:18px; margin:28px 0 8px; color:#d2d2d6; }
-.anchor { color:var(--line); margin-left:-20px; padding-right:8px; opacity:0; font-weight:400; }
-h2:hover .anchor, h3:hover .anchor { opacity:1; }
-
-p { margin:0 0 15px; }
-strong { color:#f2f2f4; font-weight:600; }
-ul,ol { margin:0 0 15px; padding-left:22px; }
-li { margin:4px 0; }
-hr { border:0; border-top:1px solid var(--line); margin:34px 0; }
-blockquote {
-  margin:0 0 15px; padding:9px 15px; border-left:3px solid var(--accent-dim);
-  background:#1a1a1e; color:#c8c8cd; border-radius:0 7px 7px 0;
-}
-code {
-  background:#26262b; padding:2px 6px; border-radius:4px; font-size:13.5px;
-  font-family:"JetBrains Mono", "SF Mono", Consolas, monospace;
-  color:var(--inline); border:1px solid #303036;
-}
-/* Inside a link the link colour wins, or an inline-code link stops looking
-   clickable. Same in headings, where the heading colour carries the weight. */
-a code { color:inherit; border-color:transparent; }
-h1 code, h2 code, h3 code { color:inherit; font-size:0.92em; }
-th code { color:var(--inline); }
-
-.code { margin:0 0 18px; border:1px solid var(--line); border-radius:9px; overflow:hidden; }
-.code-bar {
-  display:flex; justify-content:space-between; align-items:center;
-  padding:6px 12px; background:#232328; border-bottom:1px solid var(--line);
-  font-size:11.5px; text-transform:uppercase; letter-spacing:.08em; color:var(--muted);
-}
-.copy {
-  background:none; border:1px solid var(--line); color:var(--muted); cursor:pointer;
-  font:inherit; font-size:11px; padding:3px 9px; border-radius:5px; letter-spacing:.05em;
-}
-.copy:hover { color:var(--text); border-color:var(--muted); }
-.copy.done { color:var(--accent); border-color:var(--accent-dim); }
-.code pre { margin:0; padding:14px 16px; overflow-x:auto; background:var(--code); }
-.code pre code {
-  background:none; padding:0; border:none; color:var(--text);
-  font-size:13.5px; line-height:1.55;
-}
-.t-kw  { color:var(--t-kw); }
-.t-str { color:var(--t-str); }
-.t-num { color:var(--t-num); }
-.t-com { color:var(--t-com); font-style:italic; }
-.t-bui { color:var(--t-bui); }
-.t-fn  { color:var(--t-fn); }
-.t-dec { color:var(--t-dec); }
-.t-con { color:var(--t-con); }
-.t-key { color:var(--t-key); }
-.t-flg { color:var(--t-flg); }
-
-.table-wrap { overflow-x:auto; margin:0 0 18px; }
-table { border-collapse:collapse; width:100%; font-size:14.5px; }
-th,td { text-align:left; padding:9px 13px; border:1px solid var(--line); vertical-align:top; }
-th { background:#232328; font-weight:600; }
-tr:nth-child(even) td { background:#1a1a1e; }
-
-.toc {
-  position:sticky; top:0; height:100vh; overflow-y:auto;
-  padding:46px 20px 40px 0; font-size:13.5px;
-}
-.toc-title {
-  color:var(--muted); text-transform:uppercase; letter-spacing:.09em;
-  font-size:11px; margin-bottom:10px;
-}
-.toc a { display:block; color:var(--muted); padding:4px 0; }
-.toc a:hover { color:var(--text); text-decoration:none; }
-.toc a.toc-3 { padding-left:13px; font-size:13px; }
-
-/* The panel's built-in browser injects these too, but the docs are read from
-   a desktop browser just as often and a white scrollbar on this palette is the
-   brightest thing on the page. */
-::-webkit-scrollbar { width:12px; height:12px; }
-::-webkit-scrollbar-track { background:rgba(0,0,0,.25); }
-::-webkit-scrollbar-thumb {
-  background:rgba(255,255,255,.2); border-radius:6px;
-  border:3px solid transparent; background-clip:content-box;
-}
-::-webkit-scrollbar-thumb:hover { background-color:rgba(255,255,255,.32);
-  background-clip:content-box; }
-::-webkit-scrollbar-corner { background:transparent; }
-* { scrollbar-color: rgba(255,255,255,.22) rgba(0,0,0,.25); scrollbar-width: thin; }
-
-.menu { display:none; }
-
-@media (max-width:1180px) { body { grid-template-columns:250px minmax(0,1fr); } .toc { display:none; } }
-@media (max-width:820px) {
-  body { grid-template-columns:1fr; }
-  .sidebar {
-    position:fixed; z-index:20; width:270px; transform:translateX(-100%);
-    transition:transform .2s ease;
-  }
-  .sidebar.open { transform:none; }
-  .menu {
-    display:block; position:fixed; z-index:21; top:12px; left:12px;
-    width:42px; height:42px; border-radius:9px; cursor:pointer;
-    background:var(--panel); border:1px solid var(--line); color:var(--text); font-size:19px;
-  }
-  main { padding:70px 20px 60px; }
-}
-"""
-
-SCRIPT = """
-document.querySelectorAll('.copy').forEach(function (button) {
-  button.addEventListener('click', function () {
-    var code = button.closest('.code').querySelector('code');
-    // Fall back to a hidden textarea: navigator.clipboard is unavailable over
-    // plain http on anything but localhost, and this is served over http.
-    var done = function () {
-      button.textContent = 'copied';
-      button.classList.add('done');
-      setTimeout(function () {
-        button.textContent = 'copy';
-        button.classList.remove('done');
-      }, 1400);
-    };
-    if (navigator.clipboard && window.isSecureContext) {
-      navigator.clipboard.writeText(code.innerText).then(done);
-      return;
-    }
-    var scratch = document.createElement('textarea');
-    scratch.value = code.innerText;
-    scratch.style.position = 'fixed';
-    scratch.style.opacity = '0';
-    document.body.appendChild(scratch);
-    scratch.select();
-    try { document.execCommand('copy'); done(); } catch (e) { /* nothing to do */ }
-    document.body.removeChild(scratch);
-  });
-});
-
-var filter = document.querySelector('.filter');
-var results = document.querySelector('.results');
-var nav = document.querySelector('.nav');
-var indexNode = document.getElementById('search-index');
-var index = indexNode ? JSON.parse(indexNode.textContent) : [];
-
-if (filter) {
-  filter.addEventListener('input', function () {
-    var needle = filter.value.trim().toLowerCase();
-
-    if (!needle) {
-      nav.hidden = false;
-      results.hidden = true;
-      document.querySelectorAll('.nav a').forEach(function (link) {
-        link.style.display = '';
-      });
-      return;
-    }
-
-    // Page titles first: an exact page is almost always what was wanted, and
-    // burying it under twenty section matches would be worse than no search.
-    var pageHits = 0;
-    document.querySelectorAll('.nav a').forEach(function (link) {
-      var hit = link.textContent.toLowerCase().indexOf(needle) !== -1;
-      link.style.display = hit ? '' : 'none';
-      if (hit) { pageHits++; }
-    });
-    nav.hidden = pageHits === 0;
-
-    // A heading match outranks a body match. Somebody typing "threading"
-    // wants the section called that, not the twelve paragraphs mentioning it.
-    var headingRows = [], bodyRows = [];
-    index.forEach(function (row) {
-      if (row[2].toLowerCase().indexOf(needle) !== -1) {
-        headingRows.push(row);
-      } else if ((row[4] || '').toLowerCase().indexOf(needle) !== -1) {
-        bodyRows.push(row);
-      }
-    });
-    var rows = headingRows.concat(bodyRows).slice(0, 50);
-
-    if (!rows.length) {
-      results.hidden = pageHits > 0;
-      results.innerHTML = pageHits > 0 ? '' : '<div class="empty">Nothing found.</div>';
-      return;
-    }
-
-    function escapeHtml(text) {
-      return text.replace(/[&<>"]/g, function (c) {
-        return {'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c];
-      });
-    }
-
-    // The words around the match, so a result can be judged without opening
-    // it. A list of section names is not enough once the search reaches into
-    // the body - the heading may say nothing about why it matched.
-    function snippet(text, term) {
-      var at = text.toLowerCase().indexOf(term);
-      if (at === -1) { return ''; }
-      var from = Math.max(0, at - 48);
-      var piece = text.slice(from, at + term.length + 90);
-      var out = escapeHtml(piece);
-      var marked = escapeHtml(text.substr(at, term.length));
-      out = out.replace(marked, '<mark>' + marked + '</mark>');
-      return (from > 0 ? '&hellip;' : '') + out + '&hellip;';
-    }
-
-    var html = '<div class="results-title">' + rows.length +
-               ' match' + (rows.length === 1 ? '' : 'es') + '</div>';
-    rows.forEach(function (row) {
-      var href = '/docs/' + row[0] + (row[3] ? '#' + row[3] : '');
-      var body = snippet(row[4] || '', needle);
-      html += '<a href="' + href + '"><span>' + escapeHtml(row[2]) +
-              '</span><em>' + escapeHtml(row[1]) + '</em>' +
-              (body ? '<small>' + body + '</small>' : '') + '</a>';
-    });
-    results.innerHTML = html;
-    results.hidden = false;
-  });
-
-  // Escape clears, so the sidebar can be got back without reaching for the
-  // mouse or selecting the text.
-  filter.addEventListener('keydown', function (event) {
-    if (event.key === 'Escape') {
-      filter.value = '';
-      filter.dispatchEvent(new Event('input'));
-    }
-  });
-}
-
-var menu = document.querySelector('.menu');
-if (menu) {
-  menu.addEventListener('click', function () {
-    document.querySelector('.sidebar').classList.toggle('open');
-  });
-}
-"""

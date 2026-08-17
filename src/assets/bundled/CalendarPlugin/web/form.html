@@ -1,0 +1,52 @@
+<!--
+  Adding an event, behind /public/calendar_form.
+
+  Static. The people, the upcoming list and the token are filled in by
+  form.js from window.PAGE - see docs/web-ui.md.
+
+  Sized for a phone held one-handed: one column, large fields, no zoom.
+-->
+
+<p class="banner ok" id="ok">Added.</p>
+
+<section>
+  <form id="f">
+    <label for="user">Who is this for</label>
+    <select id="user" name="user" required></select>
+
+    <label for="title">Title</label>
+    <input id="title" name="title" required placeholder="What is it?">
+
+    <div class="row">
+      <div>
+        <label for="day">Date</label>
+        <input id="day" name="day" type="date" required>
+      </div>
+      <div>
+        <label for="time">Start</label>
+        <input id="time" name="time" type="time">
+      </div>
+    </div>
+
+    <div class="row">
+      <div>
+        <label for="end_time">End</label>
+        <input id="end_time" name="end_time" type="time">
+      </div>
+      <div>
+        <label for="icon">Icon</label>
+        <input id="icon" name="icon" value="mdi.calendar">
+      </div>
+    </div>
+
+    <label for="location">Location</label>
+    <input id="location" name="location" placeholder="Optional">
+
+    <label for="notes">Notes</label>
+    <textarea id="notes" name="notes" placeholder="Optional"></textarea>
+
+    <div class="go"><button type="submit">Add to the calendar</button></div>
+  </form>
+</section>
+
+<ul id="upcoming"></ul>

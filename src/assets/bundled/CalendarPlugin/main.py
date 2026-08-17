@@ -7,180 +7,65 @@ from src.plugin.template import Plugin
 from .store import CalendarStore, Event
 
 
-from src.webui import escape as _escape, page
+from pathlib import Path
+
+from src.webui import WebAssets
+
+# The two pages this plugin serves are files in web/ - see docs/web-ui.md.
+# Nothing here formats or substitutes into them: what the panel has to say
+# goes into one JSON object and the scripts read it. The token in particular
+# used to be spliced into the script with a __TOKEN__ replace.
+ASSETS = WebAssets(Path(__file__).with_name("web"),
+                   required=("form.html", "form.css", "form.js",
+                             "subs.html", "subs.css", "subs.js"))
+
+FORM_PATH = "/public/calendar_form"
+ADD_PATH = "/public/calendar_add"
+SUBS_PATH = "/public/calendar_subscriptions"
 
 
-SUBS_CSS = """
- ul{list-style:none;padding:0;margin:18px 0 0}
- li{display:flex;justify-content:space-between;align-items:center;gap:12px;
-    background:var(--card);border:1px solid var(--line);border-radius:12px;
-    padding:12px 14px;margin-bottom:10px}
- li b{display:block;font-size:16px}
- li span{display:block;color:var(--muted);font-size:13px}
- li .bad{color:var(--bad)}
- details{margin-top:18px;color:var(--muted);font-size:13.5px}
- summary{cursor:pointer;color:var(--text)}
- .go{margin-top:18px}
- .go button{width:100%}
-"""
+def render_form_page(token: str, people: list, upcoming: list) -> str:
+    """
+    The add-an-event page.
 
-SUBS_SCRIPT = """
-var token = '__TOKEN__';
-function post(params) {
-  params.append('token', token);
-  fetch('/public/calendar_subscriptions?' + params.toString(), {method: 'POST'})
-    /* Reloaded rather than patched: the list is rendered by the panel, and
-       rebuilding it here would be a second copy of that logic. */
-    .then(function () {
-      location.href = '/public/calendar_subscriptions?token=' + token;
-    })
-    .catch(function () { alert('Could not reach the panel.'); });
-}
-document.getElementById('f').addEventListener('submit', function (e) {
-  e.preventDefault();
-  var params = new URLSearchParams();
-  new FormData(e.target).forEach(function (v, k) {
-    if (v) { params.append(k, v); }
-  });
-  post(params);
-});
-document.querySelectorAll('button[data-remove]').forEach(function (b) {
-  b.addEventListener('click', function () {
-    if (!confirm('Remove this calendar and its events?')) { return; }
-    post(new URLSearchParams({remove: b.dataset.remove}));
-  });
-});
-try {
-  var saved = localStorage.getItem('ha-user');
-  if (saved) { document.getElementById('user').value = saved; }
-  document.getElementById('user').addEventListener('change', function (e) {
-    localStorage.setItem('ha-user', e.target.value);
-  });
-} catch (e) {}
-"""
-
-
-def render_subs_page(token: str, options: str, rows: str,
-                     message: str = "") -> str:
-    body = f"""
-<section>
-  <form id="f">
-    <label for="user">Who is it for</label>
-    <select id="user" name="user" required>{options}</select>
-    <label for="name">Name it</label>
-    <input id="name" name="name" placeholder="Work, Family, Bins">
-    <label for="add">ICS address</label>
-    <input id="add" name="add" required placeholder="https://... or webcal://...">
-    <div class="go"><button type="submit">Subscribe</button></div>
-  </form>
-</section>
-
-<ul>{rows}</ul>
-
-<details>
-  <summary>Where do I get the address?</summary>
-  <p><b>Google</b> - Settings for that calendar, then the secret address in
-     iCal format.<br>
-     <b>Apple</b> - share the calendar publicly and copy the webcal link.<br>
-     <b>Outlook</b> - publish the calendar and choose ICS.</p>
-  <p>Treat it as a password. Anyone holding it can read that calendar.</p>
-  <p>Google caches this feed for hours, so a change made on your phone will
-     not appear here straight away.</p>
-</details>
-"""
-    return page(
-        title="Subscribed calendars",
-        heading="Subscribed calendars",
-        blurb="Mirrored onto the panel, one way. Nothing is sent back.",
-        token=token, message=message,
-        css=SUBS_CSS, body=body,
-        script=SUBS_SCRIPT.replace("__TOKEN__", _escape(token)),
-    )
-
-
-FORM_CSS = """
- textarea{min-height:90px;resize:vertical}
- ul{list-style:none;padding:0;margin:18px 0 0}
- li{display:flex;justify-content:space-between;gap:12px;padding:11px 0;
-    border-bottom:1px solid var(--line);font-size:14.5px}
- li:last-child{border-bottom:0}
- li span{color:var(--muted)}
- .ok{display:none}
- .go{margin-top:18px}
- .go button{width:100%}
-"""
-
-FORM_SCRIPT = """
-document.getElementById('day').valueAsDate = new Date();
-/* Remembered, so a phone asks once rather than on every event. */
-try {
-  var saved = localStorage.getItem('ha-user');
-  if (saved) { document.getElementById('user').value = saved; }
-  document.getElementById('user').addEventListener('change', function (e) {
-    localStorage.setItem('ha-user', e.target.value);
-  });
-} catch (e) {}
-document.getElementById('f').addEventListener('submit', function (event) {
-  event.preventDefault();
-  var params = new URLSearchParams({token: '__TOKEN__'});
-  new FormData(event.target).forEach(function (value, key) {
-    if (value) { params.append(key, value); }
-  });
-  fetch('/public/calendar_add?' + params.toString(), {method: 'POST'})
-    .then(function (r) { return r.json(); })
-    .then(function (body) {
-      if (body.request !== 'Success') {
-        alert(body.reason || 'Could not add that.');
-        return;
-      }
-      document.getElementById('ok').style.display = 'block';
-      /* Reloaded rather than patched in: the list below is rendered by the
-         panel, and rebuilding it here would be a second copy of that logic. */
-      setTimeout(function () { location.reload(); }, 700);
-    })
-    .catch(function () { alert('Could not reach the panel.'); });
-});
-"""
-
-
-def render_form_page(token: str, options: str, upcoming: str) -> str:
-    """Sized for a phone held one-handed: one column, large fields, no zoom."""
-    body = f"""
-<p class="banner ok" id="ok">Added.</p>
-<section>
-  <form id="f">
-    <label for="user">Who is this for</label>
-    <select id="user" name="user" required>{options}</select>
-    <label for="title">Title</label>
-    <input id="title" name="title" required placeholder="What is it?">
-    <div class="row">
-      <div><label for="day">Date</label>
-        <input id="day" name="day" type="date" required></div>
-      <div><label for="time">Start</label>
-        <input id="time" name="time" type="time"></div>
-    </div>
-    <div class="row">
-      <div><label for="end_time">End</label>
-        <input id="end_time" name="end_time" type="time"></div>
-      <div><label for="icon">Icon</label>
-        <input id="icon" name="icon" value="mdi.calendar"></div>
-    </div>
-    <label for="location">Location</label>
-    <input id="location" name="location" placeholder="Optional">
-    <label for="notes">Notes</label>
-    <textarea id="notes" name="notes" placeholder="Optional"></textarea>
-    <div class="go"><button type="submit">Add to the calendar</button></div>
-  </form>
-</section>
-
-<ul>{upcoming}</ul>
-"""
-    return page(
+    `people` and `upcoming` are sent as data and drawn by the script, so an
+    event called `<b>dentist` is text on the page rather than markup in it.
+    """
+    return ASSETS.page(
         title="Add an event",
         heading="Add an event",
         blurb="It appears on the panel straight away.",
-        token=token, css=FORM_CSS, body=body,
-        script=FORM_SCRIPT.replace("__TOKEN__", _escape(token)),
+        token=token, endpoint=FORM_PATH,
+        body_file="form.html", css_file="form.css", script_file="form.js",
+        data={
+            "people": list(people or []),
+            "upcoming": list(upcoming or []),
+            # The form posts to a different endpoint than the one that served
+            # it, which is the one thing here the script cannot work out.
+            "addEndpoint": ADD_PATH,
+        },
+    )
+
+
+def render_subs_page(token: str, people: list, subscriptions: list,
+                     message: str = "") -> str:
+    """
+    The subscribed-calendars page.
+
+    A calendar's name and the error text from a feed both come from outside
+    the panel - one of them is a string a stranger's server chose - so they
+    are sent as data and written as text.
+    """
+    return ASSETS.page(
+        title="Subscribed calendars",
+        heading="Subscribed calendars",
+        blurb="Mirrored onto the panel, one way. Nothing is sent back.",
+        token=token, endpoint=SUBS_PATH, message=message,
+        body_file="subs.html", css_file="subs.css", script_file="subs.js",
+        data={
+            "people": list(people or []),
+            "subscriptions": list(subscriptions or []),
+        },
     )
 
 
@@ -287,6 +172,14 @@ class Calendar(Plugin):
             "calendar", "calendar_form", self.api_form, requires_auth=True,
             gui="Add an event", icon="calendar",
             description="A page sized for a phone. Adds to the panel straight away.")
+
+        # Serves the two pages' larger files, and remembers its own URL so no
+        # page has to name it. Both pages share this one endpoint.
+        ASSETS.register(self.client, "calendar")
+        for name in ASSETS.missing():
+            self.client.log("error",
+                            f"[Calendar] A page cannot be drawn - {name} is "
+                            f"not in {ASSETS.folder}")
 
     @mixin("settings.__init__", "calendar", "after")
     def _add_settings_block(self, page, *args):
@@ -760,25 +653,18 @@ class Calendar(Plugin):
                      or _request.headers.get("X-Client-Token") or "")
         except Exception:
             pass
-        # Whoever the panel knows, as options. A free text field here meant
-        # "Chris", "chris" and "Chris " were three people who each owned some
-        # of the same events.
-        names = self.client.USERS.names()
-        options = "".join(f'<option value="{_escape(n)}">{_escape(n)}</option>'
-                          for n in names)
-
-        upcoming = self.store.upcoming(5)
-        listed = "".join(
-            f"<li><b>{_escape(e.title)}</b>"
-            f"<span>{_escape(e.day)}"
-            f"{'' if e.all_day else ' &middot; ' + _escape(e.time)}</span></li>"
-            for e in upcoming
-        ) or "<li><span>Nothing coming up.</span></li>"
-
+        # Whoever the panel knows. A free text field here meant "Chris",
+        # "chris" and "Chris " were three people who each owned some of the
+        # same events.
         return render_form_page(
             token,
-            options or '<option value="">Nobody named yet</option>',
-            listed), 200
+            people=list(self.client.USERS.names()),
+            upcoming=[{
+                "title": event.title,
+                "when": (event.day if event.all_day
+                         else f"{event.day} \u00b7 {event.time}"),
+            } for event in self.store.upcoming(5)],
+        ), 200
 
     def api_sync(self, **_ignored):
         """
@@ -836,18 +722,23 @@ class Calendar(Plugin):
                 self.sync_subscriptions()
                 message = f"Added {sub.name}. Fetching it now."
 
-        rows = ""
+        import datetime as _dt
+
+        rows = []
         for sub in self.subscriptions.all():
             when = "never"
             if sub.last_sync:
-                import datetime as _dt
-                when = _dt.datetime.fromtimestamp(sub.last_sync).strftime("%d %b %H:%M")
-            trouble = (f'<span class="bad">{_escape(sub.last_error)}</span>'
-                       if sub.last_error else f"<span>last synced {when}</span>")
-            rows += (f'<li><div><b>{_escape(sub.name)}</b>'
-                     f'<span>{_escape(sub.owner or "unassigned")}</span>{trouble}</div>'
-                     f'<button data-remove="{_escape(sub.key)}">Remove</button></li>')
-        rows = rows or '<li><div><span>Nothing subscribed yet.</span></div></li>'
+                when = _dt.datetime.fromtimestamp(
+                    sub.last_sync).strftime("%d %b %H:%M")
+            rows.append({
+                "key": sub.key,
+                "name": sub.name,
+                "owner": sub.owner or "unassigned",
+                "synced": when,
+                # Whatever a stranger's server said went wrong. Sent as data
+                # and written as text, never built into markup.
+                "error": sub.last_error or "",
+            })
 
         token = ""
         try:
@@ -857,13 +748,10 @@ class Calendar(Plugin):
         except Exception:
             pass
 
-        options = "".join(f'<option value="{_escape(n)}">{_escape(n)}</option>'
-                          for n in self.client.USERS.names())
-
         return render_subs_page(
             token,
-            options or '<option value="">Nobody named yet</option>',
-            rows, message=message), 200
+            people=list(self.client.USERS.names()),
+            subscriptions=rows, message=message), 200
 
     def api_dump(self, title: str = "", day: str = "", show: str = ""):
         """

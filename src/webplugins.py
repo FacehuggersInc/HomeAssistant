@@ -16,7 +16,7 @@ from __future__ import annotations
 from html import escape
 
 from src.webicons import svg
-from src.webui import page, subnav
+from src.webui import core_assets, page, subnav
 
 NAV = (
     ("/plugins", "Installed", "playlist-check"),
@@ -24,79 +24,17 @@ NAV = (
     ("/plugins/upload", "Upload", "upload"),
 )
 
-CSS = """
- .plug{display:flex;align-items:flex-start;gap:14px;background:var(--card);
-      border:1px solid var(--line);border-radius:14px;padding:15px 16px;
-      margin-bottom:12px}
- .plug .glyph{width:40px;height:40px;flex:0 0 40px;border-radius:11px;
-      background:#111114;border:1px solid var(--line);display:flex;
-      align-items:center;justify-content:center;color:var(--muted)}
- .plug .meta{flex:1;min-width:0}
- .plug .name{font-size:16.5px;font-weight:650;display:block}
- .plug .key{color:var(--muted);font-size:12.5px;
-      font-family:ui-monospace,monospace}
- .plug .why{color:var(--muted);font-size:13px;margin-top:5px;line-height:1.5}
- .pill{display:inline-block;font-size:11px;font-weight:700;letter-spacing:.3px;
-      text-transform:uppercase;border-radius:999px;padding:3px 9px;
-      border:1px solid var(--line);color:var(--muted);margin-left:6px}
- .pill.on{color:var(--accent);border-color:var(--accent)}
- .pill.off{color:#e0b070;border-color:#5a4a30}
- .pill.bundled{color:var(--muted)}
- .pill.bad{color:#ffb3b3;border-color:var(--bad)}
- .plug.blocked{border-color:rgba(255,122,122,.35)}
- .plug.blocked .name{color:#ffb3b3}
- .acts{display:flex;gap:8px;flex-wrap:wrap;margin-top:11px}
- .acts button{min-height:0;padding:9px 14px;font-size:13.5px}
- .files{margin:0;padding:0;list-style:none;
-      font-family:ui-monospace,monospace;font-size:13px}
- .files li{padding:5px 0;border-bottom:1px solid var(--line)}
- .files li:last-child{border-bottom:0}
- .files li .tag{float:right;font-family:inherit;font-size:11px;
-      color:var(--muted);font-weight:700;text-transform:uppercase}
- .group{margin-bottom:18px}
- .group h3{margin:0 0 8px;font-size:14px;display:flex;align-items:center;
-      gap:8px}
- .group h3 .n{color:var(--muted);font-weight:500}
- .lose h3{color:#e0b070}
- .gain h3{color:var(--accent)}
- .warnbox{border:1px solid #5a4a30;background:rgba(224,176,112,.10);
-      border-radius:11px;padding:13px 15px;margin:0 0 16px;font-size:14px;
-      display:flex;gap:11px;align-items:flex-start}
- .warnbox svg{flex:none;margin-top:1px;color:#e0b070}
- /* The one thing left to do, made to look like it. A row of the same
-    bordered grey as everything else reads as a footer, and a footer is
-    something people scroll past - so the step that actually applies the
-    upload was the least noticeable thing on the page. */
- .nextstep{border:1px solid var(--accent);border-radius:14px;padding:18px;
-      margin:0 0 16px;
-      background:linear-gradient(150deg,rgba(47,240,142,.13),var(--card) 72%);
-      box-shadow:0 8px 30px var(--glow)}
- .nextstep h3{margin:0 0 4px;font-size:16px;color:var(--accent);
-      display:flex;align-items:center;gap:9px}
- .nextstep p{margin:0 0 14px;font-size:14px;color:var(--text);line-height:1.55}
- .nextstep .acts{display:flex;align-items:center;gap:12px;flex-wrap:wrap;
-      margin:0}
- .nextstep .acts .btn.primary,.nextstep .acts button{flex:0 0 auto}
- .nextstep a.skip{color:var(--muted);text-decoration:none;font-size:14px;
-      font-weight:600;padding:10px 4px}
- .nextstep a.skip:hover{color:var(--text)}
- /* The same drop zone the other upload page uses. Two upload controls that
-    look nothing alike is two pages that were written at different times, and
-    that is not a thing a person using them should be able to tell. */
- .drop{border:2px dashed var(--line);border-radius:12px;padding:26px 16px;
-      text-align:center;color:var(--muted)}
- .drop.over{border-color:var(--accent);color:var(--text)}
- .drop .big{display:block;margin-bottom:8px;color:var(--muted)}
- .drop .picked{color:var(--text);font-size:14px;margin-top:10px;
-      font-family:ui-monospace,monospace;word-break:break-all}
- /* The label IS the button; the input behind it is hidden. */
- label.browse{display:flex;align-items:center;justify-content:center;gap:9px;
-      margin-top:14px;min-height:50px;border-radius:11px;border:none;
-      font-size:15px;font-weight:600;cursor:pointer;color:#0d1a12;
-      background:linear-gradient(135deg,var(--accent),var(--accent2));
-      box-shadow:0 6px 22px var(--glow)}
- label.browse svg{flex:none}
-"""
+def _sheet() -> tuple:
+    """
+    The plugin manager's styling, as `(inline, head_tag)`.
+
+    A file in `src/web/` rather than a constant here - see docs/web-ui.md.
+    Under the inline limit it is written into the page; over it, it is served
+    from the asset route and cached, and the link goes in the head rather
+    than the body so it is read before the page is laid out.
+    """
+    return core_assets().inline_or_link("plugins.css")
+
 
 
 def _nav(current: str, token: str) -> str:
@@ -206,7 +144,7 @@ document.addEventListener('click', function (e) {
     return page(
         "Plugins", body, token=token, nav=_nav("/plugins", token),
         heading="Plugins", blurb="What this panel is running.",
-        message=message, bad=bad, css=CSS,
+        message=message, bad=bad, css=_sheet()[0], head=_sheet()[1],
         script=f"var TOKEN={token!r};" + script)
 
 
@@ -277,7 +215,7 @@ def create_page(token: str, message: str = "", bad: bool = False,
     return page("Create a plugin", body, token=token,
                 nav=_nav("/plugins/new", token), heading="Create a plugin",
                 blurb="A starting point, and nothing you did not ask for.",
-                message=message, bad=bad, css=CSS)
+                message=message, bad=bad, css=_sheet()[0], head=_sheet()[1])
 
 
 ## -- upload -------------------------------------------------------------------
@@ -353,7 +291,7 @@ drop.addEventListener('drop', function (ev) {
     return page("Upload a plugin", body, token=token,
                 nav=_nav("/plugins/upload", token), heading="Upload a plugin",
                 blurb="Send a new version, or a new plugin.",
-                message=message, bad=bad, css=CSS, script=script)
+                message=message, bad=bad, css=_sheet()[0], head=_sheet()[1], script=script)
 
 
 def _version_pill(report: dict) -> str:
@@ -435,7 +373,7 @@ if (go) {
 """
     return page(f"{name}", button, token=token,
                 nav=_nav("/plugins/upload", token), heading=name, blurb=message,
-                message=message, bad=bad, css=CSS,
+                message=message, bad=bad, css=_sheet()[0], head=_sheet()[1],
                 script=f"var TOKEN={token!r};" + script)
 
 
@@ -480,7 +418,7 @@ poll();
     return page("Waiting for the panel", body, token=token,
                 nav=_nav("/plugins/upload", token),
                 heading="Waiting for the panel",
-                blurb="Nothing has been written yet.", css=CSS,
+                blurb="Nothing has been written yet.", css=_sheet()[0], head=_sheet()[1],
                 script=f"var TOKEN={token!r};" + script)
 
 
@@ -548,4 +486,4 @@ def preview_page(report: dict, staged_token: str, token: str) -> str:
     return page("Confirm the upload", body, token=token,
                 nav=_nav("/plugins/upload", token),
                 heading="Confirm the upload",
-                blurb="Nothing has been written yet.", css=CSS)
+                blurb="Nothing has been written yet.", css=_sheet()[0], head=_sheet()[1])

@@ -23,7 +23,10 @@ from typing import TYPE_CHECKING
 from src.plugin.template import Plugin
 from src.assistant.skill import Skill, SkillDeclined
 
+from pathlib import Path
+
 from src.constants import APP_NAME, get_data_dir
+from src.webui import WebAssets
 
 from . import coin as coin_module
 from . import dice as dice_module
@@ -35,6 +38,13 @@ from .stage import Stage
 
 if TYPE_CHECKING:
     from src.main import Client
+
+
+# The page is three files in web/ - see docs/web-ui.md. Nothing about it
+# is templated: what the panel has to say arrives as one JSON object and the
+# script reads it.
+ASSETS = WebAssets(Path(__file__).with_name("web"),
+                   required=("page.html", "page.css", "page.js"))
 
 
 class RandomChancePlugin(Plugin):
@@ -82,6 +92,16 @@ class RandomChancePlugin(Plugin):
             self.KEY, "randomchance_page", self.api_page,
             requires_auth=True, gui="Random Chance", icon="mdi.dice-multiple",
             description="Flip a coin or roll dice on the panel, from a phone.")
+        ASSETS.register(self.client, self.KEY)
+
+        # Named at load, not when somebody opens the page: a file left out of
+        # a build should be a line in the log with the path in it, rather
+        # than a 500 the first time it is wanted.
+        gone = ASSETS.missing()
+        if gone:
+            self.client.log("error",
+                            f"[RandomChance] The page cannot be drawn - "
+                            f"missing {', '.join(gone)} from {ASSETS.folder}")
 
         self.skills = self._skills()
         self.client.SKILLS.register(self.KEY, self.skills)
@@ -442,13 +462,10 @@ class RandomChancePlugin(Plugin):
         would throw away everything picked - and on a phone that means
         re-tapping a handful of dice to roll the same thing twice.
 
-        The page module is loaded late through `sibling()`, and is handed
-        what it needs rather than importing it. A module loaded that way has
-        no package to be relative to - see the note at the top of
-        webpage.py - so it knows about HTML and nothing else.
+        The markup, styling and script are files in web/. Nothing here
+        formats them or substitutes into them - the data below is written
+        into the document as one object and the script reads it.
         """
-        web = self.sibling("webpage")
-
         token = ""
         try:
             from flask import request as _request
@@ -488,11 +505,17 @@ class RandomChancePlugin(Plugin):
                 answer["wheels"] = self._saved_wheels()
             return answer
 
-        html = web.render(token, self.PATH,
-                          die_types=dice_module.STANDARD,
-                          max_dice=dice_module.MAX_DICE,
-                          wheels=self._saved_wheels(),
-                          message=message, bad=bad)
+        html = ASSETS.page(
+            title="Random Chance",
+            blurb="Flip a coin, roll dice, or spin a wheel on the panel.",
+            token=token, endpoint=self.PATH,
+            data={
+                "dieTypes": list(dice_module.STANDARD),
+                "maxDice": dice_module.MAX_DICE,
+                "maxItems": wheels_module.MAX_ITEMS,
+                "wheels": self._saved_wheels(),
+            },
+            message=message, bad=bad)
         return html, 200, {"Content-Type": "text/html; charset=utf-8"}
 
     def _saved_wheels(self) -> list:

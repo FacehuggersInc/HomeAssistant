@@ -1,0 +1,61 @@
+<!--
+  The timer form behind /public/timer_form.
+
+  Static. The presets, the running list, the field values, the chosen cell of
+  the grid and the form's action are filled in by timer.js from window.PAGE -
+  see docs/web-ui.md.
+
+  A page with a form rather than an index button labelled "Start a 5 minute
+  timer": that button fired the endpoint with no arguments at all, so the
+  duration never arrived and the label was a promise nothing kept.
+-->
+
+<section>
+  <form method="post" id="timerform">
+    <label>How long?</label>
+    <div class="presets" id="presets"></div>
+
+    <div class="row">
+      <div>
+        <label for="hours">Hours</label>
+        <input id="hours" name="hours" type="number" min="0" max="23"
+               value="0">
+      </div>
+      <div>
+        <label for="minutes">Minutes</label>
+        <input id="minutes" name="minutes" type="number" min="0" max="59"
+               value="5">
+      </div>
+      <div>
+        <label for="seconds">Seconds</label>
+        <input id="seconds" name="seconds" type="number" min="0" max="59"
+               value="0">
+      </div>
+    </div>
+
+    <label for="name">Call it something (optional)</label>
+    <input id="name" name="name" placeholder="Eggs" value="">
+
+    <label>Where should it sit?</label>
+    <input type="hidden" name="quadrant" id="quadrant" value="">
+    <div class="where" data-for="quadrant">
+      <button type="button" data-q="top-left">Top left</button>
+      <button type="button" data-q="top-center">Top</button>
+      <button type="button" data-q="top-right">Top right</button>
+      <button type="button" data-q="center-left">Left</button>
+      <button type="button" data-q="center">Middle</button>
+      <button type="button" data-q="center-right">Right</button>
+      <button type="button" data-q="bottom-left">Bottom left</button>
+      <button type="button" data-q="bottom-center">Bottom</button>
+      <button type="button" data-q="bottom-right">Bottom right</button>
+    </div>
+    <p class="hint">Leave this alone and it goes wherever there is room.</p>
+
+    <div class="go"><button type="submit">Start it</button></div>
+  </form>
+</section>
+
+<section>
+  <h2>Running now</h2>
+  <ul id="running"></ul>
+</section>

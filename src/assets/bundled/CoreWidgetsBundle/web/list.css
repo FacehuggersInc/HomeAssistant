@@ -1,0 +1,26 @@
+.rows{display:flex;flex-direction:column;gap:8px;margin:0}
+ .item{display:flex;align-items:center;gap:10px;padding:8px 10px;
+   border:1px solid var(--line);border-radius:11px;background:var(--card2)}
+ .item .tick{width:30px;height:30px;min-height:0;flex:none;border-radius:8px;
+   border:2px solid var(--muted);background:none;color:transparent;
+   padding:0;font-size:16px;line-height:1;font-weight:700}
+ .item.done .tick{border-color:var(--accent);color:var(--accent)}
+ .item .txt{flex:1;min-width:0;padding:9px 10px;font-size:15px;
+   background:transparent;border:1px solid transparent;border-radius:8px}
+ .item .txt:focus{background:#111114;border-color:var(--accent)}
+ .item.done .txt{text-decoration:line-through;color:var(--muted)}
+ .item .kill{width:34px;height:34px;min-height:0;flex:none;border:none;
+   background:none;color:var(--muted);font-size:20px;line-height:1;padding:0;
+   border-radius:8px;opacity:.55}
+ .item .kill:hover{opacity:1;background:rgba(255,122,122,.16);color:#ffb3b3;
+   border:none}
+ .addrow{display:flex;gap:9px;margin:10px 0 0}
+ .addrow input{flex:1}
+ .addrow button{flex:0 0 auto}
+ .swatches{display:flex;flex-wrap:wrap;gap:10px;margin-top:6px}
+ .swatches input{display:none}
+ .swatches label{width:44px;height:44px;border-radius:50%;margin:0;
+   cursor:pointer;border:3px solid transparent;box-sizing:border-box}
+ .swatches input:checked + label{border-color:var(--text)}
+ .go{margin:22px 0 0}
+ .go button{width:100%}

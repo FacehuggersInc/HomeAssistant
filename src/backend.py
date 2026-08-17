@@ -77,8 +77,21 @@ def FlaskApp(client):
 	here = os.path.dirname(os.path.abspath(__file__))
 	app = Flask(
 		APP_NAME.replace(" ", "") + "_backend",
-		template_folder=os.path.join(here, "templates"),
-		static_folder=os.path.join(here, "static"),
+		# Beside the panel's own stylesheets and scripts, in src/web/, rather
+		# than in a folder of its own - everything the panel serves to a
+		# browser is in one place now.
+		#
+		# A subfolder on purpose: core_assets() globs the top of src/web/ and
+		# nothing below it, so a template is never servable as an asset. A
+		# .html served raw is its Jinja source, which is the page's structure
+		# and whatever a {% if %} was guarding.
+		template_folder=os.path.join(here, "web", "templates"),
+		# No static folder. Flask mounts one at /static whether anything is
+		# in it or not, and this one held nothing and never had: the panel's
+		# own CSS and JS are served by the /web route, which fingerprints
+		# them, and a plugin's are served by its own. An empty mount is a URL
+		# that answers, an endpoint in url_for, and a thing to wonder about.
+		static_folder=None,
 	)
 
 	@app.context_processor
@@ -1594,6 +1607,23 @@ def FlaskApp(client):
 				samesite="Lax",
 			)
 		return response
+
+	## THE PANEL'S OWN WEB ASSETS
+	@app.route("/web", methods=["GET"])
+	def core_web_asset():
+		"""
+		The styling and script behind the panel's own pages.
+
+		Unauthenticated, like /docs and for the same reason: this is the
+		stylesheet for a page anybody can already open, and requiring a token
+		would mean the browser could not fetch it after following the link.
+
+		The name is checked against the folder listing rather than joined
+		onto it, so there is no path to traverse out of - see WebAssets.read.
+		"""
+		from src.webui import core_assets
+
+		return core_assets().serve(name=request.args.get("name", ""))
 
 	## DOCUMENTATION
 	@app.route("/docs", methods=["GET"])
