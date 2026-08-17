@@ -66,9 +66,10 @@ def get_data_file(app_name: str = APP_NAME) -> Path:
 REPO_ZIP_URL = "https://github.com/FacehuggersInc/HomeAssistant/archive/refs/heads/main.zip"
 
 # Exit codes app.py returns to the launcher.
-EXIT_OK      = 0    # clean shutdown, do not relaunch
-EXIT_UPDATE  = 42   # a staged update is waiting; apply it, then relaunch
-EXIT_RESTART = 43   # relaunch as-is, no update
+EXIT_OK       = 0    # clean shutdown, do not relaunch
+EXIT_UPDATE   = 42   # a staged update is waiting; apply it, then relaunch
+EXIT_RESTART  = 43   # relaunch as-is, no update
+EXIT_RUNNING  = 45   # another panel already holds the port; this one stood down
 
 LAUNCHER_ENV_FLAG = "HOMEASSISTANT_LAUNCHER"
 

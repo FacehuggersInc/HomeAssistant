@@ -34,6 +34,7 @@ from src.constants import (
     EXIT_OK,
     EXIT_UPDATE,
     EXIT_RESTART,
+    EXIT_RUNNING,
     LAUNCHER_ENV_FLAG,
 )
 from src.crash import install as install_crash_handlers
@@ -80,6 +81,20 @@ def apply_update() -> int:
 
 
 def launch() -> int:
+    # Before the window, the plugins or the Flask thread.
+    #
+    # In app.py rather than in the launcher because both ways in come
+    # through here: the launcher runs this file, and running it directly is
+    # how the duplicate usually happens in the first place. A check the
+    # launcher owns is a check that a bare `python app.py` walks straight
+    # past.
+    from src.single_instance import already_running
+    running, why = already_running()
+    if running:
+        _log(why)
+        _log("Not starting. Close the other one first, or use its window.")
+        return EXIT_RUNNING
+
     from src.main import Client
 
     client = Client()

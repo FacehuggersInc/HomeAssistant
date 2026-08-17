@@ -19,6 +19,7 @@ from src.constants import (
     EXIT_OK,
     EXIT_UPDATE,
     EXIT_RESTART,
+    EXIT_RUNNING,
     get_data_file,
 )
 from src import updater
@@ -132,6 +133,15 @@ def main() -> int:
         code = run_app()
         ran_for = time.time() - started
         log(f"App exited with code {code} after {ran_for:.1f}s")
+
+        # ---- stood down: a panel is already running here
+        #
+        # Ahead of the crash policy, because this is not a crash. Restarting
+        # would retry five times against a panel that is working perfectly,
+        # and the exponential backoff would make it look like a boot loop.
+        if code == EXIT_RUNNING:
+            log("A panel is already running on this machine. Nothing to do.")
+            return 0
 
         # ---- clean shutdown
         if code == EXIT_OK:
