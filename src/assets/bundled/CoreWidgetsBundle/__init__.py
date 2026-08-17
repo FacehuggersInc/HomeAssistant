@@ -17,4 +17,5 @@ ASSETS = WebAssets(Path(__file__).with_name("web"),
                    required=("list.html", "list.css", "list.js",
                              "timer.html", "timer.css", "timer.js",
                              "sticker.html", "sticker.css",
-                             "sticker.js"))
+                             "sticker.js",
+                             "note.html", "note.css", "note.js"))

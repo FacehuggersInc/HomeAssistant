@@ -404,7 +404,8 @@ class AudioRegistry:
     ## -- playing
 
     def play(self, key: str, volume: float = None, repeat: int = 1,
-             for_seconds: float = None, gap: float = None) -> bool:
+             for_seconds: float = None, gap: float = None,
+             ignore_muted: bool = False) -> bool:
         """
         Make a noise. Returns False when it could not.
 
@@ -412,14 +413,19 @@ class AudioRegistry:
         the time is up, whichever the caller finds easier to say. A key already
         playing is restarted rather than layered - two copies of the same alarm
         a fraction apart is not twice as useful.
+
+        `ignore_muted` is for a sound somebody asked for BY TIME. An alarm set
+        for six is a promise, and a panel muted at nine the night before is
+        not somebody withdrawing it - it is somebody who did not want to hear
+        anything until six. Nothing else should use it.
         """
-        # Muted is muted.
+        # Muted is muted, with one exception.
         #
         # Checked here rather than at each caller: a timer, a reminder and a
         # tap all reach this, and one that forgot would be the one sound that
         # goes off at three in the morning.
         try:
-            if self.client.sounds_muted():
+            if self.client.sounds_muted() and not ignore_muted:
                 return False
         except Exception:
             pass

@@ -41,7 +41,15 @@ class ChecklistWidget(PaperWidget):
     MAX_W, MAX_H = 700, 900
     DEFAULT_ANCHOR = "top-right"
 
-    FONT_SIZES = (12, 15, 19, 24)
+    #Its own ladder: a list carries a row of text per item and a note carries
+    #one block, so the same point size fills a list twice as fast. The middle
+    #step is still 20 - the default a wall panel is read from across a room.
+    FONT_SIZES = (14, 17, 20, 24, 28)
+    #What a new list is WIDE, at 20pt. Its height comes from its contents -
+    #see _refit - so only the width is scaled from here.
+    BASE_W, BASE_H = 260, 320
+    BASE_FONT = 20
+    DEFAULT_FONT = 2
     #A list is mostly ink on paper, so it starts on the coolest of the set.
     DEFAULT_COLOUR = 3
     RENAMEABLE = True
@@ -72,7 +80,7 @@ class ChecklistWidget(PaperWidget):
         self.items: list = list(items or [])
         # Not chosen: it is a starting point, and the widget grows from it as
         # items arrive. Marking it chosen would freeze it at three rows.
-        self.set_content_size(260, 320, chosen=False)
+        self.set_content_size(self.BASE_W, self.BASE_H, chosen=False)
         self._refit()
 
     ## -- geometry
@@ -120,9 +128,16 @@ class ChecklistWidget(PaperWidget):
             return
 
         width, height = self.content_size()
+
+        # The width follows the text size too. A row of text at 28pt in a box
+        # measured for 15 wraps or elides, which reads as the list being
+        # wrong rather than the box being small.
+        wide = int(max(self.MIN_W, min(self.MAX_W, self.BASE_W * max(
+            0.5, float(self.font_size) / float(self.BASE_FONT or 20)))))
         wanted = max(self.MIN_H, min(self.MAX_H, self._natural_height()))
-        if wanted != height:
-            self.set_content_size(width, wanted, chosen=False)
+
+        if (wide, wanted) != (width, height):
+            self.set_content_size(wide, wanted, chosen=False)
             self.setFixedSize(*self.rotated_bounds())
             self.updateGeometry()
         self.update()
@@ -145,6 +160,16 @@ class ChecklistWidget(PaperWidget):
         state["title"] = self.title
         state["items"] = self.items
         return state
+
+    def fit_to_text(self) -> None:
+        """
+        The list's own fit, which is its contents and not a scale factor.
+
+        `_refit` already knows how tall a list wants to be for the number of
+        items it holds; the base class's version would overwrite that with a
+        scaled guess.
+        """
+        self._refit()
 
     def apply_layout_state(self, state: dict) -> None:
         super().apply_layout_state(state)

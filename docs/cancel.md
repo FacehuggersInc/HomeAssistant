@@ -38,6 +38,24 @@ Registering with no keywords or no handler is refused with a warning, since
 neither can ever fire.
 
 
+## How a phrase matches
+
+A keyword matches when its words appear **in** the phrase, as whole words and
+in order. So *stop* fires on "stop", on "why are you still hearing me, stop"
+and on "please stop it now" — and not on "stopwatch", because a substring is
+not a word. Punctuation is dropped first: a transcriber writes "me, stop" and
+the comma is not something anybody said.
+
+This used to be equality against the whole phrase, which meant a registered
+word only ever fired when somebody said that word and nothing else. "Stop the
+music" did not stop music, and anything said around the word — an apology, a
+complaint, a second thought — took the phrase out of reach of the thing it was
+aimed at.
+
+Register the plain word rather than every sentence it might appear in. A long
+keyword is still matched in order and together, so `"stop the music"` does not
+fire on "music stop the" or on "stop the loud music".
+
 ## How it resolves
 
 `CANCEL.run(phrase)` walks the active actions that match, highest priority

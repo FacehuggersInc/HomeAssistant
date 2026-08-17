@@ -29,6 +29,40 @@ function fillChooser() {
   pick.value = chosen;
 }
 
+/* Each option is drawn at the size it names. A row reading 14 / 17 / 20 in
+   one size tells you the numbers and nothing about what you are choosing,
+   which is the only question being asked. Same control as the note page. */
+function fillSizes() {
+  var host = document.getElementById('sizes');
+  if (!host) { return; }
+  var chosen = PAGE.fontSize || PAGE.defaultFontSize;
+  host.innerHTML = '';
+  (PAGE.fontSizes || []).forEach(function (size, index) {
+    var id = 's' + index;
+    var radio = document.createElement('input');
+    radio.type = 'radio';
+    radio.name = 'font_size';
+    radio.id = id;
+    radio.value = size;
+    radio.checked = Number(size) === Number(chosen);
+
+    var label = document.createElement('label');
+    label.setAttribute('for', id);
+    label.style.fontSize = size + 'px';
+    label.textContent = 'Aa';
+
+    var note = document.createElement('span');
+    note.style.fontSize = '11px';
+    note.style.display = 'block';
+    note.style.opacity = '0.7';
+    note.textContent = size + 'pt';
+    label.appendChild(note);
+
+    host.appendChild(radio);
+    host.appendChild(label);
+  });
+}
+
 function fillSwatches() {
   var host = document.getElementById('swatches');
   if (!host) { return; }
@@ -54,14 +88,27 @@ function fillGrid() {
 }
 
 function fillForm() {
-  var form = document.getElementById('listform');
-  if (form) { form.action = PAGE.endpoint + '?token=' +
-                            encodeURIComponent(PAGE.token || ''); }
+  var action = PAGE.endpoint + '?token=' +
+               encodeURIComponent(PAGE.token || '');
+  ['listform', 'removeform'].forEach(function (id) {
+    var form = document.getElementById(id);
+    if (form) { form.action = action; }
+  });
+}
+
+/* Remove follows the chooser: it can only ever take off the list being
+   edited, and there is nothing to take off when a new one is being made. */
+function fillRemove() {
+  var chosen = document.getElementById('target').value || '';
+  document.getElementById('removefield').value = chosen;
+  document.getElementById('drop').disabled = !chosen;
 }
 
 fillForm();
 fillChooser();
+fillRemove();
 fillSwatches();
+fillSizes();
 fillGrid();
 
 var target = document.getElementById('target');
@@ -163,6 +210,9 @@ function load() {
      would be a third way to do what dragging already does. */
   if (where) { where.style.display = entry ? 'none' : ''; }
   if (verb)  { verb.textContent = entry ? 'Save changes' : 'Put it up'; }
+  /* Remove follows the chooser rather than being wired separately, so the
+     two cannot disagree about which list is in front of you. */
+  fillRemove();
   draw();
 }
 if (target) { target.addEventListener('change', load); }

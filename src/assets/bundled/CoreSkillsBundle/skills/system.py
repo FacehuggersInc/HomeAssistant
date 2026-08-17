@@ -17,6 +17,14 @@ def build(plugin, wake: str, key: str) -> list:
                             "forget it", "forget that", "stop listening",
                             "stop", "abort", "nothing", "leave it",
                             "disregard that", "scratch that", "dont worry about it",
+                            # Said to a panel that is still listening when it
+                            # should not be. Complaining about it IS the
+                            # instruction, and the words nobody thinks of when
+                            # writing the polite ones down.
+                            "why are you still listening", "stop hearing me",
+                            "why are you still hearing me", "you can stop now",
+                            "that is enough", "thats enough", "enough",
+                            "stop it", "quit listening", "go away",
                         ],
                         func=plugin.nevermind,
                         # Which word was said decides what it does, so the whole

@@ -27,7 +27,8 @@ PATH = "/public/list_add"
 
 def render_page(token: str, colours: list, message: str = "",
                 bad: bool = False, lists: list = None, target: str = "",
-                quadrant: str = "top-right") -> str:
+                quadrant: str = "top-right", font_sizes: list = None,
+                font_size: int = 0) -> str:
     """
     The list editor.
 
@@ -36,6 +37,7 @@ def render_page(token: str, colours: list, message: str = "",
     chooser opens on - the key just created, when something was just put up.
     """
     lists = lists or []
+    sizes = [int(size) for size in (font_sizes or [])]
 
     return ASSETS.page(
         title="Checklist",
@@ -46,6 +48,11 @@ def render_page(token: str, colours: list, message: str = "",
         data={
             "target": target,
             "quadrant": quadrant,
+            "fontSizes": sizes,
+            "fontSize": int(font_size or 0),
+            # What a list starts as, when nothing was chosen. Sent rather
+            # than guessed at by the page, so the two cannot drift.
+            "defaultFontSize": sizes[len(sizes) // 2] if sizes else 20,
             "colours": list(colours or []),
             # In order, for the chooser.
             "lists": [{"key": key, "title": title}

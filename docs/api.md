@@ -489,6 +489,23 @@ requires the panel to actually drop before counting it as back - otherwise a
 poll landing between the reply and the restart reports success against the
 process on its way out.
 
+## Downloading a plugin
+
+`/plugins/<key>/download` zips a plugin as it is on disk. **Bundled plugins
+download too** — they were refused on the grounds that a copy of something the
+app ships gets replaced by the next update, which is true and is not a reason
+to withhold the best worked example there is of how one is written. The zip is
+named `<Folder>-bundled-copy.zip` so what somebody is holding is obvious a week
+later, and so nobody unpacks it back into `plugins/` where it would load twice
+under one key.
+
+Whether a plugin is bundled is decided against `INSTALL_ROOT`, not against the
+working directory. `os.getcwd()` is wherever the process was started from — a
+launcher, a service unit, a shell somewhere else — and when it is not the
+install root the test quietly answers False for everything. Nothing looks
+broken: bundled plugins simply stop being bundled, and a download then looks
+for one in the plugins folder where it has never been.
+
 ## The dashboard
 
 `/` is the panel's dashboard: the pages a plugin has registered, the actions it

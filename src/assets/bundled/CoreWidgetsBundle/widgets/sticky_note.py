@@ -37,14 +37,23 @@ class StickyNote(PaperWidget):
     MAX_W, MAX_H = 640, 560
     DEFAULT_ANCHOR = "top-left:0"
 
+    #What a new note is, at 20pt. A note at 30pt is scaled up from these
+    #rather than being the same box with bigger writing in it - see
+    #PaperWidget.fit_to_text.
+    BASE_W, BASE_H = 220, 200
+    BASE_FONT = 20
+
     LOOK_TITLE = "Note"
     PLACEHOLDER = "Tap to edit"
 
     def __init__(self, client: "Client", key: str = None, text: str = ""):
         super().__init__(client=client, key=key or self.KEY,
-                         width=220, height=200, floating=True)
-        self.set_content_size(220, 200, chosen=False)
+                         width=self.BASE_W, height=self.BASE_H, floating=True)
+        self.set_content_size(self.BASE_W, self.BASE_H, chosen=False)
         self.text = text or self.PLACEHOLDER
+        # A note made at a size other than the default starts at a box that
+        # suits it, rather than being resized a moment after it appears.
+        self.fit_to_text()
         # No WA_TranslucentBackground. That attribute is for top-level windows;
         # on a child widget it stops the background being cleared between
         # paints, so repeatedly resizing leaves the previous frames behind as
@@ -76,6 +85,12 @@ class StickyNote(PaperWidget):
         keyboard.show_keyboard()
 
     ## PERSISTENCE
+
+    def on_look_changed(self) -> None:
+        # The text size decides how much fits, so the box follows it - unless
+        # somebody has dragged one, which fit_to_text checks.
+        self.fit_to_text()
+        super().on_look_changed()
 
     def layout_state(self) -> dict:
         state = super().layout_state()

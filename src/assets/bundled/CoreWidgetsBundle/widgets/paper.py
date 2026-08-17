@@ -21,7 +21,10 @@ COLOURS = ["#f2d675", "#f29e7b", "#a8d8a0", "#9cc4f0", "#e0a8d8"]
 #Point sizes, not a scale factor. A note with two words on it wants big text
 #and a list of six wants small, and "medium" means nothing without knowing how
 #big the widget is.
-FONT_SIZES = (13, 17, 22, 28)
+#
+#A saved widget keeps whatever number it was given, in or out of this ladder,
+#so changing the steps here does not resize anything already on the panel.
+FONT_SIZES = (14, 17, 20, 24, 30)
 
 
 class PaperWidget(Widget):
@@ -36,8 +39,10 @@ class PaperWidget(Widget):
     FONT_SIZES = FONT_SIZES
     #Which of COLOURS a new one starts as.
     DEFAULT_COLOUR = 0
-    #Which of FONT_SIZES a new one starts as.
-    DEFAULT_FONT = 1
+    #Which of FONT_SIZES a new one starts as. 20pt: the previous default was
+    #legible at arm's length and not from across a room, which is where a
+    #wall panel is usually read from.
+    DEFAULT_FONT = 2
     #What the look dialog calls itself. The widget's NAME when empty.
     LOOK_TITLE = ""
     #Whether the look dialog offers a rename. A list has a title to change;
@@ -48,6 +53,52 @@ class PaperWidget(Widget):
         super().__init__(client=client, key=key or self.KEY, **kwargs)
         self.colour = self.COLOURS[self.DEFAULT_COLOUR]
         self.font_size = self.FONT_SIZES[self.DEFAULT_FONT]
+
+    ## -- fitting the text
+
+    #The size a new one is, at BASE_FONT. A subclass gives its own; anything
+    #else is scaled from these.
+    BASE_W, BASE_H = 0, 0
+    #The size those numbers were chosen for.
+    BASE_FONT = 20
+
+    def fit_to_text(self) -> None:
+        """
+        Take a size that suits the current text size, unless one was chosen.
+
+        A widget's default size was picked for one particular font, so raising
+        the font left the same box with bigger writing in it - a note set to
+        30pt held about half of what it did at 17, and a list showed three
+        rows where it had shown six.
+
+        Scaled from the base rather than measured: this runs when a widget is
+        placed and again when the size changes, and both happen before there
+        is anything to measure - a note is placed with its text and a list
+        with its items, but neither has been laid out yet.
+
+        A size that was dragged is a decision and is left alone. `chosen=False`
+        keeps it that way for the next change.
+        """
+        if not self.BASE_W or not self.BASE_H:
+            return
+        if self.has_chosen_size():
+            return
+
+        scale = max(0.5, float(self.font_size) / float(self.BASE_FONT or 20))
+        width = int(max(self.MIN_W, min(self.MAX_W, self.BASE_W * scale)))
+        height = int(max(self.MIN_H, min(self.MAX_H, self.BASE_H * scale)))
+
+        if (width, height) == tuple(self.content_size()):
+            return
+        self.set_content_size(width, height, chosen=False)
+        try:
+            self.setFixedSize(*self.rotated_bounds())
+            self.updateGeometry()
+        except Exception:
+            # Not laid out yet, which is the usual case when this runs from
+            # apply_layout_state. The size is recorded either way.
+            pass
+        self.update()
 
     ## -- saving
 
@@ -134,3 +185,8 @@ class PaperWidget(Widget):
             self.font_size = int(state.get("font_size", self.font_size))
         except (TypeError, ValueError):
             pass
+
+        # After the font size, not before: the size this wants depends on it.
+        # A widget restored with a size somebody dragged is left alone, which
+        # `fit_to_text` checks for itself.
+        self.fit_to_text()

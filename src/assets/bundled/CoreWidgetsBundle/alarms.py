@@ -31,8 +31,9 @@ if TYPE_CHECKING:
 
 #How long a ringing alarm keeps making noise unless something stops it.
 #Longer than a timer's: a timer is answered by somebody standing over it, and
-#an alarm is answered by somebody who has to wake up first.
-RING_SECONDS = 45.0
+#an alarm is answered by somebody who has to wake up first - and forty-five
+#seconds is not long enough to do that from another room.
+RING_SECONDS = 60.0
 
 #How close two times have to be to count as the same alarm. A minute, because
 #that is the resolution anybody speaks in - "the eight o'clock alarm" should
@@ -431,13 +432,23 @@ class AlarmService:
         except Exception as e:
             self.client.log("warning", f"[Alarms] Could not reset idle: {e}")
 
-        # AUDIO.play answers to `sounds_muted()` itself, which do not disturb
-        # implies - so a silent panel stays silent and still shows the panel.
+        # An alarm sounds even when the panel is muted.
+        #
+        # It used to answer to `sounds_muted()` like everything else, which
+        # made an alarm the one thing on the panel that could be silently
+        # cancelled by a setting changed hours earlier. An alarm set for six
+        # is a promise; muting the panel at nine the night before is somebody
+        # saying they did not want to hear anything UNTIL six, which is the
+        # opposite of withdrawing it.
+        #
+        # Nothing else passes ignore_muted. A timer, a reminder and a tap all
+        # stay quiet, because none of them was asked for by time.
         try:
             seconds = float(self.plugin.setting_value(
                 "alerts.alarm_ring_seconds", RING_SECONDS) or RING_SECONDS)
             if seconds > 0:
-                self.client.AUDIO.play("timer_alarm", for_seconds=seconds)
+                self.client.AUDIO.play("timer_alarm", for_seconds=seconds,
+                                       ignore_muted=True)
         except Exception as e:
             self.client.log("debug", f"[Alarms] Could not sound it: {e}")
 

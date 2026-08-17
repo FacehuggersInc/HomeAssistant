@@ -30,6 +30,70 @@ DEFAULT_INTERVAL_MINUTES = 60
 MAX_BYTES = 8 * 1024 * 1024
 
 
+## -- ADDRESSES -----------------------------------------------------------------
+
+#Google's "add this calendar" link, which is a web page and not a feed:
+#  https://calendar.google.com/calendar/u/0?cid=<base64 of the address>
+#It sits directly under the iCal address in Google's own settings, so it is by
+#far the likeliest wrong thing to paste - and it FETCHES PERFECTLY. The panel
+#gets an HTML page, finds no events in it, and reports a clean sync of nothing.
+_GOOGLE_CID = re.compile(r"calendar\.google\.com/calendar/[^?]*\?.*\bcid=([^&]+)",
+                         re.I)
+
+#What a calendar always begins with. Anything without it is not one, whatever
+#the server said when it handed it over.
+CALENDAR_MARKER = "BEGIN:VCALENDAR"
+
+
+def ical_address(url: str) -> str:
+    """
+    The ICS feed a pasted address is really asking for, or the address itself.
+
+    Only Google's `cid=` form is converted, and only because the conversion is
+    exact: the parameter is the calendar's own address in base64, and the feed
+    for it is a fixed URL. Guessing at anything less certain would be worse
+    than the error, because a wrong guess fetches something and looks like it
+    worked.
+    """
+    import base64
+    import binascii
+    import urllib.parse
+
+    found = _GOOGLE_CID.search(str(url or ""))
+    if not found:
+        return str(url or "").strip()
+
+    raw = urllib.parse.unquote(found.group(1))
+    try:
+        # base64 without its padding, which is how Google writes it.
+        address = base64.b64decode(raw + "=" * (-len(raw) % 4)).decode("utf-8")
+    except (binascii.Error, UnicodeDecodeError, ValueError):
+        return str(url or "").strip()
+
+    if "@" not in address:
+        return str(url or "").strip()
+    return ("https://calendar.google.com/calendar/ical/"
+            f"{urllib.parse.quote(address, safe='')}/public/basic.ics")
+
+
+def is_secret_address(url: str) -> bool:
+    """
+    Whether this address is one that should be treated as a password.
+
+    A Google private feed carries a token in its path; iCloud's published
+    links are a token and nothing else. Both let anybody holding them read
+    the calendar, which is worth saying on a page that lists them.
+    """
+    text = str(url or "").lower()
+    if "calendar.google.com" in text and "/private-" in text:
+        return True
+    if "icloud.com" in text and "/published/" in text:
+        return True
+    if "outlook" in text and "/calendar/published/" in text:
+        return True
+    return False
+
+
 ## -- PARSING -------------------------------------------------------------------
 
 def unfold(text: str) -> list:
@@ -139,7 +203,8 @@ class Subscription:
     def __init__(self, url: str, name: str = "", key: str = "",
                  colour: str = "", icon: str = "mdi.calendar-sync",
                  enabled: bool = True, last_sync: float = 0.0,
-                 last_error: str = "", owner: str = ""):
+                 last_error: str = "", owner: str = "",
+                 last_count: int = -1):
         import uuid
         self.url = url
         self.name = name or "Subscribed calendar"
@@ -149,6 +214,11 @@ class Subscription:
         self.enabled = enabled
         self.last_sync = last_sync
         self.last_error = last_error
+        # How many events the last successful sync produced. -1 means it has
+        # never run: a feed that has not synced yet and one that synced and
+        # found nothing are different, and only the second is worth asking
+        # about.
+        self.last_count = int(last_count)
         # Whose calendar this is. Two people subscribing to the same shared
         # feed get their own copies - so one of them removing it does not take
         # the other's events with it.
@@ -158,7 +228,8 @@ class Subscription:
         return {"url": self.url, "name": self.name, "key": self.key,
                 "colour": self.colour, "icon": self.icon,
                 "enabled": self.enabled, "last_sync": self.last_sync,
-                "last_error": self.last_error, "owner": self.owner}
+                "last_error": self.last_error, "owner": self.owner,
+                "last_count": self.last_count}
 
     @classmethod
     def from_dict(cls, raw: dict) -> Optional["Subscription"]:
@@ -166,7 +237,8 @@ class Subscription:
             return None
         return cls(**{k: v for k, v in raw.items()
                       if k in ("url", "name", "key", "colour", "icon",
-                               "enabled", "last_sync", "last_error", "owner")})
+                               "enabled", "last_sync", "last_error", "owner",
+                               "last_count")})
 
     @property
     def fetch_url(self) -> str:
@@ -290,7 +362,10 @@ class SubscriptionManager:
 
     def add(self, url: str, name: str = "", colour: str = "",
             owner: str = "") -> Subscription:
-        sub = Subscription(url=url.strip(), name=name, colour=colour, owner=owner)
+        # Converted on the way in rather than at fetch time, so what is saved
+        # is what will be fetched and the page shows the address that works.
+        sub = Subscription(url=ical_address(url), name=name, colour=colour,
+                           owner=owner)
         self.subscriptions.append(sub)
         self.save()
         return sub
@@ -378,7 +453,13 @@ class SubscriptionManager:
         return results
 
     def sync(self, sub: Subscription) -> int:
-        """Fetch one feed and replace its events. Returns how many landed."""
+        """
+        Fetch one feed and replace its events. Returns how many landed.
+
+        A failure is written onto the subscription rather than raised: this
+        runs on a timer, and the page beside the address is where somebody
+        would look to find out why it is empty.
+        """
         import time
         try:
             request = urllib.request.Request(
@@ -389,6 +470,27 @@ class SubscriptionManager:
             sub.last_error = str(e)[:140]
             self.save()
             self.client.log("warning", f"[Calendar] '{sub.name}' fetch failed: {e}")
+            return 0
+
+        # Fetched is not the same as found. The commonest wrong address for
+        # Google is its "add this calendar" page, which sits directly under
+        # the iCal address in Google's own settings and returns a perfectly
+        # good HTML document - so the panel used to parse no events out of it
+        # and report a clean sync of nothing. A feed with no events, a feed of
+        # nothing but unsupported repeats, and an address that was never a
+        # calendar all read as "0 event(s)", and only one of them is the
+        # user's calendar being empty.
+        if CALENDAR_MARKER not in text:
+            better = ical_address(sub.url)
+            sub.last_error = "that address is not a calendar feed"
+            if better != sub.url:
+                sub.last_error += f" - try {better[:80]}"
+            self.save()
+            self.client.log(
+                "warning",
+                f"[Calendar] '{sub.name}': {sub.fetch_url} returned "
+                f"{len(text)} bytes with no {CALENDAR_MARKER} in them - it is "
+                f"not an ICS feed.")
             return 0
 
         try:
@@ -421,6 +523,7 @@ class SubscriptionManager:
 
         sub.last_sync = time.time()
         sub.last_error = ""
+        sub.last_count = len(events)
         self.save()
         self.client.log("info", f"[Calendar] '{sub.name}': {len(events)} event(s).")
         return len(events)

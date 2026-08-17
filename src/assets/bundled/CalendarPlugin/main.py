@@ -11,6 +11,8 @@ from pathlib import Path
 
 from src.webui import WebAssets
 
+from . import subscriptions as subscriptions_module
+
 # The two pages this plugin serves are files in web/ - see docs/web-ui.md.
 # Nothing here formats or substitutes into them: what the panel has to say
 # goes into one JSON object and the scripts read it. The token in particular
@@ -738,6 +740,13 @@ class Calendar(Plugin):
                 # Whatever a stranger's server said went wrong. Sent as data
                 # and written as text, never built into markup.
                 "error": sub.last_error or "",
+                # How many events came from it. A feed that syncs cleanly and
+                # yields nothing looked exactly like one that is working,
+                # which is how a wrong address went unnoticed for a day.
+                "count": int(getattr(sub, "last_count", -1)),
+                # Worth saying on a page that lists addresses: anybody holding
+                # this one can read the calendar.
+                "secret": subscriptions_module.is_secret_address(sub.url),
             })
 
         token = ""

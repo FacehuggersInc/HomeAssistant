@@ -591,6 +591,13 @@ somebody scrolls, and a widget is not the place for that.
 
 The sticky note carries the same colour and size controls.
 
+**An alarm sounds even when the panel is muted**, and rings for a minute by
+default. It was the one thing on the panel that a setting changed hours
+earlier could silently cancel — an alarm set for six is a promise, and muting
+at nine the night before is somebody saying they did not want to hear anything
+*until* six. Nothing else does this: a timer, a reminder and a tap all stay
+quiet, because none of them was asked for by time.
+
 ### From a phone
 
 `/public/note_add` and `/public/list_add` put either on the panel without
@@ -600,9 +607,62 @@ Colours are shown as colours rather than a dropdown of hex codes, and where it
 lands is picked on a nine-cell grid shaped like the screen — the same one the
 sticker page uses, and the same words for each cell.
 
+The note page also carries its **text size**, and each option is drawn at the
+size it names. A row reading 14 / 17 / 20 in one size tells you the numbers and
+nothing about what is being chosen, which is the only question being asked.
+
+The colour and the size both come back after placing, so putting up three notes
+that match is one choice rather than three.
+
+A size is checked against the widget's own ladder and anything else is dropped
+rather than clamped. A note is drawn at whatever number it holds, so an
+unbounded one from a posted form is a note the size of the screen or one too
+small to read — neither reachable from the panel's own dialog. A note appearing
+at the default is better than one appearing at a size nobody picked.
+
+**Both pages carry the text size**, and each option is drawn at the size it
+names.
+
+**A widget takes a size that suits its text.** A default size was picked for
+one particular font, so raising the font used to leave the same box with
+bigger writing in it — a note at 30pt held about half of what it did at 17,
+and a list showed three rows where it had shown six. A note is now scaled from
+its base size, and a list's width is scaled while its height still comes from
+how many items it holds.
+
+It is scaled rather than measured because this runs when a widget is placed
+and again when the size changes, and both happen before there is anything to
+measure — a note is placed with its text and a list with its items, but
+neither has been laid out yet.
+
+**A size you dragged on the panel is left alone.** That is a decision, and a
+font change does not overwrite it.
+
+**A new note or list starts at 20pt.** The previous default was legible at
+arm's length and not from across a room, which is where a wall panel is usually
+read from. A widget already on the panel keeps whatever size it was given, in
+or out of the ladder.
+
 Choosing a checklist that is already up **loads it**: its name and its lines fill
 the form. What comes back replaces the list rather than being appended, so
 removing a line works and nothing doubles; anything still there keeps its tick.
+
+**Notes work the same way.** The chooser lists every note on the panel, picking
+one loads its text, colour and size, and saving writes it back — so a note put
+up from a phone is editable from the same phone rather than only by walking
+over to the panel. A note has no title, so its first line stands in for one in
+the chooser.
+
+Both pages have **Remove**, which follows the chooser and can only ever take off
+the thing in front of you. It uses the framework's own removal rather than the
+delete handle: the handle files a widget into the widgets panel so it can be
+dragged back out, which is right on the panel and wrong from a phone. Somebody
+pressing Remove means gone, and a note that reappears in a drawer they cannot
+see from there is not gone.
+
+A note or list removed on the panel while the page is open is said plainly and
+the chooser falls back, rather than the edit being written into nothing and
+reported as saved.
 
 Placing goes through the framework's own copy path, which names the instance,
 registers it, places it and writes the layout. It runs on the UI thread; these

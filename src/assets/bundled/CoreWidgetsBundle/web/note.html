@@ -1,0 +1,59 @@
+<!--
+  A sticky note, behind /public/note_add.
+
+  Static. The colours, the text sizes, the chosen cell of the grid and the
+  form's action are filled in by note.js from window.PAGE - see
+  docs/web-ui.md.
+-->
+
+<section>
+  <label for="target">Which note</label>
+  <select id="target" onchange="chooseNote(this.value)"></select>
+  <p class="hint">Pick one to edit it, or leave it on <b>Make a new one</b>.</p>
+</section>
+
+<form method="post" id="noteform">
+  <input type="hidden" name="target" id="targetfield" value="">
+  <section>
+    <label for="text">Note</label>
+    <textarea name="text" id="text" placeholder="Back at six"></textarea>
+  </section>
+
+  <section>
+    <label>Colour</label>
+    <div class="swatches" id="swatches"></div>
+  </section>
+
+  <section>
+    <label>Text size</label>
+    <div class="sizes" id="sizes"></div>
+    <p class="hint">Each one is drawn at the size it names.</p>
+  </section>
+
+  <section>
+    <label>Where it goes</label>
+    <input type="hidden" name="quadrant" id="quadrant" value="top-right">
+    <div class="where" data-for="quadrant">
+      <button type="button" data-q="top-left">Top left</button>
+      <button type="button" data-q="top-center">Top</button>
+      <button type="button" data-q="top-right">Top right</button>
+      <button type="button" data-q="center-left">Left</button>
+      <button type="button" data-q="center">Middle</button>
+      <button type="button" data-q="center-right">Right</button>
+      <button type="button" data-q="bottom-left">Bottom left</button>
+      <button type="button" data-q="bottom-center">Bottom</button>
+      <button type="button" data-q="bottom-right">Bottom right</button>
+    </div>
+  </section>
+
+  <div class="go"><button type="submit" id="verb">Put it up</button></div>
+</form>
+
+<form method="post" id="removeform" class="go"
+      onsubmit="return confirm('Take this note off the panel? It cannot be dragged back.');">
+  <input type="hidden" name="remove" id="removefield" value="">
+  <button type="submit" class="danger" id="drop" disabled>Remove this
+    note</button>
+</form>
+
+<p class="hint">Hold a note on the panel to move, resize or recolour it.</p>

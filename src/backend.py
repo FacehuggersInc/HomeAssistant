@@ -1767,11 +1767,38 @@ def FlaskApp(client):
 	def _plugin_entries():
 		"""Every plugin the panel knows about, loaded or not."""
 		from pathlib import Path
-		bundled_root = (Path(os.getcwd()) / "src" / "assets" / "bundled").resolve()
+		from src.constants import INSTALL_ROOT
+
+		# INSTALL_ROOT, not the working directory.
+		#
+		# `os.getcwd()` is wherever the process happened to be started from -
+		# a launcher, a service unit, a shell somewhere else - and when it is
+		# not the install root this test silently answers False for every
+		# plugin. Nothing looks wrong: bundled plugins simply stop being
+		# bundled, which showed up as a download refusing them for not being
+		# in the plugins folder, where of course they never were.
+		#
+		# INSTALL_ROOT is derived from src/constants.py's own location, so it
+		# is right wherever the panel was started.
+		bundled_root = (INSTALL_ROOT / "src" / "assets" / "bundled").resolve()
 		entries = []
 		seen = set()
 		for plugin, key in client.PLUGIN.get_plugins():
-			path = getattr(plugin, "path", None) or getattr(plugin, "directory", None)
+			# The loader's own record of where the folder is.
+			#
+			# `get_plugins()` hands back the plugin INSTANCES, and the loader
+			# never puts a path on one - it sets `settings`, `config` and
+			# `client` and nothing else. So `getattr(plugin, "path", ...)`
+			# was None for every loaded plugin, which made all of them look
+			# unbundled AND gave them an empty folder name. A download then
+			# refused every one of them for not being where it had not looked.
+			#
+			# `registered` is written beside `plugins` at load time and is the
+			# same key, so there is nothing to line up.
+			path = client.PLUGIN.registered.get(key)
+			if path is None:
+				path = (getattr(plugin, "path", None)
+						or getattr(plugin, "directory", None))
 			bundled = False
 			try:
 				bundled = bundled_root in Path(str(path)).resolve().parents
@@ -1996,34 +2023,67 @@ def FlaskApp(client):
 
 		from src.plugin.install import pack, Refusal, safe_folder_name
 
+		def refuse(reason, code=404):
+			# Logged, not only returned.
+			#
+			# The success path logged and the failure path did not, so a
+			# download that failed left a request line in the log and nothing
+			# after it - the log could say somebody had tried and not what
+			# happened, which is the half that matters.
+			client.log("warning", f"[Plugins] '{plugin_key}' not downloaded: "
+								  f"{reason}")
+			return {"request": "Failed", "reason": reason}, code
+
 		entry = next((e for e in _plugin_entries()
 					  if e["key"] == plugin_key), None)
 		if entry is None:
-			return {"request": "Failed",
-					"reason": f"No plugin '{plugin_key}'."}, 404
+			return refuse(f"No plugin '{plugin_key}'.")
+		# Bundled plugins download too.
+		#
+		# They were refused on the grounds that a copy of something the app
+		# ships would be silently replaced by the next update - true, and not a
+		# reason to withhold it. A bundled plugin is the best worked example
+		# there is of how to write one, and reading it meant a keyboard on the
+		# panel, which is the exact problem this section exists to remove.
+		#
+		# The zip says so in its name instead, so what somebody is holding is
+		# obvious a week later.
+		from pathlib import Path
+
+		from src.constants import INSTALL_ROOT
+
 		if entry.get("bundled"):
-			# Bundled plugins are part of the app and travel with it. Offering
-			# a download would hand somebody a copy that a project update
-			# silently replaces, which is a confusing thing to own.
-			return {"request": "Failed",
-					"reason": f"'{plugin_key}' ships with the app and is "
-							  f"updated with it."}, 403
+			# Same root the entry was classified against - see
+			# _plugin_entries(). Deriving it a second way is how the two
+			# disagree.
+			root = (INSTALL_ROOT / "src" / "assets" / "bundled").resolve()
+		else:
+			root = client.asset("FOLDER", "plugins")
 
 		folder = entry.get("folder") or ""
-		root = client.asset("FOLDER", "plugins")
 		name = safe_folder_name(folder)
-		if not name or not (root / name).is_dir():
-			return {"request": "Failed",
-					"reason": f"'{plugin_key}' is not in the plugins "
-							  f"folder."}, 404
+		if not name:
+			return refuse(f"'{plugin_key}' has no folder name on record "
+						  f"(got {folder!r}).")
+		if not (root / name).is_dir():
+			where = "bundled with the app" if entry.get("bundled") \
+				else "in the plugins folder"
+			return refuse(f"'{plugin_key}' is not {where}: "
+						  f"{root / name} is not a folder.")
 
 		try:
 			data = pack(root / name)
 		except Refusal as e:
-			return {"request": "Failed", "reason": str(e)}, 500
+			return refuse(str(e), 500)
 
 		version = entry.get("version") or ""
 		filename = f"{name}-{version}.zip" if version else f"{name}.zip"
+		if entry.get("bundled"):
+			# Named for what it is. A bundled plugin unpacked back into the
+			# plugins folder would be loaded twice under one key, and a file
+			# called `CoreWidgetsBundle-1.2.zip` gives nobody a reason to
+			# think twice about it.
+			filename = f"{name}-bundled-copy.zip"
 		client.log("info", f"[Plugins] '{plugin_key}' downloaded as {filename}.")
 		return Response(data, mimetype="application/zip",
 						headers={"Content-Disposition":

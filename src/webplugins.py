@@ -88,13 +88,23 @@ def installed_page(entries: list, token: str, message: str = "",
                     f'data-act="{act}" data-key="{escape(entry["key"])}">'
                     f'{svg(icon, 16)}<span>{label}</span></button>'
                     for act, label, icon, danger in buttons)
+                acts = f'<div class="acts">{rows}</div>'
+
+            # Download sits outside that block, because a bundled plugin has
+            # nothing to load, unload or remove and is still worth reading -
+            # it is the best worked example of how one is written, and the
+            # alternative to downloading it is a keyboard on the panel.
+            if may_control:
                 # A link, not a fetch. A download is the browser's job and
                 # trying to do it through the action handler would give a
                 # zip in a JSON parser.
-                rows += (f'<a class="btn" href="/plugins/'
-                         f'{escape(entry["key"])}/download?token={escape(token)}">'
-                         f'{svg("download", 16)}<span>Download</span></a>')
-                acts = f'<div class="acts">{rows}</div>' 
+                link = (f'<a class="btn" href="/plugins/'
+                        f'{escape(entry["key"])}/download?token={escape(token)}">'
+                        f'{svg("download", 16)}<span>Download</span></a>')
+                if acts:
+                    acts = acts[:-len("</div>")] + link + "</div>"
+                else:
+                    acts = f'<div class="acts">{link}</div>' 
 
             why = entry.get("description") or ""
             if entry.get("dependants"):

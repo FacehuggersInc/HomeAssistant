@@ -14,7 +14,18 @@ a list of special cases that has to grow every time something new appears.
 
 from __future__ import annotations
 
+import re
 from typing import Callable, Optional
+
+
+def _words(text: str) -> list:
+    """
+    A phrase as plain lowercase words.
+
+    Punctuation goes: a transcriber writes "me, stop" and the comma is not
+    something anybody said.
+    """
+    return re.sub(r"[^a-z0-9 ]", " ", str(text or "").lower()).split()
 
 
 class CancelAction:
@@ -50,7 +61,31 @@ class CancelAction:
             return False
 
     def matches(self, phrase: str) -> bool:
-        return " ".join(str(phrase or "").lower().split()) in self.keywords
+        """
+        Whether this action's words are IN the phrase.
+
+        Contained, not equal to. It used to be equality, which meant a
+        registered keyword only ever fired when somebody said exactly that
+        word and nothing else - "stop the music" did not stop music, and
+        "why are you still hearing me, stop" cancelled nothing in front and
+        fell through to the assistant simply standing down.
+
+        Whole words, in order, not a substring: "stop" must not fire on
+        "stopwatch", and punctuation is dropped so a comma cannot separate
+        somebody from what they asked for.
+        """
+        words = _words(phrase)
+        if not words:
+            return False
+        for keyword in self.keywords:
+            wanted = keyword.split()
+            if not wanted:
+                continue
+            span = len(wanted)
+            for start in range(len(words) - span + 1):
+                if words[start:start + span] == wanted:
+                    return True
+        return False
 
     def run(self) -> bool:
         try:

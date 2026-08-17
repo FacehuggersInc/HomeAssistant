@@ -34,6 +34,13 @@
     <div class="swatches" id="swatches"></div>
   </section>
 
+  <section>
+    <label>Text size</label>
+    <div class="sizes" id="sizes"></div>
+    <p class="hint">Each one is drawn at the size it names. A list resizes
+      itself to suit, unless you have dragged it to a size on the panel.</p>
+  </section>
+
   <section id="wherebox">
     <label>Where it goes</label>
     <input type="hidden" name="quadrant" id="quadrant" value="top-right">
@@ -53,4 +60,11 @@
   <div class="go">
     <button type="submit" id="verb">Put it up</button>
   </div>
+</form>
+
+<form method="post" id="removeform" class="go"
+      onsubmit="return confirm('Take this list off the panel? It cannot be dragged back.');">
+  <input type="hidden" name="remove" id="removefield" value="">
+  <button type="submit" class="danger" id="drop" disabled>Remove this
+    list</button>
 </form>

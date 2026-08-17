@@ -616,44 +616,211 @@ class CoreWidgetsBundle(Plugin):
             lists.append((key, widget))
         return lists
 
+    def _notes(self) -> list:
+        """
+        Every sticky note ON the home page, newest last.
+
+        Placed ones only, for the same reason `_lists()` says: the delete
+        handle files a widget into the widgets panel rather than destroying
+        it, so an unplaced note is one nobody can see. Offering it here would
+        be editing something invisible.
+        """
+        framework = self._framework()
+        if framework is None:
+            return []
+
+        notes = []
+        for key, widget in list(framework.registry.items()):
+            if not (getattr(widget, "template_key", "") == "sticky-note"
+                    or key == "sticky-note" or key.startswith("sticky-note-")):
+                continue
+            try:
+                if not widget.placed:
+                    continue
+            except RuntimeError:
+                # The C++ object went without the entry going with it.
+                continue
+            notes.append((key, widget))
+        return notes
+
+    def _note_options(self) -> list:
+        """
+        Every note as `(key, label, text, colour, size)` for the chooser.
+
+        A note has no title, so the first line stands in for one - trimmed,
+        because a chooser is one line high and a note is not.
+        """
+        out = []
+        for key, widget in self._notes():
+            text = str(getattr(widget, "text", "") or "")
+            first = next((line.strip() for line in text.splitlines()
+                          if line.strip()), "")
+            label = (first[:40] + "\u2026") if len(first) > 40 else first
+            out.append((key, label or "Empty note", text,
+                        str(getattr(widget, "colour", "")),
+                        int(getattr(widget, "font_size", 0) or 0)))
+        return out
+
+    def _remove_widget(self, key: str) -> bool:
+        """
+        Take one widget off the panel, for good.
+
+        `framework.remove()` rather than the delete handle: the handle files
+        a widget into the widgets panel so it can be dragged back out, which
+        is right on the panel and wrong here. Somebody on a phone pressing
+        Remove means gone, and a note that reappears in a drawer they cannot
+        see from there is not gone.
+        """
+        framework = self._framework()
+        if framework is None or key not in framework.registry:
+            return False
+        self.client.call_on_ui(lambda k=key: framework.remove(k))
+        return True
+
     def api_note_add(self, text: str = None, colour: str = "",
+                     font_size: str = "", target: str = "", remove: str = "",
                      quadrant: str = "top-right", **_ignored):
         """
         A sticky note, from a phone.
 
-        GET  -> the form
-        POST -> writes the note and puts it on the panel
+        GET    -> the editor, opened on nothing
+        POST   -> writes one note and reopens the editor on it
+        remove -> takes one off the panel
+
+        The chooser decides which note; the page decides what is on it. Same
+        shape as the checklist editor, because it is the same act - and a note
+        somebody put up from a phone was, until now, only editable by walking
+        over to the panel.
         """
         render_page = self.sibling("api.note_page").render_page
         token = self._request_token()
         message, bad = "", False
 
+        from src.ui.widget import normalise_position, POSITION_LABELS
+        from .widgets.sticky_note import COLOURS, StickyNote
+
+        position = normalise_position(quadrant)
         typed = text is not None
         text = str(text or "").strip()
         colour = str(colour or "").strip()
+        target = str(target or "").strip()
+        remove = str(remove or "").strip()
 
-        from src.ui.widget import normalise_position, POSITION_LABELS
-        position = normalise_position(quadrant)
+        # Checked against the widget's own ladder rather than taken as given.
+        # A note is drawn at whatever number it holds, so an unbounded one
+        # from a posted form is a note the size of the screen or too small to
+        # read, and neither is reachable from the panel itself.
+        sizes = list(StickyNote.FONT_SIZES)
+        try:
+            chosen_size = int(font_size)
+        except (TypeError, ValueError):
+            chosen_size = 0
+        if chosen_size not in sizes:
+            chosen_size = 0
 
-        if text:
-            # `placed` too, or the widget is registered and never shown.
-            state = {"text": text, "placed": True}
-            if colour:
-                state["colour"] = colour
+        # Whether this request handed a write to the UI thread. The response
+        # renders that note from what arrived rather than from the widget.
+        wrote = False
 
-            # The position is passed to place(), not written into the state.
-            # A sticky note floats, so an `anchor` in its state is recorded and
-            # never read - which is why choosing a corner used to do nothing.
-            self.client.call_on_ui(
-                lambda: self._place("sticky-note", state, at=position))
-            message = (f"\u201c{text[:40]}\u201d is on the panel, "
-                       f"{POSITION_LABELS[position].lower()}.")
-        elif typed:
+        if remove:
+            if self._remove_widget(remove):
+                message = "Note removed."
+                if target == remove:
+                    target = ""
+            else:
+                message, bad = "That note is not on the panel any more.", True
+                target = ""
+
+        elif typed and not text:
             message, bad = "Type something first.", True
 
-        from .widgets.sticky_note import COLOURS
-        return render_page(token, colours=COLOURS, message=message, bad=bad,
-                           kind="note", quadrant=position)
+        elif typed and target:
+            widget = dict(self._notes()).get(target)
+            if widget is None:
+                # Removed on the panel while this page was open. Said plainly
+                # and the chooser falls back, rather than writing the edit
+                # into nothing and reporting success.
+                message, bad = "That note is not on the panel any more.", True
+                target = ""
+            else:
+                def rewrite(w=widget, body=text, tint=colour, size=chosen_size):
+                    w.text = body
+                    if tint:
+                        w.colour = tint
+                    if size:
+                        w.font_size = size
+                    w.update()
+                    w._save()
+                self.client.call_on_ui(rewrite)
+                wrote = True
+                message = "Note saved."
+
+        elif typed:
+            framework = self._framework()
+            if framework is None:
+                message, bad = "The home page is not on screen.", True
+            else:
+                # Named before it is built. Creating a widget is the UI
+                # thread's job and call_on_ui does not report back, so without
+                # this the page could not say which note it had just made -
+                # and could not go on to edit it.
+                target = framework.reserve_key("sticky-note")
+                # `placed` too, or the widget is registered and never shown.
+                state = {"text": text, "placed": True}
+                if colour:
+                    state["colour"] = colour
+                if chosen_size:
+                    state["font_size"] = chosen_size
+
+                # The position is passed to place(), not written into the
+                # state. A sticky note floats, so an `anchor` in its state is
+                # recorded and never read - which is why choosing a corner
+                # used to do nothing.
+                self.client.call_on_ui(
+                    lambda k=target, st=state: self._place(
+                        "sticky-note", st, at=position, key=k))
+                wrote = True
+                message = (f"\u201c{text[:40]}\u201d is on the panel, "
+                           f"{POSITION_LABELS[position].lower()}. "
+                           f"You are editing it now.")
+
+        notes = self._note_options()
+
+        # The note that was just written is rendered from what arrived, never
+        # from the widget.
+        #
+        # Writing it is the UI thread's job and call_on_ui does not wait, so
+        # reading the widget here reads the state from BEFORE this request.
+        # The page would then show the previous contents, the next save would
+        # post those back, and the two would trade places on every press.
+        if wrote and target:
+            first = next((line.strip() for line in text.splitlines()
+                          if line.strip()), "")
+            label = (first[:40] + "\u2026") if len(first) > 40 else first
+            written = (target, label or "Empty note", text,
+                       colour or COLOURS[0],
+                       chosen_size or sizes[StickyNote.DEFAULT_FONT])
+            merged, replaced = [], False
+            for row in notes:
+                if row[0] == target:
+                    merged.append(written)
+                    replaced = True
+                else:
+                    merged.append(row)
+            if not replaced:
+                # A note this request created. The widget does not exist yet,
+                # so there is nothing in `notes` to replace.
+                merged.append(written)
+            notes = merged
+
+        return render_page(
+            token, colours=COLOURS, message=message, bad=bad,
+            quadrant=position, font_sizes=sizes,
+            notes=notes, target=target,
+            # What was just chosen comes back, so putting up three notes in
+            # the same colour and size is one choice rather than three.
+            font_size=chosen_size or sizes[StickyNote.DEFAULT_FONT],
+            colour=colour)
 
     def _list_options(self) -> list:
         """Every checklist on the panel as (key, title, text) for the page."""
@@ -662,13 +829,15 @@ class CoreWidgetsBundle(Plugin):
                 for key, widget in self._lists()]
 
     def api_list_add(self, title: str = None, text: str = None,
-                     colour: str = "", target: str = "",
-                     quadrant: str = "top-right", **_ignored):
+                     colour: str = "", target: str = "", remove: str = "",
+                     font_size: str = "", quadrant: str = "top-right",
+                     **_ignored):
         """
         A checklist, edited from a phone.
 
-        GET  -> the editor, opened on nothing
-        POST -> writes one list and reopens the editor on it
+        GET    -> the editor, opened on nothing
+        POST   -> writes one list and reopens the editor on it
+        remove -> takes one off the panel
 
         The chooser decides which list; the page decides what is on it. A new
         list is not built until it is put up, and from then on the same page
@@ -688,12 +857,35 @@ class CoreWidgetsBundle(Plugin):
         items = ChecklistWidget._parse(text or "")
         colour = str(colour or "").strip()
         target = str(target or "").strip()
+
+        # Checked against the widget's own ladder rather than taken as given -
+        # a list is drawn at whatever number it holds, and an unbounded one
+        # from a posted form is not reachable from the panel itself.
+        sizes = list(ChecklistWidget.FONT_SIZES)
+        try:
+            chosen_size = int(font_size)
+        except (TypeError, ValueError):
+            chosen_size = 0
+        if chosen_size not in sizes:
+            chosen_size = 0
+
         message, bad = "", False
         # Whether this request handed a write to the UI thread. The response
         # renders that list from what arrived rather than from the widget.
         wrote = False
 
-        if submitted and not wanted_title and not items:
+        remove = str(remove or "").strip()
+
+        if remove:
+            if self._remove_widget(remove):
+                message = "List removed."
+                if target == remove:
+                    target = ""
+            else:
+                message, bad = "That list is not on the panel any more.", True
+                target = ""
+
+        elif submitted and not wanted_title and not items:
             message, bad = "Give it a name, or something to put on it.", True
 
         elif submitted and target:
@@ -709,12 +901,19 @@ class CoreWidgetsBundle(Plugin):
                 # list already had, so appending would double every line
                 # nobody deleted. What comes back is the list they meant.
                 def rewrite(w=widget, new=items, name=wanted_title,
-                            tint=colour):
+                            tint=colour, size=chosen_size):
                     w.items = [dict(entry) for entry in new]
                     if name:
                         w.title = name
                     if tint:
                         w.colour = tint
+                    if size:
+                        w.font_size = size
+                        # Re-measured, not only repainted: how tall a row is
+                        # and how wide the box wants to be both follow the
+                        # text size.
+                        w.on_look_changed()
+                        return
                     w.update()
                     w._save()
                 self.client.call_on_ui(rewrite)
@@ -736,6 +935,8 @@ class CoreWidgetsBundle(Plugin):
                          "placed": True}
                 if colour:
                     state["colour"] = colour
+                if chosen_size:
+                    state["font_size"] = chosen_size
                 self.client.call_on_ui(
                     lambda k=target, s=state: self._place(
                         "checklist", s, at=position, key=k))
@@ -770,8 +971,13 @@ class CoreWidgetsBundle(Plugin):
             options = merged
 
         from .widgets.checklist import COLOURS
-        return render_page(token, colours=COLOURS, message=message, bad=bad,
-                           lists=options, target=target, quadrant=position)
+        return render_page(
+            token, colours=COLOURS, message=message, bad=bad,
+            lists=options, target=target, quadrant=position,
+            font_sizes=sizes,
+            # What was just chosen comes back, so putting up three lists the
+            # same way is one choice rather than three.
+            font_size=chosen_size or sizes[ChecklistWidget.DEFAULT_FONT])
 
     def _clear_placed_stickers(self) -> int:
         """

@@ -37,10 +37,10 @@
         },
         "alarm_ring_seconds": {
             "type": "int",
-            "default": 45,
-            "value": 45,
+            "default": 60,
+            "value": 60,
             "suffix": "sec",
-            "description": "How long an alarm keeps ringing. Longer than a timer's: a timer is answered by somebody standing over it, and an alarm by somebody who has to wake up first. 0 turns the sound off."
+            "description": "How long an alarm keeps making noise. It sounds even when the panel is muted - an alarm set for six is a promise, not something a mute at nine withdraws."
         },
         "alarm_give_up_after": {
             "type": "int",

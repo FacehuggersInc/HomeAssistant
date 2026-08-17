@@ -56,10 +56,26 @@ function fillRows() {
     if (sub.error) {
       state.className = 'bad';
       state.textContent = sub.error;
+    } else if (sub.count === 0) {
+      /* Synced, and found nothing. Marked rather than reported plainly:
+         a feed that works and yields nothing looks exactly like one that
+         is broken until you know which it is. */
+      state.className = 'bad';
+      state.textContent = 'no events - synced ' + sub.synced;
+    } else if (typeof sub.count === 'number' && sub.count > 0) {
+      state.textContent = sub.count + ' event' + (sub.count === 1 ? '' : 's') +
+                          ', synced ' + sub.synced;
     } else {
-      state.textContent = 'last synced ' + sub.synced;
+      state.textContent = 'not synced yet';
     }
     box.appendChild(state);
+
+    /* Whether the address is one anybody holding it could read the calendar
+       with. Worth saying on a page that lists them. */
+    var kind = document.createElement('span');
+    kind.className = 'kind';
+    kind.textContent = sub.secret ? 'secret address' : 'public address';
+    box.appendChild(kind);
 
     var drop = document.createElement('button');
     drop.dataset.remove = sub.key;

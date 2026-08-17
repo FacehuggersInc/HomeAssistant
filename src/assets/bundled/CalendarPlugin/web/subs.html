@@ -18,6 +18,9 @@
     <label for="add">ICS address</label>
     <input id="add" name="add" required
            placeholder="https://... or webcal://...">
+    <p class="hint">The <b>iCal address</b>, not the "add this calendar" link
+      beside it &mdash; that one is a web page and has no events in it. A
+      Google <code>?cid=</code> link is converted for you.</p>
 
     <div class="go"><button type="submit">Subscribe</button></div>
   </form>
@@ -27,8 +30,9 @@
 
 <details>
   <summary>Where do I get the address?</summary>
-  <p><b>Google</b> - Settings for that calendar, then the secret address in
-     iCal format.<br>
+  <p><b>Google</b> - Settings for that calendar, then <b>Integrate calendar</b>,
+     then the address ending <code>basic.ics</code>. Public and secret are both
+     there; the link above them opens Google rather than the feed.<br>
      <b>Apple</b> - share the calendar publicly and copy the webcal link.<br>
      <b>Outlook</b> - publish the calendar and choose ICS.</p>
   <p>Treat it as a password. Anyone holding it can read that calendar.</p>
