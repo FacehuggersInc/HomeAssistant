@@ -391,7 +391,13 @@ time, date and temperature, and comes half-way up when somebody touches it.
 * **Schedule** - `schedule.py`, pure arithmetic with no Qt in it, so times that
   cross midnight and fades that start on the previous day are tested directly.
 * **Night page** - `#nighttime_clock`. Centred clock, and slow drifting points
-  of light over a near-black gradient.
+  of light over a near-black gradient. Everything is sized from the window
+  height rather than fixed: the clock is a fifth of it, the date and the
+  temperature a **twentieth**, and the sunrise line smaller again. The date
+  and temperature used to be a sixth of the clock's height, which is legible
+  at arm's length and not from a bed - which is where this page is read from.
+  The gap between the lines is sized from the height too, or the date's
+  ascenders sit against the digits above it.
 * **Dimming** - drives `client.DIMMER`, which gained `animate_brightness()` for
   this: a panel changing level on its own is startling as a step and
   unremarkable as a fade.
@@ -626,14 +632,37 @@ names.
 **A widget takes a size that suits its text.** A default size was picked for
 one particular font, so raising the font used to leave the same box with
 bigger writing in it — a note at 30pt held about half of what it did at 17,
-and a list showed three rows where it had shown six. A note is now scaled from
-its base size, and a list's width is scaled while its height still comes from
-how many items it holds.
+and a list showed three rows where it had shown six.
 
-It is scaled rather than measured because this runs when a widget is placed
-and again when the size changes, and both happen before there is anything to
-measure — a note is placed with its text and a list with its items, but
-neither has been laid out yet.
+**A note is measured**, not scaled. A note *is* its text, so four lines at
+24pt need a bigger box than four words at the same size — scaling from a
+default gave both the same one and cut the longer off at the bottom. It is
+measured with font metrics, which need no parent, no layout and no paint. A
+note too tall for the screen is widened before it is given up on: the same
+text a third wider is a shape that fits on a wall.
+
+The width starts narrow and widens only while the block would be a column —
+capped at the longest line, past which the extra width is empty paper. A
+sentence is free to wrap: insisting a whole line fit turned "Dentist at 3pm on
+Thursday" into a 480-pixel banner with one line of text in it. Nothing is done
+for a line that cannot wrap, because Qt breaks at punctuation and a pasted
+link wraps at its slashes on its own.
+
+A note also has a modest floor on its height, so two words do not produce a
+strip. It is deliberately modest: at a near-square floor every note came out
+the same shape with the words in the top third and empty paper under them —
+the floor was deciding the height rather than the words were.
+
+**A self-painted widget that resizes itself needs a `sizeHint()`.** `place()`
+calls `_fit_to_content`, which for a resizable widget with no *chosen* size
+discards whatever the content measured and takes the hint instead — and a
+widget with no layout reports −1, so it falls back to its minimum. That is
+why a note placed from a phone came out a small square whatever its font: the
+measuring was right and was thrown away a moment later. The checklist never
+hit it because it has always had one.
+
+A **list** scales its width with the font and keeps taking its height from how
+many items it holds, which `_refit` already knew.
 
 **A size you dragged on the panel is left alone.** That is a decision, and a
 font change does not overwrite it.

@@ -344,20 +344,33 @@ class NightPage(PageFramework):
         # page, and it should be readable from across a dark room.
         time_font = make_font(max(48, int(self.height() * 0.20)), bold=False,
                               family="poppins-light")
-        date_font = make_font(max(16, int(self.height() * 0.035)), bold=False,
+        # The date and the temperature are read from the same place as the
+        # time - across a dark room - and were sized as a caption under it.
+        # A third of the clock's height, not a sixth.
+        date_font = make_font(max(24, int(self.height() * 0.055)), bold=False,
                               family="poppins-light")
+        # The sunrise line stays smaller. Everything the same size is a wall
+        # of text with no order to it, and this is the least urgent of the
+        # three.
+        sun_font = make_font(max(18, int(self.height() * 0.038)), bold=False,
+                             family="poppins-light")
 
         time_m = QFontMetrics(time_font)
         date_m = QFontMetrics(date_font)
+        sun_m = QFontMetrics(sun_font)
         time_ink = time_m.tightBoundingRect(face)
         date_ink = date_m.tightBoundingRect(date_text)
+        sun_ink = sun_m.tightBoundingRect(self._sun_line or "0")
 
-        gap = max(10, int(self.height() * 0.02))
+        # Opened up with the text. The gap was tuned when the date was a
+        # caption a sixth the height of the clock; at a third, the same gap
+        # puts its ascenders against the digits above it.
+        gap = max(16, int(self.height() * 0.035))
         block = (-time_ink.top()) + gap + (-date_ink.top())
         if self._weather:
             block += gap + (-date_ink.top())
         if self._sun_line:
-            block += gap * 0.72 + (-date_ink.top())
+            block += gap * 0.72 + (-sun_ink.top())
 
         top = (self.height() - block) / 2.0
         centre = self.width() / 2.0
@@ -386,10 +399,11 @@ class NightPage(PageFramework):
                 self._weather)
 
         if self._sun_line:
-            baseline += gap * 0.72 + (-date_ink.top())
+            baseline += gap * 0.72 + (-sun_ink.top())
+            painter.setFont(sun_font)
             painter.setPen(QColor(104, 126, 164, 150))
             painter.drawText(
-                QPointF(centre - date_m.horizontalAdvance(self._sun_line) / 2.0,
+                QPointF(centre - sun_m.horizontalAdvance(self._sun_line) / 2.0,
                         baseline),
                 self._sun_line)
 
