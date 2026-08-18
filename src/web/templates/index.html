@@ -13,8 +13,13 @@
 
  /* WHICH PANEL. The first thing on the page, because a phone that can reach
     three of these needs to know which one it is holding. */
+ /* The menu sits left, the name centres.
+    Centring the row puts the menu button in the middle of its own line when
+    the two wrap, which reads as a second title rather than as the control
+    it is. A control belongs at an edge, where a thumb already is. */
  .top{display:flex;align-items:center;gap:16px;flex-wrap:wrap;
-      justify-content:center;padding:26px 0 20px}
+      justify-content:flex-start;padding:26px 0 20px}
+ .top .mark{margin-inline:auto}
  .mark{display:flex;align-items:center;gap:13px;min-width:0}
  .mark .glyph{width:46px;height:46px;border-radius:14px;flex:none;
    background:linear-gradient(140deg,var(--accent),var(--accent2));

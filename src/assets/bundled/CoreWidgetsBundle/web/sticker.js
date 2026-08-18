@@ -2,6 +2,7 @@
    docs/web-ui.md. The tile grid, the dropdowns and every remembered answer
    come from here rather than being interpolated into the markup. */
 var PAGE = window.PAGE || {};
+var Listing = window.Listing || null;
 
 function fillActions() {
   var action = PAGE.endpoint + '?token=' +
@@ -68,14 +69,21 @@ function growGrid() {
     return;
   }
 
-  var result = Listing.view(all, {
-    query: findQuery(), sort: currentOrder(),
-    fields: ['label', 'name'], from: drawn, window: BATCH
-  });
+  /* Without the shared helper there is still a library to show. It is
+     loaded ahead of this file, so this is the case where something went
+     wrong fetching it - and a grid that draws everything unsorted is a
+     working page, where a grid that throws is a blank one. */
+  var result = Listing
+    ? Listing.view(all, {query: findQuery(), sort: currentOrder(),
+                         fields: ['label', 'name'], from: drawn,
+                         window: BATCH})
+    : {shown: all.slice(drawn, drawn + BATCH), drawn: drawn,
+       found: all.length, total: all.length,
+       hidden: Math.max(0, all.length - drawn - BATCH), filtered: false};
   drawn += result.shown.length;
 
   document.getElementById('found').textContent =
-    Listing.summary(result, 'sticker');
+    Listing ? Listing.summary(result, 'sticker') : '';
 
   var marker = document.getElementById('more');
   if (marker) { marker.remove(); }
@@ -199,13 +207,20 @@ function fillWhere() {
   });
 }
 
-fillActions();
-wireFinder();
-fillGridTiles();
-fillFields();
-fillWhere();
-
+/* Selection is wired FIRST, and never inside a draw.
+ *
+ * A failure while drawing must not cost the page its controls. With the
+ * listener attached after the first draw, one throw in there leaves a grid
+ * that fills in only when something else redraws it AND a page where
+ * pressing a sticker does nothing - two symptoms, one cause, and neither of
+ * them pointing at the draw.
+ *
+ * One listener on the grid rather than one per tile: every tile is replaced
+ * when the order or the filter changes and appended when the next batch
+ * arrives, so a handler on a tile belongs to an element that is no longer on
+ * the page. The grid outlives all of them. */
 var chosen = document.getElementById('sticker').value || null;
+
 function mark(tile) {
   document.querySelectorAll('#grid .tile').forEach(function (o) {
     o.classList.remove('sel');
@@ -217,23 +232,7 @@ function mark(tile) {
   go.disabled = false;
   go.textContent = 'Place "' + tile.dataset.label + '"';
 }
-if (chosen) {
-  /* Matched by comparing values rather than by building an attribute
-     selector out of a filename. A name with a quote in it had to be escaped
-     into the selector, which is one more escaping layer than this needs. */
-  document.querySelectorAll('#grid .tile').forEach(function (t) {
-    if (t.dataset.name === chosen) { t.classList.add('sel'); }
-  });
-}
-/* One listener on the grid, not one per tile.
- *
- * Binding to each tile only reaches the tiles that exist when it runs, and
- * every tile is replaced when the order or the filter changes and appended
- * when the next batch arrives - so a handler attached at load belongs to
- * elements that are no longer on the page, and pressing a sticker does
- * nothing at all.
- *
- * The grid outlives all of them, so it is the thing to listen on. */
+
 (function () {
   var grid = document.getElementById('grid');
   if (!grid) { return; }
@@ -244,6 +243,13 @@ if (chosen) {
     if (tile && grid.contains(tile)) { mark(tile); }
   });
 })();
+
+fillActions();
+wireFinder();
+fillGridTiles();
+fillFields();
+fillWhere();
+
 document.getElementById('mode').addEventListener('change', function () {
   document.getElementById('timeoutRow').style.display =
     this.value === 'temporary' ? 'block' : 'none';

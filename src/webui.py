@@ -528,11 +528,20 @@ class WebAssets:
         """
         return f"{self.endpoint}?name={name}&v={self.fingerprint(name)}"
 
-    def tag(self, name: str) -> str:
-        """A `<link>` or `<script>` for one asset, whichever it needs."""
+    def tag(self, name: str, defer: bool = True) -> str:
+        """
+        A `<link>` or `<script>` for one asset, whichever it needs.
+
+        `defer=False` for a script another script depends on. Deferred
+        scripts run after the document is parsed and after every inline one,
+        so a shared helper loaded with `defer` can arrive later than a page
+        script small enough to have been inlined - and the page reaches for
+        something that is not there yet.
+        """
         if name.endswith(".css"):
             return f'<link rel="stylesheet" href="{self.link(name)}">'
-        return f'<script src="{self.link(name)}" defer></script>'
+        wait = " defer" if defer else ""
+        return f'<script src="{self.link(name)}"{wait}></script>'
 
     def inline_or_link(self, name: str) -> tuple:
         """
@@ -595,7 +604,10 @@ class WebAssets:
         else:
             data = data + "\n" + script
 
-        head = "".join(core_assets().tag(name) for name in (also or ())
+        # Not deferred: the page script depends on these, and it may be
+        # inlined rather than linked - see tag().
+        head = "".join(core_assets().tag(name, defer=False)
+                       for name in (also or ())
                        if core_assets().read(name))
         if css and len(css) > self.inline_limit and self.endpoint:
             head = self.tag(css_file) + head
