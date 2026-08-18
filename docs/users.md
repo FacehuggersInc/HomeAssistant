@@ -26,10 +26,10 @@ approved by definition, named "This panel", and does not appear among the
 users: it is not somebody's device, it cannot be revoked, and it has no place
 on a page about who has access.
 
-The alternative was borrowing an approved device's token, which is worse than
-it sounds. `touch()` would mark that person as active whenever the panel
-called itself, `/say` would announce their name as the sender, revoking them
-would silently break every action tile - and a fresh install with nobody
+Borrowing an approved device's token is worse than it sounds. `touch()` marks
+that person as active whenever the panel calls itself, `/say` announces their
+name as the sender, revoking them silently breaks every action tile - and a
+fresh install with nobody
 approved would have no access to its own routes at all.
 
 ## From a browser

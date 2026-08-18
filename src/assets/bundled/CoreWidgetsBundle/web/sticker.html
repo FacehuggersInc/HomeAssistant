@@ -24,6 +24,18 @@
 <section>
   <h2 id="count"></h2>
 
+  <div class="finder">
+    <input type="search" id="find" placeholder="Search the library"
+           autocomplete="off">
+    <select id="order">
+      <option value="name">Name</option>
+      <option value="newest">Newest</option>
+      <option value="oldest">Oldest</option>
+      <option value="largest">Largest</option>
+    </select>
+  </div>
+  <p class="hint" id="found"></p>
+
   <form method="post" data-action class="clearform"
         onsubmit="return confirm('Take every sticker off the home page? They stay in your library.');">
     <input type="hidden" name="clear_placed" value="1">

@@ -124,7 +124,43 @@ That address is in **Settings → Info**, along with a button to copy it.
 
 ---
 
-## A note on writing these pages
+## Writing these pages
+
+**Describe what is true now, not how it came to be.** A page that narrates
+its own history ages twice as fast as one that does not, and a reader arriving
+today has no use for what the code did last month. The reason a thing is the
+way it is belongs here; the fact that it was once another way does not.
+
+So: "a keyword matches when its words appear in the phrase, because nobody
+says one on its own" — rather than an account of what it matched before.
+State the rule and the reason for it, and leave the change out.
+
+The phrases that give it away are worth scanning for before a page ships:
+*used to*, *had been*, *previously*, *originally*, *at first*, *since then*,
+*it came about*, *until this*, *worked until*, *there was no way*, *the only
+way to X was*. Expect false positives — "as if it had been tapped" and "a
+title that has since loaded" are present tense about runtime, so read the line
+before changing it.
+
+Four more are harder to grep for and are the ones that slip through:
+
+| Also forbidden                             | Reads as                                  |
+|--------------------------------------------|-------------------------------------------|
+| Naming a past bug                          | "so the card vanished mid-sentence"       |
+| Dating a feature                           | "devices approved long before it existed" |
+| Justifying by absence                      | "the only way was a keyboard"             |
+| Pointing at a file that is not in the tree | "`check_text_fits.py` reads every one"    |
+
+Justifying by absence hides in a subordinate clause about somebody's
+situation rather than the code's, and reads as background. Dating a feature
+turns up wherever a default is explained.
+
+Code comments are the other half of this and follow the opposite rule where
+they must: a comment may explain why an obvious-looking approach was not
+taken, because the next person will otherwise try it. That belongs beside the
+code, not on a page somebody reads to find out how the panel works.
+
+---
 
 There is **no way to put a `|` inside a table cell.** The renderer splits the
 row on every pipe before it looks at inline code, so backticks do not protect

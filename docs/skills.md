@@ -53,8 +53,8 @@ and the phrase carries on to the next skill and then the fallback. Do not
 show anything first, and do not ask a clarifying question: that ends the turn
 on behalf of every skill that was never tried.
 
-**9. Then measure.** `test_corpus.py` routes every skill's phrasings and the
-collisions between them. Run it before and after. A change that looks right
+**9. Then measure.** Route every skill's phrasings and the collisions between
+them, before and after. A change that looks right
 and moves the number the wrong way is a change to revert, not to patch - that
 has happened twice.
 

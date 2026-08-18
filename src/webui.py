@@ -375,7 +375,7 @@ def core_assets():
     if CORE_ASSETS is None:
         CORE_ASSETS = WebAssets(_Path(__file__).with_name("web"),
                                 required=("docs.css", "docs.js",
-                                          "plugins.css"))
+                                          "plugins.css", "listing.js"))
         CORE_ASSETS.endpoint = "/web"
     return CORE_ASSETS
 
@@ -542,8 +542,16 @@ class WebAssets:
     def page(self, title: str, token: str = "", endpoint: str = "",
              data: dict = None, heading: str = "", blurb: str = "",
              message: str = "", bad: bool = False, body_file: str = "page.html",
-             css_file: str = "page.css", script_file: str = "page.js") -> str:
-        """The whole document, from the folder."""
+             css_file: str = "page.css", script_file: str = "page.js",
+             also: tuple = ()) -> str:
+        """
+        The whole document, from the folder.
+
+        `also` names core assets from `src/web/` to load first - the shared
+        listing helper, for a page with more items on it than fit. They are
+        linked with their own fingerprints, so a page that shares one cannot
+        go stale against it.
+        """
         gone = self.missing()
         if gone:
             return page(
@@ -567,9 +575,10 @@ class WebAssets:
         else:
             data = data + "\n" + script
 
-        head = ""
+        head = "".join(core_assets().tag(name) for name in (also or ())
+                       if core_assets().read(name))
         if css and len(css) > self.inline_limit and self.endpoint:
-            head = self.tag(css_file)
+            head = self.tag(css_file) + head
             css = ""
 
         return page(

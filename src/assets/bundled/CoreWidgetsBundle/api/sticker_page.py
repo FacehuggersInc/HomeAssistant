@@ -13,6 +13,8 @@ from __future__ import annotations
 
 # Absolute, not relative: this module is loaded by path, and a relative import
 # needs a package it does not have. See check_siblings.py.
+from pathlib import Path
+
 from src.assets.bundled.CoreWidgetsBundle import ASSETS
 
 MODES = [("permanent", "Permanently, until I remove it"),
@@ -26,6 +28,21 @@ SCALES = [("small", "Small"), ("normal", "Normal"), ("large", "Large"),
           ("custom", "Exact size\u2026")]
 
 PATH = "/public/sticker_add"
+
+
+def _modified(entry) -> int:
+    """When a sticker's file was last written, or 0."""
+    try:
+        return int(Path(entry.path).stat().st_mtime)
+    except Exception:
+        return 0
+
+
+def _size(entry) -> int:
+    try:
+        return int(Path(entry.path).stat().st_size)
+    except Exception:
+        return 0
 
 TRUTHY = ("1", "true", "on", "yes")
 
@@ -59,12 +76,19 @@ def render_page(token: str, stickers: list, message: str = "",
         token=token, endpoint=PATH, message=message, bad=bad,
         body_file="sticker.html", css_file="sticker.css",
         script_file="sticker.js",
+        # Search, sort and the draw cap, shared with the upload page so the
+        # two cannot drift.
+        also=("listing.js",),
         data={
             "stickers": [{
                 "name": entry.name,
                 "label": entry.label,
                 "kind": entry.kind,
                 "src": f"/asset/stickers/{entry.name}?token={token}",
+                # For sorting. Read here rather than in the page, which has
+                # no way to ask the disk anything.
+                "modified": _modified(entry),
+                "size_bytes": _size(entry),
             } for entry in stickers or []],
             "modes": [list(entry) for entry in MODES],
             "scales": [list(entry) for entry in SCALES],

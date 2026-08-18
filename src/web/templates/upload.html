@@ -30,6 +30,10 @@
  h2{font-size:15px;margin:26px 0 8px;color:var(--muted);font-weight:600}
  .grid{display:grid;gap:10px;
        grid-template-columns:repeat(auto-fill,minmax(104px,1fr))}
+ .finder{display:flex;gap:8px;margin:10px 0 6px}
+ .finder input[type=search]{flex:1 1 auto;min-width:0}
+ .finder select{flex:0 0 34%}
+ .more{width:100%;margin-top:10px}
  .cell{position:relative;border:1px solid var(--line);border-radius:10px;
        overflow:hidden;cursor:pointer;background:rgba(255,255,255,.03)}
  .cell .thumb{width:100%;height:78px;object-fit:cover;display:block}
@@ -68,13 +72,36 @@
 {% if deletable %}
 <section id="listing">
   <h2>Already here</h2>
+  <div class="finder">
+    <input type="search" id="find" placeholder="Search this folder"
+           autocomplete="off">
+    <select id="order">
+      <option value="name">Name</option>
+      <option value="newest">Newest</option>
+      <option value="oldest">Oldest</option>
+      <option value="largest">Largest</option>
+    </select>
+  </div>
+  <p class="sub" id="found"></p>
   <div class="grid" id="files"></div>
   <button id="wipe" hidden></button>
 </section>
 {% endif %}
 
+<script src="/web?name=listing.js"></script>
 <script>
  var KEY = {{ key|tojson }};
+ /* Everything in the folder, and how much of it is drawn. The filter runs
+    over all of them; the cap only decides how many tiles exist, because a
+    folder of four hundred images is a page a phone will not scroll. */
+ var ALL = [];
+ /* Sixty at a time, appended as the bottom comes into view. A batch is only
+    ever sixty nodes, so growing costs the same whether it is the first or
+    the twelfth - where redrawing the whole grid gets slower the further
+    down somebody is. */
+ var BATCH = 60;
+ var drawn = 0;
+ var stopWatching = null;
  var TOKEN = {{ token|tojson }};
  var queue = [];
 
@@ -226,6 +253,59 @@
      return box;
    }
 
+   /* From the top: a different filter or order is a different list. */
+   function draw() {
+     drawn = 0;
+     if (stopWatching) { stopWatching(); stopWatching = null; }
+     grid.textContent = '';
+     grow();
+   }
+
+   /* The next batch, appended. Nothing already on screen is touched. */
+   function grow() {
+     var found = document.getElementById('found');
+
+     if (!ALL.length) {
+       grid.innerHTML = '<p class="sub">Nothing here yet.</p>';
+       if (found) { found.textContent = ''; }
+       return;
+     }
+
+     var box = document.getElementById('find');
+     var pick = document.getElementById('order');
+     var result = Listing.view(ALL, {
+       query: box ? box.value : '',
+       sort: pick ? pick.value : 'name',
+       fields: ['name'],
+       from: drawn,
+       window: BATCH
+     });
+     drawn += result.shown.length;
+
+     if (found) { found.textContent = Listing.summary(result, 'file'); }
+
+     var marker = document.getElementById('more');
+     if (marker) { marker.remove(); }
+     result.shown.forEach(function (f) { grid.appendChild(cell(f)); });
+
+     /* A marker after the last tile. Scrolling towards it draws the next
+        batch; pressing it does the same, for a browser with no observer. */
+     if (result.hidden) {
+       var more = document.createElement('button');
+       more.type = 'button';
+       more.id = 'more';
+       more.className = 'more';
+       more.textContent = 'Show the other ' + result.hidden;
+       more.addEventListener('click', grow);
+       grid.appendChild(more);
+       if (stopWatching) { stopWatching(); }
+       stopWatching = Listing.whenNear(more, grow);
+     } else if (stopWatching) {
+       stopWatching();
+       stopWatching = null;
+     }
+   }
+
    function load() {
      marked = {};
      refreshButton();
@@ -233,17 +313,24 @@
      fetch(url('/files'))
        .then(function (r) { return r.json(); })
        .then(function (body) {
-         var files = (body && body.files) || [];
-         if (!files.length) {
-           grid.innerHTML = '<p class="sub">Nothing here yet.</p>';
-           return;
-         }
-         files.forEach(function (f) { grid.appendChild(cell(f)); });
+         ALL = (body && body.files) || [];
+         draw();
        })
        .catch(function () {
          grid.innerHTML = '<p class="bad">Could not list this folder.</p>';
        });
    }
+
+   (function () {
+     var box = document.getElementById('find');
+     var pick = document.getElementById('order');
+     /* Typing narrows from the top again: the cap is about how much is on
+        screen, and a search that starts sixty in is a search that misses. */
+     if (box) {
+       box.addEventListener('input', draw);
+     }
+     if (pick) { pick.addEventListener('change', draw); }
+   })();
 
    wipe.addEventListener('click', function () {
      var names = Object.keys(marked);

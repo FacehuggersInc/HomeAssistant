@@ -251,7 +251,7 @@ finger and stays there when you let go.
 
 The pencil is dropped on a tile too narrow for two handles across the top: at
 one cell they land on each other, and a tap in the overlap does whichever is
-checked first, which was delete. Resize is never dropped — it is the only way
+checked first — delete. Resize is never dropped — it is the only way
 to make a small tile bigger, and a tile too small for two handles is exactly
 the one somebody wants to resize.
 

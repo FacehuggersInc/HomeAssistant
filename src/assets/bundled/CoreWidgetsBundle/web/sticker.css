@@ -29,3 +29,7 @@ a.manage{display:block;text-align:center;text-decoration:none;
       color:var(--text);font-size:15px}
  .check input{width:22px;height:22px;flex:0 0 22px;accent-color:var(--accent)}
  .go{display:flex;flex-direction:column;gap:10px;margin-top:18px}
+.finder{display:flex;gap:8px;margin:10px 0 6px}
+.finder input[type=search]{flex:1 1 auto;min-width:0}
+.finder select{flex:0 0 34%}
+.more{width:100%;margin-top:10px}

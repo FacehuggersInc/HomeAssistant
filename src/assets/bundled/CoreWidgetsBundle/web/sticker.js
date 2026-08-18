@@ -20,21 +20,67 @@ function fillActions() {
   }
 }
 
+/* How many tiles arrive at a time. The filter runs over the whole library
+   either way - this only decides how much of the answer is on screen,
+   because a phone scrolling four hundred images is a phone nobody waits for.
+
+   Sixty at a time rather than two hundred, and drawn as the bottom comes
+   into view rather than when a button is pressed. A batch is only ever
+   sixty nodes, so growing costs the same whether it is the first or the
+   twelfth. */
+var BATCH = 60;
+var drawn = 0;
+var stopWatching = null;
+
+function findQuery() {
+  var box = document.getElementById('find');
+  return box ? box.value : '';
+}
+
+function currentOrder() {
+  var pick = document.getElementById('order');
+  return pick ? pick.value : 'name';
+}
+
 /* Tiles are built as elements rather than as a string of markup, so a
    sticker's own name is text and can never be read as a tag. */
+/* From the top: a different filter or order is a different list. */
 function fillGridTiles() {
+  drawn = 0;
+  if (stopWatching) { stopWatching(); stopWatching = null; }
+  var host = document.getElementById('grid');
+  if (host) { host.innerHTML = ''; }
+  growGrid();
+}
+
+/* The next batch, appended. Nothing already on screen is touched. */
+function growGrid() {
   var host = document.getElementById('grid');
   if (!host) { return; }
-  var stickers = PAGE.stickers || [];
-  host.innerHTML = '';
-  if (!stickers.length) {
+  var all = PAGE.stickers || [];
+
+  if (!all.length) {
     var none = document.createElement('div');
     none.className = 'empty';
     none.textContent = 'Nothing here yet. Upload something above.';
     host.appendChild(none);
+    document.getElementById('found').textContent = '';
     return;
   }
-  stickers.forEach(function (sticker) {
+
+  var result = Listing.view(all, {
+    query: findQuery(), sort: currentOrder(),
+    fields: ['label', 'name'], from: drawn, window: BATCH
+  });
+  drawn += result.shown.length;
+
+  document.getElementById('found').textContent =
+    Listing.summary(result, 'sticker');
+
+  var marker = document.getElementById('more');
+  if (marker) { marker.remove(); }
+
+  result.shown.forEach(function (sticker) {
     var tile = document.createElement('div');
     tile.className = 'tile';
     tile.dataset.name = sticker.name;
@@ -63,6 +109,43 @@ function fillGridTiles() {
     tile.appendChild(name);
     host.appendChild(tile);
   });
+
+  /* A marker after the last tile. Scrolling towards it draws the next
+     batch; pressing it does the same, for a browser with no observer and
+     for anybody who would rather press something. */
+  if (result.hidden) {
+    var more = document.createElement('button');
+    more.type = 'button';
+    more.id = 'more';
+    more.className = 'more';
+    more.textContent = 'Show the other ' + result.hidden;
+    more.addEventListener('click', growGrid);
+    host.appendChild(more);
+    if (stopWatching) { stopWatching(); }
+    stopWatching = Listing.whenNear(more, growGrid);
+  } else if (stopWatching) {
+    stopWatching();
+    stopWatching = null;
+  }
+
+  /* A sticker chosen and then filtered out of view is still chosen, and the
+     button at the bottom still names it - so the selection is redrawn from
+     what the form holds rather than assumed to survive. */
+  var chosenNow = document.getElementById('sticker').value;
+  if (chosenNow) {
+    document.querySelectorAll('#grid .tile').forEach(function (t) {
+      if (t.dataset.name === chosenNow) { t.classList.add('sel'); }
+    });
+  }
+}
+
+function wireFinder() {
+  var box = document.getElementById('find');
+  var pick = document.getElementById('order');
+  if (box) {
+    box.addEventListener('input', fillGridTiles);
+  }
+  if (pick) { pick.addEventListener('change', fillGridTiles); }
 }
 
 function fillChoices(id, choices, chosen) {
@@ -117,6 +200,7 @@ function fillWhere() {
 }
 
 fillActions();
+wireFinder();
 fillGridTiles();
 fillFields();
 fillWhere();

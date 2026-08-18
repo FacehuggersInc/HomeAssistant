@@ -189,9 +189,10 @@ be told what its own plugin called it.
 
 **This is the point rather than a detail.** A quote inside an HTML attribute
 inside a JavaScript string inside a Python string passes through two rounds of
-escape processing, and one of them eats the backslash. That has already
-shipped a page which rendered as a row of tabs and nothing else, because the
-script died before it could reveal a single pane and nothing anywhere said so.
+escape processing, and one of them eats the backslash. A page whose script
+fails to parse renders as a row of tabs and nothing else: every pane is
+`display:none` until the first `show()` adds a class, so the script dies
+before it can reveal one and nothing anywhere says why.
 
 `str.format()` is worse again: CSS and JavaScript are full of braces and it
 would try to substitute every one of them.
@@ -228,10 +229,11 @@ Python modules.
 
 ### Values from outside are data, never markup
 
-Every page that moved had been building markup out of values it did not
-choose — a list's title, a timer's name, a sticker's filename, and on the
-calendar page the error text a stranger's server returned when a feed failed.
-Each site called `escape()`, and each site had to remember to.
+A page is full of values it did not choose — a list's title, a timer's name, a
+sticker's filename, and on the calendar page the error text a stranger's
+server returns when a feed fails. Interpolating one into markup is safe only
+if `escape()` is called at that site, and only if it is called at every other
+site too.
 
 Sending them as data removes the question. The script writes them with
 `textContent`, so they are text because of the shape rather than because
@@ -249,6 +251,66 @@ The one exception worth knowing: building an element and then serialising it
 back through `outerHTML` into `innerHTML` relies on the browser escaping on
 the way out. It does — but it is a reliance with no purpose. Append the
 element instead.
+
+### Long lists
+
+A page showing many items - a sticker library, a folder of uploads - gets a
+search box, a sort control and a cap on how many are drawn, from the shared
+helper in `src/web/listing.js`:
+
+```python
+ASSETS.page(title="Stickers", token=token, endpoint=PATH,
+            also=("listing.js",), data={"stickers": [...]})
+```
+
+```js
+var result = Listing.view(items, {
+  query: box.value, sort: pick.value,
+  fields: ['label', 'name'], window: 60
+});
+result.shown.forEach(draw);
+note.textContent = Listing.summary(result, 'sticker');
+```
+
+**The cap limits what is drawn, not what is searched.** A cap applied before
+the filter is a search that misses whatever sits past it, which is worse than
+having no search. `result.hidden` is how many matched and are not on screen,
+so a page can offer them rather than pretending they are not there.
+
+**Growing appends.** `from` is where the window starts, so a page that has
+drawn sixty asks for the next sixty and appends them, leaving what is already
+on screen alone. Asking for "the first 260" instead means building 260 tiles
+and throwing away the 60 that were fine — work that grows the further down
+somebody is.
+
+```js
+var result = Listing.view(items, {..., from: drawn, window: 60});
+drawn += result.shown.length;
+result.shown.forEach(draw);
+
+if (result.hidden) {
+  grid.appendChild(marker);              // a button, with an id
+  stop = Listing.whenNear(marker, grow); // and drawn by scrolling to it
+}
+```
+
+`whenNear` watches a marker after the last tile with an `IntersectionObserver`
+and a 400px margin, so the next batch starts before the bottom is reached. It
+hands back a function to stop watching, which a page redrawing from the top
+must call. A browser without `IntersectionObserver` gets `null` and the marker
+stays a button.
+
+Keep the marker a real button either way: it is the fallback, and some people
+would rather press something than scroll.
+
+`summary()` answers the one question a filtered list raises: whether a thing
+is absent or merely not shown. Sorting is by `name`, `newest`, `oldest` or
+`largest`, and an item needs `modified` and `size_bytes` for the last three -
+read them from disk in the endpoint, since a page cannot ask.
+
+A page using it says so with `also=`, which links it from the head with its
+own fingerprint. Both pages that need this share the one file, so neither can
+drift from the other.
 
 ### Several pages, one folder
 
@@ -322,7 +384,8 @@ shows as a flash of unstyled text.
 A module that imports Qt and holds markup is building a document for a **web
 view** - a map, a player shell - loaded into the panel rather than sent to a
 phone. It has no endpoint, no token and nothing to cache, so `WebAssets` has
-nothing to offer it. `check_assets.py` skips those.
+nothing to offer it. A scan for markup left in Python should skip any module that imports Qt for
+that reason.
 
 
 ## Pages built inline
@@ -433,9 +496,9 @@ layer, and that is the thing being avoided.
 ## There is no static folder
 
 Flask is given `static_folder=None`. It mounts `/static` whether anything is
-in it or not, and the panel's was empty and always had been — its CSS and
-JavaScript go through `/web`, which fingerprints them and lets a browser cache
-them properly. An empty mount is a URL that answers, an endpoint in `url_for`
+in it or not, and the panel has nothing to put there — its CSS and JavaScript
+go through `/web`, which fingerprints them and lets a browser cache them
+properly. An empty mount is a URL that answers, an endpoint in `url_for`
 that resolves, and a thing for the next person to wonder about.
 
 Anything a browser needs goes in `src/web/` for the panel, or a plugin's own

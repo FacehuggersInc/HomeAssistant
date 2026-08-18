@@ -394,10 +394,10 @@ time, date and temperature, and comes half-way up when somebody touches it.
   of light over a near-black gradient. Everything is sized from the window
   height rather than fixed: the clock is a fifth of it, the date and the
   temperature a **twentieth**, and the sunrise line smaller again. The date
-  and temperature used to be a sixth of the clock's height, which is legible
-  at arm's length and not from a bed - which is where this page is read from.
-  The gap between the lines is sized from the height too, or the date's
-  ascenders sit against the digits above it.
+  and temperature are sized to be read from a bed rather than at arm's
+  length, which is where this page is read from. The gap between the lines
+  is sized from the height too, or the date's ascenders sit against the
+  digits above it.
 * **Dimming** - drives `client.DIMMER`, which gained `animate_brightness()` for
   this: a panel changing level on its own is startling as a step and
   unremarkable as a fade.
@@ -629,10 +629,10 @@ at the default is better than one appearing at a size nobody picked.
 **Both pages carry the text size**, and each option is drawn at the size it
 names.
 
-**A widget takes a size that suits its text.** A default size was picked for
-one particular font, so raising the font used to leave the same box with
-bigger writing in it — a note at 30pt held about half of what it did at 17,
-and a list showed three rows where it had shown six.
+**A widget takes a size that suits its text.** A fixed default belongs to one
+particular font, so raising the font on one leaves the same box with bigger
+writing in it — a note at 30pt holding about half of what it holds at 17, and
+a list showing three rows where it showed six.
 
 **A note is measured**, not scaled. A note *is* its text, so four lines at
 24pt need a bigger box than four words at the same size — scaling from a

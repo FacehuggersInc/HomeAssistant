@@ -21,6 +21,59 @@ from src.plugin import dependencies as pipdeps
 from src.ui.icons import is_icon_path
 
 
+#Words that make a setting a credential rather than a preference. A log is
+#read by whoever is debugging, pasted into an issue, and kept for a week -
+#none of which is a place for a token.
+_SECRET_WORDS = ("password", "secret", "token", "api_key", "apikey",
+                 "credential", "passphrase", "private")
+
+
+def _setting_leaves(node, prefix: str = "") -> dict:
+    """
+    Every setting's value, by dotted path.
+
+    A settings file is groups of entries and each entry is a small dict with
+    a `value` in it, so the leaves are what to compare - comparing the dicts
+    would report a change every time a description was reworded.
+    """
+    found = {}
+    if not isinstance(node, dict):
+        return found
+    if "value" in node and "type" in node:
+        found[prefix] = node.get("value")
+        return found
+    for key, child in node.items():
+        path = f"{prefix}.{key}" if prefix else str(key)
+        found.update(_setting_leaves(child, path))
+    return found
+
+
+def _shown(dotted: str, value) -> str:
+    """One value, short enough for a log line and never a credential."""
+    if any(word in str(dotted).lower() for word in _SECRET_WORDS):
+        return "***" if value not in (None, "", []) else "empty"
+    text = repr(value)
+    return text if len(text) <= 60 else text[:57] + "..."
+
+
+def _setting_changes(before: dict, after: dict) -> list:
+    """
+    `(dotted, was, now)` for every setting whose value moved.
+
+    Both sides are read the same way, so a setting an update ADDED shows as
+    arriving and one it removed shows as going - which is the other thing
+    this file's write-back has been quietly doing.
+    """
+    old, new = _setting_leaves(before), _setting_leaves(after)
+    changes = []
+    for dotted in sorted(set(old) | set(new)):
+        was = old.get(dotted, "<not set>")
+        now = new.get(dotted, "<removed>")
+        if was != now:
+            changes.append((dotted, was, now))
+    return changes
+
+
 class PendingPlugin:
 
 	def __init__(self, key: str, name: str, path: Path, config: dict,
@@ -496,6 +549,7 @@ class PluginManager():
 			#
 			# Re-reading first means the new template wins on structure and the
 			# old memory only supplies values for keys that still exist.
+			template = {}
 			try:
 				with open(path, "r") as current_file:
 					template = json.load(current_file)
@@ -505,9 +559,32 @@ class PluginManager():
 					f"[PluginManager] Could not re-read '{plugin_key}' settings "
 					f"before saving, writing what was in memory: {e}")
 
+			# What actually changed, before it is written over.
+			#
+			# "Settings Saved" is true of a save that changed nothing and of
+			# one that changed six things, and the log could not tell them
+			# apart - so a setting that moved on its own, or one somebody set
+			# and forgot, left no trace at all.
+			changes = _setting_changes(template, values)
+
 			with open(path, "w") as jsonfile:
 				json.dump(values, jsonfile, indent = 4)
-			self.client.log("info", f"[PluginManager] '{plugin_key}' Settings Saved.")
+
+			if changes:
+				for dotted, before, after in changes:
+					self.client.log(
+						"info",
+						f"[PluginManager] '{plugin_key}' {dotted}: "
+						f"{_shown(dotted, before)} -> {_shown(dotted, after)}")
+				self.client.log(
+					"info",
+					f"[PluginManager] '{plugin_key}' Settings Saved "
+					f"({len(changes)} changed).")
+			else:
+				self.client.log(
+					"info",
+					f"[PluginManager] '{plugin_key}' Settings Saved "
+					f"(nothing changed).")
 
 		# etc. If not Quick Unloading; Remove Mixins, Remove from Plugin Registry | essentially this is for hot reloading, if quick is true, its because the app is shutting down
 		if not quick:

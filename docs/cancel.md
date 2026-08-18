@@ -46,11 +46,10 @@ and on "please stop it now" — and not on "stopwatch", because a substring is
 not a word. Punctuation is dropped first: a transcriber writes "me, stop" and
 the comma is not something anybody said.
 
-This used to be equality against the whole phrase, which meant a registered
-word only ever fired when somebody said that word and nothing else. "Stop the
-music" did not stop music, and anything said around the word — an apology, a
-complaint, a second thought — took the phrase out of reach of the thing it was
-aimed at.
+Containment rather than equality, because nobody says a keyword on its own.
+An apology, a complaint or a second thought around the word — "sorry, stop",
+"why are you still hearing me, stop" — is the same instruction, and matching
+the whole phrase puts all of them out of reach of the thing they are aimed at.
 
 Register the plain word rather than every sentence it might appear in. A long
 keyword is still matched in order and together, so `"stop the music"` does not
