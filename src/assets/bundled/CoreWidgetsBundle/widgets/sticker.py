@@ -400,7 +400,7 @@ class StickerWidget(Widget):
                 data=sticker,
             ))
 
-        empty = (f"No stickers yet. Upload some from a phone at "
+        empty = (f"No stickers yet. Upload some at "
                  f"/public/sticker_add, or drop files into "
                  f"{store.directory}.")
 

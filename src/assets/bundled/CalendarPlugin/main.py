@@ -173,7 +173,7 @@ class Calendar(Plugin):
         self.client.API.register(
             "calendar", "calendar_form", self.api_form, requires_auth=True,
             gui="Add an event", icon="calendar",
-            description="A page sized for a phone. Adds to the panel straight away.")
+            description="Add an event. It appears on the panel straight away.")
 
         # Serves the two pages' larger files, and remembers its own URL so no
         # page has to name it. Both pages share this one endpoint.

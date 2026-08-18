@@ -39,7 +39,7 @@ function findQuery() {
 
 function currentOrder() {
   var pick = document.getElementById('order');
-  return pick ? pick.value : 'name';
+  return pick ? pick.value : 'newest';
 }
 
 /* Tiles are built as elements rather than as a string of markup, so a
@@ -225,9 +225,25 @@ if (chosen) {
     if (t.dataset.name === chosen) { t.classList.add('sel'); }
   });
 }
-document.querySelectorAll('#grid .tile').forEach(function (t) {
-  t.addEventListener('click', function () { mark(t); });
-});
+/* One listener on the grid, not one per tile.
+ *
+ * Binding to each tile only reaches the tiles that exist when it runs, and
+ * every tile is replaced when the order or the filter changes and appended
+ * when the next batch arrives - so a handler attached at load belongs to
+ * elements that are no longer on the page, and pressing a sticker does
+ * nothing at all.
+ *
+ * The grid outlives all of them, so it is the thing to listen on. */
+(function () {
+  var grid = document.getElementById('grid');
+  if (!grid) { return; }
+  grid.addEventListener('click', function (ev) {
+    var target = ev.target;
+    /* The press lands on the image or the name, not on the tile itself. */
+    var tile = target && target.closest ? target.closest('.tile') : null;
+    if (tile && grid.contains(tile)) { mark(tile); }
+  });
+})();
 document.getElementById('mode').addEventListener('change', function () {
   document.getElementById('timeoutRow').style.display =
     this.value === 'temporary' ? 'block' : 'none';

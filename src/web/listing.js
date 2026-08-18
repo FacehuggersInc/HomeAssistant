@@ -79,7 +79,10 @@ window.Listing = (function () {
       return matches(item, wanted, fields);
     });
 
-    var order = SORTS[opts.sort] || SORTS.name;
+    /* Newest first when nothing says otherwise. A library is added to at
+       one end, so what somebody came for is almost always what arrived
+       last - and alphabetical puts that wherever its name happens to fall. */
+    var order = SORTS[opts.sort] || SORTS.newest;
     found = found.slice().sort(order);
 
     var until = cap > 0 ? from + cap : found.length;

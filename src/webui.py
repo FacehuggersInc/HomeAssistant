@@ -117,8 +117,18 @@ LAYOUT_CSS = """ *{box-sizing:border-box}
  section{background:var(--card);border:1px solid var(--line);
       border-radius:14px;padding:16px;margin-bottom:16px}
  label{display:block;font-size:13px;color:var(--muted);margin:12px 0 4px}
- .row{display:flex;gap:10px}
+ .row{display:flex;gap:10px;flex-wrap:wrap;justify-content:center}
  .row>div{flex:1}
+
+ /* Anything that wraps, centres.
+    A row of buttons narrower than the screen splits at the edge and the
+    overflow lands hard left, under the first column - which reads as a
+    mistake rather than as a second row. Centring only moves the row that
+    is short, so a full one looks exactly as it did.
+
+    Applied to the shared classes here so a page gets it without asking; a
+    page adding its own wrapping row should add it there too. */
+ .wrap-centre{display:flex;flex-wrap:wrap;gap:8px;justify-content:center}
  .hint{color:var(--muted);font-size:12.5px;margin-top:6px;line-height:1.55}
  .empty{color:var(--muted);font-size:14px;padding:10px 0}"""
 
@@ -153,7 +163,17 @@ BACK_CSS = """ a.back{display:inline-flex;align-items:center;gap:8px;
  a.back:active{background:#26262b}
  a.back svg{width:16px;height:16px;fill:none;stroke:currentColor;
       stroke-width:2.4;stroke-linecap:round;stroke-linejoin:round}
- .backrow{display:flex;gap:10px;flex-wrap:wrap;align-items:center}"""
+ .backrow{display:flex;gap:10px;flex-wrap:wrap;align-items:center;
+          justify-content:center}
+
+ /* A row of buttons that wraps.
+    Flexbox lays a wrapped row out from the left, so three buttons across
+    and a fourth underneath puts that fourth hard against the edge with a
+    gap beside it - which reads as a mistake rather than as a row. Centred,
+    a short last row sits under the middle of the one above it.
+    There is no way to centre ONLY the last row, so every row is centred.
+    That is the same thing when the row is full and better when it is not. */
+ .wrap-row{display:flex;flex-wrap:wrap;gap:10px;justify-content:center}"""
 
 
 _CHEVRON = ('<svg viewBox="0 0 24 24" aria-hidden="true">'

@@ -632,7 +632,7 @@ class CalendarPage(SubPageFramework):
         if not entries:
             self.client.simple_notify(
                 "mdi.sticker-emoji", "Stickers",
-                "There are no stickers yet. Upload one from a phone.")
+                "There are no stickers yet. Add one from the Stickers page.")
             return
 
         from .sticker_picker import choose_sticker

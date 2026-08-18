@@ -76,8 +76,8 @@
     <input type="search" id="find" placeholder="Search this folder"
            autocomplete="off">
     <select id="order">
-      <option value="name">Name</option>
       <option value="newest">Newest</option>
+      <option value="name">Name</option>
       <option value="oldest">Oldest</option>
       <option value="largest">Largest</option>
     </select>
@@ -275,7 +275,7 @@
      var pick = document.getElementById('order');
      var result = Listing.view(ALL, {
        query: box ? box.value : '',
-       sort: pick ? pick.value : 'name',
+       sort: pick ? pick.value : 'newest',
        fields: ['name'],
        from: drawn,
        window: BATCH

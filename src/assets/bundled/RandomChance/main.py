@@ -91,7 +91,7 @@ class RandomChancePlugin(Plugin):
         self.client.API.register(
             self.KEY, "randomchance_page", self.api_page,
             requires_auth=True, gui="Random Chance", icon="mdi.dice-multiple",
-            description="Flip a coin or roll dice on the panel, from a phone.")
+            description="Flip a coin, roll dice, or spin a wheel on the panel.")
         ASSETS.register(self.client, self.KEY)
 
         # Named at load, not when somebody opens the page: a file left out of

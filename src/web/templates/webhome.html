@@ -43,8 +43,10 @@
 
  /* Wider than they were: a bookmark's title is the whole of knowing what it
     is, and 150px cut most of them off. */
+ /* auto-fit: a lone bookmark on the last row shares the width rather than
+    sitting at a quarter of it against the left edge. */
  .grid{display:grid;gap:10px;
-       grid-template-columns:repeat(auto-fill,minmax(240px,1fr))}
+       grid-template-columns:repeat(auto-fit,minmax(240px,1fr))}
  .mark{position:relative;display:flex;align-items:center;gap:12px;
        padding:14px 40px 14px 14px;
        border:1px solid var(--line);border-radius:12px;background:var(--card);

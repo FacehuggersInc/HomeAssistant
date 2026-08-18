@@ -284,7 +284,10 @@ and throwing away the 60 that were fine — work that grows the further down
 somebody is.
 
 ```js
-var result = Listing.view(items, {..., from: drawn, window: 60});
+var result = Listing.view(items, {
+  query: box.value, sort: pick.value, fields: ['name'],
+  from: drawn, window: 60
+});
 drawn += result.shown.length;
 result.shown.forEach(draw);
 

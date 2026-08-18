@@ -5,9 +5,11 @@
   border-color:var(--accent)}
 .pane{display:none}
 .pane.on{display:block}
-.dice-types{display:flex;flex-wrap:wrap;gap:8px}
+.dice-types{display:flex;flex-wrap:wrap;gap:8px;justify-content:center}
 .dice-types button{flex:1 1 26%;min-width:86px;padding:14px 6px;font-size:17px}
-.tray{display:flex;flex-wrap:wrap;gap:10px;margin-top:12px}
+.tray{display:flex;flex-wrap:wrap;gap:10px;justify-content:center;
+  margin-top:12px;
+  justify-content:center}
 .chip{display:flex;align-items:center;gap:2px;background:var(--card2);
   border:1px solid var(--line);border-radius:999px;padding:4px}
 .chip b{font-size:16px;color:var(--text);min-width:62px;text-align:center}
@@ -17,14 +19,15 @@
 .chip .drop{color:var(--muted);font-size:18px}
 .rule{display:flex;gap:8px;align-items:center;background:var(--card2);
   border:1px solid var(--line);border-radius:12px;padding:10px;
-  margin-bottom:8px;flex-wrap:wrap}
+  margin-bottom:8px;flex-wrap:wrap;justify-content:center}
 .rule select{flex:0 0 30%}
 .rule input[type=number]{flex:0 0 24%}
 .rule input[type=text]{flex:1 1 100%}
 .rule .drop{flex:0 0 auto;background:none;border:none;color:var(--muted);
   font-size:22px;padding:0 6px;margin-left:auto}
 #say{display:none}
-.tools{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+.tools{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px;
+  justify-content:center}
 .tools button{flex:1 1 30%;min-width:110px;padding:12px 6px;font-size:15px}
 .witem{display:flex;gap:8px;align-items:center;background:var(--card2);
   border:1px solid var(--line);border-radius:12px;padding:8px;

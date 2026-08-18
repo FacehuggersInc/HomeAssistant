@@ -489,6 +489,15 @@ requires the panel to actually drop before counting it as back - otherwise a
 poll landing between the reply and the restart reports success against the
 process on its way out.
 
+## The dashboard's page list
+
+`gui=` puts an endpoint in the list at `/`, under **From plugins**. The
+panel's own pages sit under **This panel**, below them: what a plugin adds is
+what somebody chose to put there, and the panel's own are on every install and
+are where somebody already knows to look.
+
+A group with nothing in it is left out rather than shown as an empty heading.
+
 ## Downloading a plugin
 
 `/plugins/<key>/download` zips a plugin as it is on disk. **Bundled plugins

@@ -1051,6 +1051,7 @@ def FlaskApp(client):
 
 		from src.webicons import svg
 
+		# The panel's own pages. A plugin's go above these - see below.
 		pages = [
 			{"url": "/docs", "label": "Documentation",
 			 "description": "Everything about this panel and how to extend it.",
@@ -1089,13 +1090,31 @@ def FlaskApp(client):
 					 "auth": True, "icon": "puzzle"})
 		except Exception as e:
 			client.log("debug", f"[Index] Could not check plugin access: {e}")
+		# Everything above is the panel's own and is on every install. What a
+		# plugin adds is what somebody chose to put there, and it goes first -
+		# the same reasoning the actions below already follow.
+		#
+		# Two lists rather than one sorted list, because they are not the same
+		# kind of thing: the panel's pages are fixed and a plugin's come and go
+		# with what is installed, and a heading over each says which is which
+		# without anybody having to work it out from the names.
+		system_pages = pages
+		plugin_pages = []
 		for endpoint in client.API.gui_endpoints():
-			pages.append({"url": f"/public/{endpoint.key}", "label": endpoint.gui,
-						  "description": endpoint.description,
-						  "auth": endpoint.authed,
-						  # A plugin that named no icon gets the fallback dot
-						  # rather than a gap - see webicons.svg().
-						  "icon": endpoint.icon})
+			plugin_pages.append({
+				"url": f"/public/{endpoint.key}", "label": endpoint.gui,
+				"description": endpoint.description,
+				"auth": endpoint.authed,
+				# A plugin that named no icon gets the fallback dot rather
+				# than a gap - see webicons.svg().
+				"icon": endpoint.icon})
+
+		# Named, and in the order they are shown.
+		groups = [
+			{"title": "From plugins", "pages": plugin_pages},
+			{"title": "This panel", "pages": system_pages},
+		]
+		pages = plugin_pages + system_pages
 		for page in pages:
 			page["icon"] = svg(page.get("icon", ""))
 
@@ -1134,7 +1153,8 @@ def FlaskApp(client):
 		except Exception as e:
 			client.log("debug", f"[Index] Could not list users: {e}")
 
-		return render_template("index.html", pages=pages, actions=actions,
+		return render_template("index.html", pages=pages, groups=groups,
+							   actions=actions,
 							   users=users, token=token,
 							   panel=client.panel_name(),
 							   device=user.name if user else "this device"), 200

@@ -14,7 +14,7 @@
  /* WHICH PANEL. The first thing on the page, because a phone that can reach
     three of these needs to know which one it is holding. */
  .top{display:flex;align-items:center;gap:16px;flex-wrap:wrap;
-      padding:26px 0 20px}
+      justify-content:center;padding:26px 0 20px}
  .mark{display:flex;align-items:center;gap:13px;min-width:0}
  .mark .glyph{width:46px;height:46px;border-radius:14px;flex:none;
    background:linear-gradient(140deg,var(--accent),var(--accent2));
@@ -47,8 +47,12 @@
    padding:20px 16px;overflow-y:auto;transform:translateX(-102%);
    transition:transform .2s cubic-bezier(.2,.7,.3,1)}
  .drawer.open{transform:none}
+ /* Room above, so a second group reads as a new group rather than as more
+    of the list above it. The first one keeps its original top margin, since
+    there is nothing above it to be separated from. */
  .drawer h3{font-size:11.5px;font-weight:600;text-transform:uppercase;
-   letter-spacing:.1em;color:var(--muted);margin:4px 0 14px}
+   letter-spacing:.1em;color:var(--muted);margin:22px 0 10px}
+ .drawer h3:first-of-type{margin-top:4px}
  .drawer a{display:flex;align-items:center;gap:11px;min-height:50px;
    padding:9px 13px;border-radius:11px;color:var(--text);
    text-decoration:none;font-size:14.5px;font-weight:500;line-height:1.3}
@@ -58,12 +62,31 @@
  .drawer a .d{display:block;font-size:11.5px;color:var(--muted);
               font-weight:400;margin-top:1px}
 
+ /* Wide enough for both: the drawer stops being a drawer.
+    A menu button is what a narrow screen needs, and on anything wider it is
+    a tap between somebody and a list that would have fitted beside the page
+    anyway. 1000 rather than the 1180 both would need at full width: the
+    page gives up some of its own 820 to have the list beside it, which is a
+    better trade than a tap on every screen between the two. */
+ @media (min-width: 1000px) {
+   .drawer{transform:none;box-shadow:none}
+   .scrim{display:none}
+   .menu{display:none}
+   /* The page moves over rather than the drawer overlapping it. */
+   body{padding-left:322px}
+ }
+
  h2{font-size:11.5px;font-weight:600;text-transform:uppercase;
     letter-spacing:.1em;color:var(--muted);margin:26px 0 12px}
 
  .grid{display:grid;gap:12px}
- .g4{grid-template-columns:repeat(auto-fill,minmax(215px,1fr))}
- .g3{grid-template-columns:repeat(auto-fill,minmax(270px,1fr))}
+ /* auto-fit, not auto-fill. auto-fill keeps the empty columns, so a row
+    with one card on it leaves that card at a third of the width against the
+    left edge - which reads as broken rather than as the last of a list.
+    auto-fit collapses the empty tracks and the cards on that row share the
+    width between them. */
+ .g4{grid-template-columns:repeat(auto-fit,minmax(215px,1fr))}
+ .g3{grid-template-columns:repeat(auto-fit,minmax(270px,1fr))}
 
  /* A CARD that does something. Same size as the page cards were. */
  .card{position:relative;display:flex;flex-direction:column;gap:10px;
@@ -208,14 +231,27 @@
 
 <div class="scrim" id="scrim"></div>
 <aside class="drawer" id="drawer">
-  <h3>{{ pages|length }} page{{ '' if pages|length == 1 else 's' }}</h3>
-  {% for page in pages %}
-  <a href="{{ page.url }}{% if page.auth %}?token={{ token }}{% endif %}">
-    {{ page.icon|safe }}
-    <span>{{ page.label }}
-      {% if page.description %}<span class="d">{{ page.description }}</span>{% endif %}
-    </span>
-  </a>
+  {#
+    Two groups, plugin pages first. What a plugin adds is what somebody
+    chose to put there; the panel's own are on every install and are where
+    somebody already knows to look.
+
+    A group with nothing in it is left out entirely rather than shown as an
+    empty heading - a panel with no plugin pages should read as a list, not
+    as a list with a gap in it.
+  #}
+  {% for group in groups %}
+    {% if group.pages %}
+    <h3>{{ group.title }}</h3>
+      {% for page in group.pages %}
+      <a href="{{ page.url }}{% if page.auth %}?token={{ token }}{% endif %}">
+        {{ page.icon|safe }}
+        <span>{{ page.label }}
+          {% if page.description %}<span class="d">{{ page.description }}</span>{% endif %}
+        </span>
+      </a>
+      {% endfor %}
+    {% endif %}
   {% endfor %}
 </aside>
 
