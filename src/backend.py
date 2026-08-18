@@ -1127,6 +1127,23 @@ def FlaskApp(client):
 			actions.append({"url": f"/public/{endpoint.key}",
 							"label": endpoint.action, "danger": endpoint.danger})
 
+		# The logs, as downloads rather than as actions.
+		#
+		# An action posts and shows what came back; a log is a file the browser
+		# has to save, so these are links. `previous` is the one before
+		# latest.log, which is the one worth having after a restart has already
+		# rotated the interesting one away.
+		actions += [
+			{"url": "/logs/latest", "label": "Latest log", "danger": False,
+			 "icon": "file-document", "download": True},
+			{"url": "/logs/previous", "label": "Previous log", "danger": False,
+			 "icon": "file-document", "download": True},
+			{"url": "/logs/crash", "label": "Crash log", "danger": False,
+			 "icon": "alert", "download": True},
+			{"url": "/logs/startup", "label": "Startup log", "danger": False,
+			 "icon": "power", "download": True},
+		]
+
 		actions += [
 			{"url": "/ping", "label": "Ping", "danger": False,
 			 "icon": "check-network"},
@@ -1627,6 +1644,76 @@ def FlaskApp(client):
 				samesite="Lax",
 			)
 		return response
+
+	@app.route("/logs/<which>", methods=["GET"])
+	def download_log(which):
+		"""
+		One log file, as a download.
+
+		Four names rather than a path: `latest`, `previous`, `crash` and
+		`startup`. A route that took a filename would be a way to read anything
+		in the folder, and there is nothing else in there worth naming.
+
+		`previous` is the newest rotated log - the one before latest.log -
+		found by modified time rather than by its name, because the name comes
+		from the first line of the log before it.
+		"""
+		log()
+		err = auth()
+		if err: return err
+
+		import re as _re
+		from datetime import datetime as _datetime
+		from src.constants import LOG_DIR, LAUNCHER_LOG
+
+		wanted = str(which or "").lower()
+
+		if wanted == "startup":
+			path = LAUNCHER_LOG
+		elif wanted == "crash":
+			path = LOG_DIR / "crash.log"
+		elif wanted == "latest":
+			path = LOG_DIR / "latest.log"
+		elif wanted == "previous":
+			try:
+				rotated = sorted(
+					(entry for entry in LOG_DIR.glob("*.log")
+					 if entry.is_file() and entry.name not in (
+						 "latest.log", "crash.log", "startup.log")),
+					key=lambda entry: entry.stat().st_mtime, reverse=True)
+			except OSError:
+				rotated = []
+			if not rotated:
+				return {"request": "Failed",
+						"reason": "No log before this one yet."}, 404
+			path = rotated[0]
+		else:
+			return {"request": "Failed",
+					"reason": f"No log called '{which}'."}, 404
+
+		if not path.is_file():
+			return {"request": "Failed",
+					"reason": f"{path.name} is not here yet."}, 404
+
+		try:
+			body = path.read_bytes()
+		except OSError as e:
+			return {"request": "Failed",
+					"reason": f"Could not read {path.name}: {e}"}, 500
+
+		# The panel's name and the date on it, so four of these in a downloads
+		# folder are still tellable apart a week later.
+		stamp = _datetime.fromtimestamp(
+			path.stat().st_mtime).strftime("%Y%m%d-%H%M")
+		safe = _re.sub(r"[^A-Za-z0-9_-]+", "-", client.panel_name() or "panel")
+		filename = f"{safe}-{wanted}-{stamp}.log"
+
+		client.log("info", f"[Logs] {path.name} downloaded as {filename}.")
+		return Response(body, mimetype="text/plain; charset=utf-8", headers={
+			"Content-Disposition": f'attachment; filename="{filename}"',
+			"Content-Length": str(len(body)),
+			"Cache-Control": "no-store",
+		})
 
 	## THE PANEL'S OWN WEB ASSETS
 	@app.route("/web", methods=["GET"])

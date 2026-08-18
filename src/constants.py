@@ -47,6 +47,18 @@ STAGING_DIR  = INSTALL_ROOT / ".update-staging"
 BACKUP_DIR   = INSTALL_ROOT / ".update-backup"
 LAUNCHER_LOG = INSTALL_ROOT / "startup.log"
 
+#Where every log goes. Derived from the install rather than from the working
+#directory: os.getcwd() is wherever the process was started - a launcher, a
+#service unit, a shell somewhere else - and a relative "logs" then writes
+#beside whatever that was, while anything using INSTALL_ROOT writes here. Two
+#log folders, and a prune that empties the wrong one.
+LOG_DIR = INSTALL_ROOT / "logs"
+
+#How many rotated logs to keep. Enough to cover a fault that only shows up
+#after a few restarts, and not so many that the folder is the largest thing
+#in the install.
+KEEP_LOGS = 20
+
 
 def get_data_dir(app_name: str = APP_NAME) -> Path:
     if platform.system() == "Windows":

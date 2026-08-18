@@ -91,6 +91,14 @@
     auto-fit collapses the empty tracks and the cards on that row share the
     width between them. */
  .g4{grid-template-columns:repeat(auto-fit,minmax(215px,1fr))}
+ /* Actions pack tighter: a label and a glyph, in a row rather than a
+    column, and no height held for a description that never comes. */
+ .acts{grid-template-columns:repeat(auto-fit,minmax(148px,1fr));gap:9px}
+ .act{flex-direction:row;align-items:center;gap:11px;padding:11px 13px;
+      min-height:0}
+ .act .ico{width:30px;height:30px;border-radius:9px;flex:none}
+ .act .ico svg{width:17px;height:17px}
+ .act .label{font-size:14px;line-height:1.25}
  .g3{grid-template-columns:repeat(auto-fit,minmax(270px,1fr))}
 
  /* A CARD that does something. Same size as the page cards were. */
@@ -219,15 +227,32 @@
 <div class="grid g4" id="state"></div>
 
 <h2>Actions</h2>
-<div class="grid g4">
+{#
+  Denser than the cards above. An action is a label and a glyph with nothing
+  under it, so the card's height was room kept for a description that never
+  arrives - and a dozen of them is a lot of scrolling for a row of buttons.
+
+  A download is a link, not a button. Fetching one would put a log file
+  through a JSON parser, and the browser already knows where somebody's
+  downloads go.
+#}
+<div class="grid acts">
   {% for action in actions %}
-  <button class="card{% if action.danger %} danger{% endif %}"
+  {% if action.download %}
+  <a class="card act{% if action.danger %} danger{% endif %}"
+     href="{{ action.url }}?token={{ token }}" download>
+    <span class="ico">{{ action.icon|safe }}</span>
+    <span class="label">{{ action.label }}</span>
+  </a>
+  {% else %}
+  <button class="card act{% if action.danger %} danger{% endif %}"
           data-url="{{ action.url }}?token={{ token }}"
           data-label="{{ action.label }}"
           {% if action.danger %}data-confirm="1"{% endif %}>
     <span class="ico">{{ action.icon|safe }}</span>
     <span class="label">{{ action.label }}</span>
   </button>
+  {% endif %}
   {% endfor %}
 </div>
 
