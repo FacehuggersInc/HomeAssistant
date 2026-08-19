@@ -3064,6 +3064,73 @@ class Client:
         else:
             self.call_on_ui(lambda: self.DIALOG.open(dialog))
 
+    def browse(self, on_chosen=None, start=None, select: str = "both",
+               multiple: bool = False, title: str = "",
+               choose_text: str = "", layout: str = "list") -> None:
+        """
+        The file explorer.
+
+        `on_chosen` is handed a full path as a string, or a list of them when
+        `multiple`. A path rather than the dialog's own item type: a caller
+        wanting a file wants a file, and making them know what a `GridItem`
+        is to get one is an implementation detail escaping.
+
+        `select` is "file", "folder" or "both". `start` is where to open, and
+        defaults to home.
+
+        Nothing happens if it is cancelled - a picker that calls back with
+        nothing is one every caller has to guard, and none of them would.
+        """
+        from pathlib import Path
+
+        from src.ui.grid_dialog import ItemGridDialog
+
+        kind = str(select or "both").lower()
+        if not title:
+            title = {"file": "Choose a file",
+                     "folder": "Choose a folder"}.get(kind, "Choose")
+        if not choose_text:
+            choose_text = "Use these" if multiple else "Use this"
+
+        def answer(chosen):
+            if not callable(on_chosen):
+                return
+            try:
+                if isinstance(chosen, list):
+                    on_chosen([str(item.key) for item in chosen])
+                elif chosen is not None:
+                    on_chosen(str(chosen.key))
+            except Exception as e:
+                self.log("warning", f"[Browse] Handler failed: {e}")
+
+        try:
+            where = Path(start).expanduser() if start else Path.home()
+            if not where.is_dir():
+                where = where.parent if where.parent.is_dir() else Path.home()
+        except Exception:
+            where = Path.home()
+
+        self.dialog(ItemGridDialog(
+            self, title=title, browse=where, select=kind, multiple=multiple,
+            layout=layout, choose_text=choose_text, on_chosen=answer))
+
+    def pick_file(self, on_chosen=None, start=None, multiple: bool = False,
+                  title: str = "") -> None:
+        """One file, or several. See browse()."""
+        self.browse(on_chosen=on_chosen, start=start, select="file",
+                    multiple=multiple, title=title)
+
+    def pick_folder(self, on_chosen=None, start=None, title: str = "") -> None:
+        """
+        One folder. See browse().
+
+        With nothing selected this answers with the folder somebody is
+        standing in, so opening it and pressing the button is a valid way to
+        choose one.
+        """
+        self.browse(on_chosen=on_chosen, start=start, select="folder",
+                    title=title)
+
     def close_dialog(self) -> None:
         if QThread.currentThread() is self.app.thread():
             self.DIALOG.close()

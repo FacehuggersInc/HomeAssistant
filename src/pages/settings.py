@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 from PyQt6.QtWidgets import (
     QGridLayout,
     QWidget, QHBoxLayout, QVBoxLayout, QLabel, QPushButton,
-    QScrollArea, QLineEdit, QTextEdit, QComboBox, QFrame, QSizePolicy, QFileDialog,
+    QScrollArea, QLineEdit, QTextEdit, QComboBox, QFrame, QSizePolicy,
     QScroller,
 )
 from PyQt6.QtCore import Qt, QSize, QPropertyAnimation, QEasingCurve, pyqtProperty, QUrl, QTimer
@@ -414,16 +414,28 @@ class SettingBlock(QFrame):
             browse.setFocusPolicy(Qt.FocusPolicy.NoFocus)
             set_style(browse, "settings", "settings-browse-button")
             def _browse(checked=False, _s=setting, _f=field):
-                from PyQt6.QtWidgets import QFileDialog
-                current = str(_s["value"])
-                chosen = QFileDialog.getExistingDirectory(None, "Select folder", current)
-                if chosen:
+                """
+                The panel's own explorer, not the system one.
+
+                `QFileDialog` opens a native window. On a single-monitor
+                panel running fullscreen that window goes behind the app,
+                where it cannot be seen or reached - so the Browse button
+                appeared to do nothing at all.
+
+                Files as well as folders: a path setting is a path to
+                whatever it names, and half of them name a file.
+                """
+                def took(chosen: str) -> None:
                     _s["value"] = chosen
                     for child in _f.children():
                         if isinstance(child, QLineEdit):
                             child.setText(chosen)
                             break
                     self._refresh_modified_badge()
+
+                self.client.browse(
+                    on_chosen=took, start=str(_s.get("value") or ""),
+                    select="both", title=f"Choose for {format_name(key)}")
             browse.clicked.connect(_browse)
             path_row = QWidget()
             set_style(path_row, "common", "transparent")

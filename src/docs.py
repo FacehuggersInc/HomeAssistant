@@ -83,6 +83,7 @@ NAV_GROUPS = [
         ("api.md",             "Backend API"),
         ("users.md",           "Users"),
         ("status.md",          "Status"),
+        ("browsing.md",        "Browsing"),
         ("web-ui.md",          "Web UI"),
         ("webpage.md",         "The web page"),
     ]),
