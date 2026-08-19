@@ -291,6 +291,45 @@ class StickerWidget(Widget):
         self._stop_movie()
         super().closeEvent(event)
 
+    ## -- animation, when anybody can see it
+
+    def set_animations_paused(self, paused: bool) -> None:
+        """
+        Stop decoding while nothing is looking at this.
+
+        A QMovie keeps decoding and keeps asking for a repaint whatever is on
+        top of it. A dialog covers the home page without hiding a single
+        widget, so a page of animated stickers goes on spending frames under
+        it - and the thing on top is usually the thing somebody is trying to
+        use.
+
+        Paused rather than stopped: stopping rewinds, and a sticker that
+        restarts every time a dialog closes is a sticker that never gets
+        anywhere.
+        """
+        movie = self._movie
+        if movie is None:
+            return
+        try:
+            movie.setPaused(bool(paused))
+        except RuntimeError:
+            # The C++ object went. _stop_movie() clears the reference.
+            self._stop_movie()
+
+    def hideEvent(self, event) -> None:
+        self.set_animations_paused(True)
+        super().hideEvent(event)
+
+    def showEvent(self, event) -> None:
+        # Not while a dialog is up: the page under one is shown and covered,
+        # and this runs on the way back from both.
+        try:
+            covered = self.client.DIALOGS.get() is not None
+        except Exception:
+            covered = False
+        self.set_animations_paused(covered)
+        super().showEvent(event)
+
     def _stop_movie(self) -> None:
         movie, self._movie = self._movie, None
         if movie is None:

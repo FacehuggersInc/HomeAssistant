@@ -51,19 +51,28 @@ MIN_INK = 8
 class _Stroke:
     """One continuous press-drag-release."""
 
-    __slots__ = ("path", "colour", "width", "erase")
+    __slots__ = ("path", "points", "colour", "width", "erase")
 
     def __init__(self, point: QPointF, colour: str, width: int, erase: bool):
         # QPointF, not QPoint. `QPainterPath` has no QPoint overload, and
         # rounding to whole pixels would cost the smoothness a drawing needs
         # anyway - `event.position()` is already a float.
         self.path = QPainterPath(QPointF(point))
+        # The same points, kept as a list.
+        #
+        # A path can only be drawn whole. Composing a stroke while it is
+        # being drawn means painting the piece that arrived since the last
+        # frame, and that needs the two points it runs between - so they are
+        # kept alongside. Round caps and joins make a chain of segments look
+        # the same as one path.
+        self.points = [QPointF(point)]
         self.colour = colour
         self.width = width
         self.erase = erase
 
     def extend(self, point: QPointF) -> None:
         self.path.lineTo(QPointF(point))
+        self.points.append(QPointF(point))
 
     def pen(self) -> QPen:
         pen = QPen(QColor(self.colour), self.width)
@@ -99,9 +108,15 @@ class _Canvas(QWidget):
         self.width = WIDTHS[1]
         self.erasing = False
         self._current: _Stroke | None = None
-        #The composed ink, and how many finished strokes are in it.
+        #The composed ink, and how far into the strokes it goes.
+        #
+        #`_drawn_strokes` is how many strokes are fully in it; `_drawn_points`
+        #is how many points of the NEXT one are. Everything drawn so far is
+        #in the cache, including the stroke under the finger - so a frame
+        #paints the piece that just arrived and nothing else.
         self._cache: QImage | None = None
-        self._cached_upto = 0
+        self._drawn_strokes = 0
+        self._drawn_points = 0
         self.setSizePolicy(QSizePolicy.Policy.Expanding,
                            QSizePolicy.Policy.Expanding)
         self.setCursor(Qt.CursorShape.CrossCursor)
@@ -120,23 +135,46 @@ class _Canvas(QWidget):
     def mouseMoveEvent(self, event) -> None:
         if self._current is None:
             return
+        was = self._current.points[-1]
         self._current.extend(event.position())
-        self.update()
+        # Only where the ink changed.
+        #
+        # A full repaint per move event costs the whole canvas whatever was
+        # drawn, and a phone reports moves faster than that can be done - so
+        # the events queue and arrive in batches, which is what makes a line
+        # look like segments.
+        self.update(self._segment_rect(was, self._current.points[-1]))
 
     def mouseReleaseEvent(self, event) -> None:
         self._current = None
 
+    def _segment_rect(self, start: QPointF, end: QPointF):
+        """The area one segment touches, with room for the brush."""
+        pad = self.width + 4
+        left = min(start.x(), end.x()) - pad
+        top = min(start.y(), end.y()) - pad
+        right = max(start.x(), end.x()) + pad
+        bottom = max(start.y(), end.y()) + pad
+        return QRectF(left, top, right - left, bottom - top).toAlignedRect()
+
+    def _restart_cache(self) -> None:
+        """Throw the composed ink away. The next paint rebuilds it."""
+        self._cache = None
+        self._drawn_strokes = 0
+        self._drawn_points = 0
+
     def undo(self) -> None:
         if self.strokes:
             self.strokes.pop()
-            self._cached_upto = 10 ** 9   # forces a rebuild
+            # There is no un-drawing from a composed image, so it starts
+            # again. Undo is rare; a move event is not.
+            self._restart_cache()
             self.update()
 
     def clear(self) -> None:
         self.strokes = []
         self._current = None
-        self._cache = None
-        self._cached_upto = 0
+        self._restart_cache()
         self.update()
 
     ## -- painting
@@ -165,40 +203,85 @@ class _Canvas(QWidget):
         """
         Every stroke, composed on transparency at the canvas size.
 
-        Completed strokes are cached and only the one under the finger is
-        redrawn, so the cost of a move event does not grow with the drawing.
+        Composed once and added to, never rebuilt and never copied. What each
+        frame costs is the piece of the stroke that arrived since the last
+        one, whatever is already on the canvas - where copying the whole
+        image per move event cost a canvas-sized memcpy, and re-drawing the
+        live stroke from its first point cost more the longer the stroke got.
+        Both of those grow exactly while somebody is drawing.
         """
         if self._cache is None or self._cache.size() != self.size():
             self._cache = QImage(self.size(),
                                  QImage.Format.Format_ARGB32_Premultiplied)
             self._cache.fill(Qt.GlobalColor.transparent)
-            self._cached_upto = 0
+            self._drawn_strokes = 0
+            self._drawn_points = 0
 
-        finished = self.strokes[:-1] if self._current is not None else self.strokes
-        if self._cached_upto > len(finished):
-            # Undone. The cache holds strokes that no longer exist and there
-            # is no un-drawing them, so it starts again.
+        if self._drawn_strokes > len(self.strokes):
+            # Undone while a frame was in flight.
             self._cache.fill(Qt.GlobalColor.transparent)
-            self._cached_upto = 0
+            self._drawn_strokes = 0
+            self._drawn_points = 0
 
-        if self._cached_upto < len(finished):
+        pending = self._drawn_strokes < len(self.strokes)
+        if pending or self._drawn_points:
             painter = QPainter(self._cache)
             painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-            self._paint_strokes(painter, finished[self._cached_upto:])
-            painter.end()
-            self._cached_upto = len(finished)
+            try:
+                while self._drawn_strokes < len(self.strokes):
+                    stroke = self.strokes[self._drawn_strokes]
+                    self._paint_segments(painter, stroke, self._drawn_points)
+                    if self._drawn_strokes == len(self.strokes) - 1 \
+                            and stroke is self._current:
+                        # Still growing. Stop here and remember how far.
+                        self._drawn_points = len(stroke.points)
+                        break
+                    self._drawn_strokes += 1
+                    self._drawn_points = 0
+            finally:
+                painter.end()
 
-        if self._current is None:
-            return self._cache
+        return self._cache
 
-        # The live one on a copy, so the cache is not polluted by a stroke
-        # that is still growing.
-        live = QImage(self._cache)
-        painter = QPainter(live)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-        self._paint_strokes(painter, [self._current])
-        painter.end()
-        return live
+    def _paint_segments(self, painter: QPainter, stroke, first: int) -> None:
+        """
+        One stroke, from its `first` point on.
+
+        Segment by segment rather than as a path, because a path can only be
+        drawn whole and drawing it again would re-stroke what is already
+        composed. Round caps and joins make the chain identical to the path -
+        which is what `_paint_strokes` still draws for the saved file, so the
+        preview and the sticker cannot differ.
+        """
+        points = stroke.points
+        if len(points) < 2:
+            # A tap. A dot, so a single press still leaves a mark.
+            self._set_brush(painter, stroke)
+            painter.drawPoint(points[0])
+            return
+
+        self._set_brush(painter, stroke)
+        for index in range(max(1, first), len(points)):
+            painter.drawLine(points[index - 1], points[index])
+        painter.setCompositionMode(
+            QPainter.CompositionMode.CompositionMode_SourceOver)
+
+    def _set_brush(self, painter: QPainter, stroke) -> None:
+        if stroke.erase:
+            # The eraser takes ink away rather than painting over it, which
+            # is the whole point of a transparent sticker: painting the
+            # background colour would leave an opaque smear on it.
+            painter.setCompositionMode(
+                QPainter.CompositionMode.CompositionMode_Clear)
+            painter.setPen(QPen(QColor(0, 0, 0, 255), stroke.width,
+                                Qt.PenStyle.SolidLine,
+                                Qt.PenCapStyle.RoundCap,
+                                Qt.PenJoinStyle.RoundJoin))
+        else:
+            painter.setCompositionMode(
+                QPainter.CompositionMode.CompositionMode_SourceOver)
+            painter.setPen(stroke.pen())
+        painter.setBrush(Qt.BrushStyle.NoBrush)
 
     def _paint_strokes(self, painter: QPainter, strokes: list = None) -> None:
         for stroke in (self.strokes if strokes is None else strokes):

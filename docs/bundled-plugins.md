@@ -629,6 +629,24 @@ at the default is better than one appearing at a size nobody picked.
 **Both pages carry the text size**, and each option is drawn at the size it
 names.
 
+**The whiteboard composes its ink once and adds to it.** A frame draws the
+piece of the stroke that arrived since the last one, so what it costs does
+not change between the start of a line and the end of it. Copying the canvas
+per frame and re-drawing the live stroke from its first point both grow while
+somebody is drawing, which arrives as a line in batches rather than as lag.
+
+A move event repaints only the rectangle the new segment touches.
+
+**Nothing behind a dialog keeps animating.** A `QMovie` decodes and asks for
+repaints whatever is on top of it, and a dialog covers the page without
+hiding a single widget of it - so a page of animated stickers spends frames
+against whatever the dialog was opened to do. `DialogManager` asks every
+widget with a `set_animations_paused` method, on open and on close, rather
+than knowing which ones animate.
+
+Paused, not stopped: stopping rewinds, and a sticker that restarts on every
+dialog never gets anywhere.
+
 **A widget takes a size that suits its text.** A fixed default belongs to one
 particular font, so raising the font on one leaves the same box with bigger
 writing in it — a note at 30pt holding about half of what it holds at 17, and

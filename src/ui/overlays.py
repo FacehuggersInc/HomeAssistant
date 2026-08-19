@@ -724,8 +724,40 @@ class DialogManager:
         self.blocker.raise_()
         dialog.raise_()  # dialog above blocker
 
+        # Nothing behind this needs to keep animating.
+        #
+        # A dialog covers the page without hiding one widget of it, so an
+        # animated sticker under here goes on decoding frames and asking for
+        # repaints - against whatever somebody opened the dialog to do. The
+        # whiteboard is the clearest case: it wants every frame it can get.
+        self._set_animations(False)
+
     def get(self) -> Optional[QWidget]:
         return self.dialog_stack[-1] if self.dialog_stack else None
+
+    def _set_animations(self, running: bool) -> None:
+        """
+        Tell every widget that animates whether anybody can see it.
+
+        By asking the widgets rather than by knowing about them: this is in
+        the client and the things that animate are in plugins, and a list of
+        which ones do would be a list to keep up to date.
+
+        Called on open and close only, so walking the widgets is a cost paid
+        twice per dialog rather than per frame.
+        """
+        from PyQt6.QtWidgets import QApplication
+
+        for widget in QApplication.allWidgets():
+            hook = getattr(widget, "set_animations_paused", None)
+            if not callable(hook):
+                continue
+            try:
+                hook(not running)
+            except Exception:
+                # One widget refusing must not stop the others, and must not
+                # stop a dialog opening.
+                pass
 
     def close(self, event=None) -> None:
         if not self.dialog_stack:
@@ -767,6 +799,11 @@ class DialogManager:
             self.dialog_stack[-1].raise_()
         else:
             self.blocker.hide()
+            # The last one. Anything behind it can be seen again.
+            #
+            # Only when the stack empties: a picker closing back to the form
+            # that opened it has not uncovered the page.
+            self._set_animations(True)
 
 
 # QFrame + WA_StyledBackground are both load-bearing: a plain QWidget subclass
