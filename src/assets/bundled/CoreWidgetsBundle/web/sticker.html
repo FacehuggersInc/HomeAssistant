@@ -10,6 +10,15 @@
   whoever set the panel up.
 -->
 
+<div class="pagetools">
+  <a class="tool" id="manage" href="#">Manage the library</a>
+  <form method="post" data-action class="tool-form"
+        onsubmit="return confirm('Take every sticker off the home page? They stay in your library.');">
+    <input type="hidden" name="clear_placed" value="1">
+    <button type="submit" class="tool danger">Clear the home page</button>
+  </form>
+</div>
+
 <section>
   <h2>Upload a new one</h2>
   <form method="post" enctype="multipart/form-data" data-action
@@ -23,7 +32,7 @@
 </section>
 
 <section>
-  <h2 id="count"></h2>
+  <h2>Library</h2>
 
   <div class="finder">
     <input type="search" id="find" placeholder="Search the library"
@@ -36,12 +45,6 @@
     </select>
   </div>
   <p class="hint" id="found"></p>
-
-  <form method="post" data-action class="clearform"
-        onsubmit="return confirm('Take every sticker off the home page? They stay in your library.');">
-    <input type="hidden" name="clear_placed" value="1">
-    <button type="submit" class="danger">Clear the home page</button>
-  </form>
 
   <form method="post" data-action id="place">
     <input type="hidden" name="sticker" id="sticker" value="">
@@ -86,7 +89,6 @@
 
     <div class="go">
       <button type="submit" id="go" disabled>Choose a sticker first</button>
-      <a class="danger manage" id="manage" href="#">Manage the library</a>
     </div>
   </form>
 </section>

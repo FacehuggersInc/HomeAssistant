@@ -776,6 +776,31 @@ def FlaskApp(client):
 							   token=token,
 							   deletable=bool(getattr(path, "is_deletable", False)))
 
+	def _readable_folder(key):
+		"""
+		The folder behind `key` for LOOKING at, or the refusal.
+
+		The same rule the page itself uses - uploadable, and not guarded -
+		rather than the deletable one. Listing and downloading are not
+		deleting: a folder somebody may put files into and may not empty is
+		still a folder they can be shown, and answering 403 to the listing
+		meant an un-managed page arrived with nothing on it and no way to get
+		anything off it.
+		"""
+		path = client.asset("FOLDER", key)
+		if not path:
+			return None, ({"request": "Failed",
+						   "reason": f"No FOLDER asset '{key}'"}, 404)
+		if not getattr(path, "is_uploadable", False):
+			return None, ({"request": "Failed",
+						   "reason": f"Asset '{key}' is not marked as "
+									 f"uploadable"}, 403)
+		if getattr(path, "is_guarded", False):
+			return None, ({"request": "Failed",
+						   "reason": f"Asset '{key}' holds code and is "
+									 f"handled through its own page."}, 403)
+		return path, None
+
 	def _deletable_folder(key):
 		"""The folder behind `key`, or the refusal to hand it over."""
 		path = client.asset("FOLDER", key)
@@ -807,18 +832,42 @@ def FlaskApp(client):
 		err = auth()
 		if err: return err
 
-		path, refusal = _deletable_folder(key)
+		path, refusal = _readable_folder(key)
 		if refusal: return refusal
 
 		images = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".svg"}
 		files = []
 		try:
 			for entry in sorted(path.iterdir(), key=lambda f: f.name.lower()):
-				if not entry.is_file() or entry.name.startswith("."):
+				if entry.name.startswith("."):
+					continue
+
+				if entry.is_dir():
+					# Folders are listed too, and download as a zip. A folder
+					# that is not shown is a folder nobody knows is there,
+					# and the only way at what is inside it is a keyboard on
+					# the panel.
+					inside = [f for f in entry.rglob("*") if f.is_file()]
+					total = sum(f.stat().st_size for f in inside)
+					files.append({
+						"name": entry.name,
+						"is_dir": True,
+						"count": len(inside),
+						"size_bytes": total,
+						"size": f"{len(inside)} file"
+								f"{'' if len(inside) == 1 else 's'} \u00b7 "
+								f"{_pretty_size(total)}",
+						"is_image": False,
+						"modified": int(entry.stat().st_mtime),
+					})
+					continue
+
+				if not entry.is_file():
 					continue
 				size = entry.stat().st_size
 				files.append({
 					"name": entry.name,
+					"is_dir": False,
 					"size_bytes": size,
 					"size": _pretty_size(size),
 					"is_image": entry.suffix.lower() in images,
@@ -831,19 +880,76 @@ def FlaskApp(client):
 
 	@app.route("/upload/<key>/file/<path:name>", methods=["GET"])
 	def upload_file_raw(key, name):
-		"""One file, so the listing can show what it is about to delete."""
+		"""
+		One file: the thumbnail in the listing, and the download.
+
+		Readable rather than deletable - the same file backs both, and a
+		folder somebody may not empty is still one they can take a copy from.
+		"""
 		log()
 		err = auth()
 		if err: return err
 
-		path, refusal = _deletable_folder(key)
+		path, refusal = _readable_folder(key)
 		if refusal: return refusal
 
 		safe = _safe_name(name)
 		target = path / safe if safe else None
 		if not safe or not target.is_file():
 			return {"request": "Failed", "reason": "No such file"}, 404
-		return send_file(str(target))
+		# as_attachment only when asked, so the same URL is both the preview
+		# the grid draws and the download the link offers.
+		wants_copy = str(request.args.get("download", "")).lower() in (
+			"1", "true", "yes", "on")
+		return send_file(str(target), as_attachment=wants_copy,
+						 download_name=safe)
+
+	@app.route("/upload/<key>/folder/<path:name>", methods=["GET"])
+	def upload_folder_zip(key, name):
+		"""
+		One folder, zipped.
+
+		Built in memory rather than on disk: this runs on a Flask worker and
+		a temporary file left behind by a failed request is a temporary file
+		forever. A folder big enough for that to matter is one nobody should
+		be pulling through a browser anyway.
+		"""
+		log()
+		err = auth()
+		if err: return err
+
+		path, refusal = _readable_folder(key)
+		if refusal: return refusal
+
+		safe = _safe_name(name)
+		target = path / safe if safe else None
+		if not safe or not target or not target.is_dir():
+			return {"request": "Failed", "reason": "No such folder"}, 404
+
+		import io
+		import zipfile
+		from pathlib import Path as _Path
+
+		buffer = io.BytesIO()
+		try:
+			with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as bundle:
+				for entry in sorted(target.rglob("*")):
+					if not entry.is_file() or entry.name.startswith("."):
+						continue
+					# Named from the folder, so unpacking it gives the folder
+					# back rather than scattering its contents.
+					bundle.write(entry, str(_Path(safe) /
+											entry.relative_to(target)))
+		except OSError as e:
+			return {"request": "Failed",
+					"reason": f"Could not read {safe}: {e}"}, 500
+
+		body = buffer.getvalue()
+		client.log("info", f"[Upload] {key}/{safe} zipped ({len(body)} bytes).")
+		return Response(body, mimetype="application/zip", headers={
+			"Content-Disposition": f'attachment; filename="{safe}.zip"',
+			"Content-Length": str(len(body)),
+		})
 
 	@app.route("/upload/<key>/delete", methods=["POST"])
 	def upload_delete(key):

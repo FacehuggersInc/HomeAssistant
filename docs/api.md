@@ -489,6 +489,24 @@ requires the panel to actually drop before counting it as back - otherwise a
 poll landing between the reply and the restart reports success against the
 process on its way out.
 
+## Folders
+
+| Route                             |                                     |
+|-----------------------------------|-------------------------------------|
+| `GET /upload/<key>/files`         | What is in it, files and folders.   |
+| `GET /upload/<key>/file/<name>`   | One file. `?download=1` for a copy. |
+| `GET /upload/<key>/folder/<name>` | One folder, zipped.                 |
+| `POST /upload/<key>/delete`       | Marked files, gone.                 |
+
+The first three need the asset to be **uploadable and not guarded**; only the
+last needs it **deletable**. Looking at a folder and taking a copy of it are
+not deleting, so a folder somebody may add to and may not empty still lists
+and still downloads.
+
+A folder is listed with a count and the total size of what is inside it, and
+arrives as a zip named after itself, so unpacking it gives the folder back
+rather than scattering its contents.
+
 ## The dashboard's page list
 
 `gui=` puts an endpoint in the list at `/`, under **From plugins**. The

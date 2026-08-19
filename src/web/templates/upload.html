@@ -40,6 +40,14 @@
  .cell .glyph{height:78px;display:flex;align-items:center;
               justify-content:center;font-size:26px;color:var(--muted)}
  .cell .meta{padding:6px 7px;font-size:11px;line-height:1.3}
+ /* The download arrow, in the corner of the tile. */
+ .cell{position:relative}
+ .cell .get{position:absolute;top:6px;right:6px;width:30px;height:30px;
+      border-radius:9px;display:flex;align-items:center;justify-content:center;
+      background:rgba(10,10,14,.72);border:1px solid var(--line);
+      color:var(--text);text-decoration:none;font-size:16px;line-height:1}
+ .cell .get:hover{border-color:var(--accent);color:var(--accent)}
+ .cell.folder .glyph{font-size:26px}
  .cell .meta .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
  .cell .meta .sz{color:var(--muted);font-size:10px}
  /* Marked, not gone. Nothing is removed until the button at the bottom. */
@@ -69,7 +77,13 @@
   <ul id="results"></ul>
 </section>
 
-{% if deletable %}
+{#
+  The listing is not gated on `deletable`. Seeing what is in a folder and
+  taking a copy of it are not deleting, and a page that hid both left an
+  un-managed folder looking empty with no way to get anything off it.
+
+  What IS gated is marking and the wipe button - see DELETABLE below.
+#}
 <section id="listing">
   <h2>Already here</h2>
   <div class="finder">
@@ -84,9 +98,8 @@
   </div>
   <p class="sub" id="found"></p>
   <div class="grid" id="files"></div>
-  <button id="wipe" hidden></button>
+  {% if deletable %}<button id="wipe" hidden></button>{% endif %}
 </section>
-{% endif %}
 
 <script src="/web?name=listing.js"></script>
 <script>
@@ -200,9 +213,9 @@
  });
 </script>
 
-{% if deletable %}
 <script>
  (function () {
+   var DELETABLE = {{ 'true' if deletable else 'false' }};
    var grid = document.getElementById('files');
    var wipe = document.getElementById('wipe');
    var marked = {};
@@ -213,6 +226,7 @@
    }
 
    function refreshButton() {
+     if (!wipe) { return; }
      var names = Object.keys(marked);
      wipe.hidden = names.length === 0;
      wipe.textContent = names.length === 1
@@ -222,8 +236,13 @@
 
    function cell(file) {
      var box = document.createElement('div');
-     box.className = 'cell';
-     if (file.is_image) {
+     box.className = 'cell' + (file.is_dir ? ' folder' : '');
+     if (file.is_dir) {
+       var fold = document.createElement('div');
+       fold.className = 'glyph';
+       fold.textContent = '\u{1F5C0}';
+       box.appendChild(fold);
+     } else if (file.is_image) {
        var img = document.createElement('img');
        img.className = 'thumb';
        img.loading = 'lazy';
@@ -243,6 +262,28 @@
      sz.className = 'sz'; sz.textContent = file.size;
      meta.appendChild(nm); meta.appendChild(sz);
      box.appendChild(meta);
+
+     /* A copy of it, whatever the page may do to it.
+        Downloading is not deleting, so this is here on a folder nobody is
+        allowed to empty as well - a page that lists what is there and
+        offers no way to get it is a page you have to walk to the panel to
+        act on. A folder arrives zipped; a file arrives as it is. */
+     var get = document.createElement('a');
+     get.className = 'get';
+     get.textContent = '\u2913';
+     get.title = file.is_dir ? 'Download as a zip' : 'Download';
+     get.href = file.is_dir
+       ? url('/folder/' + encodeURIComponent(file.name))
+       : url('/file/' + encodeURIComponent(file.name)) + '&download=1';
+     get.setAttribute('download', '');
+     /* The press is the link's, not the tile's - otherwise downloading one
+        also marks it for deletion. */
+     get.addEventListener('click', function (ev) { ev.stopPropagation(); });
+     box.appendChild(get);
+
+     /* Only a deletable folder marks. Elsewhere the tile is for looking at
+        and the arrow is the thing that does something. */
+     if (!DELETABLE) { return box; }
 
      box.addEventListener('click', function () {
        if (marked[file.name]) { delete marked[file.name]; }
@@ -332,7 +373,7 @@
      if (pick) { pick.addEventListener('change', draw); }
    })();
 
-   wipe.addEventListener('click', function () {
+   if (wipe) { wipe.addEventListener('click', function () {
      var names = Object.keys(marked);
      if (!names.length) { return; }
      // Asked once, and by count rather than by name: the marks are on the
@@ -356,7 +397,7 @@
        })
        .catch(function (e) { window.alert('Delete failed: ' + e); })
        .finally(function () { wipe.disabled = false; load(); });
-   });
+   }); }
 
    load();
    // Whatever was just uploaded belongs in the listing too.
@@ -365,5 +406,4 @@
    });
  })();
 </script>
-{% endif %}
 </body></html>

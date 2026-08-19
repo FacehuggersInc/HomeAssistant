@@ -15,10 +15,9 @@ function fillActions() {
     manage.href = '/upload/stickers?token=' +
                   encodeURIComponent(PAGE.token || '');
   }
-  var count = document.getElementById('count');
-  if (count) {
-    count.textContent = (PAGE.stickers || []).length + ' in your library';
-  }
+  /* No count here. The listing below reports one already, and it is the
+     better of the two: it follows the search rather than being the size of
+     the whole library regardless of what is on screen. */
 }
 
 /* How many tiles arrive at a time. The filter runs over the whole library
