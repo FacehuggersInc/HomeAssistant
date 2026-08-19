@@ -66,6 +66,7 @@ Everything in the tree above boils down to a handful of ideas, each covered in f
 | `UserRegistry`        | `client.USERS`   | Approved devices and their tokens                                                 |
 | `AudioRegistry`       | `client.AUDIO`   | Sounds by name, and where their files live                                        |
 | `PlayerRegistry`      | `client.PLAYER`  | Whatever is playing, from any source                                              |
+| `StatusRegistry`      | `client.STATUS`  | What the panel is busy with, as icons                                             |
 | `CancelRegistry`      | `client.CANCEL`  | What "stop" means right now                                                       |
 
 Keep these in mind as you read on — nearly everything else in these docs is one of these seven ideas in more detail.

@@ -12,7 +12,8 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtGui import QFontMetrics, QPainter, QColor
 from PyQt6.QtCore import Qt, QEvent, QPoint, QRect, QTimer, QSize
 
-from src.styling import make_font, SIZES, set_style, style_scrollbar
+from src.styling import (make_font, SIZES, set_style, style_scrollbar,
+                         COLORS)
 from src.ui.overlays import Panel
 from src.ui.controls.buttons import IconButton
 from src.ui.icons import Icons, icon as resolve_icon
@@ -473,6 +474,24 @@ class QuickSettings(Panel):
         titles.addWidget(self._clock)
 
         header.addLayout(titles)
+
+        # What the panel is busy with, beside the title.
+        #
+        # Icons and nothing else: the question is "is something happening",
+        # and a label answering it in words is a thing to read rather than a
+        # thing to notice. Whatever is running says so through
+        # `client.STATUS`; this only draws what is there.
+        self._statuses = QHBoxLayout()
+        self._statuses.setContentsMargins(12, 0, 0, 0)
+        self._statuses.setSpacing(10)
+        header.addLayout(self._statuses)
+        self._status_icons: list = []
+        self.rebuild_statuses()
+        try:
+            self.client.STATUS.subscribe(self.rebuild_statuses)
+        except Exception as e:
+            self.client.log("debug", f"[QuickSettings] No status registry: {e}")
+
         header.addStretch()
 
         # The controls that used to sit in every page's drawer.
@@ -494,6 +513,55 @@ class QuickSettings(Panel):
 
     def _now(self) -> str:
         return datetime.now().strftime("%A  %H:%M")
+
+    ## -- what the panel is busy with
+
+    #How big a status glyph is drawn. Read at a glance from across a room
+    #rather than looked for, so it is larger than the title beside it rather
+    #than smaller - an icon the size of the text reads as punctuation.
+    STATUS_ICON = 26
+
+    def rebuild_statuses(self) -> None:
+        """
+        Redraw the row beside the title.
+
+        Rebuilt rather than diffed: a handful of icons, changing when
+        something starts or stops rather than per frame, and the alternative
+        is keeping a widget per key in step with a list that already knows
+        the order.
+        """
+        for icon in self._status_icons:
+            self._statuses.removeWidget(icon)
+            icon.deleteLater()
+        self._status_icons = []
+
+        try:
+            entries = self.client.STATUS.visible()
+        except Exception:
+            entries = []
+
+        for entry in entries:
+            label = QLabel()
+            colour = entry.colour or COLORS.DARK.TEXT.MUTED
+            try:
+                # resolve_icon, not qtawesome directly: it takes the panel's
+                # own names and falls back through the font sets, so an
+                # `mdi.` name works here exactly as it does everywhere else.
+                label.setPixmap(resolve_icon(entry.icon, color=colour)
+                                .pixmap(self.STATUS_ICON, self.STATUS_ICON))
+            except Exception:
+                # An icon nothing knows. The row is about something being
+                # there at all, so it keeps its place rather than a gap - at
+                # the same size, or the fallback would read as a smaller
+                # kind of status rather than as the same one.
+                label.setText("\u25cf")
+                label.setFont(make_font(self.STATUS_ICON - 8))
+                set_style(label, "common", "text-muted")
+            # Named, for anybody holding a finger on it. Not drawn: the row
+            # is glanceable and a caption per icon is a paragraph.
+            label.setToolTip(f"{entry.key} ({entry.owner})")
+            self._statuses.addWidget(label)
+            self._status_icons.append(label)
 
     def _tick_volume(self) -> None:
         """

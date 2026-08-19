@@ -40,6 +40,7 @@ from src.registries.quick_access_registry import QuickAccessRegistry
 from src.bookmarks import BookmarkStore
 from src.registries.audio_registry import AudioRegistry
 from src.registries.player_registry import PlayerRegistry
+from src.registries.status_registry import StatusRegistry
 from src.registries.cancel_registry import CancelRegistry
 from src.registries.user_registry import UserRegistry
 from src.backend import FlaskApp, FlaskService
@@ -465,6 +466,12 @@ class Client:
         self.fill_device_options()
         self.BOOKMARKS      = BookmarkStore(self)
         self.PLAYER         = PlayerRegistry(self)
+        # What the panel is busy with, as a row of icons. See
+        # src/registries/status_registry.py.
+        self.STATUS         = StatusRegistry(self)
+        # Puts the panel's own speech on it. Started with the assistant,
+        # since there is nothing to watch before that.
+        self.SPEECH_STATUS  = None
         # What "stop" means right now. Whatever can be cancelled
         # registers its own words and its own condition.
         self.CANCEL         = CancelRegistry(self)
@@ -932,11 +939,16 @@ class Client:
         if self.LOG:
             self.LOG.close()
 
+        from src.constants import KEEP_LOGS, LOG_DIR
+
         now     = datetime.now()
-        logdir  = Path("logs")
+        # LOG_DIR, not Path("logs"). A relative path writes beside whatever
+        # the process was started from, while crash.py writes beside the
+        # install - two folders, and a prune that empties the wrong one.
+        logdir  = LOG_DIR
         logpath = logdir / "latest.log"
         ts      = f"{now.year}-{now.month}-{now.day}-{now.hour:02}-{now.minute:02}"
-        logdir.mkdir(exist_ok=True)
+        logdir.mkdir(parents=True, exist_ok=True)
 
         if logpath.exists():
             with open(logpath, "r") as lf:
@@ -947,9 +959,43 @@ class Client:
                 renamed.unlink()
             logpath.rename(renamed)
 
+        self._prune_logs(logdir, KEEP_LOGS)
+
         self.LOG = open(logpath, "a")
         self.LOG.write(f"{ts}\n")
         self.LOGGING_FILE_CREATED = True
+
+    @staticmethod
+    def _prune_logs(folder, keep: int) -> None:
+        """
+        Keep the newest `keep` rotated logs and delete the rest.
+
+        Only the rotated ones. `latest.log` is being written to, `crash.log`
+        is the record of something that went wrong and is worth more than any
+        of these, and `startup.log` belongs to the launcher - deleting any of
+        the three by counting files in a folder would be deleting the ones
+        somebody actually wants.
+
+        By modified time rather than by the timestamp in the name: the name
+        comes from the first line of the previous log and a truncated or
+        hand-edited file can produce any name at all.
+        """
+        try:
+            rotated = [entry for entry in folder.glob("*.log")
+                       if entry.is_file()
+                       and entry.name not in ("latest.log", "crash.log",
+                                              "startup.log")]
+        except OSError:
+            return
+
+        rotated.sort(key=lambda entry: entry.stat().st_mtime, reverse=True)
+        for entry in rotated[max(0, int(keep)):]:
+            try:
+                entry.unlink()
+            except OSError:
+                # A log somebody has open, or a folder that went read-only.
+                # Losing an old log is not worth failing a launch over.
+                pass
 
     def log(self, level: EVENT_LEVELS, message: str,
             pointer=None, include_traceback: bool = False) -> None:
@@ -2187,7 +2233,38 @@ class Client:
             str(self.setting("assistant.wake.wake_sensitivity_speaking.value", 0.0)),
         )
 
+    def _start_speech_status(self) -> None:
+        """
+        Show what speech is doing, in the Quick Settings row.
+
+        Neither STT nor TTS emits anything when it changes state, and adding
+        signals to both would mean touching the audio path in two processes
+        to fix a display. A poll is a fraction of a second late, which is
+        what a display can afford.
+        """
+        if self.SPEECH_STATUS is not None:
+            return
+        try:
+            from src.assistant.speech_status import SpeechStatus
+
+            self.SPEECH_STATUS = SpeechStatus(self)
+            self.SPEECH_STATUS.start()
+        except Exception as e:
+            # A display failing to start is not a reason for the assistant
+            # not to run.
+            self.log("warning", f"[Status] Speech status not started: {e}")
+            self.SPEECH_STATUS = None
+
     def stop_assistant(self) -> None:
+        # Its icons first. One left behind says the panel is busy with
+        # something that has stopped existing.
+        if self.SPEECH_STATUS is not None:
+            try:
+                self.SPEECH_STATUS.stop()
+            except Exception:
+                pass
+            self.SPEECH_STATUS = None
+
         if self.STT is not None:
             try:
                 self.STT.stop()
@@ -2357,6 +2434,7 @@ class Client:
         except Exception:
             pass
         self._launch_assistant(device, model)
+        self._start_speech_status()
 
     ## -- SPEECH MODEL DOWNLOADS -----------------------------------------
     #

@@ -122,6 +122,12 @@ class Session():
 
 
 class STTProcessing():
+
+	#What `status()` can say, in the order it prefers. A panel showing one
+	#line wants the most specific true thing, not the first one checked.
+	STATUS_ORDER = ("error", "processing", "awake", "monitoring", "listening",
+					"held", "idle", "stopped")
+
 	def __init__(self, client, process:str = "parakeet",
 				 input_device=None, model:str = "tiny.en", wake_words=None,
 				 session_silence_ms:int = 800):
@@ -1066,6 +1072,55 @@ class STTProcessing():
 			self.client.log("warning",
 				f"[STTProcessing] Could not stop monitoring: {e}")
 		self.client.log("info", "[STTProcessing] Monitoring ended.")
+
+	def status(self) -> dict:
+		"""
+		What this is doing right now, for something that wants to show it.
+
+		One dict rather than a handful of attributes, because a panel reading
+		`listening`, `processing`, `woke_at` and `process.poll()` separately
+		gets a different answer for each depending on when it asked.
+
+		`state` is one word from STATUS_ORDER. `since` is when that state
+		started, or 0 - a listener stuck open for four minutes is the thing
+		worth seeing, and the state alone does not say it.
+		"""
+		import time as _time
+
+		running = self.process is not None and self.process.poll() is None
+		if not running:
+			state, since = "stopped", 0.0
+		elif self.last_error:
+			state, since = "error", 0.0
+		elif self.processing:
+			state, since = "processing", 0.0
+		elif self.woke_at:
+			# Woken and waiting for the rest of the sentence.
+			state, since = "awake", self.woke_at
+		elif self._monitoring:
+			state, since = "monitoring", self.listening_since
+		elif self.capture_held:
+			# The panel is speaking and is not listening to itself.
+			state, since = "held", self.held_since
+		elif self.listening:
+			state, since = "listening", self.listening_since
+		else:
+			state, since = "idle", 0.0
+
+		return {
+			"state": state,
+			"since": float(since or 0.0),
+			"for": max(0.0, _time.time() - since) if since else 0.0,
+			"running": running,
+			"pid": getattr(self.process, "pid", None) if running else None,
+			"engine": self.process_type,
+			"model": self.model,
+			"error": self.last_error or "",
+			# What is watching without taking. A page left open holds one of
+			# these, and a count that does not go back down is the tell.
+			"listeners": len(self._listeners),
+			"woke_with": self.woke_with or "",
+		}
 
 	def add_listener(self, callback) -> None:
 		"""

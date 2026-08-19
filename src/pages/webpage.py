@@ -833,7 +833,71 @@ class WebPage(PageFramework):
                 pass
 
     def _leave(self, event=None) -> None:
+        # Logged before anything else happens.
+        #
+        # "The close button does nothing" and "the close button took four
+        # seconds" look identical from the outside and want opposite fixes,
+        # and this line is the difference: if it is in the log the press
+        # arrived, and whatever came after it is the slow part.
+        self.client.log("info", "[Web] Close pressed.")
+        # Frozen first, then leave. Going the other way means the page is
+        # still running while goto() does its work, which is the moment the
+        # panel has least to spare.
+        self._suspend(True)
         self.client.goto(self.client.DEFAULT_PAGE or "#root")
+
+    ## -- not being looked at
+
+    def _suspend(self, sleeping: bool) -> None:
+        """
+        Stop the engine running while nobody can see it.
+
+        A QWebEngineView left alone keeps running: timers, animations,
+        video, whatever the page felt like starting. Leaving the page hides
+        the widget and stops none of it, so one site opened once goes on
+        spending a core until the panel restarts.
+
+        `LifecycleState.Frozen` is Chromium's own word for this - the same
+        thing a browser does to a background tab. The page comes back where
+        it was rather than reloading, which a `stop()` or a blank URL would
+        not.
+        """
+        view = getattr(self, "view", None)
+        if view is None:
+            return
+        try:
+            page = view.page()
+            if page is None:
+                return
+            # Muted either way: a page that plays sound while the panel is
+            # showing something else is worse than one that animates.
+            page.setAudioMuted(bool(sleeping))
+
+            from PyQt6.QtWebEngineCore import QWebEnginePage
+            state = (QWebEnginePage.LifecycleState.Frozen if sleeping
+                     else QWebEnginePage.LifecycleState.Active)
+            page.setLifecycleState(state)
+        except Exception as e:
+            # An older Qt without lifecycle states, or a page mid-teardown.
+            # Not being able to freeze is not a reason to fail to leave.
+            self.client.log("debug", f"[Web] Could not suspend the view: {e}")
+
+    def on_deactivated(self) -> None:
+        self._suspend(True)
+        super().on_deactivated()
+
+    def on_activated(self) -> None:
+        self._suspend(False)
+        super().on_activated()
+
+    def set_animations_paused(self, paused: bool) -> None:
+        """
+        The same hook the stickers answer, so a dialog freezes this too.
+
+        A dialog over the browser covers it without hiding it, and the page
+        underneath goes on running against whatever the dialog is for.
+        """
+        self._suspend(bool(paused))
 
     ## -- fields in the page
 

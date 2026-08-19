@@ -82,6 +82,7 @@ NAV_GROUPS = [
         ("cancel.md",          "Cancelling"),
         ("api.md",             "Backend API"),
         ("users.md",           "Users"),
+        ("status.md",          "Status"),
         ("web-ui.md",          "Web UI"),
         ("webpage.md",         "The web page"),
     ]),

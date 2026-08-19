@@ -8,6 +8,16 @@ A browser page the client registers itself, for anything that needs to show a we
 `#settings`. Back, forward, reload and home, an address bar that opens the
 on-screen keyboard, and the page itself with a small margin.
 
+**The engine is frozen while nobody is looking at it.** A `QWebEngineView`
+left alone keeps its timers, its animations and its video running, and hiding
+the page stops none of it - so one site opened once spends a core until the
+panel restarts. Leaving the page, or a dialog covering it, sets the page to
+`LifecycleState.Frozen` and mutes it; coming back sets it Active again.
+
+Frozen rather than stopped: the page comes back where it was, where a `stop()`
+or a blank URL would reload it. Closing freezes first and navigates second,
+because `goto()` is the moment the panel has least to spare.
+
 It exists so that several things wanting to show a web page — the docs, a
 plugin's own interface, a login that has to happen in a real browser engine —
 do not each have to carry a browser.

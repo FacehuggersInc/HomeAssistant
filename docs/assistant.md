@@ -23,6 +23,28 @@ talking to the client over two local sockets. The client half is
 Nothing starts it.
 
 
+
+## What it is doing
+
+`client.STT.status()` is one snapshot rather than a handful of attributes -
+`listening`, `processing`, `woke_at` and `process.poll()` read separately give
+a different answer each depending on when they were asked.
+
+| Key         |                                                                                              |
+|-------------|----------------------------------------------------------------------------------------------|
+| `state`     | One of `stopped`, `error`, `processing`, `awake`, `monitoring`, `held`, `listening`, `idle`. |
+| `since`     | When that state started, or 0.                                                               |
+| `for`       | How long it has been in it.                                                                  |
+| `running`   | Whether the child process is alive.                                                          |
+| `listeners` | Things watching transcripts without taking them.                                             |
+
+Quick Settings shows a line for it, and **says nothing when the answer is
+ordinary**. `idle` and `listening` are what a working panel looks like, so
+reporting them would make the line permanent and unread. What it does report
+is the states that should not last - awake with nobody following up,
+transcribing, monitoring, stopped - with how long once that passes a minute,
+and any transcript listener left behind by a page nobody closed.
+
 ## Settings
 
 | Key                                   | Default       | Does                                                                      |
