@@ -2,9 +2,9 @@
 
 A file picker that opens behind the panel is a file picker nobody can use.
 `QFileDialog` is a native window, and on a single-monitor panel running
-fullscreen it opens underneath - so the Browse button appeared to do nothing.
+fullscreen it opens underneath the app, where it cannot be seen or reached.
 
-The panel has its own, and it is `ItemGridDialog` with browsing switched on.
+The panel has its own: `ItemGridDialog` with browsing switched on.
 
 ---
 
@@ -89,8 +89,8 @@ the toggle.
 ## Pictures arrive after the grid
 
 Reading and scaling a 1200x800 photo costs about **12ms**; building the tile
-that holds it costs **0.09ms**. So a folder of eighty photos spent a second
-decoding before it drew anything, and every sort change spent it again.
+that holds it costs **0.09ms**. Decoding eighty photos on the UI thread is
+therefore a second of nothing on screen, and a re-sort is another one.
 
 The tiles are built with their placeholder and the decoding is handed to a
 thread pool. A `QPixmap` can only be made on the UI thread, so the worker
@@ -102,7 +102,7 @@ than drawn into the folder they walked into. Whatever was already running
 finishes and is thrown away, because waiting for it is the pause this exists
 to remove.
 
-Measured, 120 items of which 80 are photos:
+Measured against a blocking decode, 120 items of which 80 are photos:
 
 |                   | Before  | After  |
 |-------------------|---------|--------|
@@ -126,19 +126,20 @@ over to make room.
 wipes the shared bar and the rail gets the platform's own - which is the trap
 that function's own docstring describes.
 
-**A long name is shortened, not accommodated.** A `QPushButton` asks for
-whatever width its text needs and never gives it back, so one long asset name
-makes the column wider than the rail and the rail scrolls sideways - and
-widening it does not help, because the next name is longer. Labels are elided
-to `RAIL_WIDTH - RAIL_CHROME`, with the whole name in the tooltip.
+**A rail button has a fixed width.** A `QPushButton`'s size hint is its text
+plus its chrome, and a layout never gives a widget less than its hint - so one
+long asset name makes the column wider than the rail, whatever the rail's
+width is, and the rail scrolls sideways. Widening it does not help: the next
+name is longer. Eliding alone helps only until a theme's font is wider than
+the one the elision was measured against.
 
-`RAIL_CHROME` counts three things between the text and the rail's edge, not
-one: the button's padding and icon, the column's margins, and the scrollbar.
+`_rail_button_width` is `RAIL_WIDTH - RAIL_INSET`, and labels are elided to
+that minus `RAIL_PADDING`. The column is then the same width on any theme, and
+the whole name is in the tooltip alongside the path.
 
-The rail is wider than its buttons need, because the bar is drawn inside the
-viewport: it takes its width from the column rather than from the panel, so a
-rail sized for the buttons alone narrows them the moment there is enough in it
-to need a bar.
+`RAIL_INSET` covers the panel border, the column's margins and the scrollbar,
+which is drawn inside the viewport and so takes its width from the buttons -
+which is also why the rail is wider than its buttons need.
 
 **Rows carry no margins of their own.** A `QHBoxLayout` defaults to 9px all
 round, so each row put 18px between itself and the next - four times the

@@ -1099,18 +1099,34 @@ class ItemGridDialog(BaseDialog):
     #panel's border and the scrollbar, which is drawn INSIDE the viewport and
     #so takes its width from the buttons.
     RAIL_WIDTH = 214
-    #Measured, and there are three things between the text and the rail's
-    #edge rather than one: the button's own padding and icon (44), the
-    #column's margins (8 each side), and the scrollbar drawn inside the
-    #viewport (6). 68 covers all three with a couple of pixels spare, rather
-    #than landing exactly on the edge where a font a hair wider starts it
-    #scrolling sideways again.
-    RAIL_CHROME = 68
+    #What sits between the rail's edge and a button: the panel border, the
+    #column's margins, and the scrollbar, which is drawn INSIDE the viewport
+    #and so takes its width from the buttons.
+    RAIL_INSET = 32
+    #And what a button spends on its icon and padding before any text.
+    RAIL_PADDING = 44
+
+    @property
+    def _rail_button_width(self) -> int:
+        """
+        How wide a rail button is. Fixed, not asked for.
+
+        A QPushButton's size hint is its text plus its chrome, and a layout
+        never gives a widget less than its hint - so one long name makes the
+        column wider than the rail whatever the rail's width is, and the next
+        name is longer. Eliding helps only until a theme's font is wider than
+        the one the elision was measured against, and then it is the same bug
+        with more arithmetic in front of it.
+
+        A fixed width cannot be exceeded by anything, so the column is the
+        same width on any theme and the rail cannot scroll sideways at all.
+        """
+        return max(120, self.RAIL_WIDTH - self.RAIL_INSET)
 
     @property
     def _rail_text_width(self) -> int:
         """How wide a rail label may be before it is shortened."""
-        return max(80, self.RAIL_WIDTH - self.RAIL_CHROME)
+        return max(60, self._rail_button_width - self.RAIL_PADDING)
 
     def _add_rail_buttons(self, rail, entries) -> None:
         """One section's places."""
@@ -1130,6 +1146,8 @@ class ItemGridDialog(BaseDialog):
                                        self._rail_text_width)
             button.setText(f"  {shown}")
             button.setFixedHeight(42)
+            # Fixed, so nothing about the text or the theme can widen it.
+            button.setFixedWidth(self._rail_button_width)
             button.setFont(make_font(SIZES.S1, bold=True))
             button.setCursor(Qt.CursorShape.PointingHandCursor)
             button.setIcon(resolve_icon(glyph, color="#9a9aa6"))
