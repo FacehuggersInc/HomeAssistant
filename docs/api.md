@@ -44,6 +44,9 @@ revoked on its own.
 | `GET /process?...`               | Run an assistant intent.                               |
 | `GET /pages`                     | Every registered page key, and which is on screen.     |
 | `GET` or `POST` `/goto/<page>`   | Switch pages. Query parameters become the page's data. |
+| `GET /browser/state`             | What the panel's browser is showing.                   |
+| `GET` or `POST` `/browser/<cmd>` | Press one of its toolbar buttons.                      |
+| `GET /bookmarks`                 | Every saved address.                                   |
 | `GET` or `POST` `/clipboard`     | Read the clipboard, or set it with `?text=`.           |
 | `GET /clipboard/clear`           | Empty it.                                              |
 
@@ -103,6 +106,77 @@ where anything long or awkward to escape belongs.
 
 Unregistered keys return **404** with the list of pages that do exist, rather
 than failing silently the way `goto()` does on its own.
+
+
+## The browser
+
+`/goto/#webpage?url=` opens an address. These drive the page once it is open:
+the toolbar is on a wall, and reaching it means walking to it.
+
+```
+GET /browser/state?token=...
+GET /browser/back?token=...
+```
+
+| Command             | Does                                            |
+|---------------------|-------------------------------------------------|
+| `/browser/back`     | One step back through the history.              |
+| `/browser/forward`  | One step forward.                               |
+| `/browser/reload`   | Refresh what is loaded.                         |
+| `/browser/home`     | Whatever `home` was set to.                     |
+| `/browser/top`      | Scroll the page back to the top.                |
+| `/browser/bookmark` | Save the page on screen, or drop it if saved.   |
+
+Each is one of the features `#webpage` exposes, called on the UI thread and
+waited on. An unknown command is **404** with the list of ones that exist.
+
+**They apply to the page on screen and nothing else.** A command arriving while
+the panel is on the clock is **409**, with the key it is actually on. Reaching
+into a `#webpage` that is built but hidden would press Back on a browser nobody
+is looking at and report success for it.
+
+A command that ran and had nothing to do is a **200** with `moved` false and a
+reason - an empty history is an answer rather than a failure:
+
+```json
+{"request": "Success", "command": "back", "moved": false,
+ "reason": "There is nothing to go back to."}
+```
+
+`bookmark` says which way it went, since a toggle's answer is not knowable from
+having pressed it:
+
+```json
+{"request": "Success", "command": "bookmark", "moved": true,
+ "result": "bookmarked"}
+```
+
+`/browser/state` answers with what the toolbar is showing - `url`, `title`,
+`home`, `can_back`, `can_forward`, `bookmarked`, `lock_address`, `lock_base`
+and `zoom`. The two `can_` flags are what a remote control greys its own
+buttons with; without them it offers Back on a page with no history and the
+press reads as the panel being unreachable.
+
+`/browser/state` is a static rule and wins over `/browser/<command>`, so there
+is no command called `state`.
+
+
+## Bookmarks
+
+```
+GET /bookmarks?token=...          every saved address
+GET /bookmark/forget?url=...      remove one
+```
+
+`/bookmarks` answers with `url`, `label`, `host`, `icon` and `initial` for each.
+The icon is a filename for [`/bookmark-icon/<name>`](#served-to-the-panels-own-browser)
+and is empty when none was saved.
+
+`/bookmarks` is authed and `/bookmark/forget` is not, which looks inconsistent
+and is not: forgetting is reachable from the panel's own home page, which has
+no token and no way to be given one, and one route for it means the two pages
+cannot disagree about what forgetting does. Listing is read by a phone, and a
+phone is not somebody standing at the panel.
 
 
 ## Clipboard
@@ -410,13 +484,20 @@ than a script.
 | `GET /`                                | The index. See [The index](#the-index).                   |
 | `GET /ask`                             | Ask the assistant something. Serves the form with no `q`. |
 | `GET /goto/page`                       | A page switcher for a device with a browser.              |
+| `GET /goto/web`                        | A remote control for the panel's browser.                 |
 | `GET /clipboard/page`                  | The clipboard, as a page a phone can open.                |
 | `GET /upload`, `GET /upload/<key>`     | Upload forms, above.                                      |
 | `GET /access/wait`, `GET /access/name` | The approval flow. See [Users](users.md).                 |
 
-`/goto/page` also matches `/goto/<path:page>`. Werkzeug sorts rules by
-specificity rather than by declaration order, so the static one wins and there
-is no page called `page` to collide with.
+`/goto/page` and `/goto/web` also match `/goto/<path:page>`. Werkzeug sorts
+rules by specificity rather than by declaration order, so the static ones win
+and the cost is two page keys, `page` and `web`, that cannot be reached this
+way. The browser's own key is `#webpage` and is unaffected.
+
+The two are tabs on each other. Switching which page the panel shows and
+driving the browser it is already showing are different jobs with different
+controls, and one page holding both leaves the browser's half as a single text
+box.
 
 
 ## Served to the panel's own browser

@@ -1129,10 +1129,16 @@ class Client:
     ##PAGES
 
     def action(self, feature_path: str, *args, **kwargs):
+        """
+        Call a feature on whatever page is on screen.
+
+        `get_path` answers with the registered value, which for a method is
+        the bound method - so it is called, not subscripted.
+        """
         if self.PAGE and self.BUILT:
             features = self.PAGE.features()
             if len(features) > 0:
-                return features.get_path(feature_path)["call"](*args, **kwargs)
+                return features.get_path(feature_path)(*args, **kwargs)
 
     def has_page(self, query: str) -> bool:
         return self.PAGES.has_page(query)

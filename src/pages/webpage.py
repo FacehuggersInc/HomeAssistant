@@ -653,10 +653,21 @@ class WebPage(PageFramework):
             set_style(missing, "common", "text-muted")
             outer.addWidget(missing, stretch=1)
 
+        # Everything the toolbar can do, under the same names the backend's
+        # /browser/<command> route accepts. A control that exists as a button
+        # and not as a feature is one a phone cannot reach, and the toolbar is
+        # out of arm's reach on a wall.
         self.add_features({
             "navigate":  self.navigate,
             "set_home":  self.set_home,
             "current":   self.current_url,
+            "back":      self.back,
+            "forward":   self.forward,
+            "reload":    self.reload,
+            "home":      self.go_home,
+            "top":       self.scroll_top,
+            "bookmark":  self.toggle_bookmark,
+            "state":     self.state,
         })
 
     ## -- chrome
@@ -811,26 +822,41 @@ class WebPage(PageFramework):
             return self.address.text()
         return self.view.url().toString()
 
-    def go_home(self, event=None) -> None:
+    # Each answers whether it did anything.
+    #
+    # A button ignores that - it is disabled when there is nothing to do, and
+    # the person pressing it is looking at the page. A caller over the network
+    # is neither, so "there is nothing to go back to" and "done" have to be
+    # different answers or a phone reports success for a press that moved
+    # nothing.
+
+    def go_home(self, event=None) -> bool:
         self.client.web_event("home", url=self.home_url)
         self.navigate(self.home_url)
+        return True
 
-    def back(self, event=None) -> None:
+    def back(self, event=None) -> bool:
         if self.view is not None and self.view.history().canGoBack():
             self.view.back()
+            return True
+        return False
 
-    def forward(self, event=None) -> None:
+    def forward(self, event=None) -> bool:
         if self.view is not None and self.view.history().canGoForward():
             self.view.forward()
+            return True
+        return False
 
-    def reload(self, event=None) -> None:
-        if self.view is not None:
-            self.view.reload()
-            try:
-                self.client.web_event("refreshed",
-                                      url=self.view.url().toString())
-            except RuntimeError:
-                pass
+    def reload(self, event=None) -> bool:
+        if self.view is None:
+            return False
+        self.view.reload()
+        try:
+            self.client.web_event("refreshed",
+                                  url=self.view.url().toString())
+        except RuntimeError:
+            pass
+        return True
 
     def _leave(self, event=None) -> None:
         # Logged before anything else happens.
@@ -1002,10 +1028,12 @@ class WebPage(PageFramework):
     def _show_zoom(self) -> None:
         self.zoom_label.setText(f"{int(round(self.zoom * 100))}%")
 
-    def scroll_top(self, event=None) -> None:
-        if self.view is not None:
-            self.view.page().runJavaScript(
-                "window.scrollTo({top: 0, behavior: 'smooth'});")
+    def scroll_top(self, event=None) -> bool:
+        if self.view is None:
+            return False
+        self.view.page().runJavaScript(
+            "window.scrollTo({top: 0, behavior: 'smooth'});")
+        return True
 
     def _load_started(self) -> None:
         """
@@ -1134,28 +1162,33 @@ class WebPage(PageFramework):
 
     ## -- bookmarks
 
-    def toggle_bookmark(self) -> None:
+    def toggle_bookmark(self, event=None) -> str:
         """
         Save the page on screen, or drop it if it is already saved.
 
         The icon comes from the view rather than from the network: the engine
         has already downloaded the favicon to draw with, and asking again would
         need the network up at the exact moment somebody pressed the button.
+
+        Answers `bookmarked`, `unbookmarked` or `""` - a caller that cannot see
+        the star has no other way to tell which of the two it just did.
         """
         if self.view is None:
-            return
+            return ""
         try:
             url = self.view.url().toString()
             title = self.view.title() or ""
         except RuntimeError:
-            return
+            return ""
         if not url or url.startswith("about:"):
-            return
+            return ""
 
         store = self.client.BOOKMARKS
         if store.has(url):
             store.remove(url)
             self.client.web_event("unbookmarked", url=url, title=title)
+            self._refresh_bookmark_button()
+            return "unbookmarked"
         else:
             icon = None
             try:
@@ -1164,7 +1197,44 @@ class WebPage(PageFramework):
                 icon = None
             store.add(url, title=title, icon=icon)
             self.client.web_event("bookmarked", url=url, title=title)
-        self._refresh_bookmark_button()
+            self._refresh_bookmark_button()
+            return "bookmarked"
+
+    def state(self) -> dict:
+        """
+        What the toolbar is showing, for something that cannot see it.
+
+        The two `can_` flags are what a remote control needs to grey its own
+        buttons with; without them a phone offers Back on a page with no
+        history and the press does nothing, which reads as the panel being
+        unreachable rather than as the history being empty.
+        """
+        url, title, saved = "", "", False
+        can_back, can_forward = False, False
+        if self.view is not None:
+            try:
+                url = self.view.url().toString()
+                title = self.view.title() or ""
+                history = self.view.history()
+                can_back = history.canGoBack()
+                can_forward = history.canGoForward()
+            except RuntimeError:
+                url, title = "", ""
+            try:
+                saved = bool(url) and self.client.BOOKMARKS.has(url)
+            except Exception:
+                saved = False
+        return {
+            "url": url,
+            "title": title,
+            "home": self.home_url,
+            "can_back": can_back,
+            "can_forward": can_forward,
+            "bookmarked": saved,
+            "lock_address": bool(self.lock_address),
+            "lock_base": self.lock_base,
+            "zoom": getattr(self, "zoom", self.DEFAULT_ZOOM),
+        }
 
     def _refresh_bookmark_button(self) -> None:
         """Filled when this page is saved, hollow when it is not."""

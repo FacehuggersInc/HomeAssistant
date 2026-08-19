@@ -591,6 +591,21 @@ def FlaskApp(client):
 			return {"request": "Failed", "reason": "No such icon."}, 404
 		return send_from_directory(str(folder), safe)
 
+	# The two halves of Go To, as tabs on both of them.
+	#
+	# Switching which page the panel shows and driving the browser it is
+	# showing are different jobs with different controls, and one page holding
+	# both means the browser's half is a single text box because that is all
+	# there is room for beside a list of page keys.
+	GOTO_NAV = (
+		("/goto/page", "Pages", "arrow-right-bold"),
+		("/goto/web", "Web", "web"),
+	)
+
+	def _goto_nav(current: str, token: str) -> str:
+		from src.webui import subnav
+		return subnav(GOTO_NAV, current=current, token=token)
+
 	@app.route("/goto/page", methods=["GET"])
 	def goto_ui():
 		"""
@@ -603,9 +618,42 @@ def FlaskApp(client):
 		"""
 		err = auth()
 		if err: return err
-		token = request.args.get("token", "")
-		return render_template("goto.html",
-							   token=token), 200
+		# _token() rather than request.args: an approved phone browses on its
+		# cookie and puts no ?token= on the address bar, and an empty token
+		# written into the nav links is a tab that logs the device out of the
+		# page it is already on.
+		log()
+		token = _token()
+		return render_template("goto.html", token=token,
+							   nav=_goto_nav("/goto/page", token)), 200
+
+	@app.route("/goto/web", methods=["GET"])
+	def goto_web_ui():
+		"""
+		A remote control for the panel's browser.
+
+		From files in `src/web/` rather than a template: this page is most of
+		a screenful of markup and eight kilobytes of script, which is the size
+		`page()` stops being the right tool at. See docs/web-ui.md.
+
+		Static like `/goto/page`, and shadowing `/goto/<path:page>` the same
+		way - which costs a page key of "web". `#webpage` is the browser's key
+		and is unaffected.
+		"""
+		err = auth()
+		if err: return err
+		log()
+		from src.webui import core_assets
+		token = _token()
+		html = core_assets().page(
+			title="Go to the web", heading="Go to the web",
+			blurb=f"Drive the browser on {client.panel_name()} from here.",
+			token=token, endpoint="/goto/web",
+			nav=_goto_nav("/goto/web", token),
+			body_file="webgoto.html", css_file="webgoto.css",
+			script_file="webgoto.js",
+		)
+		return html, 200, {"Content-Type": "text/html; charset=utf-8"}
 
 	@app.route("/pages", methods=["GET"])
 	def list_pages():
@@ -617,15 +665,14 @@ def FlaskApp(client):
 				"current": current,
 				"pages": sorted(client.get_pages())}, 200
 
-	## CLIPBOARD
-
 	def _on_ui_result(fn, timeout: float = 2.0):
 		"""
 		Run something on the UI thread and wait for what it returns.
 
 		call_on_ui is fire and forget, which is fine for setting a value and
-		useless for reading one. The clipboard belongs to the GUI thread, so
-		reading it from a Flask worker is not an option.
+		useless for reading one. The clipboard belongs to the GUI thread, and
+		so does every widget, so reading either from a Flask worker is not an
+		option.
 		"""
 		from threading import Event
 		box = {}
@@ -645,6 +692,159 @@ def FlaskApp(client):
 		if "error" in box:
 			raise box["error"]
 		return box.get("value")
+
+	## THE BROWSER
+
+	# Every command the web page's toolbar offers, as the feature each one
+	# calls. A name not in here is a 404 with the list, rather than a silent
+	# no-op that looks like the panel ignoring the press.
+	BROWSER_COMMANDS = {
+		"back": "back",
+		"forward": "forward",
+		"reload": "reload",
+		"home": "home",
+		"top": "top",
+		"bookmark": "bookmark",
+	}
+
+	# What each answers with when it reports that it did nothing. The command
+	# succeeded either way - "there is nothing behind this page" is an answer,
+	# not a failure - so these are 200s with `moved` false.
+	BROWSER_IDLE = {
+		"back": "There is nothing to go back to.",
+		"forward": "There is nothing to go forward to.",
+		"reload": "There is no page to refresh.",
+		"home": "Could not go home.",
+		"top": "There is no page to scroll.",
+		"bookmark": "This page cannot be bookmarked.",
+	}
+
+	def _browser_page():
+		"""
+		The web page, if it is the one on screen.
+
+		A command arrives for the page the panel is showing NOW. Reaching into
+		a page that is built but hidden would press Back on a browser nobody
+		is looking at, and the answer would come back as success.
+		"""
+		page = client.PAGE
+		if page is None or getattr(page, "name", "") != "#webpage":
+			return None
+		return page
+
+	def _browser_feature(page, name: str):
+		"""
+		Call one of the web page's features and hand back what it returned.
+
+		`features()` with no key is the container, and a name on it resolves
+		to what was registered under it - the same access every plugin uses,
+		`sub_home.features().remove_widget(key)` among them. `getattr` rather
+		than a literal only because the name arrives from the URL.
+		"""
+		return getattr(page.features(), name)()
+
+	@app.route("/browser/state", methods=["GET"])
+	def browser_state():
+		"""
+		What the panel's browser is showing, and what it can do from here.
+
+		409 when the panel is somewhere else, with the page it is on - a
+		remote control that cannot say why its buttons are dead is a remote
+		control that looks broken.
+		"""
+		err = auth()
+		if err: return err
+		log("debug")
+		page = _browser_page()
+		if page is None:
+			return {"request": "Failed",
+					"reason": "The panel is not on the browser page.",
+					"current": getattr(client.PAGE, "name", None)
+					if client.PAGE else None}, 409
+		try:
+			state = _on_ui_result(lambda: _browser_feature(page, "state"))
+		except Exception as e:
+			client.log("warning", f"[API][browser] state failed: {e}")
+			return {"request": "Failed", "reason": str(e)}, 500
+		if not state:
+			return {"request": "Failed",
+					"reason": "The browser page did not report its state."}, 501
+		return {"request": "Success", **state}, 200
+
+	@app.route("/browser/<command>", methods=["GET", "POST"])
+	def browser_command(command):
+		"""
+		Press one of the browser toolbar's buttons.
+
+		GET /browser/back?token=...
+
+		`/browser/state` is a static rule and wins over this one, the same way
+		`/goto/page` does - so there is no command called `state`.
+		"""
+		err = auth()
+		if err: return err
+		log()
+
+		name = str(command or "").strip().lower()
+		if name not in BROWSER_COMMANDS:
+			return {"request": "Failed",
+					"reason": f"No browser command called '{name}'.",
+					"commands": sorted(BROWSER_COMMANDS)}, 404
+
+		page = _browser_page()
+		if page is None:
+			return {"request": "Failed",
+					"reason": "The panel is not on the browser page.",
+					"current": getattr(client.PAGE, "name", None)
+					if client.PAGE else None}, 409
+
+		try:
+			# Waited on rather than fired off. Whether a press moved anything
+			# is the whole of what a phone can report, and call_on_ui cannot
+			# hand it back.
+			result = _on_ui_result(
+				lambda: _browser_feature(page, BROWSER_COMMANDS[name]))
+		except Exception as e:
+			client.log("warning", f"[API][browser] {name} failed: {e}")
+			return {"request": "Failed", "reason": str(e)}, 500
+
+		if not result:
+			return {"request": "Success", "command": name, "moved": False,
+					"reason": BROWSER_IDLE[name]}, 200
+		answer = {"request": "Success", "command": name, "moved": True}
+		if name == "bookmark":
+			# Which way the toggle went. Not knowable from having pressed it,
+			# and the page redraws its star from this.
+			answer["result"] = result
+		return answer, 200
+
+	@app.route("/bookmarks", methods=["GET"])
+	def list_bookmarks():
+		"""
+		Every saved address, for a device with a browser.
+
+		Authed, unlike `/webhome` - this one is read by a phone rather than by
+		the panel's own web view, and a phone is not somebody standing at the
+		panel. Removing one still goes through `/bookmark/forget`, which is
+		not authed for the reason given there; one route for forgetting means
+		the two pages cannot disagree about what forgetting does.
+		"""
+		err = auth()
+		if err: return err
+		log("debug")
+		marks = []
+		try:
+			for mark in client.BOOKMARKS.all():
+				marks.append({"url": mark.url, "label": mark.label,
+							  "host": mark.host, "icon": mark.icon or "",
+							  "initial": mark.initial})
+		except Exception as e:
+			client.log("warning", f"[API][bookmarks] Could not list: {e}")
+			return {"request": "Failed", "reason": str(e)}, 500
+		return {"request": "Success", "bookmarks": marks,
+				"count": len(marks)}, 200
+
+	## CLIPBOARD
 
 	@app.route("/clipboard", methods=["GET", "POST"])
 	def clipboard():
@@ -1165,10 +1365,13 @@ def FlaskApp(client):
 			{"url": "/upload", "label": "Files",
 			 "description": "Send files to anything the panel has opened up.",
 			 "auth": True, "icon": "upload"},
-			{"url": "/goto/page", "label": "Go to",
-			 "description": "Change what the panel is showing, or send it to a "
-							"web page.",
+			{"url": "/goto/page", "label": "Go To | Pages",
+			 "description": "Change which page the panel is showing.",
 			 "auth": True, "icon": "arrow-right-bold"},
+			{"url": "/goto/web", "label": "Go To | Web",
+			 "description": "Drive the panel's browser: open an address, move "
+							"through it, and open what is bookmarked.",
+			 "auth": True, "icon": "web"},
 			{"url": "/say", "label": "Say something",
 			 "description": "Read a message out on the panel, from anywhere.",
 			 "auth": True, "icon": "message-text"},

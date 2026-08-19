@@ -395,7 +395,9 @@ def core_assets():
     if CORE_ASSETS is None:
         CORE_ASSETS = WebAssets(_Path(__file__).with_name("web"),
                                 required=("docs.css", "docs.js",
-                                          "plugins.css", "listing.js"))
+                                          "plugins.css", "listing.js",
+                                          "webgoto.html", "webgoto.css",
+                                          "webgoto.js"))
         CORE_ASSETS.endpoint = "/web"
     return CORE_ASSETS
 
@@ -572,7 +574,7 @@ class WebAssets:
              data: dict = None, heading: str = "", blurb: str = "",
              message: str = "", bad: bool = False, body_file: str = "page.html",
              css_file: str = "page.css", script_file: str = "page.js",
-             also: tuple = ()) -> str:
+             also: tuple = (), nav: str = "") -> str:
         """
         The whole document, from the folder.
 
@@ -580,6 +582,9 @@ class WebAssets:
         listing helper, for a page with more items on it than fit. They are
         linked with their own fingerprints, so a page that shares one cannot
         go stale against it.
+
+        `nav` is a `subnav()` row, for a page that is one of several in a
+        section.
         """
         gone = self.missing()
         if gone:
@@ -619,4 +624,8 @@ class WebAssets:
             css=css, script=data,
             body=self.read(body_file) + extra,
             head=head,
+            # A section's tabs belong above the heading, which is where
+            # page() puts them. A file-backed page in a section that has any
+            # would otherwise be the one page in it with no way out.
+            nav=nav,
         )

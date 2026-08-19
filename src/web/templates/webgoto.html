@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Go to the web &mdash; {{ panel }}</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
+<style>
+{{ chrome|safe }}
+ .label{color:var(--muted);font-size:13px;margin:0 0 8px}
+
+ /* What the panel is showing. The title is the useful line and the address
+    is the one that confirms it, so the title is the larger of the two. */
+ .now{display:flex;align-items:center;gap:12px;min-width:0}
+ .now .what{min-width:0;flex:1}
+ .now .title{font-size:16px;font-weight:600;line-height:1.3;
+             overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+ .now .addr{color:var(--muted);font-size:12.5px;margin-top:3px;
+            overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+ .now .star{font-size:22px;line-height:1;color:#ffd479;flex:none;
+            display:none}
+ .now.saved .star{display:block}
+
+ /* Six controls that have to be pressable standing in a doorway. Three to a
+    row on a phone, and wide enough that a thumb does not need aiming. */
+ .keys{display:grid;gap:8px;grid-template-columns:repeat(3,1fr)}
+ .key{display:flex;flex-direction:column;align-items:center;
+      justify-content:center;gap:6px;min-height:74px;padding:10px 6px;
+      border:1px solid var(--line);border-radius:12px;background:#141417;
+      color:var(--text);font-size:13px;font-weight:600;cursor:pointer}
+ .key:active{opacity:.7}
+ .key .glyph{font-size:21px;line-height:1}
+ /* Greyed from can_back / can_forward rather than left live. A button that
+    answers "there is nothing to go back to" every time is a button that
+    reads as broken. */
+ .key[disabled]{opacity:.35;cursor:default}
+ .key.on{border-color:var(--accent);color:var(--accent)}
+
+ /* The refusal, when the panel is on something other than the browser. Not
+    a banner: it replaces the controls rather than sitting above them, since
+    none of them will do anything while it is showing. */
+ .away{display:none;color:var(--muted);font-size:14px;line-height:1.65;
+       border:1px dashed var(--line);border-radius:12px;padding:18px}
+ .away code{background:var(--card);padding:2px 7px;border-radius:6px;
+            color:var(--text)}
+ body.away .keys{display:none}
+ body.away .away{display:block}
+
+ .marks{display:flex;flex-direction:column;gap:8px}
+ .mark{position:relative;display:flex;align-items:center;gap:12px;
+       padding:12px 46px 12px 14px;border:1px solid var(--line);
+       border-radius:12px;background:#141417;min-height:60px}
+ .mark .open{display:flex;align-items:center;gap:12px;flex:1;min-width:0;
+             background:none;border:none;padding:0;min-height:0;
+             color:var(--text);text-align:left;cursor:pointer}
+ .mark:active{opacity:.75}
+ .mark img{width:26px;height:26px;border-radius:7px;object-fit:contain;
+           flex:none}
+ .mark .letter{width:26px;height:26px;border-radius:7px;background:#26262b;
+   display:flex;align-items:center;justify-content:center;font-size:13px;
+   font-weight:700;color:var(--accent);flex:none}
+ .mark .what{min-width:0}
+ .mark .name{font-size:14.5px;font-weight:600;line-height:1.3;
+   overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+ .mark .host{color:var(--muted);font-size:12px;margin-top:2px;
+   overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+ /* A glyph rather than a labelled control, sitting in the padding the card
+    reserves for it on the right. */
+ .drop{position:absolute;right:9px;top:50%;transform:translateY(-50%);
+   width:30px;height:30px;min-height:0;padding:0;border:none;background:none;
+   color:var(--muted);font-size:19px;line-height:1;border-radius:8px;
+   opacity:.6}
+ .drop:active{opacity:1;background:rgba(255,122,122,.16);color:#ffb3b3}
+
+ #note{display:none}
+</style>
+</head>
+<body>
+<p>{{ back_button(token)|safe }}</p>
+
+<h1>Go to the web</h1>
+<p class="sub">Drive the browser on {{ panel }} from here.</p>
+
+{{ nav|safe }}
+
+<div id="note"></div>
+
+<div class="card">
+  <p class="label">On the panel</p>
+  <div class="now" id="now">
+    <div class="what">
+      <div class="title" id="title">Asking the panel&hellip;</div>
+      <div class="addr" id="addr">&nbsp;</div>
+    </div>
+    <div class="star" id="star" title="Bookmarked">&#9733;</div>
+  </div>
+</div>
+
+<div class="card">
+  <p class="label">Controls</p>
+  <div class="keys">
+    <button class="key" id="k-back" data-cmd="back">
+      <span class="glyph">&#8592;</span><span>Back</span></button>
+    <button class="key" id="k-forward" data-cmd="forward">
+      <span class="glyph">&#8594;</span><span>Forward</span></button>
+    <button class="key" id="k-reload" data-cmd="reload">
+      <span class="glyph">&#8635;</span><span>Refresh</span></button>
+    <button class="key" id="k-home" data-cmd="home">
+      <span class="glyph">&#8962;</span><span>Home</span></button>
+    <button class="key" id="k-top" data-cmd="top">
+      <span class="glyph">&#8593;</span><span>Back to top</span></button>
+    <button class="key" id="k-bookmark" data-cmd="bookmark">
+      <span class="glyph" id="k-star">&#9734;</span><span>Bookmark</span></button>
+  </div>
+  <div class="away" id="away">
+    The panel is not on the browser. Open an address below, or send it to the
+    browser from <code>Go To | Pages</code>, and these will work.
+  </div>
+</div>
+
+<div class="card">
+  <p class="label">Open an address</p>
+  <input id="url" type="url" inputmode="url" spellcheck="false"
+         placeholder="https://example.com">
+  <div class="row"><button class="btn primary" id="openurl">Open on the panel</button></div>
+  <p class="hint">Sends the address to the panel's browser page. The panel
+    stays there until something else changes it.</p>
+</div>
+
+<div class="card">
+  <p class="label">Bookmarks</p>
+  <div class="marks" id="marks"><p class="hint">Loading&hellip;</p></div>
+</div>
+
+<script>
+var TOKEN = {{ token|tojson }};
+var note = document.getElementById('note');
+
+function say(message, bad) {
+  note.textContent = message;
+  note.className = bad ? 'banner bad' : 'banner';
+  note.style.display = 'block';
+}
+
+/* -- what the panel is showing ------------------------------------------- */
+
+function drawState(state) {
+  document.body.classList.remove('away');
+  document.getElementById('title').textContent =
+    state.title || state.url || 'A blank page';
+  document.getElementById('addr').textContent = state.url || '';
+  document.getElementById('now').className =
+    'now' + (state.bookmarked ? ' saved' : '');
+
+  document.getElementById('k-back').disabled = !state.can_back;
+  document.getElementById('k-forward').disabled = !state.can_forward;
+  var star = document.getElementById('k-bookmark');
+  star.className = 'key' + (state.bookmarked ? ' on' : '');
+  document.getElementById('k-star').innerHTML =
+    state.bookmarked ? '&#9733;' : '&#9734;';
+
+  /* A locked page refuses a typed address at the engine, and the refusal is
+     a notification on the panel - which is the one screen the person holding
+     this is not looking at. Say it here instead of letting them find out. */
+  var field = document.getElementById('url');
+  field.disabled = !!state.lock_address;
+  field.placeholder = state.lock_address
+    ? 'The panel\u2019s address bar is locked'
+    : (state.lock_base ? state.lock_base + '\u2026'
+                       : 'https://example.com');
+}
+
+function drawAway(reason) {
+  document.body.classList.add('away');
+  document.getElementById('title').textContent =
+    reason || 'The panel is not on the browser.';
+  document.getElementById('addr').textContent = '';
+  document.getElementById('now').className = 'now';
+}
+
+function state() {
+  return fetch('/browser/state?token=' + encodeURIComponent(TOKEN))
+    .then(function (r) { return r.json(); })
+    .then(function (d) {
+      if (d.request === 'Success') { drawState(d); }
+      else { drawAway(d.reason); }
+    })
+    .catch(function () { drawAway('Could not reach the panel.'); });
+}
+
+/* -- the controls -------------------------------------------------------- */
+
+function press(command) {
+  fetch('/browser/' + encodeURIComponent(command) +
+        '?token=' + encodeURIComponent(TOKEN))
+    .then(function (r) { return r.json(); })
+    .then(function (d) {
+      if (d.request !== 'Success') {
+        say(d.reason || 'The panel refused that.', true);
+        if (d.reason) { drawAway(d.reason); }
+        return;
+      }
+      /* `moved` false is a success that did nothing - an empty history, a
+         page that cannot be saved. Said plainly rather than as a failure. */
+      if (!d.moved) { say(d.reason || 'Nothing to do.'); }
+      else if (d.result === 'bookmarked') { say('Saved to bookmarks.'); marks(); }
+      else if (d.result === 'unbookmarked') { say('Removed from bookmarks.'); marks(); }
+      else { say('Done.'); }
+      state();
+    })
+    .catch(function (e) { say('Could not reach the panel: ' + e, true); });
+}
+
+Array.prototype.forEach.call(document.querySelectorAll('.key'),
+  function (button) {
+    button.addEventListener('click', function () {
+      press(button.getAttribute('data-cmd'));
+    });
+  });
+
+/* -- sending it somewhere ------------------------------------------------ */
+
+function open_on_panel(address) {
+  /* The '#' has to be percent-encoded or the server never sees what follows
+     it - a fragment is not sent. */
+  fetch('/goto/' + encodeURIComponent('#webpage') +
+        '?token=' + encodeURIComponent(TOKEN) +
+        '&url=' + encodeURIComponent(address))
+    .then(function (r) { return r.json(); })
+    .then(function (d) {
+      if (d.request === 'Success') {
+        say('Opening ' + address + ' on the panel.');
+        /* The page is built and the load started after this answers, so a
+           state read now describes the page being replaced. */
+        setTimeout(state, 700);
+      } else {
+        say(d.reason || 'Could not open that.', true);
+      }
+    })
+    .catch(function (e) { say('Could not reach the panel: ' + e, true); });
+}
+
+document.getElementById('openurl').addEventListener('click', function () {
+  var value = document.getElementById('url').value.trim();
+  if (!value) { say('Type an address first.', true); return; }
+  if (!/^https?:\/\//i.test(value)) { value = 'https://' + value; }
+  open_on_panel(value);
+});
+
+/* -- bookmarks ----------------------------------------------------------- */
+
+function forget(url) {
+  /* Not authed, the same as the panel's own home page - one route for
+     forgetting means the two pages cannot disagree about what it does. */
+  fetch('/bookmark/forget?url=' + encodeURIComponent(url))
+    .then(function (r) { return r.json(); })
+    .then(function (d) {
+      say(d.request === 'Forgotten' ? 'Forgotten.'
+                                    : (d.reason || 'It was not saved.'),
+          d.request !== 'Forgotten');
+      marks();
+      state();
+    })
+    .catch(function (e) { say('Could not reach the panel: ' + e, true); });
+}
+
+function drawMark(mark) {
+  var row = document.createElement('div');
+  row.className = 'mark';
+
+  var open = document.createElement('button');
+  open.type = 'button';
+  open.className = 'open';
+
+  if (mark.icon) {
+    var img = document.createElement('img');
+    img.src = '/bookmark-icon/' + encodeURIComponent(mark.icon);
+    img.alt = '';
+    open.appendChild(img);
+  } else {
+    var letter = document.createElement('span');
+    letter.className = 'letter';
+    /* textContent, not innerHTML. Everything on this row came from a page
+       title somebody else wrote. */
+    letter.textContent = mark.initial || '?';
+    open.appendChild(letter);
+  }
+
+  var what = document.createElement('div');
+  what.className = 'what';
+  var name = document.createElement('div');
+  name.className = 'name';
+  name.textContent = mark.label || mark.url;
+  var host = document.createElement('div');
+  host.className = 'host';
+  host.textContent = mark.host || '';
+  what.appendChild(name);
+  what.appendChild(host);
+  open.appendChild(what);
+  open.addEventListener('click', function () { open_on_panel(mark.url); });
+
+  var drop = document.createElement('button');
+  drop.type = 'button';
+  drop.className = 'drop';
+  drop.title = 'Forget this bookmark';
+  drop.innerHTML = '&times;';
+  drop.addEventListener('click', function () { forget(mark.url); });
+
+  row.appendChild(open);
+  row.appendChild(drop);
+  return row;
+}
+
+function marks() {
+  fetch('/bookmarks?token=' + encodeURIComponent(TOKEN))
+    .then(function (r) { return r.json(); })
+    .then(function (d) {
+      var host = document.getElementById('marks');
+      host.innerHTML = '';
+      if (d.request !== 'Success') {
+        say(d.reason || 'Could not list the bookmarks.', true);
+        return;
+      }
+      if (!d.bookmarks.length) {
+        var empty = document.createElement('p');
+        empty.className = 'hint';
+        empty.textContent = 'Nothing saved yet. Open a page and press ' +
+                            'Bookmark above, or the star on the panel.';
+        host.appendChild(empty);
+        return;
+      }
+      d.bookmarks.forEach(function (mark) {
+        host.appendChild(drawMark(mark));
+      });
+    })
+    .catch(function (e) { say('Could not reach the panel: ' + e, true); });
+}
+
+/* The panel changes without this page being told, so what is drawn here goes
+   stale on its own. Polled only while the page is actually being looked at -
+   a phone in a pocket asking every few seconds is a request per person per
+   day for nobody. */
+var poll = null;
+
+function watch() {
+  if (document.hidden) {
+    if (poll) { clearInterval(poll); poll = null; }
+    return;
+  }
+  state();
+  if (!poll) { poll = setInterval(state, 6000); }
+}
+
+document.addEventListener('visibilitychange', watch);
+watch();
+marks();
+</script>
+</body>
+</html>

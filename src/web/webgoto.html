@@ -1,0 +1,51 @@
+<!-- The status line. page() renders one only when the panel had
+     something to say at render time, and everything this page says it
+     says after a fetch - so it carries its own, hidden until used. -->
+<p class="banner" id="note" style="display:none"></p>
+
+<section class="card">
+  <p class="label">On the panel</p>
+  <div class="now" id="now">
+    <div class="what">
+      <div class="title" id="title">Asking the panel&hellip;</div>
+      <div class="addr" id="addr">&nbsp;</div>
+    </div>
+    <div class="star" id="star" title="Bookmarked">&#9733;</div>
+  </div>
+</section>
+
+<section class="card">
+  <p class="label">Controls</p>
+  <div class="keys" id="keys">
+    <button type="button" class="key" data-cmd="back">
+      <span class="glyph">&#8592;</span><span>Back</span></button>
+    <button type="button" class="key" data-cmd="forward">
+      <span class="glyph">&#8594;</span><span>Forward</span></button>
+    <button type="button" class="key" data-cmd="reload">
+      <span class="glyph">&#8635;</span><span>Refresh</span></button>
+    <button type="button" class="key" data-cmd="home">
+      <span class="glyph">&#8962;</span><span>Home</span></button>
+    <button type="button" class="key" data-cmd="top">
+      <span class="glyph">&#8593;</span><span>Back to top</span></button>
+    <button type="button" class="key" data-cmd="bookmark">
+      <span class="glyph" id="k-star">&#9734;</span><span>Bookmark</span></button>
+  </div>
+  <p class="away" id="away">The panel is not on the browser. Open an address
+    below, or send it there from <code>Pages</code>, and these will work.</p>
+</section>
+
+<section class="card">
+  <p class="label">Open an address</p>
+  <input id="url" type="url" inputmode="url" spellcheck="false"
+         placeholder="https://example.com">
+  <div class="row">
+    <button type="button" class="btn primary" id="openurl">Open on the panel</button>
+  </div>
+  <p class="hint">Sends the address to the panel's browser page. The panel
+    stays there until something else changes it.</p>
+</section>
+
+<section class="card">
+  <p class="label">Bookmarks</p>
+  <div class="marks" id="marks"><p class="hint">Loading&hellip;</p></div>
+</section>

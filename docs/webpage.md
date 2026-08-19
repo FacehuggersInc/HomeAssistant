@@ -71,11 +71,32 @@ it.
 
 And as features, for code that already has the page:
 
-| Feature         | Does                                                 |
-|-----------------|------------------------------------------------------|
-| `navigate(url)` | Load something. A missing scheme becomes `https://`. |
-| `set_home(url)` | Change where home goes.                              |
-| `current()`     | The address currently loaded.                        |
+| Feature         | Does                                                    |
+|-----------------|---------------------------------------------------------|
+| `navigate(url)` | Load something. A missing scheme becomes `https://`.    |
+| `set_home(url)` | Change where home goes.                                 |
+| `current()`     | The address currently loaded.                           |
+| `back()`        | One step back. `False` when there is no history.        |
+| `forward()`     | One step forward, the same way.                         |
+| `reload()`      | Refresh what is loaded.                                 |
+| `home()`        | Go to `home`.                                           |
+| `top()`         | Scroll back to the top.                                 |
+| `bookmark()`    | Toggle. Answers `bookmarked` or `unbookmarked`.         |
+| `state()`       | The whole toolbar, as a dict.                           |
+
+Every button on the toolbar is one of these, under the name
+[`/browser/<command>`](api.md#the-browser) accepts. A control that exists as a
+button and not as a feature is one nothing else can reach, and this toolbar is
+out of arm's reach on a wall.
+
+The six that press something answer whether they did anything. A button ignores
+that - it is disabled when there is nothing to do, and whoever pressed it is
+looking at the page. A caller over the network is neither, so "there is nothing
+to go back to" and "done" have to be different answers or a phone reports
+success for a press that moved nothing.
+
+`state()` carries `url`, `title`, `home`, `can_back`, `can_forward`,
+`bookmarked`, `lock_address`, `lock_base` and `zoom`.
 
 ## Built for a panel
 
@@ -195,6 +216,10 @@ network up at the exact moment somebody pressed the button.
 `/webhome` replaces `about:blank` as the home address: a grid of bookmarks, a
 clock and a DuckDuckGo box. It is not authed, because it is served to the
 panel's own web view, which has no token and no way to be given one.
+
+`Go To | Web` lists the same bookmarks for a phone, from `/bookmarks`, and
+opening one there sends the panel to it. Both pages forget through
+`/bookmark/forget`.
 
 ## `on_web_event`
 

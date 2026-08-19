@@ -24,22 +24,15 @@
 <p>{{ back_button(token)|safe }}</p>
 
 <h1>Go to</h1>
-<p class="sub">Change what {{ panel }} is showing.</p>
+<p class="sub">Change which page {{ panel }} is showing.</p>
+
+{{ nav|safe }}
 
 <div id="note"></div>
 
 <div class="card">
   <p class="label">Pages</p>
   <div class="pages" id="pages"><p class="hint">Loading&hellip;</p></div>
-</div>
-
-<div class="card">
-  <p class="label">Open a web page</p>
-  <input id="url" type="url" inputmode="url" spellcheck="false"
-         placeholder="https://example.com">
-  <div class="row"><button class="btn primary" id="openurl">Open on the panel</button></div>
-  <p class="hint">Sends the address to the panel's browser page. The panel
-    stays there until something else changes it.</p>
 </div>
 
 <script>
@@ -102,13 +95,6 @@ function load() {
     })
     .catch(function (e) { say('Could not reach the panel: ' + e, true); });
 }
-
-document.getElementById('openurl').addEventListener('click', function () {
-  var value = document.getElementById('url').value.trim();
-  if (!value) { say('Type an address first.', true); return; }
-  if (!/^https?:\/\//i.test(value)) { value = 'https://' + value; }
-  go('#webpage', '&url=' + encodeURIComponent(value));
-});
 
 load();
 </script>

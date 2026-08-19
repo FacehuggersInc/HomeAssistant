@@ -330,6 +330,19 @@ ASSETS.page(title="Checklist", token=token, endpoint=PATH,
 
 One `register()` call serves all of them.
 
+### A page in a section
+
+`nav=` takes a `subnav()` row and `page()` places it above the heading. A
+file-backed page in a section that has tabs is otherwise the one page in it
+with no way across:
+
+```python
+ASSETS.page(title="Go to the web", token=token, endpoint=PATH,
+            nav=subnav(GOTO_NAV, current="/goto/web", token=token),
+            body_file="webgoto.html", css_file="webgoto.css",
+            script_file="webgoto.js")
+```
+
 ### Loaded by sibling()
 
 A page module reached through `sibling()` **cannot use a relative import**.
@@ -346,6 +359,7 @@ from src.assets.bundled.YourPlugin import ASSETS
 | Method                        | Does                                          |
 |-------------------------------|-----------------------------------------------|
 | `page(title, token, data...)` | The whole document, from the folder.          |
+| `page(..., nav=)`             | With a `subnav()` row above the heading.      |
 | `inline_or_link(name)`        | `(inline, tag)` - one filled, by size.        |
 | `link(name)` / `tag(name)`    | The URL, and the element for it.              |
 | `register(client, key)`       | Wires the asset endpoint, returns its path.   |
@@ -364,6 +378,17 @@ manager - and they keep their files in `src/web/`. `core_assets()` in
 unauthenticated for the same reason `/docs` is: it is the stylesheet for a
 page anybody can already open, and a token would mean the browser could not
 fetch it after following the link.
+
+`Go To | Web` is one of these: `src/web/webgoto.html`, `.css` and `.js`, with
+the route calling `core_assets().page(body_file=..., css_file=...,
+script_file=...)`. It is a template's sibling page - `Go To | Pages` is
+`goto.html` - and the split is the size rule above rather than a preference.
+A screenful of markup and eight kilobytes of script is past what belongs in a
+Jinja document; a list of page keys and thirty lines is not.
+
+The three files are named in `core_assets()`'s `required`, so one left out of
+a build is a card saying which, rather than a page that renders empty and
+explains nothing.
 
 The documentation viewer does not use `page()` at all - it has a sidebar, a
 filter and a table of contents - so it uses the asset half on its own:
