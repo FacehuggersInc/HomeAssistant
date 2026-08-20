@@ -1368,6 +1368,10 @@ def FlaskApp(client):
 			{"url": "/goto/page", "label": "Go To | Pages",
 			 "description": "Change which page the panel is showing.",
 			 "auth": True, "icon": "arrow-right-bold"},
+			{"url": "/wake", "label": "Wake report",
+			 "description": "Why it woke, and why it did not - what the "
+							"microphone is, and every near miss.",
+			 "auth": True, "icon": "microphone"},
 			{"url": "/goto/web", "label": "Go To | Web",
 			 "description": "Drive the panel's browser: open an address, move "
 							"through it, and open what is bookmarked.",
@@ -1451,6 +1455,8 @@ def FlaskApp(client):
 			 "icon": "alert", "download": True},
 			{"url": "/logs/startup", "label": "Startup log", "danger": False,
 			 "icon": "power", "download": True},
+			{"url": "/logs/wake", "label": "Wake report", "danger": False,
+			 "icon": "microphone", "download": True},
 		]
 
 		actions += [
@@ -1954,14 +1960,64 @@ def FlaskApp(client):
 			)
 		return response
 
+	## THE WAKE REPORT
+
+	@app.route("/wake", methods=["GET"])
+	def wake_report_page():
+		"""
+		The wake report, summarised for somebody standing at the panel.
+
+		The file is written to be read at a terminal, which is the wrong place
+		when the panel is on a wall in another room: the useful way to read it
+		is to stand there saying the wake word and watch what lands.
+		"""
+		err = auth()
+		if err: return err
+		log()
+		from src.webui import core_assets
+		token = _token()
+		html = core_assets().page(
+			title="Wake report", heading="Wake report",
+			blurb="Why it woke, and why it did not.",
+			token=token, endpoint="/wake",
+			body_file="wakereport.html", css_file="wakereport.css",
+			script_file="wakereport.js",
+		)
+		return html, 200, {"Content-Type": "text/html; charset=utf-8"}
+
+	@app.route("/wake/report", methods=["GET"])
+	def wake_report_data():
+		"""
+		The last session in the report, as JSON, with a sentence saying what
+		it means.
+
+		Static like `/wake`, so it is not a page key. Answers 200 with
+		`found` false rather than 404 when there is no report: the page has
+		something to say about that, and a 404 would make it look broken
+		instead of new.
+		"""
+		err = auth()
+		if err: return err
+		log("debug")
+		from src.constants import LOG_DIR
+		try:
+			from src.assistant import wake_report_read as reading
+			session = reading.read(str(LOG_DIR / "wake.log"))
+			return {"request": "Success", "session": session,
+					"verdict": reading.verdict(session)}, 200
+		except Exception as e:
+			client.log("warning", f"[API][wake] Could not read the report: {e}")
+			return {"request": "Failed", "reason": str(e)}, 500
+
 	@app.route("/logs/<which>", methods=["GET"])
 	def download_log(which):
 		"""
 		One log file, as a download.
 
-		Four names rather than a path: `latest`, `previous`, `crash` and
-		`startup`. A route that took a filename would be a way to read anything
-		in the folder, and there is nothing else in there worth naming.
+		Five names rather than a path: `latest`, `previous`, `crash`,
+		`startup` and `wake`. A route that took a filename would be a way to
+		read anything in the folder, and there is nothing else in there worth
+		naming.
 
 		`previous` is the newest rotated log - the one before latest.log -
 		found by modified time rather than by its name, because the name comes
@@ -1983,12 +2039,19 @@ def FlaskApp(client):
 			path = LOG_DIR / "crash.log"
 		elif wanted == "latest":
 			path = LOG_DIR / "latest.log"
+		elif wanted == "wake":
+			path = LOG_DIR / "wake.log"
 		elif wanted == "previous":
 			try:
+				# `wake.log` is named rather than dated, so it is not a
+				# rotated log however much it looks like one to a glob - and
+				# being the most recently written file in here most of the
+				# time, it would win this every time.
 				rotated = sorted(
 					(entry for entry in LOG_DIR.glob("*.log")
 					 if entry.is_file() and entry.name not in (
-						 "latest.log", "crash.log", "startup.log")),
+						 "latest.log", "crash.log", "startup.log",
+						 "wake.log")),
 					key=lambda entry: entry.stat().st_mtime, reverse=True)
 			except OSError:
 				rotated = []

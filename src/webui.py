@@ -397,7 +397,9 @@ def core_assets():
                                 required=("docs.css", "docs.js",
                                           "plugins.css", "listing.js",
                                           "webgoto.html", "webgoto.css",
-                                          "webgoto.js"))
+                                          "webgoto.js",
+                                          "wakereport.html", "wakereport.css",
+                                          "wakereport.js"))
         CORE_ASSETS.endpoint = "/web"
     return CORE_ASSETS
 

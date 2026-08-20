@@ -2167,6 +2167,13 @@ class Client:
                         # speaker does not forget which speaker it had.
                         found.append(saved)
                 setting.options = found
+                # Said out loud. "I set it in the app and nothing changed" has
+                # two causes that look identical - the change not saving, and
+                # the device never being offered - and only this tells them
+                # apart without a screenshot.
+                self.log("info",
+                         f"[Audio] {direction} options: {found} "
+                         f"(currently '{saved or 'Default'}')")
         except Exception as e:
             self.log("warning", f"[Audio] Could not list devices: {e}")
 
@@ -2281,7 +2288,8 @@ class Client:
             return
 
         for d in audio.input_devices():
-            self.log("info", f"[Assistant] Input device {d['index']}: {d['name']}"
+            self.log("info", f"[Assistant] Input device {d['index']}: {d['name']} "
+                             f"- {d['channels']}ch, {d.get('hostapi', '?')}"
                              f"{' (default)' if d['is_default'] else ''}")
 
         # Logged stage by stage from here on.
@@ -2347,7 +2355,7 @@ class Client:
             self.simple_notify("microphone", "Assistant",
                                f"Listening through '{chosen}'.")
 
-        if not self.speech_model_ready(model, device):
+        if not self.speech_model_ready(model, device, chosen):
             # Asked, declined, or downloading. Whatever happens next happens
             # from there.
             return
@@ -2370,7 +2378,7 @@ class Client:
                 history=False)
         except Exception:
             pass
-        self._launch_assistant(device, model)
+        self._launch_assistant(device, model, chosen)
         self._start_speech_status()
 
     ## -- SPEECH MODEL DOWNLOADS -----------------------------------------
@@ -2478,7 +2486,8 @@ class Client:
             self.log("warning", f"[Assistant] Could not clear the declined "
                                 f"record for '{model}': {e}")
 
-    def speech_model_ready(self, model: str, device) -> bool:
+    def speech_model_ready(self, model: str, device,
+                           chosen: str = "") -> bool:
         """
         Whether the assistant can start on this model now.
 
@@ -2512,7 +2521,7 @@ class Client:
             detail=f"Model: {model}\nApproximate size: {size}",
             confirm_text="Download",
             cancel_text="Not Now",
-            on_confirm=lambda: self.download_speech_model(model, device),
+            on_confirm=lambda: self.download_speech_model(model, device, chosen),
             on_cancel=lambda: self.decline_speech_model(model, device),
         )
         return False
@@ -2534,7 +2543,8 @@ class Client:
             f"The voice assistant is off until the {model} model is "
             f"downloaded. Change the model in Settings to be asked again.")
 
-    def download_speech_model(self, model: str, device) -> None:
+    def download_speech_model(self, model: str, device,
+                              chosen: str = "") -> None:
         """
         Fetch the weights, then start.
 
@@ -2578,14 +2588,14 @@ class Client:
                         f"Could not download {model}, so the voice assistant "
                         f"is off. It will try again next start.")
                     return
-                self._launch_assistant(device, model)
+                self._launch_assistant(device, model, chosen)
 
             self.call_on_ui(finished)
 
         self.THREADS.create("__speech_model_download_thread", fetch)
         self.THREADS.start("__speech_model_download_thread")
 
-    def _launch_assistant(self, device, model: str) -> None:
+    def _launch_assistant(self, device, model: str, chosen: str = "") -> None:
         from src.assistant import audio
 
         # Before anything can speak. A machine that picked its own output on
@@ -2600,6 +2610,12 @@ class Client:
             # here, so a plugin that claimed it is what starts.
             source = self.SERVICES.STT.build(
                 input_device = device,
+                # The name as well as the index. The child runs its own
+                # PortAudio and enumerates separately, and the two lists have
+                # been seen to disagree - the same index naming a different
+                # device in each. A name it can look up itself is the only
+                # thing that survives that.
+                input_device_name = chosen,
                 model        = model,
                 wake_words   = [self.wake_word],
                 session_silence_ms = int(self.setting("assistant.wake.session_silence.value", 800)),

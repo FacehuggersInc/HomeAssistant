@@ -186,6 +186,203 @@ extra time per wake. Turn it on, find out what is waking the panel, raise
 `assistant.wake.wake_sensitivity` if the scores are marginal, and turn it off
 again.
 
+## What did not wake it
+
+`assistant.wake.wake_report` is the other half, and it is **on by default**.
+It writes `logs/wake.log`, and `/wake` renders the last session of it.
+
+Wake word trouble is two symptoms with one cause. Firing at the television and
+missing somebody over an air conditioner look like opposite problems and are
+usually the same one: the word arrived buried, and no sensitivity has a good
+setting any more. Raise it and the misses get worse; lower it and the false
+fires do. Telling those apart needs numbers from the room they happen in.
+
+### A near miss
+
+A wake writes a line. Saying the word and getting nothing writes nothing at
+all, so "it did not hear me" has never had a number attached to it - and 0.45
+against a bar of 0.50 and 0.02 against the same bar are completely different
+faults. One is a setting. The other means the audio never carried the word,
+and no setting will fix it.
+
+A **near miss** is a peak that got above `NEAR_FLOOR` and never reached the
+bar:
+
+```
+NEAR   0.44 (bar 0.50, short by 0.06)  level -31 dBFS, floor -58 dBFS
+  NEAR SAID  'a lexus dealership near you'
+```
+
+Transcribed from the same ring a wake uses, at most six a minute - a room with
+a television in it produces far more than that, and the rest are counted
+rather than run through the model.
+
+**A fire spends its peak.** The score does not stop the moment the spotter
+recognises the word; it falls away over the next several windows. Without
+that, every successful wake also reported a near miss for the word that had
+just worked.
+
+### The VAD, and phrases that never end
+
+What ends a phrase is `SILENCE_MS` of the VAD not calling speech. Constant
+broadband noise - a fan, an air conditioner - keeps webrtcvad saying speech,
+so that silence never arrives and every capture runs to `max_phrase_seconds`.
+The wake word can be heard perfectly and the question still never gets asked.
+
+The report counts it:
+
+```
+vad speech  94% of windows, longest unbroken run 8s
+cut short   4 capture(s) hit the length limit without ending
+```
+
+and says so while it is happening, rather than only in the summary:
+
+```
+VAD    speech unbroken for 8s - a phrase cannot end while this holds
+CAPPED 8010ms captured, 8010ms of it called speech - the phrase never ended on its own
+```
+
+A high ratio with short runs is a room where somebody talks a lot. A high
+ratio with runs measured in whole seconds is a machine, and it is the thing
+to fix.
+
+The VAD is read for **every** window, not only while capturing, so the report
+covers the stretch where a question is being lost rather than going blind
+exactly then.
+
+### Hitting the limit
+
+A capture that reaches `max_phrase_seconds` is **transcribed and then stood
+down**, not thrown away. The limit is about where a capture ends rather than
+about whether the audio was meant for the panel: a wake word gated it, the
+spotter is the confident part of the pipeline, and the only thing that ran
+long was the room.
+
+It stands down **without the timeout message**. That message tells the client
+the turn ended with nothing, and part of that is forgetting which word woke
+it - after which `routing()` scans the transcript for a wake word it cannot
+contain, because the word was said before the capture began. The transcript
+would be dropped by the same gate that let it through.
+
+### The microphone line
+
+The first block is the one worth reading:
+
+```
+device      ReSpeaker 4 Mic Array (index 3)
+channels    6 available, 1 taken
+rate        16000 Hz
+NOTE        this device offers 6 channels and channel 0 is being read...
+```
+
+Capture opens `channels=1`, which takes the **first** channel of whatever the
+device offers. On a microphone array that does its own beamforming and noise
+suppression, the first channel is not always the processed one - on some
+firmware it is a bare microphone with all of that bypassed. Every score in the
+report is a score of whatever this line says, so it is the thing to settle
+before touching a threshold.
+
+`default` and its relatives are reported differently. ALSA answers with a
+channel ceiling rather than a description - 128 on a machine with one built-in
+microphone - so a channel warning there would fire on every panel, which is
+the same as no warning at all. What the report says instead is that it cannot
+see which hardware is being read, and that naming the input device fixes that.
+Every input the machine has is listed underneath with its index and channel
+count, so which one to set is answerable from the file.
+
+### Which microphone, exactly
+
+The panel picks a microphone by **name**, and the name is what travels to the
+child. The index goes too, but only as a hint.
+
+The two processes run separate PortAudio instances and enumerate separately,
+and their lists have been observed to disagree on a real panel: a USB array
+visible to one and missing from the other, with every index past that point
+one lower in the child. An index chosen in the panel opened a different device
+there, silently, and every score afterwards described the wrong microphone.
+
+So the child looks the name up in its own list, and says so when the answer
+surprises it:
+
+```
+asked for   reSpeaker XVF3800 4-Mic Array: USB Audio (hw:3,0)
+chosen by   matched by name at index 8
+```
+
+Two failures are called out rather than quietly worked around. An index
+mismatch is a **warning** naming both numbers, because it means the lists
+disagree. A name that is not in the child's list at all is an **error** that
+prints every input it can see - and it falls back to the system default rather
+than to the hint, because a stale index is a different microphone, and a
+different microphone reported as the one that was asked for is worse than an
+honest fallback.
+
+The input list in the report carries the host API for the same reason: when
+two processes disagree about what the devices are, which backend each is
+talking to is the first thing to compare. The panel's own list is sent across
+and diffed against it, so a device offered in Settings that the speech process
+cannot see is one line rather than two log files read side by side:
+
+```
+MISSING     [7] reSpeaker XVF3800 4-Mic Array: USB Audio (hw:3,0) - 6ch, ALSA
+            - the panel offers this and this process cannot see it
+```
+
+A microphone that is the desktop's own default may be **absent from the
+speech process entirely** while the panel can see it perfectly - claimed by
+whatever routes system audio, and invisible to anything trying to open it
+directly. The report says so, and setting the desktop default elsewhere while
+naming the device here is what resolves it.
+
+A name that is not found also triggers a **rescan** before it gives up.
+PortAudio builds its device list once, when it starts, and the speech process
+starts moments after the panel - so a USB microphone that was busy or still
+settling at that instant is absent for the life of the process while the panel
+that enumerated a second earlier sees it perfectly. Restarting PortAudio is the
+only way to look again, it costs a fraction of a second, and it only happens
+when something is already wrong.
+
+`[Audio] input options: [...]` at startup says what the Settings dropdown was
+filled with. "I set it in the app and nothing changed" has two causes that look
+identical from outside - the change not saving, and the device never being
+offered - and that line is what tells them apart.
+
+### The summary
+
+Written every five minutes and again on shutdown:
+
+```
+Final after 34 min
+  woke        3 (5.3/hour)
+  near misses 19 (33.5/hour), 12 transcribed, 7 not
+  noise floor -58 dBFS
+  peak scores 0.2-0.3: 4  0.4-0.5: 15  0.9-1.0: 3
+```
+
+The noise floor is the tenth-quietest second of the last two minutes rather
+than the median. A median follows a television; the low end follows the thing
+that never stops, which is what buries a wake word.
+
+**Nothing in the distribution at all** is the answer to a different question.
+It means the model is not recognising the word even faintly, which is a
+microphone or a channel, not a threshold - and the summary says so rather than
+leaving somebody to read an empty table.
+
+### Reading it
+
+`/wake` shows the last session only. The file accumulates across restarts, and
+a page that averaged four sessions together would hide the thing somebody is
+looking for, which is that it got worse after a change.
+
+It leads with a sentence saying what the numbers mean, because somebody
+standing at a panel with a phone wants to know whether to move a microphone or
+change a number, and a table cannot say which. The whole file is a download
+from there, or from `/logs/wake`.
+
+The page polls while it is open: the useful way to read this is to stand in
+the room saying the wake word and watch what lands.
+
 ## The phrase
 
 Parakeet is NVIDIA's, run through `onnx-asr` rather than NeMo - four megabytes
@@ -527,6 +724,25 @@ panel's words first. Saying the wake word first always gets through.
 
 A near miss - 0.5 or better and still refused - is logged at `debug` with its
 score, so the threshold can be read off a real transcript rather than guessed.
+
+### Interrupting a reply nobody has heard
+
+The wake interrupt fires only once the reply is **audible**, not merely
+`is_speaking()`.
+
+A sentence spends a second or two being synthesised before any sound exists,
+and `is_speaking()` counts that - correctly, for everything else that asks,
+because an answer panel timing out over a reply still being made is worse. For
+this one caller it is wrong. A wake word arriving during generation arrived
+into silence, so it is the room rather than somebody talking over an answer,
+and acting on it drops an answer that was never spoken.
+
+A fan produces enough of those to swallow every reply in a row: the question
+routes, the skill runs, `Stopped before it started - dropped` goes in the log,
+and from the room the panel took the question and said nothing.
+
+`TTS.is_audible()` is the narrower question. A backend that does not offer it
+falls back to `is_speaking()`, which is no worse than not having asked.
 
 ### Stopping a reply that has not started
 

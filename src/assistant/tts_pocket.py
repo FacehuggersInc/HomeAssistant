@@ -628,6 +628,20 @@ class PocketTTSProcessing:
         """
         return bool(self.speaking or getattr(self, "_pending", False))
 
+    def is_audible(self) -> bool:
+        """
+        Whether a reply is actually coming out of the speaker right now.
+
+        Narrower than `is_speaking()`, which counts a sentence still being
+        synthesised - and the difference matters for exactly one caller. You
+        cannot interrupt something nobody has heard: a wake word arriving
+        while a reply is being generated arrived into silence, so it is the
+        room, or it is somebody who has not been answered yet. Stopping there
+        throws away an answer that was never spoken, and nothing in the room
+        explains why.
+        """
+        return bool(self.speaking)
+
     def stop(self, owner: int = None) -> bool:
         """
         Stop speaking now. Returns whether there was anything to stop.

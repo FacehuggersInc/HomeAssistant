@@ -1,0 +1,37 @@
+<p class="banner" id="note" style="display:none"></p>
+
+<!-- The whole point of the page. Somebody standing at the panel with a phone
+     wants to know whether to move a microphone or change a number, and a
+     table cannot say which - so the sentence goes first and the numbers
+     underneath it are the working. -->
+<section class="card verdict" id="verdict">
+  <p class="label">What it looks like</p>
+  <p class="says" id="says">Reading the report&hellip;</p>
+</section>
+
+<section class="card">
+  <p class="label">The microphone</p>
+  <div class="fields" id="device"></div>
+  <p class="warn" id="channels" style="display:none"></p>
+</section>
+
+<section class="card">
+  <p class="label">This session</p>
+  <div class="fields" id="summary"></div>
+  <p class="hint" id="partial" style="display:none">The report was already
+    running before the part shown here. Restart the assistant for a clean
+    session.</p>
+</section>
+
+<section class="card">
+  <p class="label">Settings it ran with</p>
+  <div class="fields" id="settings"></div>
+</section>
+
+<section class="card">
+  <p class="label">What happened, newest first</p>
+  <div class="events" id="events"><p class="hint">Loading&hellip;</p></div>
+  <div class="row">
+    <a class="btn" id="download" href="/logs/wake">Download the whole report</a>
+  </div>
+</section>

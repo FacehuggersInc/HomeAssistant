@@ -390,6 +390,9 @@ The three files are named in `core_assets()`'s `required`, so one left out of
 a build is a card saying which, rather than a page that renders empty and
 explains nothing.
 
+`/wake` is another: `src/web/wakereport.html`, `.css` and `.js`, for the same
+reason - it summarises a log file and needs a script to do it.
+
 The documentation viewer does not use `page()` at all - it has a sidebar, a
 filter and a table of contents - so it uses the asset half on its own:
 

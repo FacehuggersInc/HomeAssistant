@@ -390,6 +390,27 @@ class VoiceFacade:
         except Exception:
             return False
 
+    def is_audible(self) -> bool:
+        """
+        Whether sound is actually leaving the speaker.
+
+        `is_speaking()` counts a reply still being synthesised, which is what
+        anything asking "is the panel busy talking" wants. This is for the one
+        caller that needs "has a person heard any of this yet".
+
+        A backend that does not draw the distinction answers with
+        `is_speaking()`, which is the old behaviour and no worse than it.
+        """
+        if self.backend is None:
+            return False
+        try:
+            asked = getattr(self.backend, "is_audible", None)
+            if callable(asked):
+                return bool(asked())
+            return bool(self.backend.is_speaking())
+        except Exception:
+            return False
+
     def start(self) -> None:
         """
         Pick a backend, or report why there is none.

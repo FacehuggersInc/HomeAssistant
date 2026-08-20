@@ -70,7 +70,8 @@
         "audio.quiet.do_not_disturb": "Hold notifications back",
         "audio.quiet.mute_sounds": "Silence the panel's own sounds",
         "assistant.wake.max_phrase_seconds": "The longest one phrase may run before it is discarded",
-        "assistant.wake.wake_diagnostics": "Log what woke it, and what was being said at the time"
+        "assistant.wake.wake_diagnostics": "Log what woke it, and what was being said at the time",
+        "assistant.wake.wake_report": "Record why it woke and why it did not, with a page to read it on"
     },
     "prefix": {
         "application.window.size": [

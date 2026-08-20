@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING
 
 
 from src.assistant import nlp, normalize
+from src.constants import LOG_DIR
 from src.registries.service_registry import Restart
 
 if TYPE_CHECKING:
@@ -150,10 +151,15 @@ class STTProcessing():
 			return None
 
 	def __init__(self, client, process:str = "parakeet",
-				 input_device=None, model:str = "tiny.en", wake_words=None,
+				 input_device=None, input_device_name: str = "",
+				 model:str = "tiny.en", wake_words=None,
 				 session_silence_ms:int = 800):
 		self.client = client
 		self.input_device = input_device
+		# What the client called it. The child enumerates separately and the
+		# two lists have been seen to disagree, so the index is a hint and
+		# this is the thing that identifies the microphone.
+		self.input_device_name = str(input_device_name or "")
 		self.model = model
 		self.wake_words = list(wake_words or [])
 		# How long a silence ends a phrase once a session is open. Wake mode
@@ -723,17 +729,29 @@ class STTProcessing():
 		here: capture is muted while speaking, so there is nothing to
 		transcribe. The spotter is the only thing that can hear anything in
 		this window, so it has to be the thing that acts.
+
+		Only once the reply is audible - see below.
 		"""
-		speaking = False
+		# AUDIBLE, not merely speaking.
+		#
+		# A reply spends a second or two being synthesised before any sound
+		# exists, and `is_speaking()` counts that - correctly, for everything
+		# else that asks. Here it is wrong: a wake word arriving during
+		# generation arrived into silence, so it is the room rather than
+		# somebody talking over an answer. Acting on it dropped the answer
+		# before it was ever heard, and a fan produces enough of them to
+		# swallow every reply in a row - the question routed, the skill ran,
+		# and nothing came out.
+		audible = False
 		try:
-			speaking = self.client.SERVICES.TTS.is_speaking()
+			audible = self.client.SERVICES.TTS.is_audible()
 		except Exception:
-			speaking = False
-		if not speaking:
+			audible = False
+		if not audible:
 			return
 
 		try:
-			tts.stop()
+			self.client.SERVICES.TTS.stop_speaking()
 		except Exception as e:
 			self.client.log("warning",
 				f"[STTProcessing] Could not stop speech on wake: {e}")
@@ -1626,6 +1644,13 @@ class STTProcessing():
 		settings = {
 			"wake_words":   words,
 			"input_device": self.input_device,
+			"input_device_name": self.input_device_name,
+			# What the PANEL can see. The speech process enumerates for
+			# itself, and on at least one machine the two lists differ - a USB
+			# array present here and absent there, with every index past it
+			# shifted. Sending this over turns that into one line in the
+			# report instead of two log files read side by side.
+			"panel_inputs": self.panel_inputs(),
 			"model":        self.model,
 			"session_silence_ms": self.session_silence_ms,
 			# What the microphone does for itself - see mic_profile().
@@ -1646,6 +1671,14 @@ class STTProcessing():
 			# transcript of what was being said around it.
 			"wake_diagnostics": bool(self.client.setting(
 				"assistant.wake.wake_diagnostics.value", False)),
+			# The standing record: what the microphone is, how loud the room
+			# is, every wake, and every near miss. On by default, because the
+			# question it answers is always asked after the fact - and a
+			# report somebody has to turn on before the problem happens is a
+			# report that is off when it matters.
+			"wake_report": bool(self.client.setting(
+				"assistant.wake.wake_report.value", True)),
+			"wake_report_path": str(LOG_DIR / "wake.log"),
 			# How sure the spotter has to be. Read here rather than held,
 			# because the child is respawned when it changes.
 			"wake_sensitivity": float(self.client.setting(
@@ -1678,12 +1711,34 @@ class STTProcessing():
 		config = json.dumps(settings)
 		self.client.log("info", f"[STTProcessing] Starting {self.process_type}: "
 								f"model={self.model} "
-								f"device={self.input_device} wake={words}")
+								f"device={self.input_device} "
+								f"({self.input_device_name or 'system default'}) "
+								f"wake={words}")
 		config = json.dumps(settings)
 		self.client.log("info", f"[STTProcessing] Starting {self.process_type}: "
 								f"model={self.model} "
-								f"device={self.input_device} wake={words}")
+								f"device={self.input_device} "
+								f"({self.input_device_name or 'system default'}) "
+								f"wake={words}")
 		return [sys.executable, self.__process_path, config]
+
+	def panel_inputs(self) -> list:
+		"""
+		Every input this process can see, as `[index] name - Nch, API`.
+
+		Without the ALSA helper plugins. The speech process compares this
+		against its own list and names the difference, and the two disagree
+		about `lavrate` and `upmix` all the time - which is of no interest to
+		anybody and buries the one line that is: a real microphone offered in
+		Settings that the thing which has to open it cannot see.
+		"""
+		try:
+			from src.assistant import audio
+			return [f"[{d['index']}] {d['name']} - {d['channels']}ch, "
+					f"{d.get('hostapi', '?')}"
+					for d in audio.input_devices(include_helpers=False)]
+		except Exception:
+			return []
 
 	def ask_to_stop(self) -> bool:
 		"""

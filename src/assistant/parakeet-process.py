@@ -181,7 +181,8 @@ class ParakeetListener:
 
     def __init__(self, log=None, model_name: str = "parakeet-v3",
                  precision: str = "int8", wake_words: list[str] = None,
-                 input_device=None, session_silence_ms: int = 800,
+                 input_device=None, input_device_name: str = "",
+                 panel_inputs=None, session_silence_ms: int = 800,
                  wake_listen_timeout: float = 0.0,
                  vad_aggressiveness: int = 3,
                  mic_processing: str = "software",
@@ -189,6 +190,8 @@ class ParakeetListener:
                  wake_diagnostics: bool = False,
                  wake_sensitivity: float = 0.5,
                  wake_sensitivity_speaking: float = 0.0,
+                 wake_report: bool = True,
+                 wake_report_path: str = "",
                  initial_mode: str = "wake"):
         # First, so everything that reports during setup reports through the
         # socket rather than into a terminal nobody is reading.
@@ -198,7 +201,22 @@ class ParakeetListener:
         self.precision = precision
         self.wake_words = [w for w in (wake_words or []) if w]
         self.wake_word = self.wake_words[0] if self.wake_words else ""
+        # A HINT, not the answer. This process runs its own PortAudio and
+        # enumerates separately from the client, and the two lists have
+        # been seen to disagree - the same index naming a different device
+        # in each, because one of them could see a USB microphone the
+        # other could not. Opening by index across that boundary opens
+        # whatever happens to sit there.
         self.input_device = input_device
+        self.input_device_name = str(input_device_name or "")
+        # What the panel could see when it chose. Compared with what this
+        # process can see, and any difference is said out loud - a device
+        # visible to one and not the other is the whole reason a name is
+        # sent rather than an index.
+        self.panel_inputs = list(panel_inputs or [])
+        # Filled by __resolve_input() at open time.
+        self.device_used = input_device
+        self.device_why = ""
         # How sure openWakeWord has to be. Lower hears the word through more
         # noise and fires on more things that were not it; higher is the
         # reverse. A fan in the room is the case this is for.
@@ -229,11 +247,33 @@ class ParakeetListener:
         # the model over it every time the spotter fires, which is work
         # nobody needs until they are asking why the panel woke up.
         self.wake_diagnostics = bool(wake_diagnostics)
+
+        # The standing report. Separate from wake_diagnostics above, which
+        # explains wakes only: this also records the ones that did NOT happen,
+        # which is the half that says whether a sensitivity is wrong or the
+        # audio never carried the word at all.
+        self.report = None
+        if wake_report and wake_report_path:
+            try:
+                from src.assistant.wake_report import WakeReport
+                self.report = WakeReport(wake_report_path, self.wake_word,
+                                         log=self.send_log)
+                self.report.start()
+            except Exception as exc:
+                self.report = None
+                self.send_log("warning",
+                              f"[Parakeet]: No wake report: {exc}")
+
+        # Filled for either. The report transcribes near misses out of the
+        # same ring, so a panel with the report on and diagnostics off still
+        # needs the audio.
         self.wake_context = collections.deque(
             maxlen=self._windows(self.WAKE_CONTEXT_MS)
-            if self.wake_diagnostics else 1)
+            if (self.wake_diagnostics or self.report is not None) else 1)
         self.listen_timeout = float(wake_listen_timeout or self.LISTEN_TIMEOUT)
 
+        self._reported_device = False
+        self._capped_pending = 0
         self.running = False
         self.stop_event = ThreadEvent()
         self._listen_thread = None
@@ -420,6 +460,16 @@ class ParakeetListener:
             self.audio_queue.put_nowait(None)
         except queue.Full:
             pass
+        if self.report is not None:
+            # Writes the final summary and waits for it to be on disk. The
+            # totals are the part somebody actually reads, and a report that
+            # loses them on the way out is a session wasted - which on a panel
+            # somebody has to walk to is a trip wasted.
+            try:
+                self.report.stop()
+            except Exception:
+                pass
+            self.report = None
 
     @property
     def muted(self) -> bool:
@@ -503,10 +553,12 @@ class ParakeetListener:
         connected = True
         while not self.stop_event.is_set():
             try:
+                self.device_used, self.device_why = self.__resolve_input(sd)
                 with sd.InputStream(samplerate=self.SAMPLE_RATE, channels=1,
                                     dtype="int16",
-                                    device=self.input_device) as stream:
+                                    device=self.device_used) as stream:
                     self.send_log("debug", "[Parakeet]: Microphone opened.")
+                    self.__report_device(sd)
                     if not connected and callable(self.on_audio_error):
                         self.on_audio_error("")   # recovered
                     connected = True
@@ -522,6 +574,212 @@ class ParakeetListener:
                 # would otherwise be ignored for the whole five seconds,
                 # which is long enough for the client to give up and kill it.
                 self.stop_event.wait(5)
+
+    def __report_window(self, window: bytes, bar: float,
+                        speech: bool = False) -> None:
+        """
+        Hand one window to the report, and act on what it says.
+
+        `"near"` means a peak fell short and is worth transcribing. Queued
+        rather than run here for the same reason a wake context is: this is
+        the audio thread, and a model run on it stalls capture for as long as
+        it takes.
+
+        Failures are swallowed. A report that stopped the microphone would be
+        a diagnostic that caused the fault it was installed to find.
+        """
+        try:
+            outcome = self.report.window(self.spotter.last_score, window,
+                                         speech, bar)
+            if outcome == "near" and self.wake_context:
+                try:
+                    self.audio_queue.put_nowait(
+                        (b"".join(self.wake_context), time.time(),
+                         self.generation, -2))
+                except queue.Full:
+                    pass
+            if self.report.due():
+                self.report.summary()
+        except Exception:
+            pass
+
+    #The client's word for "no preference".
+    SYSTEM_DEFAULT = "system default"
+
+    def __resolve_input(self, sd):
+        """
+        Which device index to open, decided in THIS process.
+
+        The client picked a microphone from its own enumeration and handed
+        over both the name and the index it had. Only the name travels: the
+        index is a position in a list this process builds for itself, and the
+        two have been observed to differ by one, with a USB array present in
+        one list and missing from the other. Opening the client's index there
+        opens something else entirely, silently, and every score afterwards
+        describes the wrong microphone.
+
+        Answers (index_or_None, why). None is the system default, which is
+        what an unnamed preference has always meant.
+        """
+        wanted = self.input_device_name.strip()
+        if not wanted or wanted.lower() == self.SYSTEM_DEFAULT:
+            return None, "no preference - following the system default"
+
+        inputs = self.__inputs(sd)
+        if inputs is None:
+            return self.input_device, "could not list devices"
+
+        if not any(name == wanted for _index, name in inputs):
+            # Ask PortAudio to look again before believing it.
+            #
+            # The device list is built once, when PortAudio starts, and this
+            # process starts moments after the panel does - so a USB
+            # microphone that was busy or still settling at that instant is
+            # absent for the life of the process, while the panel that
+            # enumerated a second earlier can see it perfectly. A rescan costs
+            # a fraction of a second and only happens when something is
+            # already wrong.
+            rescanned = self.__rescan(sd)
+            if rescanned is not None:
+                if len(rescanned) != len(inputs):
+                    self.send_log(
+                        "info",
+                        f"[Parakeet]: The audio devices changed on a second "
+                        f"look - {len(inputs)} inputs became "
+                        f"{len(rescanned)}.")
+                inputs = rescanned
+
+        for index, name in inputs:
+            if name == wanted:
+                if self.input_device is not None and index != self.input_device:
+                    # Worth saying out loud rather than quietly correcting.
+                    # It means the two enumerations disagree, which is the
+                    # thing that makes opening by index wrong.
+                    self.send_log(
+                        "warning",
+                        f"[Parakeet]: '{wanted}' is index {index} here and "
+                        f"{self.input_device} in the panel - the two device "
+                        f"lists do not match. Using {index}.")
+                return index, f"matched by name at index {index}"
+
+        # Named, and not here. The fallback is the system default rather than
+        # the hint index: a stale index is a different microphone, and a
+        # different microphone reported as the one that was asked for is worse
+        # than an honest fallback.
+        have = ", ".join(f"[{i}] {n}" for i, n in inputs) or "nothing"
+        self.send_log(
+            "error",
+            f"[Parakeet]: '{wanted}' is not among the inputs this process can "
+            f"see, so the system default is being used instead. Visible: "
+            f"{have}")
+        return None, f"'{wanted}' not found here - fell back to the default"
+
+    def __inputs(self, sd):
+        """Every device with an input channel, as (index, name). None on failure."""
+        try:
+            return [(index, str(entry.get("name") or ""))
+                    for index, entry in enumerate(sd.query_devices())
+                    if int(entry.get("max_input_channels") or 0) > 0]
+        except Exception as exc:
+            self.send_log("warning",
+                          f"[Parakeet]: Could not list audio devices: {exc}")
+            return None
+
+    def __rescan(self, sd):
+        """
+        Restart PortAudio so it enumerates again.
+
+        Private calls, because sounddevice offers no public way to rebuild the
+        list and the list is built exactly once. Guarded and answering None on
+        failure: a rescan that does not work is a diagnostic that did not
+        help, never a reason the microphone does not open.
+        """
+        try:
+            sd._terminate()
+            sd._initialize()
+        except Exception as exc:
+            self.send_log("debug",
+                          f"[Parakeet]: Could not rescan the devices: {exc}")
+            return None
+        return self.__inputs(sd)
+
+    def __report_device(self, sd) -> None:
+        """
+        What the microphone is, and what was taken from it.
+
+        Once per open, into the report. `channels=1` above takes the FIRST
+        channel of whatever this device offers, and on a microphone array that
+        does its own processing the first channel is not always the one
+        carrying the processed output - on some it is a bare microphone with
+        the array's beamforming and noise suppression bypassed. Every score in
+        the report is a score of whatever this line says.
+
+        Wrapped whole: querying a device is a driver call, and one that
+        answers badly must not be the reason the microphone does not open.
+        """
+        if self.report is None or self._reported_device:
+            return
+        self._reported_device = True
+        opened = self.device_used
+        name, channels, rate = str(opened if opened is not None
+                                   else "default"), 0, 0
+        try:
+            info = sd.query_devices(opened, "input")
+            name = str(info.get("name") or name)
+            channels = int(info.get("max_input_channels") or 0)
+            rate = int(info.get("default_samplerate") or 0)
+        except Exception as exc:
+            self.report.note(f"Could not query the device: {exc}")
+
+        # The host API as well as the name. When two processes on one machine
+        # disagree about what the devices are, which backend each is talking
+        # to is the first thing worth comparing.
+        apis = {}
+        try:
+            for index, api in enumerate(sd.query_hostapis()):
+                apis[index] = str(api.get("name") or index)
+        except Exception:
+            apis = {}
+
+        others = []
+        try:
+            for index, entry in enumerate(sd.query_devices()):
+                count = int(entry.get("max_input_channels") or 0)
+                if count > 0:
+                    api = apis.get(entry.get("hostapi"), "?")
+                    others.append(f"[{index}] {entry.get('name')} "
+                                  f"- {count}ch, {api}")
+        except Exception:
+            others = []
+
+        extra = {"native rate": f"{rate} Hz" if rate else "unknown",
+                 "processing": self.mic_processing}
+        if self.input_device_name:
+            # What was ASKED for, beside what was opened. A fallback that
+            # says only what it opened reads like a choice somebody made.
+            extra["asked for"] = self.input_device_name
+        if self.device_why:
+            extra["chosen by"] = self.device_why
+
+        # The difference between the two lists, if there is one. Compared on
+        # the name rather than the whole line, because the index is exactly
+        # the part that differs between the two processes.
+        mine = {line.split("] ", 1)[-1] for line in others}
+        missing = [line for line in self.panel_inputs
+                   if line.split("] ", 1)[-1] not in mine]
+
+        try:
+            self.report.opened(opened, name, channels,
+                               self.SAMPLE_RATE, taken=1,
+                               extra=extra, others=others, missing=missing)
+            self.report.settings(
+                sensitivity=self.wake_sensitivity,
+                speaking=self.wake_sensitivity_speaking,
+                near_floor=self.report.NEAR_FLOOR,
+                listen_for=f"{self.listen_timeout:.0f}s",
+                max_phrase=f"{self.MAX_PHRASE_MS}ms")
+        except Exception:
+            pass
 
     def __stream_loop(self, stream) -> None:
         pre_context = collections.deque(maxlen=self.pre_context_windows)
@@ -561,6 +819,21 @@ class ParakeetListener:
                               f"[Parakeet]: Mode -> {self.mode}, state reset.")
                 continue
 
+            # THE VAD, FOR EVERY WINDOW.
+            #
+            # Above the spotter rather than inside the capture path, because
+            # the report needs it while a phrase is being captured - which is
+            # exactly the stretch where a room full of constant noise stops a
+            # question ever ending. Cheap enough to run always: a few
+            # microseconds of C per 30ms.
+            is_speech = False
+            if self.vad is not None:
+                try:
+                    is_speech = self.vad.is_speech(
+                        window, sample_rate=self.SAMPLE_RATE)
+                except Exception:
+                    is_speech = False
+
             # THE SPOTTER, IN BOTH MODES.
             #
             # It is a streaming model - each frame builds on the one before -
@@ -573,12 +846,13 @@ class ParakeetListener:
             # "say the wake word to ask something else" has no detector
             # running: the word would have to survive being transcribed,
             # matched as text, and passed by every self-hearing guard first.
-            if self.wake_diagnostics:
+            if self.wake_diagnostics or self.report is not None:
                 # Every window, ahead of every other decision. What explains
                 # a wake is what the SPOTTER heard, and the spotter runs
                 # while muted and while disarmed - so a ring filled only on
                 # the capture path would be empty for exactly the wakes
-                # worth explaining.
+                # worth explaining. A near miss needs it for the same reason,
+                # and needs it more: nothing else about that moment is kept.
                 self.wake_context.append(window)
 
             if self.mode == "passthrough" or not self.armed:
@@ -592,6 +866,8 @@ class ParakeetListener:
                         self.spotter.threshold = wanted
                     fired = self.spotter.feed(window)
                     if fired is not None:
+                        if self.report is not None:
+                            self.report.fired(fired, wanted)
                         self.__woke(fired)
                         if self.mode == "wake":
                             reset_phrase()
@@ -600,6 +876,11 @@ class ParakeetListener:
                         # client stops whatever is speaking; capture carries
                         # on, because what follows the word is the question.
                         reset_phrase()
+                    if self.report is not None:
+                        # After the fire, so a wake has already spent its
+                        # peak - otherwise the tail of the word that just
+                        # worked is reported as a near miss for itself.
+                        self.__report_window(window, wanted, is_speech)
                 except Exception as exc:
                     self.send_log("warning", f"[Parakeet]: Spotting failed: {exc}")
 
@@ -610,18 +891,21 @@ class ParakeetListener:
             # matched against anything. The spotter above still runs, so the
             # wake word still interrupts.
             capturing = (self.mode == "passthrough" or self.armed) and not self.muted
+            if capturing and self.report is not None:
+                # Level and VAD only. The spotter did not run for this window,
+                # so `last_score` describes an earlier moment and feeding it
+                # would invent a peak out of a stale number.
+                try:
+                    self.report.window(0.0, window, is_speech,
+                                       self.wake_sensitivity, scored=False)
+                except Exception:
+                    pass
             if not capturing:
                 if in_speech or phrase:
                     reset_phrase()
                 if self.mode == "wake" and self.armed and not self.muted:
                     self.__check_listen_timeout(reset_phrase)
                 continue
-
-            is_speech = False
-            try:
-                is_speech = self.vad.is_speech(window, sample_rate=self.SAMPLE_RATE)
-            except Exception:
-                is_speech = False
 
             if is_speech:
                 if (not in_speech and self.armed
@@ -648,25 +932,52 @@ class ParakeetListener:
                     self.__report_level(window)
 
                 if len(phrase) >= self.max_phrase_windows:
-                    # DISCARDED, not finalised.
+                    # CUT HERE, not thrown away.
                     #
-                    # What runs past the limit is a television, and
-                    # transcribing it hands the skill engine two sentences of
-                    # someone else's dialogue to match against - which is how
-                    # a panel ends up acting on a programme. Nothing that
-                    # long was said to it, so there is nothing here worth
-                    # keeping.
+                    # The limit is about where a capture ENDS, not about
+                    # whether it was meant for the panel. A wake word gated
+                    # this audio, and the spotter is the confident part of
+                    # the pipeline - so a person asked a question and the
+                    # only thing that ran long was the room.
                     #
-                    # The wake state goes with it, so the next thing said
-                    # starts a fresh prompt rather than landing mid-phrase.
+                    # Constant broadband noise - a fan, an air conditioner -
+                    # keeps the VAD calling speech, so the silence that ends
+                    # a phrase never arrives and every question runs to this
+                    # limit. Discarding here threw away the question along
+                    # with the noise, which from the room is a panel that
+                    # heard its name and then ignored you.
+                    #
+                    # What the limit still does is stop one capture running
+                    # for ever.
+                    ran_ms = len(phrase) * self.WINDOW_MS
                     self.send_log(
                         "info",
-                        f"[Parakeet]: {len(phrase) * self.WINDOW_MS}ms of "
-                        f"continuous speech - past the "
-                        f"{self.MAX_PHRASE_MS}ms limit. Discarding and "
-                        f"standing down.")
+                        f"[Parakeet]: {ran_ms}ms of continuous speech - past "
+                        f"the {self.MAX_PHRASE_MS}ms limit. Transcribing what "
+                        f"was captured and standing down.")
+                    if self.report is not None:
+                        try:
+                            self.report.capped(ran_ms,
+                                               speech_windows * self.WINDOW_MS)
+                        except Exception:
+                            pass
+                    # Marked, so the processing thread can tell this phrase
+                    # from an ordinary one. It has already been stood down
+                    # WITHOUT telling the client, on the promise that a
+                    # transcript would arrive and end the turn - and if the
+                    # model returns nothing, that promise has to be kept some
+                    # other way.
+                    self._capped_pending += 1
+                    self.__finalise(phrase, speech_windows)
                     reset_phrase()
-                    self.__stand_down("phrase ran past the length limit")
+                    # Quietly. The `wait` this would otherwise send clears
+                    # `woke_with` on the client, and routing() scans a
+                    # transcript for the wake word when that is unset - which
+                    # this phrase cannot contain, because the word was said
+                    # before the capture began. The transcript would be
+                    # dropped by the very thing that let it through.
+                    self.__stand_down("phrase ran past the length limit",
+                                      notify=False)
                 continue
 
             # SILENCE.
@@ -701,7 +1012,7 @@ class ParakeetListener:
         if callable(self.on_timeout):
             self.on_timeout("wake_timeout")
 
-    def __stand_down(self, why: str) -> None:
+    def __stand_down(self, why: str, notify: bool = True) -> None:
         """
         Drop the wake state and go back to waiting for the word.
 
@@ -709,6 +1020,12 @@ class ParakeetListener:
         frames, and context from audio that has just been thrown away
         describes something no longer adjacent to what comes next - which is
         the state a false wake leaves it in.
+
+        `notify=False` for a stand down that hands over a transcript on its
+        way out. The message this sends tells the client the turn ended with
+        nothing, and part of that is forgetting which word woke it - which
+        would make the transcript arriving a moment later look like speech
+        nobody addressed to the panel.
         """
         if not self.armed and self.mode == "wake":
             return
@@ -720,7 +1037,7 @@ class ParakeetListener:
             except Exception:
                 pass
         self.send_log("debug", f"[Parakeet]: Standing down - {why}.")
-        if callable(self.on_timeout):
+        if notify and callable(self.on_timeout):
             self.on_timeout("phrase_limit")
 
     def __woke(self, score: float = 0.0) -> None:
@@ -939,11 +1256,35 @@ class ParakeetListener:
             self.send_log("debug", f"[Parakeet]: Wake diagnostic failed: {exc}")
             return
         heard = " ".join(str(heard or "").split())
+        if self.report is not None:
+            self.report.heard("fire", heard)
         if heard:
             self.send_log("info", f"[Parakeet]: Wake context: {heard!r}")
         else:
             self.send_log("info", "[Parakeet]: Wake context transcribed to "
                                   "nothing - the wake was not speech.")
+
+    def __explain_near_miss(self, raw: bytes) -> None:
+        """
+        Transcribe the audio around a peak that fell short.
+
+        Logged to the report rather than to the panel's log: a near miss
+        happens far more often than a wake, and a room with a television in
+        it would otherwise fill the ordinary log with lines nobody asked for.
+
+        Failures are dropped. This is a diagnostic, and must never be the
+        reason the panel stops working.
+        """
+        if self.report is None:
+            return
+        try:
+            audio = np.frombuffer(raw, dtype=np.int16).astype(np.float32) / 32768.0
+            heard = " ".join(str(self.__clean(
+                self.parakeet.transcribe(audio)) or "").split())
+        except Exception as exc:
+            self.report.note(f"  NEAR SAID  (could not transcribe: {exc})")
+            return
+        self.report.heard("near", heard)
 
     def __processing_loop(self) -> None:
         while not self.stop_event.is_set():
@@ -983,6 +1324,14 @@ class ParakeetListener:
         # "what was said just then", which a score alone cannot.
         if speech_windows == -1:
             self.__explain_wake(raw)
+            return True
+
+        # A near miss rather than a wake. Same audio, same treatment, a
+        # different line in the report - "what did it hear instead" is the
+        # question, and it is the only thing that separates a word said too
+        # quietly from a word the microphone never really carried.
+        if speech_windows == -2:
+            self.__explain_near_miss(raw)
             return True
 
         if generation != self.generation:
@@ -1054,6 +1403,22 @@ class ParakeetListener:
             # The window belongs to the wake, so it goes back to the wake.
             if self.mode == "wake" and self.armed and self.armed_at:
                 self.waiting_since = self.armed_at
+
+            # UNLESS THIS WAS A CAPPED CAPTURE.
+            #
+            # That one already stood down quietly, because a transcript was
+            # coming and the message would have made the client forget which
+            # word woke it. Nothing came, so nothing else is going to tell the
+            # panel the turn is over - and it sits reading "listening" until
+            # the client's own timeout notices, seconds later, with a
+            # microphone open the whole time.
+            if self._capped_pending:
+                self._capped_pending -= 1
+                self.send_log("debug",
+                              "[Parakeet]: The capped phrase transcribed to "
+                              "nothing - ending the turn.")
+                if callable(self.on_timeout):
+                    self.on_timeout("phrase_limit")
             return True
 
         # The level rides along on the phrases that WORKED as well. A number
@@ -1064,6 +1429,11 @@ class ParakeetListener:
         self.send_log("debug",
                       f"[Parakeet]: Final transcription ({queued_ms}ms queued, "
                       f"{model_ms}ms in the model{level}): {text}")
+        if self._capped_pending:
+            # Spent. The transcript arrived, which is what the quiet stand
+            # down was waiting for - and a mark left standing would close the
+            # next empty phrase's turn instead of this one's.
+            self._capped_pending -= 1
         if self.mode == "wake":
             # Spoken to, and answered. One phrase per wake; a follow-up comes
             # through a session, which the client opens by switching this
@@ -1107,6 +1477,8 @@ class ParakeetServer:
             precision=str(config.get("parakeet_precision") or "int8"),
             wake_words=wake_words,
             input_device=config.get("input_device"),
+            input_device_name=str(config.get("input_device_name") or ""),
+            panel_inputs=list(config.get("panel_inputs") or []),
             session_silence_ms=int(config.get("session_silence_ms") or 800),
             wake_listen_timeout=float(config.get("wake_listen_timeout") or 0),
             # Aggressive whether or not the microphone has its own VAD. A
@@ -1120,6 +1492,8 @@ class ParakeetServer:
             wake_sensitivity=float(config.get("wake_sensitivity") or 0.5),
             wake_sensitivity_speaking=float(
                 config.get("wake_sensitivity_speaking") or 0.0),
+            wake_report=bool(config.get("wake_report", True)),
+            wake_report_path=str(config.get("wake_report_path") or ""),
         )
         self.listener.set_callbacks(
             on_wake=self.trigger_wake,

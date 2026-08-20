@@ -1,0 +1,34 @@
+ .label{color:var(--muted);font-size:13px;margin:0 0 8px}
+
+/* The verdict reads as a sentence rather than a field, so it gets the size a
+   heading would and the card gets the accent. It is the only thing on the
+   page somebody has to read. */
+ .verdict{border-color:var(--accent)}
+ .says{font-size:16px;line-height:1.55;margin:0}
+
+ .fields{display:flex;flex-direction:column;gap:6px}
+ .field{display:flex;gap:12px;align-items:baseline;font-size:14px}
+ .field .k{color:var(--muted);flex:0 0 40%;min-width:0;
+           overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+ .field .v{flex:1;min-width:0;word-break:break-word}
+
+ .warn{margin:12px 0 0;padding:12px 14px;border-radius:10px;
+       border:1px dashed var(--accent);color:var(--text);
+       font-size:13.5px;line-height:1.6}
+
+ .events{display:flex;flex-direction:column;gap:8px}
+ .event{border:1px solid var(--line);border-radius:12px;background:#141417;
+        padding:12px 14px}
+/* A wake and a near miss are the two halves of the same story and get read
+   against each other, so the difference has to survive a glance. */
+ .event.woke{border-left:3px solid #7ee081}
+ .event.near{border-left:3px solid #ffd479}
+ .event .top{display:flex;align-items:baseline;gap:10px}
+ .event .score{font-size:17px;font-weight:700;font-variant-numeric:tabular-nums}
+ .event .what{font-size:12px;font-weight:700;letter-spacing:.05em;
+              text-transform:uppercase;color:var(--muted)}
+ .event .when{margin-left:auto;color:var(--muted);font-size:12px;
+              font-variant-numeric:tabular-nums}
+ .event .bar{color:var(--muted);font-size:12.5px;margin-top:3px}
+ .event .said{margin-top:8px;font-size:14px;line-height:1.5}
+ .event .said em{color:var(--muted);font-style:normal}

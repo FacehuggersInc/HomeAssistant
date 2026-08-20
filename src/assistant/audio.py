@@ -120,8 +120,21 @@ def input_devices(include_helpers: bool = False) -> list[dict]:
             "channels": d.get("max_input_channels", 1),
             "samplerate": int(d.get("default_samplerate", DEFAULT_SAMPLE_RATE) or DEFAULT_SAMPLE_RATE),
             "is_default": index == default_index,
+            # Which backend this came from. The speech process enumerates
+            # separately and has been seen to come up with a different list on
+            # the same machine; when that happens the host API is the first
+            # thing worth comparing, and it is no use in only one of the two.
+            "hostapi": _hostapi_name(sd, d.get("hostapi")),
         })
     return out
+
+
+def _hostapi_name(sd, index) -> str:
+    try:
+        return str(sd.query_hostapis(index).get("name") or index)
+    except Exception:
+        return "?"
+
 
 
 def _default_index(sd) -> Optional[int]:
