@@ -44,6 +44,7 @@ from src.registries.status_registry import StatusRegistry
 from src.registries.cancel_registry import CancelRegistry
 from src.registries.user_registry import UserRegistry
 from src.registries.service_registry import ServiceRegistry, Restart
+from src.registries.package_registry import PackageRegistry
 from src.backend import FlaskApp, FlaskService
 from src.assistant.skill import Skill, SkillIntentEngine
 from src.assistant.stt import STTProcessing
@@ -322,6 +323,9 @@ class Client:
         # lifecycle for both, so a shutdown does not have to know which is
         # which. See docs/services.md.
         self.SERVICES = ServiceRegistry(self)
+        # Buildable setup bundles for other machines. Owner-keyed, so a
+        # plugin's packages go when the plugin does. See docs/packages.md.
+        self.PACKAGES = PackageRegistry(self)
         self.TIMEOUTS = TimeoutScheduler(self)
 
         self.window_locked      = False
@@ -412,6 +416,8 @@ class Client:
         # SERVICES.TTS.
         self.SKILLS = SkillIntentEngine(self)
         self.register_speech_providers()
+        from src.assistant import tts_package
+        tts_package.register(self)
 
         ## -- APIS
         # One registry for both: the HTTP endpoints a plugin serves, and the
@@ -2000,21 +2006,111 @@ class Client:
                 process = "parakeet",
                 **kwargs)
 
-        def pocket(client):
-            from src.assistant.tts_pocket import PocketTTSProcessing
+        def speaking(client):
+            """
+            Which voice backends to try, in order.
 
+            One or the other rather than both. A panel set to speak on
+            another machine and quietly falling back to the local model when
+            that machine is off would be a panel that works, badly, for
+            reasons nobody can see - and the local model is the thing being
+            moved off this hardware in the first place.
+            """
             choice = str(client.setting("audio.speech.tts_backend.value", "auto")
                          or "auto").strip().lower()
             if choice == "off":
                 return []
+
+            where = str(client.setting("audio.speech.tts_where.value", "local")
+                        or "local").strip().lower()
+            port = client.setting("audio.speech.tts_port.value", 8770)
+
+            if where == "socket":
+                from src.assistant.tts_socket import SocketTTSProcessing
+                host = str(client.setting("audio.speech.tts_host.value", "")
+                           or "").strip()
+                return [(f"Speech at {host or 'nowhere'}:{port}",
+                         SocketTTSProcessing)]
+
+            if where == "subprocess":
+                # The same server, on this machine. The work still costs what
+                # it costs; what changes is that it no longer happens inside
+                # the interpreter the screen and the microphone share.
+                from src.assistant.tts_socket import SocketTTSProcessing
+                client.start_speech_process()
+                return [(f"Speech beside the panel on :{port}",
+                         lambda c: SocketTTSProcessing(c, "127.0.0.1", port))]
+
+            from src.assistant.tts_pocket import PocketTTSProcessing
             return [("Pocket TTS", PocketTTSProcessing)]
 
         self.SERVICES.provide("client", "assistant.stt", parakeet,
                               "Parakeet, in a child process")
-        self.SERVICES.provide("client", "assistant.tts", pocket,
-                              "Pocket TTS, locally")
+        self.SERVICES.provide("client", "assistant.tts", speaking,
+                              "The panel's own voice")
         self.SERVICES.watch_provider("assistant.stt", self._speech_provider_changed)
         self.SERVICES.watch_provider("assistant.tts", self._speech_provider_changed)
+
+    #What the local speech server is registered as, and how hard it tries.
+    SPEECH_SERVICE = "assistant.tts.process"
+    SPEECH_RESTART = Restart(backoff=(0.0, 5.0, 30.0), window=120.0)
+
+    def start_speech_process(self) -> None:
+        """
+        Run the speech server beside the panel, on the loopback.
+
+        The same script a second machine would run. One implementation rather
+        than two: a local mode with its own code path is a second thing to
+        keep working, and the socket one is the tested one.
+
+        Registered rather than started directly, so it is supervised like
+        anything else - restarted if it stops, and taken down with the panel.
+        """
+        port = self.setting("audio.speech.tts_port.value", 8770)
+        voice = str(self.setting("audio.speech.tts_voice.value", "")
+                    or "").strip()
+        # Always a real language. `default` was an option here once and was
+        # never one of the model's - it went looking for weights by that name
+        # and would not load at all. An install that has not been through a
+        # settings merge may still hold it, so it is translated rather than
+        # trusted. The local backend does the same in _configured_language().
+        language = str(self.setting("audio.speech.tts_language.value", "")
+                       or "").strip().lower()
+        if language in ("", "default", "auto", "none"):
+            language = "english"
+
+        def argv():
+            # A factory, so a restart takes the voice as it is now rather
+            # than as it was when the assistant last started.
+            from pathlib import Path as _Path
+            script = (_Path(__file__).resolve().parent
+                      / "assistant" / "tts-socket-process.py")
+            out = [sys.executable, str(script),
+                   "--host", "127.0.0.1", "--port", str(port)]
+            if voice:
+                out += ["--voice", voice]
+            out += ["--language", language]
+            return out
+
+        def gone(code, restarting):
+            if restarting:
+                return
+            self.log("error", f"[TTS] The speech process exited ({code}) and "
+                              f"is not coming back. Nothing will be spoken.")
+            self.simple_notify("error", "Assistant",
+                               "The speech process stopped. Replies will be "
+                               "silent until the assistant is restarted.")
+
+        self.SERVICES.spawn("client", self.SPEECH_SERVICE, command=argv,
+                            on_exit=gone, restart=self.SPEECH_RESTART)
+        self.SERVICES.start(self.SPEECH_SERVICE)
+
+    def stop_speech_process(self) -> None:
+        """Stop it, if it is running. A no-op in the other two modes."""
+        try:
+            self.SERVICES.stop(self.SPEECH_SERVICE)
+        except Exception:
+            pass
 
     def _speech_provider_changed(self, name: str) -> None:
         """
@@ -2026,6 +2122,22 @@ class Client:
         """
         if not self.BUILT:
             return
+
+        # Only the half that changed. A plugin taking over the voice has no
+        # bearing on the microphone, and stopping the speech process to
+        # rebuild something else is several seconds of a deaf panel for no
+        # reason.
+        #
+        # Read off the facade rather than written out. The capability name
+        # lives on the thing that owns it, and a copy here would go on
+        # matching the old one after a rename - quietly restarting the wrong
+        # half, which is the failure this branch exists to prevent.
+        if name == self.SERVICES.TTS.PROVIDER:
+            self.log("info", f"[Assistant] '{name}' changed hands - "
+                             f"rebuilding the voice.")
+            self.call_on_ui(self.rebuild_voice)
+            return
+
         self.log("info", f"[Assistant] '{name}' changed hands - restarting.")
         # Marshalled: a claim arrives from a plugin's load(), which is not the
         # UI thread, and the restart opens dialogs.
@@ -2216,6 +2328,10 @@ class Client:
 
         self.SERVICES.STT.stop()
         self.SERVICES.TTS.detach()
+        # Taken down with the assistant. Left running it would hold the port
+        # against the one the next start spawns, and the second would find it
+        # taken and be silent for a reason nobody would look for here.
+        self.stop_speech_process()
         self.ASSIST_STATUS = "DORMANT"
         self.ASSIST_VOICE_ACTIVITY_LEVEL = 0.0
 
@@ -2230,8 +2346,22 @@ class Client:
         """
         current = self.assistant_config()
         previous = self.SERVICES.STT.remembered()
+
         if current == previous:
+            # Listening is unaffected, so the voice is rebuilt on its own if
+            # it needs to be. Its settings have nothing to do with the
+            # microphone's, and rebuilding it costs a second rather than the
+            # several the speech process takes to come back - so picking a
+            # different voice must not leave the panel deaf while it does.
+            self.restart_voice_if_changed()
             return
+
+        # Listening IS restarting, and start_assistant() builds the voice as
+        # part of that. Rebuilding it here too would take the voice down, put
+        # it back, and take it down again a line later - which on `subprocess`
+        # means spawning a speech process only to terminate it. Remembering
+        # the voice settings is enough; the restart applies them.
+        self.SERVICES.TTS.remember()
 
         was_enabled = previous[0] if previous else False
         self.SERVICES.STT.remember(current)
@@ -2258,10 +2388,45 @@ class Client:
         # in the middle of that put it underneath the page switch.
         QTimer.singleShot(600, self.start_assistant)
 
+    def rebuild_voice(self) -> None:
+        """Take the voice down and build it again, leaving listening alone."""
+        self.SERVICES.TTS.detach()
+        self.stop_speech_process()
+        self.SERVICES.TTS.start()
+        self.SERVICES.TTS.remember()
+
+    def restart_voice_if_changed(self) -> bool:
+        """
+        Rebuild the voice, and nothing else, when a voice setting changed.
+
+        Answers whether it did. The microphone, the speech process and the
+        wake word are untouched: a panel that stops listening because
+        somebody picked a different voice is a panel that punishes the
+        smallest setting on the page.
+        """
+        current = self.SERVICES.TTS.config()
+        if current == self.SERVICES.TTS.remembered():
+            return False
+        self.SERVICES.TTS.remember(current)
+
+        if not self.BUILT:
+            # Before the first start there is nothing to rebuild, and the
+            # start that follows will build it against these settings anyway.
+            return False
+
+        self.log("info", "[Assistant] Voice settings changed, rebuilding it.")
+        # Stopped whatever the new setting is. Moving from `subprocess` to
+        # anything else leaves a process holding the port otherwise, and the
+        # next one to want it is silent for a reason nobody would look for
+        # here. start_speech_process() puts it back when it is wanted.
+        self.rebuild_voice()
+        return True
+
     def start_assistant(self) -> None:
         from src.assistant import audio
 
         self.SERVICES.STT.remember()
+        self.SERVICES.TTS.remember()
 
         if not self.assistant_enabled():
             self.log("info", "[Assistant] Disabled in settings.")

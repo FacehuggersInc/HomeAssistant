@@ -2,10 +2,10 @@
 
 Registries manage and store extendable, plugin-ownable objects — things like API endpoints or pages, that a plugin registers and expects to have cleaned up automatically when it's unloaded or reloaded.
 
-Eleven concrete registries currently exist, and `BookmarkStore` sits alongside
+Twelve concrete registries currently exist, and `BookmarkStore` sits alongside
 them below. They are not all shaped the same way.
 
-Five of them are large enough to have a page of their own, listed under this
+Six of them are large enough to have a page of their own, listed under this
 one in the sidebar. What is here is the shape and the one-paragraph reason;
 what is there is how to use it.
 
@@ -307,6 +307,28 @@ the music while "nevermind" closes the answer panel, without either having to
 know the other exists.
 
 Covered in full on [Cancelling](cancel.md).
+
+## `PackageRegistry` — `self.client.PACKAGES`
+
+Set-up bundles for other machines, built when they are asked for rather than
+kept ready. A package is a **builder** — a function that runs at the moment of
+download and answers with the files.
+
+```python
+client.PACKAGES.register(owner, "feed-worker", "Feed worker", self.build,
+                         description="…", contents=("worker.py",))
+```
+
+The only registry whose entries are *made* rather than *held*. That is the
+point of it: the panel knows its own address, its ports and its settings, so
+what comes out is already pointed at the right place and its README can name
+what to change at both ends. A static archive knows none of that.
+
+It also checks what a builder produced before zipping it — a path starting `/`
+or containing `..` is refused, because the archive is about to be unpacked on
+a machine this panel has no other reach into.
+
+Covered in full on [Packages](packages.md).
 
 ## `ServiceRegistry` — `self.client.SERVICES`
 

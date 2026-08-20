@@ -158,21 +158,26 @@ class PocketTTSProcessing:
             value = ""
         return value or self.DEFAULT_VOICE_NAME
 
+    #What an install that has not been through a settings merge yet may still
+    #hold. It was never a language: the model went looking for weights by that
+    #name and would not load at all. English is what it falls back to anyway.
+    LEGACY_LANGUAGE = {"": "english", "default": "english",
+                       "auto": "english", "none": "english"}
+
     def _configured_language(self) -> str:
         """
-        The language weights to load, or "" for the model's own default.
+        The language weights to load.
 
-        The setting says "default" rather than being blank: it is an enum, and
-        an empty option renders as a blank row that cannot be told from a
-        rendering fault. It is turned back into "" here so the value never
-        reaches load_model() as a language nobody ships.
+        Always a real one. A blank or a leftover placeholder becomes English
+        rather than being passed on, because what reaches `load_model()` has
+        to be something the package ships.
         """
         try:
             value = str(self.client.setting(
                 "audio.speech.tts_language.value", "") or "").strip().lower()
         except Exception:
-            return ""
-        return "" if value in ("", "default", "auto") else value
+            return "english"
+        return self.LEGACY_LANGUAGE.get(value, value)
 
     def _cache_dir(self) -> Optional[Path]:
         try:

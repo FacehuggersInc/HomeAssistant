@@ -172,6 +172,11 @@ class SpeechFacade:
         needs restarting. Anything the child reads once, at spawn, belongs in
         here - a setting that only takes effect on a relaunch is a setting
         somebody adjusts once and gives up on.
+
+        **Listening only.** The voice has its own, on `SERVICES.TTS`. One
+        tuple for both meant picking a different voice tore down the
+        microphone, the model and the wake word with it - several seconds of
+        the panel being deaf, to change something that was never listening.
         """
         setting = self.client.setting
         return (
@@ -181,13 +186,6 @@ class SpeechFacade:
                 or "parakeet-v3"),
             self.wake_word,
             int(setting("assistant.wake.session_silence.value", 800)),
-            bool(setting("audio.speech.tts_enabled.value", True)),
-            # The voice settings, so changing one restarts the assistant and
-            # the new voice is loaded rather than waiting for a relaunch.
-            str(setting("audio.speech.tts_backend.value", "auto")),
-            str(setting("audio.speech.tts_voice.value", "")),
-            str(setting("audio.speech.tts_voice_file.value", "")),
-            str(setting("audio.speech.tts_language.value", "")),
             # The microphone profile. Half of what it changes lives in the
             # child and is fixed when it is spawned - the noise reduction, the
             # VAD aggressiveness, the silence floor - so changing this without
@@ -368,6 +366,11 @@ class VoiceFacade:
         self._spoken_lock = RLock()
         self._owner = 0
 
+        # The settings the attached backend was built against, compared on
+        # save to decide whether the voice - and only the voice - needs
+        # rebuilding.
+        self._config: tuple = ()
+
     ## -- what is doing the speaking
 
     def attach(self, backend) -> None:
@@ -425,6 +428,11 @@ class VoiceFacade:
             return
 
         tried = []
+        # A backend that says "not yet" rather than "never". Kept when nothing
+        # is ready, so it can be asked again later.
+        waiting = None
+        waiting_label = ""
+
         for label, backend in self.backends():
             try:
                 candidate = backend(self.client)
@@ -436,9 +444,30 @@ class VoiceFacade:
                 self.client.log("info", f"[Assistant] Speaking through {label}.")
                 return
             tried.append(f"{label}: {candidate.error}")
+            if waiting is None and getattr(candidate, "RECOVERS", False):
+                waiting, waiting_label = candidate, label
 
         for reason in tried:
             self.client.log("info", f"[Assistant]   {reason}")
+
+        if waiting is not None:
+            # ATTACHED ANYWAY.
+            #
+            # Something that talks to a server is not ready the instant it is
+            # built: a speech process spawned a moment ago has not finished
+            # loading its model, and one on another machine may be started
+            # after the panel. Discarding it here threw away the only object
+            # that knew how to ask again - so the panel stayed silent for the
+            # session and said the backend was missing, which was never true.
+            #
+            # `available` re-checks, and everything reads it before speaking.
+            self.attach(waiting)
+            self.client.log(
+                "info",
+                f"[Assistant] {waiting_label} is not ready yet - it will be "
+                f"asked again, and replies are silent until it answers.")
+            return
+
         if tried:
             self.client.log("warning", "[Assistant] No voice backend available.")
             self.client.simple_notify(
@@ -465,6 +494,43 @@ class VoiceFacade:
         """Straight to the backend, with none of say()'s guards."""
         if self.backend is not None:
             self.backend.play(text, thread=thread)
+
+    ## -- settings
+
+    def config(self) -> tuple:
+        """
+        The settings the running voice depends on.
+
+        Its own, separate from the microphone's. The backend is built once
+        when the assistant starts, so anything read at that moment belongs
+        here or changing it does nothing until something else happens to
+        restart the panel.
+
+        Kept apart from `SpeechFacade.config()` because the two have nothing
+        to do with each other. One tuple for both meant picking a different
+        voice stopped the microphone, the speech process and the wake word
+        along with it - several seconds of a deaf panel to change something
+        that was never listening.
+        """
+        setting = self.client.setting
+        return (
+            bool(setting("audio.speech.tts_enabled.value", True)),
+            str(setting("audio.speech.tts_backend.value", "auto")),
+            # Where the voice runs, and which machine.
+            str(setting("audio.speech.tts_where.value", "local")),
+            str(setting("audio.speech.tts_host.value", "")),
+            str(setting("audio.speech.tts_port.value", 8770)),
+            str(setting("audio.speech.tts_voice.value", "")),
+            str(setting("audio.speech.tts_voice_file.value", "")),
+            str(setting("audio.speech.tts_language.value", "")),
+        )
+
+    def remembered(self) -> tuple:
+        return self._config
+
+    def remember(self, config: tuple = None) -> tuple:
+        self._config = tuple(config) if config is not None else self.config()
+        return self._config
 
     ## -- what was said
 
@@ -540,10 +606,17 @@ class VoiceFacade:
         if not text:
             return False
         if not self.available:
+            # `available` on a recoverable backend has just re-asked, so this
+            # is current rather than remembered from startup. The reason
+            # matters: "missing" and "still coming up" send somebody looking
+            # in completely different places.
+            if self.backend is None:
+                why = "missing"
+            else:
+                why = str(getattr(self.backend, "error", "")
+                          or "not available")
             client.log("warning",
-                       f"[Assistant] Nothing said - the voice backend is "
-                       f"{'missing' if self.backend is None else 'not available'}: "
-                       f"{text[:60]!r}")
+                       f"[Assistant] Nothing said - {why}: {text[:60]!r}")
             return False
         # Muted counts as not said. play() returns early when sounds are off,
         # so calling it and reporting True says "spoken" for a message nobody

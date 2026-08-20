@@ -118,6 +118,31 @@
                 ],
                 "description": "Whether to speak replies. 'auto' and 'pocket' both use Kyutai Pocket TTS - local, no key, CPU only. 'off' silences them."
             },
+            "tts_where": {
+                "type": "enum",
+                "default": "local",
+                "value": "local",
+                "options": [
+                    "local",
+                    "subprocess",
+                    "socket"
+                ],
+                "description": "Where the speaking happens.\n\n'local' runs the voice inside the panel.\n'subprocess' runs it beside the panel, on this machine.\n'socket' sends the text to another machine and takes back the audio.\n\nA neural voice holds a processor for a second or two per sentence, and inside the panel that is a second or two where the screen, the web page and the microphone all wait for it - one interpreter, one lock. Nothing can interrupt a model part way through either, so a wake word during that gap does nothing at all.\n\n'subprocess' fixes both without needing a second machine. The work still happens here and still costs the same, but it happens somewhere the panel is not waiting on - so the screen keeps drawing, and stopping a reply becomes a message rather than a flag the model never reads. It starts on 127.0.0.1 at the port below and is restarted for you if it stops.\n\n'socket' moves the work off this machine entirely. That one needs tts-socket-process.py running there; Packages has a download that builds it."
+            },
+            "tts_host": {
+                "type": "string",
+                "default": "",
+                "value": "",
+                "description": "The machine doing the speaking, when 'where' is socket.\n\nAn address or a name - 192.168.1.20, or desktop.local. Blank means there is nowhere to send to, and the panel will say so at startup rather than the first time it tries to speak."
+            },
+            "tts_port": {
+                "type": "int",
+                "default": 8770,
+                "value": 8770,
+                "min": 1,
+                "max": 65535,
+                "description": "The port tts-socket-process.py is listening on. It defaults to 8770 at both ends, so this only needs changing if something else on that machine wanted the port."
+            },
             "tts_voice": {
                 "type": "enum",
                 "default": "alba",
@@ -154,10 +179,9 @@
             },
             "tts_language": {
                 "type": "enum",
-                "default": "default",
-                "value": "default",
+                "default": "english",
+                "value": "english",
                 "options": [
-                    "default",
                     "english",
                     "french",
                     "german",
@@ -165,10 +189,10 @@
                     "italian",
                     "spanish"
                 ],
-                "description": "Pocket TTS language weights. 'default' uses the model's own."
+                "description": "Which pretrained weights the voice uses.\n\nNamed rather than left to the model's own choice: 'default' was an option here and was not a language - the model went looking for weights by that name and would not load at all. English is what it falls back to anyway, so it is what this says.\n\nNot every option is shipped by every version of the package. One that is not there fails at load with the list of what is, in the log."
             },
             "tts_voice_file": {
-                "type": "str",
+                "type": "string",
                 "default": "",
                 "value": "",
                 "description": "A wav to clone instead of a listed voice - a local path or an hf:// URL. Overrides Tts Voice. The sample's audio quality is reproduced, so a clean recording matters more than a long one."
@@ -268,7 +292,7 @@
     },
     "application": {
         "panel_name": {
-            "type": "str",
+            "type": "string",
             "default": "",
             "value": "",
             "hidden": true,

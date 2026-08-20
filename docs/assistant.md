@@ -813,6 +813,150 @@ panel spoke, and the transcriber only runs on silence, so the last thing it
 was saying arrives just after it was stopped, looking like a question.
 
 
+## Speaking somewhere else
+
+`audio.speech.tts_where` is one of three:
+
+| Value        |                                                          |
+|--------------|----------------------------------------------------------|
+| `local`      | The voice runs inside the panel. The default.            |
+| `subprocess` | The voice runs beside the panel, on 127.0.0.1.           |
+| `socket`     | The voice runs on another machine.                       |
+
+`subprocess` and `socket` are the same server and the same client - the only
+difference is the address. One implementation rather than two: a local mode
+with its own code path would be a second thing to keep working.
+
+**Why it is worth moving.** A neural voice holds a processor for a second or
+two per sentence, and in this process that is a second or two where the
+window, the web server and the microphone reader all wait for it - one
+interpreter, one lock. Nothing can interrupt a model part way through either,
+so a wake word during that gap does nothing at all.
+
+Over a socket both problems go away. The panel does no synthesis, and stopping
+a reply is a message on a second connection rather than a flag the model never
+reads.
+
+### The language setting
+
+`audio.speech.tts_language` names the pretrained weights, and every option is
+a language. It defaults to **english**, which is what the model falls back to
+anyway.
+
+An install from before that carries `default`, which was never a language -
+the model went looking for weights by that name and would not load at all. Two
+things handle it. `keep_valid()` in the updater drops an enum value the
+shipped options no longer allow and takes the shipped default, so a settings
+merge fixes it on its own. And four places translate a leftover rather than
+trusting it: the local backend, the panel building the speech process's
+command line, the package writing a startup script, and the server taking an
+argument by hand.
+
+The last one matters because that script is started by hand as often as it is
+spawned, and `--language default` copied out of an older startup script is the
+same mistake with none of the panel's code in the way.
+
+**The options are not checked against the model.** Which languages a given
+install ships depends on the package version - `french` is absent from some
+while `french_24l` is present - so a language the model does not have fails at
+load, with the list of what it does have in the message.
+
+### The wire
+
+`src/assistant/tts_protocol.py`, imported by both ends. JSON lines for
+control, length-prefixed float32 frames for audio.
+
+```
+say     -> {"cmd":"say","text":"..."}      <- {"ok":true,"key":"s-7f3a12"}
+stream  -> {"cmd":"stream","key":"..."}    <- header, then frames, then an end
+cancel  -> {"cmd":"cancel","key":"..."}    <- on its own connection
+```
+
+**`say` answers before the model runs.** The panel is free the moment it
+returns and can decide not to collect the audio at all - which is what happens
+when somebody speaks again before the answer is ready.
+
+**The session key exists so cancel has somewhere to go.** The streaming
+connection is carrying audio, so nothing can be said on it. Cancel arrives on
+another connection and names the session.
+
+Three points to cancel at, and they differ. Still queued, the model never
+runs. Already inside the model, the inference cannot be stopped - nothing
+interrupts one - but the audio is dropped rather than spoken, and the wasted
+work is on the machine with cycles to spare. Mid-transfer, the stream stops
+sending and closes.
+
+### Playback starts on the first chunk
+
+The far end streams while it generates, so a long sentence begins being heard
+before it has finished being made. The interrupt is checked **between
+chunks**, which at a fifth of a second each is close enough to instant that
+somebody talking over the panel hears it stop.
+
+`is_audible()` becomes true when the first chunk reaches the output device,
+not when the sentence was asked for - see
+[Interrupting a reply nobody has heard](#interrupting-a-reply-nobody-has-heard).
+
+### Speaking beside the panel
+
+`subprocess` needs no second machine and no package. The panel spawns
+`tts-socket-process.py` on the loopback through
+[`client.SERVICES`](services.md), so it is supervised like anything else -
+restarted if it stops, and taken down with the assistant.
+
+The work still costs exactly what it cost. What changes is where it happens:
+outside the interpreter the screen and the microphone share, so the panel
+keeps drawing while a sentence is made, and a wake word during that gap can
+stop it.
+
+The process is stopped when the assistant stops. Left running it would hold
+the port against the one the next start spawns, and the second would be silent
+for a reason nobody would look for here.
+
+### Waiting for it to be ready
+
+A server on this machine spends its first seconds loading a model, and a
+remote one can be restarted long after the panel was. So "cannot speak" is
+**re-checked** rather than settled at startup - every few seconds, and never
+while a reply is going out. A panel that had to be restarted whenever the far
+end was would be the wrong way round.
+
+That only works if the backend survives being built too early, and it is:
+`RECOVERS = True` says a no from this one may become a yes without anything
+being rebuilt, and `VoiceFacade.start()` **keeps** such a backend when nothing
+is ready rather than discarding it. Discarding it throws away the only object
+that knows how to ask again, and the panel then stays silent for the session
+while reporting a backend that is missing - which was never true.
+
+The log says which of the two it is:
+
+```
+Speech beside the panel on :8770: 127.0.0.1:8770 did not answer. The panel
+  starts it here, so it is most likely still loading its model.
+Speech beside the panel on :8770 is not ready yet - it will be asked again,
+  and replies are silent until it answers.
+```
+
+rather than `No voice backend available`, which is reserved for the case where
+nothing can work. A backend on the loopback is also told not to suggest
+checking whether the server is running there: the panel started it, and being
+sent to look at something the panel is responsible for sends somebody to the
+wrong place.
+
+### Setting it up
+
+For `socket`: `host` and `port`, and the other machine needs
+`tts-socket-process.py` running. [Packages](packages.md) has a download that builds it with this
+panel's port and voice already in it.
+
+The connection is checked once when the assistant starts, so an address that
+is wrong says so in the log rather than the first time somebody speaks.
+
+**There is no fallback to the local voice.** A panel set to speak elsewhere
+and quietly using its own model when that machine is off would be a panel that
+works, badly, for reasons nobody can see - and the local model is the thing
+being moved off this hardware in the first place.
+
 ## Speech that is not for the panel
 
 A television talks for minutes. A wake it caused is followed by whatever was

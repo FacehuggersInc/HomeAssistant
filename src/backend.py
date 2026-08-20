@@ -1368,6 +1368,10 @@ def FlaskApp(client):
 			{"url": "/goto/page", "label": "Go To | Pages",
 			 "description": "Change which page the panel is showing.",
 			 "auth": True, "icon": "arrow-right-bold"},
+			{"url": "/packages", "label": "Packages",
+			 "description": "Set-up bundles for other machines, built with "
+							"this panel's settings already in them.",
+			 "auth": True, "icon": "package-variant"},
 			{"url": "/wake", "label": "Wake report",
 			 "description": "Why it woke, and why it did not - what the "
 							"microphone is, and every near miss.",
@@ -2391,6 +2395,67 @@ def FlaskApp(client):
 		client.log("info", f"[Plugins] Skeleton for '{folder}' downloaded.")
 		return Response(
 			as_zip(files), mimetype="application/zip",
+			headers={"Content-Disposition":
+					 f'attachment; filename="{folder}.zip"'})
+
+	## -- Packages ------------------------------------------------------------
+
+	@app.route("/packages", methods=["GET"])
+	def packages_list():
+		"""
+		Everything the panel can build for another machine.
+
+		Under the plugins permission: a package is code somebody will run
+		somewhere, and the builders come from plugins.
+		"""
+		log()
+		err = auth()
+		if err: return err
+		err = _may_plugins()
+		if err: return err
+
+		from src import webpackages
+		token = _token()
+		search = (request.args.get("q") or "").strip()
+		items = [p.describe() for p in client.PACKAGES.all(search)]
+
+		if not _wants_html():
+			return {"request": "Success", "packages": items,
+					"count": len(items)}, 200
+		return webpackages.packages_page(items, token, search)
+
+	@app.route("/packages/<key>/download", methods=["GET"])
+	def packages_download(key):
+		"""
+		Build one and send it.
+
+		Built at this moment rather than kept ready, which is the point of a
+		package: the panel's port, its voice and its address are baked into
+		what comes out, so the README can name the settings to change instead
+		of describing where to find them.
+		"""
+		log()
+		err = auth()
+		if err: return err
+		err = _may_plugins()
+		if err: return err
+
+		from src.registries.package_registry import BadPackage
+		from src import webpackages
+		token = _token()
+		try:
+			folder, body = client.PACKAGES.build(key)
+		except BadPackage as e:
+			client.log("warning", f"[Packages] '{key}' failed: {e}")
+			if _wants_html():
+				items = [p.describe() for p in client.PACKAGES.all()]
+				return webpackages.packages_page(
+					items, token, message=str(e), bad=True), 404
+			return {"request": "Failed", "reason": str(e)}, 404
+
+		client.log("info", f"[Packages] '{key}' built and downloaded.")
+		return Response(
+			body, mimetype="application/zip",
 			headers={"Content-Disposition":
 					 f'attachment; filename="{folder}.zip"'})
 

@@ -399,7 +399,8 @@ def core_assets():
                                           "webgoto.html", "webgoto.css",
                                           "webgoto.js",
                                           "wakereport.html", "wakereport.css",
-                                          "wakereport.js"))
+                                          "wakereport.js",
+                                          "packages.css"))
         CORE_ASSETS.endpoint = "/web"
     return CORE_ASSETS
 

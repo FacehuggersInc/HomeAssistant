@@ -539,6 +539,15 @@ class PluginManager():
 		# whether a service that asked to survive a reload gets to. On a
 		# genuine unload everything stops, with no opt-out.
 		try:
+			# A package builder closes over the instance that registered it,
+			# so a builder held across a reload would build from the module
+			# that was replaced. The new instance registers again in load().
+			self.client.PACKAGES.unregister(plugin_key)
+		except Exception as e:
+			self.client.log("warning",
+				f"[PluginManager] Could not release '{plugin_key}' packages: {e}")
+
+		try:
 			self.client.SERVICES.unregister(
 				plugin_key, reloading=carryover is not None)
 		except Exception as e:
@@ -817,6 +826,14 @@ class PluginManager():
 					"ORPHANED" if entry.orphaned else "",
 				) if part)
 				for entry in client.SERVICES.entries_for(plugin_key)
+			])
+		except Exception:
+			pass
+
+		try:
+			add("Packages", [
+				f"{p.name}   {p.version}"
+				for p in client.PACKAGES.for_owner(plugin_key)
 			])
 		except Exception:
 			pass

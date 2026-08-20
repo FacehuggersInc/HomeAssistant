@@ -71,6 +71,7 @@ NAV_GROUPS = [
         # to reach the five that are written up.
         ("registries.md",      "Registries", [
             ("services.md",        "Services"),
+            ("packages.md",        "Packages"),
             ("users.md",           "Users"),
             ("status.md",          "Status"),
             ("cancel.md",          "Cancelling"),

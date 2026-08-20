@@ -92,6 +92,7 @@ can subscribe to.
 | [Settings](settings.md)                             | Declaring settings, types, migration.                   |
 | [Threading](threading.md)                           | `call_on_ui`, background threads, timeouts.             |
 | [Services](services.md)                             | Threads and child processes, with one lifecycle.        |
+| [Packages](packages.md)                             | Set-up bundles for other machines, built on demand.     |
 | [Logging](logging.md)                               | Levels, log files, what is worth logging.               |
 | [Styling](styling.md)                               | `set_style`, fonts, colours, stylesheet conventions.    |
 | [Notifications, state, assets](notifications.md)    | Toasts, shared state, registered files.                 |

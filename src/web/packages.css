@@ -1,0 +1,23 @@
+/* A package is code that will be run on another machine, so a card is a
+   thing somebody reads before deciding rather than a row to click. */
+ .search{display:flex;gap:8px;margin:0 0 16px}
+ .search input[type=search]{flex:1;min-width:0}
+
+ .package{border:1px solid var(--line);border-radius:14px;background:#141417;
+          padding:16px 18px;margin:0 0 12px}
+ .package header{display:flex;align-items:baseline;gap:10px}
+ .package h2{margin:0;font-size:17px;font-weight:650;line-height:1.3}
+ .package .version{margin-left:auto;color:var(--muted);font-size:12.5px;
+                   font-variant-numeric:tabular-nums}
+ .package .from{margin:2px 0 0;color:var(--muted);font-size:12.5px}
+ .package .what{margin:10px 0 0;font-size:14px;line-height:1.6}
+ .package .label{margin:14px 0 6px;color:var(--muted);font-size:12.5px}
+
+/* Named individually rather than counted. "6 files" tells nobody whether the
+   archive contains a startup script that will make a virtual environment. */
+ .package .inside{margin:0;padding:0;list-style:none;display:flex;
+                  flex-wrap:wrap;gap:6px}
+ .package .inside li{font-size:12.5px;color:var(--text);background:#1c1c21;
+                     border:1px solid var(--line);border-radius:8px;
+                     padding:4px 9px;font-family:ui-monospace,monospace}
+ .package .row{margin:16px 0 0}

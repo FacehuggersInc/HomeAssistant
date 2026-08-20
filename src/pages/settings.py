@@ -301,11 +301,24 @@ class Field(QWidget):
         p.drawRoundedRect(self.rect().adjusted(0, 0, -1, -1), self._radius, self._radius)
 
 
+#Spellings that mean the same thing. The dispatch below matches on the
+#normalised name, so a type it does not recognise falls through every branch
+#and the setting is drawn with a label and no editor - which reads as a
+#setting that cannot be changed rather than as one that was misspelled.
+TYPE_ALIASES = {
+    "double": "float",
+    "str": "string",
+    "text": "string",
+    "integer": "int",
+    "boolean": "bool",
+    "number": "float",
+}
+
+
 def normalize_setting_type(raw_t: str) -> str:
+    raw_t = str(raw_t or "string").strip().lower()
     t = "list" if raw_t.startswith("list") else raw_t
-    if t in ("double",):
-        t = "float"
-    return t
+    return TYPE_ALIASES.get(t, t)
 
 
 class EnumComponent(QComboBox):

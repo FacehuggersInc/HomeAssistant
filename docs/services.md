@@ -478,7 +478,7 @@ currently doing it.
 | `thinking(why)`     | Hold the pill while something slow runs.            |
 | `wake_word`         | The configured word.                                |
 | `status_snapshot()` | Everything the recogniser knows.                    |
-| `config()`          | The settings a restart depends on.                  |
+| `config()`          | The listening settings a restart depends on.        |
 | `cancel(reason)`    | Back to the wake word.                              |
 | `source`            | Whatever is listening, or None.                     |
 
@@ -489,6 +489,7 @@ currently doing it.
 | `owner()`          | The token for the most recent thing said.   |
 | `is_speaking()`    | Including while a sentence is being made.   |
 | `start()`          | Pick a backend, or report why there is none.|
+| `config()`         | The voice settings, its own.                |
 | `backend`          | Whatever is speaking, or None.              |
 
 **The state is on the facade because it has to outlive the implementation.**
@@ -503,6 +504,13 @@ likely to hear it.
 
 `attach()` and `detach()` are how the implementation is set, which is why
 `client.STT` is read-only.
+
+**They have separate `config()` tuples, and that separation is the point.**
+Each holds the settings its own implementation was built against, and a save
+compares them one at a time - so picking a different voice rebuilds the voice
+and leaves the microphone, the speech process and the wake word alone. One
+tuple for both meant the smallest setting on the page cost several seconds of
+a deaf panel.
 
 ### Who supplies them
 
