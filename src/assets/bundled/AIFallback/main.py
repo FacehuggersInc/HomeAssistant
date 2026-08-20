@@ -190,7 +190,7 @@ class AIFallback(Plugin):
         and is only picked up once a reply has come back. Without it a second
         question fired mid-request would race the first.
         """
-        session = self.client.STT.new_session() if self.client.STT else None
+        session = self.client.SERVICES.STT.new_session()
         self.session = session
         self._dismissed = False
         # Spent on the FIRST question only. The turn before this conversation
@@ -638,8 +638,8 @@ class AIFallback(Plugin):
         # closes, the voice may belong to whatever was asked next, and
         # silencing that on the way out is the bug this token exists for.
         try:
-            if self.client.TTS is not None:
-                self.client.TTS.stop(
+            if self.client.SERVICES.TTS.available:
+                self.client.SERVICES.TTS.stop_speaking(
                     owner=getattr(self, "_speech_owner", None) or None)
         except Exception as e:
             self.client.log("debug", f"[AIFallback] Could not stop speech: {e}")

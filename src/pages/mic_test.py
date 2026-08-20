@@ -143,8 +143,8 @@ class MicTestPage(QWidget):
         """Open the microphone, and put everything it hears in the list."""
         if self.listening:
             return
-        stt = getattr(self.client, "STT", None)
-        if stt is None:
+        stt = self.client.SERVICES.STT
+        if not stt.running:
             self._say("The assistant is not running, so there is no "
                       "microphone to listen with.")
             return
@@ -193,11 +193,11 @@ class MicTestPage(QWidget):
             return
         self._hooked = False
         try:
-            self.client.STT.stop_monitor()
+            self.client.SERVICES.STT.stop_monitor()
         except Exception:
             pass
         try:
-            self.client.STT.remove_listener(self._heard)
+            self.client.SERVICES.STT.remove_listener(self._heard)
         except Exception:
             pass
 

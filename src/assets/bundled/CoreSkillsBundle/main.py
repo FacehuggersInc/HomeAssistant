@@ -419,7 +419,7 @@ class CoreSkills(Plugin):
         # Spoken confirmation needs both ends of the voice loop. Without TTS
         # the user would be answering a question they never heard, so fall
         # back to an on-screen confirm instead.
-        if not confirm or self.client.STT is None or not self.client.say(
+        if not confirm or not self.client.SERVICES.STT.running or not self.client.say(
                 "Are you sure you want to quit the application? Please say Yes or No.",
                 thread=False):
             self.client.confirm(
@@ -429,7 +429,7 @@ class CoreSkills(Plugin):
             )
             return
 
-        session = self.client.STT.new_session()
+        session = self.client.SERVICES.STT.new_session()
         reprompt = None
         with session:
             while True:
@@ -1069,8 +1069,7 @@ class CoreSkills(Plugin):
         """
         def speaking():
             try:
-                tts = getattr(self.client, "TTS", None)
-                return bool(tts is not None and tts.is_speaking())
+                return bool(self.client.SERVICES.TTS.is_speaking())
             except Exception:
                 return False
         return speaking

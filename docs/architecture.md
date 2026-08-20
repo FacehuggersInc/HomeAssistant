@@ -68,6 +68,7 @@ Everything in the tree above boils down to a handful of ideas, each covered in f
 | `PlayerRegistry`      | `client.PLAYER`  | Whatever is playing, from any source                                              |
 | `StatusRegistry`      | `client.STATUS`  | What the panel is busy with, as icons                                             |
 | `CancelRegistry`      | `client.CANCEL`  | What "stop" means right now                                                       |
+| `ServiceRegistry`     | `client.SERVICES`| Threads, child processes, and the speech facades                                  |
 
 Keep these in mind as you read on — nearly everything else in these docs is one of these seven ideas in more detail.
 

@@ -20,6 +20,8 @@ of the thing, then [Plugins](plugins.md) for the lifecycle, then whichever of
 what you are building. [Application lifecycle](lifecycle.md) explains when
 each of your hooks runs, and [Threading](threading.md) is worth reading before
 you write any background work - it is the rule most easily broken by accident.
+[Services](services.md) is the other half of that: anything long-running, and
+anything that is a process rather than a thread.
 
 [Bundled plugins](bundled-plugins.md) describes the nine that ship. They are
 ordinary plugins with no special privileges, so they are the worked examples
@@ -89,6 +91,7 @@ can subscribe to.
 | [Events](events.md)                                 | Every client event, with examples.                      |
 | [Settings](settings.md)                             | Declaring settings, types, migration.                   |
 | [Threading](threading.md)                           | `call_on_ui`, background threads, timeouts.             |
+| [Services](services.md)                             | Threads and child processes, with one lifecycle.        |
 | [Logging](logging.md)                               | Levels, log files, what is worth logging.               |
 | [Styling](styling.md)                               | `set_style`, fonts, colours, stylesheet conventions.    |
 | [Notifications, state, assets](notifications.md)    | Toasts, shared state, registered files.                 |

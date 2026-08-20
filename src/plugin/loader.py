@@ -532,6 +532,19 @@ class PluginManager():
 			except Exception as e:
 				self.client.log("error", f"[PluginManager] Error during the unloading of a hook : {plugin_key}", include_traceback = True)
 
+		# Services this plugin registered.
+		#
+		# `carryover` is the loader's own discriminator between a plugin
+		# coming straight back and a plugin going away, so it is what decides
+		# whether a service that asked to survive a reload gets to. On a
+		# genuine unload everything stops, with no opt-out.
+		try:
+			self.client.SERVICES.unregister(
+				plugin_key, reloading=carryover is not None)
+		except Exception as e:
+			self.client.log("warning",
+				f"[PluginManager] Could not release '{plugin_key}' services: {e}")
+
 		# 3. Save Plugin Settings
 		if hasattr(plugin, "settings"):
 			path = plugin.config["settings"]["path"]
@@ -692,6 +705,16 @@ class PluginManager():
 				reloaded_plugin.reload(carryover)
 			else:
 				reloaded_plugin.reload()
+
+			# Anything held across the gap that the new instance did not
+			# register again. Held services are opt-in and re-adopting one is
+			# the plugin's job; this is what stops forgetting from leaving a
+			# process running against a module nobody can reach.
+			try:
+				self.client.SERVICES.reap(plugin_key)
+			except Exception as e:
+				self.client.log("warning",
+					f"[PluginManager] Could not reap '{plugin_key}' services: {e}")
 			
 			self.client.simple_notify(
 				"extension",
@@ -779,6 +802,34 @@ class PluginManager():
 				getattr(skill, "key", str(skill))
 				for skill in client.SKILLS.registered.get(plugin_key, [])
 			))
+		except Exception:
+			pass
+
+		try:
+			# Running or not, and flagged when it outlived its owner. A thing
+			# that can survive its plugin has to be visible somewhere, or
+			# opting out of cleanup is a leak nobody audits.
+			add("Services", [
+				"   ".join(part for part in (
+					entry.name,
+					f"({entry.kind})",
+					"running" if entry.is_active() else "stopped",
+					"ORPHANED" if entry.orphaned else "",
+				) if part)
+				for entry in client.SERVICES.entries_for(plugin_key)
+			])
+		except Exception:
+			pass
+
+		try:
+			# What this plugin supplies for somebody else, as opposed to what
+			# it runs. A claim outlives nothing - it is released on unload -
+			# but which plugin is currently providing speech recognition is
+			# exactly the thing somebody goes looking for.
+			add("Provides", [
+				f"{held.name}   {held.description}".rstrip()
+				for held in client.SERVICES.providers_for(plugin_key)
+			])
 		except Exception:
 			pass
 

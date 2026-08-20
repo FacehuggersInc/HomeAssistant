@@ -3,7 +3,7 @@ Status entries for the panel's own speech, driven from one place.
 
 Speech recognition and speech itself are the two things the panel does that
 take time and have nothing to show for it. Both already know what they are
-doing - `STT.status()` and `TTS.is_speaking()` - and neither says so anywhere
+doing - `SERVICES.STT` and `SERVICES.TTS` - and neither says so anywhere
 somebody can see without going looking.
 
 This watches both and keeps `client.STATUS` in step. It lives here rather
@@ -122,9 +122,10 @@ class SpeechStatus(QObject):
             self.client.log("debug", f"[Status] Speech poll failed: {e}")
 
     def _update_stt(self) -> None:
-        stt = getattr(self.client, "STT", None)
-        status = getattr(stt, "status", None)
-        state = status().get("state", "") if callable(status) else ""
+        # The facade answers whether or not anything is listening, so there is
+        # no None to guard against and no second question about what a missing
+        # recogniser means.
+        state = self.client.SERVICES.STT.status_snapshot().get("state", "")
 
         if state == self._last_stt:
             return
@@ -148,9 +149,7 @@ class SpeechStatus(QObject):
         self._stt.show()
 
     def _update_tts(self) -> None:
-        tts = getattr(self.client, "TTS", None)
-        asked = getattr(tts, "is_speaking", None)
-        speaking = bool(asked()) if callable(asked) else False
+        speaking = self.client.SERVICES.TTS.is_speaking()
 
         if speaking == self._speaking:
             return

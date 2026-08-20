@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING
 
 
 from src.assistant import nlp, normalize
+from src.registries.service_registry import Restart
 
 if TYPE_CHECKING:
 	from src.main import Client
@@ -46,7 +47,7 @@ class Session():
 	def __enter__(self):
 		self.is_open = True
 		self.cancelled = False
-		self.__client.STT.open_session()
+		self.__client.SERVICES.STT.open_session()
 		self.__client.TIMEOUTS.add(60 * 5, self.timed_out, self.__id,
 		                           transient=True)
 		self.__client.TIMEOUTS.start(self.__id)
@@ -54,7 +55,7 @@ class Session():
 
 	def __exit__(self, exc_type, exc_val, exc_tb):
 		self.is_open = False
-		self.__client.STT.close_session()
+		self.__client.SERVICES.STT.close_session()
 		# discard(), not cancel(): the id is a uuid belonging to this session
 		# alone, so a cancelled registration would sit in the table until the
 		# hourly prune and one entry would accumulate per conversation.
@@ -118,7 +119,7 @@ class Session():
 		return phrase
 	
 	def push(self):
-		self.__client.STT.processing = False
+		self.__client.SERVICES.STT.processing = False
 
 
 class STTProcessing():
@@ -127,6 +128,26 @@ class STTProcessing():
 	#line wants the most specific true thing, not the first one checked.
 	STATUS_ORDER = ("error", "processing", "awake", "monitoring", "listening",
 					"held", "idle", "stopped")
+
+	#What the two halves are registered as. Named on the class rather than
+	#written out at each call site: the receiver is declared as the process's
+	#companion, so the two strings have to agree in three places.
+	SERVICE = "assistant.stt"
+	RECEIVER = "assistant.stt.receiver"
+
+	@property
+	def process(self):
+		"""
+		The child, or None.
+
+		Read-only, and read through the registry rather than held here: the
+		registry is what restarts it, so a handle kept alongside would be the
+		previous one from the moment it did.
+		"""
+		try:
+			return self.client.SERVICES.process(self.SERVICE)
+		except Exception:
+			return None
 
 	def __init__(self, client, process:str = "parakeet",
 				 input_device=None, model:str = "tiny.en", wake_words=None,
@@ -153,7 +174,11 @@ class STTProcessing():
 			case _: self.__process_path = PROCESS_PARAKEET
 
 		#Process & Socket
-		self.process = None
+		#
+		# The child and the socket reader are one lifecycle wearing two hats,
+		# so they are registered as a service and its companion rather than as
+		# a process here and a thread somewhere else. `process` is a read-only
+		# view of what the registry holds.
 		self.listening = False
 		self.host = "127.0.0.1"
 		self.ports = {
@@ -471,15 +496,12 @@ class STTProcessing():
 
 	def heard_itself(self) -> bool:
 		"""Whether this transcript was captured while the panel was talking."""
-		tts = getattr(self.client, "TTS", None)
-		if tts is None:
+		tts = self.client.SERVICES.TTS
+		if not tts.available:
 			# No voice backend at all - there is nothing to have overheard.
 			return False
-		try:
-			if tts.is_speaking():
-				return True
-		except Exception:
-			return False
+		if tts.is_speaking():
+			return True
 		return (time.time() - getattr(self, "spoke_until", 0.0)
 				) < self.self_hearing_grace()
 
@@ -542,8 +564,7 @@ class STTProcessing():
 
 		speaking = False
 		try:
-			tts = getattr(self.client, "TTS", None)
-			speaking = bool(tts is not None and tts.is_speaking())
+			speaking = self.client.SERVICES.TTS.is_speaking()
 		except Exception:
 			speaking = False
 
@@ -642,13 +663,7 @@ class STTProcessing():
 		if not spoken or not any(self.find_wake(spoken, w) for w in words if w):
 			return False
 
-		tts = getattr(self.client, "TTS", None)
-		stopped = False
-		try:
-			if tts is not None and hasattr(tts, "stop"):
-				stopped = bool(tts.stop())
-		except Exception as e:
-			self.client.log("warning", f"[STTProcessing] Could not stop speech: {e}")
+		stopped = self.client.SERVICES.TTS.stop_speaking()
 
 		self.client.log("info",
 			f"[STTProcessing] Heard '{transcribed}' over the panel"
@@ -709,10 +724,9 @@ class STTProcessing():
 		transcribe. The spotter is the only thing that can hear anything in
 		this window, so it has to be the thing that acts.
 		"""
-		tts = getattr(self.client, "TTS", None)
 		speaking = False
 		try:
-			speaking = bool(tts is not None and tts.is_speaking())
+			speaking = self.client.SERVICES.TTS.is_speaking()
 		except Exception:
 			speaking = False
 		if not speaking:
@@ -1087,7 +1101,7 @@ class STTProcessing():
 		"""
 		import time as _time
 
-		running = self.process is not None and self.process.poll() is None
+		running = self.client.SERVICES.is_active(self.SERVICE)
 		if not running:
 			state, since = "stopped", 0.0
 		elif self.last_error:
@@ -1112,7 +1126,7 @@ class STTProcessing():
 			"since": float(since or 0.0),
 			"for": max(0.0, _time.time() - since) if since else 0.0,
 			"running": running,
-			"pid": getattr(self.process, "pid", None) if running else None,
+			"pid": self.client.SERVICES.pid(self.SERVICE) if running else None,
 			"engine": self.process_type,
 			"model": self.model,
 			"error": self.last_error or "",
@@ -1592,147 +1606,200 @@ class STTProcessing():
 		)
 
 	## PROCESS
-	def start(self):
-		if self.process is None or self.process.poll() is not None:
-			
-			# Every registered skill carries the same wake word, so this is one
-			# entry per skill before de-duplication. Deduped once here so the
-			# log shows what is actually sent rather than the raw list.
-			words = [w[0] for w in self.client.SKILLS.wake_args] or list(self.wake_words)
-			words = sorted({w.strip().lower() for w in words if w and w.strip()})
-			if not words:
-				words = [self.client.wake_word]
-
-			settings = {
-				"wake_words":   words,
-				"input_device": self.input_device,
-				"model":        self.model,
-				"session_silence_ms": self.session_silence_ms,
-				# What the microphone does for itself - see mic_profile().
-				"mic_processing": self.mic_processing(),
-				# Which Parakeet weights. The child has to be told: it checks
-				# the cache for itself before loading, and int8 and full
-				# precision are different files.
-				"parakeet_precision": str(self.client.setting(
-					"assistant.speech.parakeet_precision.value", "int8") or "int8"),
-				# How long the child keeps waiting for a phrase after a wake
-				# before standing down on its own.
-				"wake_listen_timeout": self.wake_timeout_seconds(),
-				# The longest a single phrase may run before it is thrown away.
-				# What passes this is a television rather than a question.
-				"max_phrase_ms": int(max(2.0, float(self.client.setting(
-					"assistant.wake.max_phrase_seconds.value", 8) or 8)) * 1000),
-				# Whether every wake is explained in the log - the score, and a
-				# transcript of what was being said around it.
-				"wake_diagnostics": bool(self.client.setting(
-					"assistant.wake.wake_diagnostics.value", False)),
-				# How sure the spotter has to be. Read here rather than held,
-				# because the child is respawned when it changes.
-				"wake_sensitivity": float(self.client.setting(
-					"assistant.wake.wake_sensitivity.value", 0.5) or 0.5),
-				# And the one used while the panel is talking. 0 means the same.
-				"wake_sensitivity_speaking": float(self.client.setting(
-					"assistant.wake.wake_sensitivity_speaking.value", 0.0) or 0.0),
-				# So the process can notice the client dying without a STOP and
-				# leave on its own, instead of surviving as an orphan holding
-				# the microphone and both ports.
-				"parent_pid":   os.getpid(),
-			}
-
-			# The whisper process's own settings, sent only to it.
-			#
-			# They were sent to whatever was spawned, which was fine while
-			# there was one process and is not now: `wake_model` and
-			# `beam_size` describe a second small model and a beam width,
-			# and the parakeet process has neither. Reading them here would
-			# also mean reading settings that no longer exist.
-			# Fixed values, not settings. The whisper process is kept for
-			# reference and nothing starts it, so its knobs are not offered
-			# in Settings - and reading paths that are not in the template
-			# would answer with these defaults anyway, silently.
-			if self.process_type == "whisper":
-				settings["wake_model"] = self.WAKE_MODEL
-				settings["wake_detector"] = "auto"
-				settings["beam_size"] = 5
-
-			config = json.dumps(settings)
-			self.client.log("info", f"[STTProcessing] Starting {self.process_type}: "
-									f"model={self.model} "
-									f"device={self.input_device} wake={words}")
-			self.process = subprocess.Popen([sys.executable, self.__process_path, config])
-
-			self.listening = True
-
-			self.client.THREADS.create("__stt_receiver_thread", self.__listen_for_stt_data)
-			self.client.THREADS.start("__stt_receiver_thread")
-
-	# How long to give the process at each stage of shutting down. Short on
-	# purpose: this runs on the UI thread from Client.cleanup(), so the whole
-	# escalation has to fit inside a shutdown the user is watching.
-	STOP_TIMEOUT = 5.0
-	KILL_TIMEOUT = 2.0
-
-	def kill(self):
+	def argv(self) -> list:
 		"""
-		Force the process down, escalating until it is actually gone.
+		The command line the child is started with.
 
-		terminate() alone is a request, not a guarantee - a process parked in a
-		native call may never act on it.
+		A factory rather than a stored list, because everything in it is read
+		from settings at the moment of asking - the wake words, the
+		sensitivity, the precision. A restart minutes later has to bring back
+		the settings as they are now, not as they were when the panel booted.
 		"""
-		self.listening = False
-		process, self.process = self.process, None
-		if process is None or process.poll() is not None:
-			return
+		# Every registered skill carries the same wake word, so this is one
+		# entry per skill before de-duplication. Deduped once here so the
+		# log shows what is actually sent rather than the raw list.
+		words = [w[0] for w in self.client.SKILLS.wake_args] or list(self.wake_words)
+		words = sorted({w.strip().lower() for w in words if w and w.strip()})
+		if not words:
+			words = [self.client.wake_word]
 
-		for step, label in ((process.terminate, "terminate"), (process.kill, "kill")):
-			try:
-				step()
-				process.wait(timeout=self.KILL_TIMEOUT)
-				self.client.log("info", f"[STTProcessing] STT process ended by {label}.")
-				return
-			except subprocess.TimeoutExpired:
-				continue
-			except Exception as ex:
-				self.client.log("warning", f"[STTProcessing] {label} failed: {ex}")
+		settings = {
+			"wake_words":   words,
+			"input_device": self.input_device,
+			"model":        self.model,
+			"session_silence_ms": self.session_silence_ms,
+			# What the microphone does for itself - see mic_profile().
+			"mic_processing": self.mic_processing(),
+			# Which Parakeet weights. The child has to be told: it checks
+			# the cache for itself before loading, and int8 and full
+			# precision are different files.
+			"parakeet_precision": str(self.client.setting(
+				"assistant.speech.parakeet_precision.value", "int8") or "int8"),
+			# How long the child keeps waiting for a phrase after a wake
+			# before standing down on its own.
+			"wake_listen_timeout": self.wake_timeout_seconds(),
+			# The longest a single phrase may run before it is thrown away.
+			# What passes this is a television rather than a question.
+			"max_phrase_ms": int(max(2.0, float(self.client.setting(
+				"assistant.wake.max_phrase_seconds.value", 8) or 8)) * 1000),
+			# Whether every wake is explained in the log - the score, and a
+			# transcript of what was being said around it.
+			"wake_diagnostics": bool(self.client.setting(
+				"assistant.wake.wake_diagnostics.value", False)),
+			# How sure the spotter has to be. Read here rather than held,
+			# because the child is respawned when it changes.
+			"wake_sensitivity": float(self.client.setting(
+				"assistant.wake.wake_sensitivity.value", 0.5) or 0.5),
+			# And the one used while the panel is talking. 0 means the same.
+			"wake_sensitivity_speaking": float(self.client.setting(
+				"assistant.wake.wake_sensitivity_speaking.value", 0.0) or 0.0),
+			# So the process can notice the client dying without a STOP and
+			# leave on its own, instead of surviving as an orphan holding
+			# the microphone and both ports.
+			"parent_pid":   os.getpid(),
+		}
 
-		self.client.log("error", "[STTProcessing] STT process would not die - it will "
-								 "keep holding the microphone and ports 65432/65433.")
+		# The whisper process's own settings, sent only to it.
+		#
+		# They were sent to whatever was spawned, which was fine while
+		# there was one process and is not now: `wake_model` and
+		# `beam_size` describe a second small model and a beam width,
+		# and the parakeet process has neither. Reading them here would
+		# also mean reading settings that no longer exist.
+		# Fixed values, not settings. The whisper process is kept for
+		# reference and nothing starts it, so its knobs are not offered
+		# in Settings - and reading paths that are not in the template
+		# would answer with these defaults anyway, silently.
+		if self.process_type == "whisper":
+			settings["wake_model"] = self.WAKE_MODEL
+			settings["wake_detector"] = "auto"
+			settings["beam_size"] = 5
 
-	def stop(self):
+		config = json.dumps(settings)
+		self.client.log("info", f"[STTProcessing] Starting {self.process_type}: "
+								f"model={self.model} "
+								f"device={self.input_device} wake={words}")
+		config = json.dumps(settings)
+		self.client.log("info", f"[STTProcessing] Starting {self.process_type}: "
+								f"model={self.model} "
+								f"device={self.input_device} wake={words}")
+		return [sys.executable, self.__process_path, config]
+
+	def ask_to_stop(self) -> bool:
 		"""
-		Ask the STT process to exit, then confirm it did.
+		The polite half of stopping, in the protocol this child speaks.
 
-		Sending STOP and walking away is what left a process behind: if the
-		command listener had already gone the message went nowhere, and nothing
-		ever checked. The survivor keeps the microphone and both ports, so the
-		next launch cannot bind them and comes up silent.
+		Handed to the registry rather than called by it directly: the
+		escalation afterwards - terminate, wait, kill, wait - is the same for
+		every process and belongs there, and "send STOP on port 65432" is the
+		only part of it that is ours.
 		"""
 		self.listening = False
-
-		process = self.process
-		if process is None or process.poll() is not None:
-			self.process = None
-			return
-
 		try:
-			self.send_command("STOP", retries=2)
+			sent = bool(self.send_command("STOP", retries=2))
+		except Exception as ex:
+			self.client.log("warning", f"[STTProcessing] Error sending STOP: {ex}")
+			return False
+		if sent:
 			self.client.simple_notify(
 				"assistant",
 				"Assistant: STT",
 				"Stopping Process"
 			)
-		except Exception as ex:
-			self.client.log("warning", f"[STTProcessing] Error sending STOP: {ex}")
+		return sent
 
-		try:
-			process.wait(timeout=self.STOP_TIMEOUT)
-			self.process = None
-			self.client.log("info", "[STTProcessing] STT process exited cleanly.")
+	def process_exited(self, code, restarting: bool) -> None:
+		"""
+		The child went without being asked to.
+
+		The panel is deaf from this moment and nothing else says so: the pill
+		reads whatever it read last, the wake word does nothing, and from the
+		room that is indistinguishable from a broken microphone. The registry
+		logs it; saying it out loud is this side's call, because only this
+		side knows the panel just stopped listening.
+		"""
+		self.woke_with = None
+		self.woke_at = 0.0
+		self.listening_since = 0.0
+		self.processing = False
+		self.client.ASSIST_VOICE_ACTIVITY_LEVEL = 0.0
+		if restarting:
+			# `listening` stays true across the gap. It is what the reader
+			# loop runs on, and the reader is restarted with the process as
+			# its companion - so clearing it here would start a fresh thread
+			# that reads the flag once and returns. Nothing else is misled:
+			# every other guard checks `process`, which is None until it is
+			# back, and `status()` reads `running` before it reads this.
+			self.client.ASSIST_STATUS = "LIVE"
+			self.client.log("warning",
+				f"[STTProcessing] The speech process exited ({code}). "
+				f"It is being restarted.")
 			return
-		except subprocess.TimeoutExpired:
-			self.client.log("warning", "[STTProcessing] STT process ignored STOP - "
-									   "terminating.")
-		except Exception as ex:
-			self.client.log("warning", f"[STTProcessing] Error waiting on STT: {ex}")
 
-		self.kill()
+		self.listening = False
+		self.client.ASSIST_STATUS = "DORMANT"
+		self.client.log("error",
+			f"[STTProcessing] The speech process exited ({code}) and is not "
+			f"coming back. Nothing is listening.")
+		self.client.simple_notify(
+			"error", "Assistant",
+			"Speech recognition stopped. The wake word will not work until "
+			"the assistant is restarted.")
+
+	# Straight away, then after five seconds, then after thirty, then leave it
+	# down. A model that cannot find its weights fails identically every time,
+	# so retrying faster than this only fills the log; a child killed by
+	# something passing usually comes back on the first attempt.
+	RESTART_POLICY = Restart(backoff=(0.0, 5.0, 30.0), window=120.0)
+
+	def start(self):
+		if self.process is not None:
+			return
+
+		services = self.client.SERVICES
+
+		# The reader is registered first because the process names it as a
+		# companion, and a companion that is not registered is a name the
+		# registry can do nothing with.
+		services.create("client", self.RECEIVER, self.__listen_for_stt_data)
+		services.spawn(
+			"client", self.SERVICE,
+			command    = self.argv,
+			on_stop    = self.ask_to_stop,
+			on_exit    = self.process_exited,
+			companions = (self.RECEIVER,),
+			restart    = self.RESTART_POLICY,
+		)
+
+		# Before the process, not after. The reader connects in a retry loop,
+		# so it is allowed to be early - and `listening` is what its loop runs
+		# on, so setting it afterwards races a child that answers quickly.
+		self.listening = True
+		services.start(self.SERVICE)
+
+	def kill(self):
+		"""
+		Force the process down without asking first.
+
+		For a caller that already knows the polite route is gone - a child
+		that never answered, a shutdown with no time left. Ordinary stops go
+		through stop().
+		"""
+		self.listening = False
+		self.client.SERVICES.kill(self.SERVICE)
+
+	def stop(self):
+		"""
+		Ask the STT process to exit, then confirm it did.
+
+		Sending STOP and walking away is what leaves a process behind: if the
+		command listener has already gone the message arrives nowhere. The
+		survivor keeps the microphone and both ports, so the next launch
+		cannot bind them and comes up silent.
+
+		The asking is `ask_to_stop`, which is ours; the confirming and the
+		escalation after it belong to the registry, which does the same thing
+		for every process it holds.
+		"""
+		self.listening = False
+		self.client.SERVICES.stop(self.SERVICE)

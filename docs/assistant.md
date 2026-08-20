@@ -22,6 +22,17 @@ talking to the client over two local sockets. The client half is
 `whisper-process.py` speaks the same protocol and is kept for reference.
 Nothing starts it.
 
+The child and the socket reader are registered on
+[`client.SERVICES`](services.md) as a process and its companion, so they start
+and stop together and a child that dies is noticed.
+
+Which recogniser starts is whoever provides `assistant.stt`. The panel provides
+Parakeet; a plugin can [claim it](services.md#taking-one-over) and supply its
+own, and everything above - the guards, the sessions, the routing - applies to
+whatever is underneath. `STTProcessing` keeps the
+half that is its own - building the command line, sending `STOP` - and the
+escalation after that belongs to the registry.
+
 
 
 ## What it is doing
@@ -292,6 +303,27 @@ sends the occasional invented phrase for the client to drop.
 - **Nothing half-starts.** `prepare()` returns a reason, runs after the
   sockets are up, and sleeps either side of reporting so the reason arrives.
 
+### When it dies on its own
+
+A speech process that exits without being asked leaves the panel deaf with
+nothing on screen saying so: the pill reads whatever it read last and the wake
+word does nothing, which from the room is a broken microphone.
+
+`RESTART_POLICY` is `Restart(backoff=(0.0, 5.0, 30.0), window=120.0)` - now,
+then in five seconds, then in thirty, then leave it down. A model that cannot
+find its weights fails identically every time, so retrying faster only fills
+the log; a child killed by something passing usually comes back on the first
+attempt. A process that ran for longer than two minutes before dying starts the
+count again.
+
+Every attempt is logged. Giving up is an `error` and a notification, because at
+that point nothing is listening and only this side knows it.
+
+The reader is restarted with the child. `listening` therefore stays true across
+the gap - it is what the reader's loop runs on, and clearing it would start a
+fresh thread that reads the flag once and returns.
+
+
 ### The protocol
 
 Two ports: `65432` for commands in, `65433` for events out. Messages are
@@ -355,7 +387,9 @@ A `Woke` with no `Finalising` after it is a wake nobody followed up on.
 ## What the panel shows
 
 `client.ASSIST_STATUS` is one of `DORMANT`, `LIVE`, `LISTENING`, `THINKING`,
-`ACTING`. Four stages reach the voice bar:
+`ACTING`. It lives on [`SERVICES.STT`](services.md#listening-and-speaking)
+and the client name reads it, so it survives the recogniser being restarted or
+replaced underneath it. Four stages reach the voice bar:
 
 ```
 1. listening     Listening…                    (wake fired)
@@ -464,7 +498,7 @@ the pauses and transcribed *after* speech ends - so the first guard has
 already expired.
 
 `client.say()` records the text before speaking it, keeping the last
-`SPOKEN_MEMORY` (4) replies. A transcript is compared against all of them:
+`SPOKEN_MEMORY` (4) replies on [`SERVICES.TTS`](services.md#listening-and-speaking). A transcript is compared against all of them:
 
 |                 |                                                                       |
 |-----------------|-----------------------------------------------------------------------|

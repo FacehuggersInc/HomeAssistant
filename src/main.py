@@ -43,6 +43,7 @@ from src.registries.player_registry import PlayerRegistry
 from src.registries.status_registry import StatusRegistry
 from src.registries.cancel_registry import CancelRegistry
 from src.registries.user_registry import UserRegistry
+from src.registries.service_registry import ServiceRegistry, Restart
 from src.backend import FlaskApp, FlaskService
 from src.assistant.skill import Skill, SkillIntentEngine
 from src.assistant.stt import STTProcessing
@@ -316,6 +317,11 @@ class Client:
         self.LOG: Optional[TextIO] = None
 
         self.THREADS  = ThreadManager()
+        # Long-running work that is not just a thread: the speech process and
+        # the receiver thread that only means anything while it is alive. One
+        # lifecycle for both, so a shutdown does not have to know which is
+        # which. See docs/services.md.
+        self.SERVICES = ServiceRegistry(self)
         self.TIMEOUTS = TimeoutScheduler(self)
 
         self.window_locked      = False
@@ -401,26 +407,11 @@ class Client:
 
         ## -- ASSISTANT
 
-        self.ASSIST_VOICE_ACTIVITY_LEVEL = 0.0
-        self.ASSIST_STATUS               = "DORMANT"
-        #Held while something slow is running - see thinking().
-        self._thinking_depth             = 0
-        self._thinking_was               = "DORMANT"
-        self._thinking_lock              = RLock()
-        #What the panel has said recently, newest first, as (text, when).
-        #Read from the STT thread to tell a reply coming back through the
-        #microphone from a real question.
-        #
-        #A list rather than one entry. Once a loop has started the panel is
-        #answering itself, so a fragment of the PREVIOUS reply arrives after
-        #the next one has already been spoken - and a single slot has been
-        #overwritten by then.
-        self._spoken: list = []
-        self._spoken_lock                = RLock()
+        # What the assistant is doing, what it last said, and whatever is
+        # currently listening and speaking, all live on SERVICES.STT and
+        # SERVICES.TTS.
         self.SKILLS = SkillIntentEngine(self)
-        self.STT    = None
-        self.TTS    = None
-        self._assistant_config: tuple = ()
+        self.register_speech_providers()
 
         ## -- APIS
         # One registry for both: the HTTP endpoints a plugin serves, and the
@@ -1980,14 +1971,95 @@ class Client:
 
     ##ASSISTANT
 
+    # Everything in this section is the assistant's own state, and it lives on
+    # SERVICES.STT and SERVICES.TTS. What is left here is the names the rest
+    # of the tree already says.
+    #
+    # `say()` and `answer()` stay because they read correctly at this level -
+    # "the panel says something" is a client-level verb in a way that a status
+    # field never was, and every skill in the docs calls the short one.
+
+    def register_speech_providers(self) -> None:
+        """
+        Say who supplies listening and speaking on a stock panel.
+
+        These sit at the bottom of the stack, so a plugin that claims one and
+        later unloads always uncovers something that works rather than leaving
+        the panel with nothing until it is restarted.
+
+        Both are watched: a claim that nothing rebuilt would leave the panel
+        running the implementation it already had, which looks from outside
+        like the claim not having worked.
+        """
+        def parakeet(client, **kwargs):
+            return STTProcessing(
+                client,
+                # Named rather than left to the default, because which process
+                # gets spawned is the single most consequential thing here and
+                # it should be readable.
+                process = "parakeet",
+                **kwargs)
+
+        def pocket(client):
+            from src.assistant.tts_pocket import PocketTTSProcessing
+
+            choice = str(client.setting("audio.speech.tts_backend.value", "auto")
+                         or "auto").strip().lower()
+            if choice == "off":
+                return []
+            return [("Pocket TTS", PocketTTSProcessing)]
+
+        self.SERVICES.provide("client", "assistant.stt", parakeet,
+                              "Parakeet, in a child process")
+        self.SERVICES.provide("client", "assistant.tts", pocket,
+                              "Pocket TTS, locally")
+        self.SERVICES.watch_provider("assistant.stt", self._speech_provider_changed)
+        self.SERVICES.watch_provider("assistant.tts", self._speech_provider_changed)
+
+    def _speech_provider_changed(self, name: str) -> None:
+        """
+        Somebody took over listening or speaking, or gave it back.
+
+        Nothing to do until the panel is up: the providers are registered
+        during construction, and restarting an assistant that has not started
+        is how a launch ends up running twice.
+        """
+        if not self.BUILT:
+            return
+        self.log("info", f"[Assistant] '{name}' changed hands - restarting.")
+        # Marshalled: a claim arrives from a plugin's load(), which is not the
+        # UI thread, and the restart opens dialogs.
+        self.call_on_ui(self.restart_assistant)
+
+    def restart_assistant(self) -> None:
+        """Stop the assistant and start it again, from wherever it is now."""
+        self.stop_assistant()
+        # Deferred for the same reason a settings save is: whatever asked for
+        # this is usually mid-way through something that navigates, and a
+        # model-download prompt opened inside that lands underneath it.
+        QTimer.singleShot(600, self.start_assistant)
+
+    @property
+    def ASSIST_STATUS(self) -> str:
+        return self.SERVICES.STT.status
+
+    @ASSIST_STATUS.setter
+    def ASSIST_STATUS(self, value: str) -> None:
+        self.SERVICES.STT.status = value
+
+    @property
+    def ASSIST_VOICE_ACTIVITY_LEVEL(self) -> float:
+        return self.SERVICES.STT.level
+
+    @ASSIST_VOICE_ACTIVITY_LEVEL.setter
+    def ASSIST_VOICE_ACTIVITY_LEVEL(self, value) -> None:
+        self.SERVICES.STT.level = value
+
     @property
     def wake_word(self) -> str:
         """Default wake word for skills. Plugins should read this rather than
         hardcoding one."""
-        try:
-            return str(self.SETTINGS.assistant.wake.wake_word.value).strip().lower() or "alexa"
-        except Exception:
-            return "alexa"
+        return self.SERVICES.STT.wake_word
 
     def assistant_enabled(self) -> bool:
         from src.system import safemode
@@ -2018,68 +2090,27 @@ class Client:
 
     def cancel_assistant(self, reason: str = "") -> bool:
         """Stop listening and return to the wake word. No-op when idle."""
-        if self.STT is None:
-            return False
-        self.STT.cancel(reason)
-        return True
+        return self.SERVICES.STT.cancel(reason)
 
-    @contextmanager
     def thinking(self, why: str = ""):
         """
         Hold the assistant pill at "Thinking…" while something slow runs.
 
-        Counted, not a flag. Two slow things overlap all the time - a reply is
-        still being generated while the previous one is being spoken - and a
-        plain boolean means whichever finishes first puts the pill away while
-        the other is still working.
-
-        The status before the first hold is what is restored after the last
-        one, so this never invents a state the assistant was not in.
+        A context manager. See SpeechFacade.thinking().
         """
-        with self._thinking_lock:
-            self._thinking_depth += 1
-            first = self._thinking_depth == 1
-            if first:
-                self._thinking_was = getattr(self, "ASSIST_STATUS", "DORMANT")
-                self.ASSIST_STATUS = "THINKING"
-        if why:
-            self.log("debug", f"[Assistant] Thinking: {why}")
-        try:
-            yield
-        finally:
-            with self._thinking_lock:
-                self._thinking_depth = max(0, self._thinking_depth - 1)
-                if self._thinking_depth == 0:
-                    # Only if nothing else has moved it on since. A wake word
-                    # arriving mid-reply means LISTENING is the truth now.
-                    if getattr(self, "ASSIST_STATUS", "") == "THINKING":
-                        self.ASSIST_STATUS = self._thinking_was or "LIVE"
-
-    #How many recent replies to keep for the echo check.
-    SPOKEN_MEMORY = 4
+        return self.SERVICES.STT.thinking(why)
 
     def note_spoken(self, text: str) -> None:
         """Remember something the panel is about to say."""
-        text = str(text or "").strip()
-        if not text:
-            return
-        with self._spoken_lock:
-            self._spoken.insert(0, (text, time.time()))
-            del self._spoken[self.SPOKEN_MEMORY:]
+        self.SERVICES.TTS.note_spoken(text)
 
     def recent_spoken(self) -> list:
         """What the panel has said lately, newest first, as (text, when)."""
-        with self._spoken_lock:
-            return list(self._spoken)
+        return self.SERVICES.TTS.recent_spoken()
 
     def speech_owner(self) -> int:
-        """
-        The token for the most recent thing said, or 0.
-
-        Held by whoever caused it, and handed back to `TTS.stop(owner=...)`
-        so a stop applies only while that speech is still the current one.
-        """
-        return int(getattr(self, "_speech_owner", 0) or 0)
+        """The token for the most recent thing said, or 0."""
+        return self.SERVICES.TTS.owner()
 
     def say(self, text: str, thread: bool = True) -> bool:
         """
@@ -2092,68 +2123,7 @@ class Client:
         The answer is what a caller decides on: False means show the message
         instead.
         """
-        # Said out loud, because silence here has three causes and they look
-        # identical from the outside: no text, no backend, or a backend that
-        # never came up. A skill that answers and is not heard is the hardest
-        # failure to place, and until now it left nothing in the log at all.
-        if not text:
-            return False
-        if self.TTS is None or not getattr(self.TTS, "available", False):
-            self.log("warning",
-                     f"[Assistant] Nothing said - the voice backend is "
-                     f"{'missing' if self.TTS is None else 'not available'}: "
-                     f"{text[:60]!r}")
-            return False
-        # Muted counts as not said.
-        #
-        # play() returns early when sounds are off, so calling it and reporting
-        # True said "spoken" for a message nobody heard - and anything relying
-        # on this to decide whether to SHOW the message instead skipped that
-        # too. The question this answers is whether a person heard it.
-        if self.sounds_muted():
-            self.log("info", f"[Assistant] Not said - sounds are muted: "
-                             f"{text[:60]!r}")
-            return False
-        # Remembered before it is spoken, not after.
-        #
-        # The microphone is recording while the panel talks, so a fragment of
-        # the reply can be finalised and transcribed before `play()` returns.
-        # See STTProcessing.echoed().
-        self.note_spoken(text)
-        # Capture held for the duration, and released by note_speech_ended()
-        # when the backend reports it has finished. Audio never captured
-        # cannot come back as a question.
-        try:
-            if self.STT is not None:
-                self.STT.hold_capture(True)
-        except Exception:
-            pass
-        try:
-            # The pill stays up while the audio is made. A local voice takes a
-            # second or two on a long reply, and a silent panel in that gap
-            # looks like nothing happened.
-            self.log("debug", f"[Assistant] Speaking: {text[:80]!r}")
-            # Claimed before it starts. Whatever spoke last owns the voice,
-            # and anything holding an older token has been displaced - so a
-            # panel that closes later cannot silence a reply that replaced
-            # its own. See TTS.claim().
-            try:
-                self._speech_owner = self.TTS.claim()
-            except Exception:
-                self._speech_owner = 0
-            with self.thinking("speaking"):
-                self.TTS.play(text, thread=thread)
-            return True
-        except Exception as e:
-            # Released here too. The backend reports the end of speech, and a
-            # backend that raised is not going to.
-            try:
-                if self.STT is not None:
-                    self.STT.hold_capture(False)
-            except Exception:
-                pass
-            self.log("warning", f"[Assistant] TTS failed: {e}")
-            return False
+        return self.SERVICES.TTS.say(text, thread=thread)
 
     def fill_device_options(self) -> None:
         """
@@ -2203,41 +2173,7 @@ class Client:
     def assistant_config(self) -> tuple:
         """The settings the running assistant depends on. Compared on save to
         decide whether it needs restarting."""
-        return (
-            self.assistant_enabled(),
-            str(self.setting("audio.devices.input_device.value", "") or "").strip(),
-            str(self.setting("assistant.speech.model.value", "parakeet-v3")
-                or "parakeet-v3"),
-            self.wake_word,
-            int(self.setting("assistant.wake.session_silence.value", 800)),
-            bool(self.setting("audio.speech.tts_enabled.value", True)),
-            # The voice settings, so changing one restarts the assistant and
-            # the new voice is actually loaded rather than waiting for a manual
-            # restart.
-            str(self.setting("audio.speech.tts_backend.value", "auto")),
-            str(self.setting("audio.speech.tts_voice.value", "")),
-            str(self.setting("audio.speech.tts_voice_file.value", "")),
-            str(self.setting("audio.speech.tts_language.value", "")),
-            # The microphone profile. Half of what it changes lives in the
-            # child process and is fixed when it is spawned - the noise
-            # reduction, the VAD aggressiveness, the silence floor - so
-            # changing this without a restart left the panel half switched:
-            # the guards on this side moved and the audio pipeline did not.
-            str(self.setting("audio.devices.mic_processing.value", "software")),
-            # A different set of weights, so a different download and a
-            # different model in the child. Appended rather than inserted:
-            # on_assistant_settings_saved reads index 2 for the model.
-            str(self.setting("assistant.speech.parakeet_precision.value", "int8")),
-            # How long the child waits for a phrase after a wake. Read once,
-            # when it is spawned.
-            str(self.setting("assistant.wake.wake_listen_timeout.value", 12)),
-            # The spotter's threshold, fixed when the child is spawned - so
-            # moving it in Settings does nothing at all until this restarts.
-            # It is a setting somebody adjusts by feel, a step at a time, and
-            # one that needed a relaunch between steps would not get adjusted.
-            str(self.setting("assistant.wake.wake_sensitivity.value", 0.5)),
-            str(self.setting("assistant.wake.wake_sensitivity_speaking.value", 0.0)),
-        )
+        return self.SERVICES.STT.config()
 
     def _start_speech_status(self) -> None:
         """
@@ -2271,13 +2207,8 @@ class Client:
                 pass
             self.SPEECH_STATUS = None
 
-        if self.STT is not None:
-            try:
-                self.STT.stop()
-            except Exception as e:
-                self.log("warning", f"[Assistant] Error stopping STT: {e}")
-            self.STT = None
-        self.TTS = None
+        self.SERVICES.STT.stop()
+        self.SERVICES.TTS.detach()
         self.ASSIST_STATUS = "DORMANT"
         self.ASSIST_VOICE_ACTIVITY_LEVEL = 0.0
 
@@ -2291,12 +2222,12 @@ class Client:
         start_assistant().
         """
         current = self.assistant_config()
-        if current == self._assistant_config:
+        previous = self.SERVICES.STT.remembered()
+        if current == previous:
             return
 
-        was_enabled = self._assistant_config[0] if self._assistant_config else False
-        previous = self._assistant_config
-        self._assistant_config = current
+        was_enabled = previous[0] if previous else False
+        self.SERVICES.STT.remember(current)
 
         # Index 2 is the phrase model - see assistant_config().
         #
@@ -2323,7 +2254,7 @@ class Client:
     def start_assistant(self) -> None:
         from src.assistant import audio
 
-        self._assistant_config = self.assistant_config()
+        self.SERVICES.STT.remember()
 
         if not self.assistant_enabled():
             self.log("info", "[Assistant] Disabled in settings.")
@@ -2654,53 +2585,6 @@ class Client:
         self.THREADS.create("__speech_model_download_thread", fetch)
         self.THREADS.start("__speech_model_download_thread")
 
-    def _tts_backends(self) -> list:
-        """
-        Which backends to try, in order.
-
-        One for now. The list is kept rather than collapsed because the
-        selection, the per-backend failure reporting and the interface a
-        backend has to satisfy are all still what a second one would need -
-        and `_start_tts()` reads a list either way.
-        """
-        from src.assistant.tts_pocket import PocketTTSProcessing
-
-        choice = str(self.setting("audio.speech.tts_backend.value", "auto")
-                     or "auto").strip().lower()
-        if choice == "off":
-            return []
-        return [("Pocket TTS", PocketTTSProcessing)]
-
-    def _start_tts(self) -> None:
-        if not self.setting("audio.speech.tts_enabled.value", True):
-            self.TTS = None
-            self.log("info", "[Assistant] Spoken replies are disabled in settings.")
-            return
-
-        self.TTS = None
-        tried = []
-        for label, backend in self._tts_backends():
-            try:
-                candidate = backend(self)
-            except Exception as e:
-                tried.append(f"{label}: {e}")
-                continue
-            if candidate.available:
-                self.TTS = candidate
-                self.log("info", f"[Assistant] Speaking through {label}.")
-                return
-            tried.append(f"{label}: {candidate.error}")
-
-        # Every reason, not just the last. "TTS unavailable" on its own does not
-        # say whether a package is missing or a key is.
-        for reason in tried:
-            self.log("info", f"[Assistant]   {reason}")
-        if tried:
-            self.log("warning", "[Assistant] No voice backend available.")
-            self.simple_notify("assistant", "Assistant",
-                               "Voice replies are off - see the log for which "
-                               "backend is missing what.")
-
     def _launch_assistant(self, device, model: str) -> None:
         from src.assistant import audio
 
@@ -2709,25 +2593,30 @@ class Client:
         # reply nobody can hear is indistinguishable from one that never came.
         self.apply_minimum_volume()
 
-        self._start_tts()
+        self.SERVICES.TTS.start()
 
         try:
-            self.STT = STTProcessing(
-                self,
-                # Named rather than left to the default, because which
-                # process gets spawned is the single most consequential
-                # thing on this call and it should be readable here.
-                process      = "parakeet",
+            # Built by whoever provides `assistant.stt` rather than named
+            # here, so a plugin that claimed it is what starts.
+            source = self.SERVICES.STT.build(
                 input_device = device,
                 model        = model,
                 wake_words   = [self.wake_word],
                 session_silence_ms = int(self.setting("assistant.wake.session_silence.value", 800)),
             )
-            self.STT.start()
+            if source is None:
+                self.log("error", "[Assistant] Nothing provides speech "
+                                  "recognition.")
+                self.simple_notify("error", "Assistant",
+                                   "Nothing provides speech recognition.")
+                return
+            provider = self.SERVICES.STT.provider()
+            self.SERVICES.STT.start()
             self.log("info", f"[Assistant] Listening on {audio.describe(device)} "
-                             f"for '{self.wake_word}'.")
+                             f"for '{self.wake_word}', through "
+                             f"{provider.description or provider.owner}.")
         except Exception as e:
-            self.STT = None
+            self.SERVICES.STT.detach()
             self.log("error", f"[Assistant] Failed to start: {e}")
             self.simple_notify("error", "Assistant", "Speech-to-text failed to start.")
             self.alert("Voice assistant failed to start",
@@ -3040,9 +2929,9 @@ class Client:
                 # eventually, but until it does the panel refuses new wake
                 # words - so it is watched here as well, on the client's own
                 # clock.
-                if self.STT is not None:
+                if self.SERVICES.STT.running:
                     try:
-                        self.STT.check_wake_timeout()
+                        self.SERVICES.STT.check_wake_timeout()
                     except Exception:
                         pass
 
@@ -3259,6 +3148,19 @@ class Client:
         print("\n--- Processes ---")
         for p in multiprocessing.active_children():
             print(f"PID={p.pid}, Alive={p.is_alive()}")
+        # Separately, because a subprocess.Popen child is not a
+        # multiprocessing one and active_children() never sees it - so the
+        # speech process was absent from the one place that lists what is
+        # running.
+        print("\n--- Services ---")
+        for entry in self.SERVICES.snapshot():
+            mark = " ORPHANED" if entry["orphaned"] else ""
+            pid = f", PID={entry['pid']}" if entry["pid"] else ""
+            print(f"{entry['name']} ({entry['kind']}, {entry['owner']}, "
+                  f"Alive={entry['running']}{pid}){mark}")
+        for held in self.SERVICES.providers.values():
+            print(f"{held.name} (provider, {held.owner}) "
+                  f"{held.description}".rstrip())
 
     @mixin_target("client.update")
     def update(self, fn: Optional[Callable] = None,
@@ -3449,8 +3351,14 @@ class Client:
                 self.log("debug", f"[Audio] Stopped {stopped} sound(s).")
         except Exception as e:
             self.log("debug", f"[Audio] Could not stop cleanly: {e}")
-        if self.STT:
-            self.STT.stop()
+        self.SERVICES.STT.stop()
+        # Newest registration first - see ServiceRegistry.stop_all(). The
+        # speech process is stopped by STT.stop() above, which goes through
+        # here too, so this is whatever else is left.
+        try:
+            self.SERVICES.stop_all()
+        except Exception as e:
+            self.log("warning", f"[Services] Could not stop cleanly: {e}")
         for thread_key in self.THREADS.threads:
             if self.THREADS.is_active(thread_key):
                 self.log("info", f"Stopping Thread: {thread_key}")

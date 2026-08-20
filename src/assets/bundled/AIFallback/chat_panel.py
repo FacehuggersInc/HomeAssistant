@@ -397,8 +397,8 @@ class StatusPill(QWidget):
         anything at all, silently.
         """
         try:
-            tts = getattr(self.client, "TTS", None)
-            if tts is None or not getattr(tts, "available", False):
+            tts = self.client.SERVICES.TTS
+            if not tts.available:
                 return False
             return bool(tts.is_speaking())
         except Exception:

@@ -3,7 +3,7 @@ Kyutai Pocket TTS - spoken replies with no key and no network.
 
 A drop-in replacement for `TTSProcessing`: the same constructor, the same
 `available` / `error` / `is_speaking()` / `play()` / `stream()`, so
-`client.TTS` can be either without anything else in the application knowing
+`SERVICES.TTS` can be either without anything else in the application knowing
 which it got.
 
 The model is 100M parameters and runs on CPU. Kyutai report no speedup from a
@@ -508,7 +508,7 @@ class PocketTTSProcessing:
         holds a session open and reads a long reply into a live microphone.
         """
         try:
-            self.client.STT.note_speech_ended()
+            self.client.SERVICES.STT.note_speech_ended()
         except Exception:
             pass
 

@@ -83,6 +83,21 @@ self.client.call_on_ui(apply)
 ```
 
 
+## `client.SERVICES` - anything long-running
+
+A thread that runs for the life of the panel, and anything that is a **child
+process** rather than a thread, belongs on `client.SERVICES` instead. It is
+owner-keyed, it supervises a process and can restart one, and it ties a reader
+thread to the process it reads from. See [Services](services.md).
+
+`client.THREADS` below is the plain thread manager, and is what the rest of
+this page describes.
+
+A service's `on_exit` runs on the registry's supervisor thread and its
+`on_stop` on whoever asked - which during shutdown is this one. See
+[which thread your callbacks run on](services.md#which-thread-your-callbacks-run-on).
+
+
 ## `client.THREADS` - named background threads
 
 A `ThreadManager`, keyed by name, so a thread can be created once and started,

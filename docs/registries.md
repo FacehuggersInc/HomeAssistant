@@ -2,8 +2,12 @@
 
 Registries manage and store extendable, plugin-ownable objects — things like API endpoints or pages, that a plugin registers and expects to have cleaned up automatically when it's unloaded or reloaded.
 
-Ten concrete registries currently exist, and `BookmarkStore` sits alongside
+Eleven concrete registries currently exist, and `BookmarkStore` sits alongside
 them below. They are not all shaped the same way.
+
+Five of them are large enough to have a page of their own, listed under this
+one in the sidebar. What is here is the shape and the one-paragraph reason;
+what is there is how to use it.
 
 ## `ContextRegistry` — `self.client.CONTEXT`
 
@@ -303,3 +307,36 @@ the music while "nevermind" closes the answer panel, without either having to
 know the other exists.
 
 Covered in full on [Cancelling](cancel.md).
+
+## `ServiceRegistry` — `self.client.SERVICES`
+
+Long-running work, whether it is a thread or a child process. A thread and a
+process want the same five verbs from a caller — start, stop, is it alive, wait
+for it, who owns it — and differ only in how they are asked to stop and in
+whether anything notices when they die on their own.
+
+```python
+client.SERVICES.create(owner, "myplugin.poller", self.poll)
+client.SERVICES.spawn(owner, "myplugin.worker", command=self.argv,
+                      on_stop=self.ask_it, companions=("myplugin.reader",))
+```
+
+Shaped differently from the rest in three ways.
+
+**Cleanup is opt-in**, and only across a reload. Everything else here is
+dropped when its owner unloads and that is the whole story; a service may ask
+to survive a hot reload, because a child process is code on disk that the
+reload never touched and stopping it to start it again is a gap for nothing.
+A genuine unload still stops it, with no opt-out.
+
+**It holds providers as well as services.** A provider says who *supplies* a
+named capability — `assistant.stt`, `assistant.tts` — and is a factory rather
+than a thing with a lifecycle. Providers stack: a plugin can claim one, and
+what it displaced comes back when the plugin unloads.
+
+**It carries two facades**, `SERVICES.STT` and `SERVICES.TTS`, which hold what
+the panel knows about listening and speaking. They are on the registry rather
+than inside whatever is implementing them because that state has to outlive a
+restart or a swap.
+
+Covered in full on [Services](services.md).

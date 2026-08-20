@@ -231,12 +231,10 @@ class AnswerPanel(Panel):
                     # reading the summary aloud over the top of it is the
                     # answer talking to an empty room.
                     try:
-                        tts = getattr(self.client, "TTS", None)
-                        if tts is not None:
-                            # Unconditional: a finger on the button is a
-                            # person, and a person outranks whatever is
-                            # talking - the same rule as the wake word.
-                            tts.stop()
+                        # Unconditional: a finger on the button is a
+                        # person, and a person outranks whatever is
+                        # talking - the same rule as the wake word.
+                        self.client.SERVICES.TTS.stop_speaking()
                     except Exception:
                         pass
                     # The panel goes with it. The button is always something
@@ -608,16 +606,15 @@ class AnswerPanel(Panel):
         and the voice carrying on is a reply read to an empty screen.
         """
         try:
-            tts = getattr(self.client, "TTS", None)
-            if tts is not None:
-                # Only if this panel's own reply is still the one being read.
-                #
-                # An answer left on screen outlives its voice. Ask something
-                # else, and the new answer speaks and opens its own panel
-                # while this one is still up - then this one times out, and
-                # an unconditional stop() cuts off a reply that was never
-                # its own. The token says whose voice it is.
-                tts.stop(owner=getattr(self, "speech_owner", None) or None)
+            # Only if this panel's own reply is still the one being read.
+            #
+            # An answer left on screen outlives its voice. Ask something
+            # else, and the new answer speaks and opens its own panel
+            # while this one is still up - then this one times out, and
+            # an unconditional stop() cuts off a reply that was never
+            # its own. The token says whose voice it is.
+            self.client.SERVICES.TTS.stop_speaking(
+                owner=getattr(self, "speech_owner", None) or None)
         except Exception as e:
             self.client.log("debug", f"[AnswerPanel] Could not stop speech: {e}")
         self.close_panel()

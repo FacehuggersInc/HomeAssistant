@@ -58,11 +58,24 @@ NAV_GROUPS = [
     ]),
     ("Building on it", [
         ("architecture.md",    "Architecture"),
-        ("plugins.md",         "Plugins"),
+        ("plugins.md",         "Plugins", [
+            ("plugins-remote.md",  "Remote plugins"),
+        ]),
         ("bundled-plugins.md", "Bundled plugins"),
         ("mixins.md",          "Mixins"),
         ("events.md",          "Events"),
-        ("registries.md",      "Registries"),
+        # A registry with a page of its own sits under the one that lists
+        # them all. Filed by subsystem they scattered - the player with the
+        # screen, cancelling with the assistant - so somebody looking for
+        # "what registries are there" found one page naming eleven and no way
+        # to reach the five that are written up.
+        ("registries.md",      "Registries", [
+            ("services.md",        "Services"),
+            ("users.md",           "Users"),
+            ("status.md",          "Status"),
+            ("cancel.md",          "Cancelling"),
+            ("player.md",          "Media playback"),
+        ]),
         ("threading.md",       "Threading"),
     ]),
     ("On the screen", [
@@ -71,7 +84,6 @@ NAV_GROUPS = [
         ("tiles.md",           "Tiles"),
         ("dialogs.md",         "Dialogs and overlays"),
         ("quick-settings.md",  "Quick settings"),
-        ("player.md",          "Media playback"),
         ("notifications.md",   "Notifications, state, assets"),
         ("styling.md",         "Styling"),
         ("keyboard.md",        "On-screen keyboard"),
@@ -79,10 +91,7 @@ NAV_GROUPS = [
     ("Talking to it", [
         ("assistant.md",       "Voice assistant"),
         ("skills.md",          "Writing skills"),
-        ("cancel.md",          "Cancelling"),
         ("api.md",             "Backend API"),
-        ("users.md",           "Users"),
-        ("status.md",          "Status"),
         ("browsing.md",        "Browsing"),
         ("web-ui.md",          "Web UI"),
         ("webpage.md",         "The web page"),
@@ -96,8 +105,27 @@ NAV_GROUPS = [
     ]),
 ]
 
+def _flatten(entries) -> list:
+    """
+    A group's entries, children inline after their parent, as
+    (filename, label, depth).
+
+    Depth is the only thing nesting changes for anything downstream: the
+    order is the reading order either way, so prev/next, the search index and
+    the change log all take the flat list and ignore it.
+    """
+    out = []
+    for entry in entries:
+        filename, label = entry[0], entry[1]
+        out.append((filename, label, 0))
+        for child in (entry[2] if len(entry) > 2 else ()):
+            out.append((child[0], child[1], 1))
+    return out
+
+
 #Flat, for anything that wants an order rather than a shape.
-NAV_ORDER = [entry for _group, entries in NAV_GROUPS for entry in entries]
+NAV_ORDER = [(f, label) for _group, entries in NAV_GROUPS
+             for f, label, _depth in _flatten(entries)]
 
 
 ## -- FILES -------------------------------------------------------------------
@@ -263,13 +291,18 @@ def resolve_plugin(slug: str) -> Optional[Path]:
 
 
 def nav_entries() -> list:
-    """[(slug, title, filename)] in display order, flat."""
-    return [entry for _group, entries in nav_groups() for entry in entries]
+    """[(slug, title, filename)] in display order, flat, without the depth."""
+    return [(slug, title, filename)
+            for _group, entries in nav_groups()
+            for slug, title, filename, _depth in entries]
 
 
 def nav_groups() -> list:
     """
-    [(group title, [(slug, title, filename)])] in display order.
+    [(group title, [(slug, title, filename, depth)])] in display order.
+
+    Depth is 0 for a page and 1 for one filed under another - a registry with
+    a page of its own under the page that lists them all.
 
     A page on disk that no group names goes into a final "Everything else"
     rather than being dropped. Silently omitting it would mean a page nobody
@@ -283,14 +316,14 @@ def nav_groups() -> list:
     groups = []
     for title, entries in NAV_GROUPS:
         rows = []
-        for filename, label in entries:
+        for filename, label, depth in _flatten(entries):
             if filename in on_disk:
-                rows.append((filename[:-3], label, filename))
+                rows.append((filename[:-3], label, filename, depth))
                 on_disk.discard(filename)
         if rows:
             groups.append((title, rows))
 
-    leftover = [(f[:-3], title_of(DOCS_DIR / f), f) for f in sorted(on_disk)]
+    leftover = [(f[:-3], title_of(DOCS_DIR / f), f, 0) for f in sorted(on_disk)]
     if leftover:
         groups.append(("Everything else", leftover))
     return groups
@@ -809,6 +842,24 @@ def toc_html(toc: list) -> str:
     return f'<nav class="toc"><div class="toc-title">On this page</div>{rows}</nav>'
 
 
+def _parent_of(slug: str) -> str:
+    """
+    The page this one is filed under, or "".
+
+    Two shapes answer to it: a plugin sub-page carries its parent in its own
+    slug, and a core page filed under another is named as a child in
+    NAV_GROUPS.
+    """
+    if "/" in slug:
+        return slug.rsplit("/", 1)[0]
+    for _title, entries in NAV_GROUPS:
+        for entry in entries:
+            for child in (entry[2] if len(entry) > 2 else ()):
+                if child[0][:-3] == slug:
+                    return entry[0][:-3]
+    return ""
+
+
 def neighbours(current: str) -> dict:
     """
     What comes before and after this page, two ways.
@@ -822,9 +873,14 @@ def neighbours(current: str) -> dict:
     property of the button pressed, not of the page.
     """
     flat, tops = [], []
-    for slug, title, _ in nav_entries():
-        flat.append((slug, title))
-        tops.append((slug, title))
+    for _group, entries in nav_groups():
+        for slug, title, _filename, depth in entries:
+            flat.append((slug, title))
+            # A core page filed under another is a sub-page for this purpose,
+            # the same as a plugin's. Somebody who has finished with the
+            # registries wants Threading, not the five of them one at a time.
+            if not depth:
+                tops.append((slug, title))
 
     for plugin_slug, (display, readme, pages) in sorted(
             plugin_docs().items(), key=lambda item: item[1][0].lower()):
@@ -847,17 +903,17 @@ def neighbours(current: str) -> dict:
     prev_one, next_one = around(flat)
     prev_top, next_top = around(tops)
     # A sub-page is not in `tops`, so it has no skipping neighbours of its own.
-    # Its parent's do instead, which is what "skip the rest of this plugin"
-    # means from inside one.
-    if prev_top is None and next_top is None and "/" in current:
-        parent = current.rsplit("/", 1)[0]
-        prev_top, next_top = around(tops) if parent == current else (None, None)
-        for index, (slug, _t) in enumerate(tops):
-            if current.startswith(slug + "/") or slug == parent:
-                prev_top = tops[index - 1] if index > 0 else None
-                next_top = (tops[index + 1]
-                            if index + 1 < len(tops) else None)
-                break
+    # Its parent's do instead, which is what "skip the rest of this" means
+    # from inside one.
+    if prev_top is None and next_top is None:
+        parent = _parent_of(current)
+        if parent:
+            for index, (slug, _t) in enumerate(tops):
+                if slug == parent:
+                    prev_top = tops[index - 1] if index > 0 else None
+                    next_top = (tops[index + 1]
+                                if index + 1 < len(tops) else None)
+                    break
 
     return {"prev": prev_one, "next": next_one,
             "prev_top": prev_top, "next_top": next_top}
@@ -924,10 +980,15 @@ def sidebar_html(current: str) -> str:
 
     for group, entries in nav_groups():
         rows.append(f'<div class="nav-divider">{html.escape(group)}</div>')
-        for slug, title, _ in entries:
-            active = ' class="active"' if slug == current else ""
+        for slug, title, _filename, depth in entries:
+            # The same class the plugin pages below already use, so a page
+            # filed under another reads the same way wherever it appears.
+            classes = "sub" if depth else ""
+            if slug == current:
+                classes = (classes + " active").strip()
+            attr = f' class="{classes}"' if classes else ""
             mark = tracker.badge_for(slug, changes)
-            rows.append(f'<a href="/docs/{slug}"{active}>'
+            rows.append(f'<a href="/docs/{slug}"{attr}>'
                         f'{html.escape(title)}{mark}</a>')
 
     # Plugins get their own section at the end, one heading each.

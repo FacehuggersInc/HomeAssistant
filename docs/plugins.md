@@ -431,6 +431,7 @@ line points at the page that explains it.
 | `client.PAGES`     | Full-screen pages — [Pages](pages.md)                        |
 | `client.PLAYER`    | Media backends — [Player](player.md)                         |
 | `client.QUICK`     | Quick settings buttons — [Quick settings](quick-settings.md) |
+| `client.SERVICES`  | Threads, processes, speech — [Services](services.md)         |
 | `client.SKILLS`    | Spoken intents — [Skills](skills.md)                         |
 | `client.USERS`     | Approved devices — [Users](users.md)                         |
 | `client.public`    | Names other plugins expose — [Registries](registries.md)     |

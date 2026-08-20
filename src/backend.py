@@ -373,7 +373,7 @@ def FlaskApp(client):
 		# Answered rather than assumed: the caller is told whether anything
 		# took it.
 		try:
-			taken = bool(client.STT.submit(query))
+			taken = bool(client.SERVICES.STT.submit(query))
 		except Exception as e:
 			return {"request": "Failed", "reason": str(e)}, 500
 		if not taken:
@@ -437,7 +437,7 @@ def FlaskApp(client):
 		# submit(), like /process - the microphone's path looks for a wake
 		# word first and a typed query has none.
 		try:
-			taken = bool(client.STT.submit(query))
+			taken = bool(client.SERVICES.STT.submit(query))
 		except Exception as e:
 			return {"request": "Failed", "reason": str(e)}, 500
 		if not taken:
