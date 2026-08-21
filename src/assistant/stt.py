@@ -1630,6 +1630,13 @@ class STTProcessing():
 			"wake_memory_folder": str(LOG_DIR / "wake"),
 			"wake_ignore_threshold": float(self.client.setting(
 				"assistant.wake.wake_ignore_similarity.value", 0.93)),
+			# What openWakeWord is allowed to do about a noisy room. Read at
+			# spawn, like everything else the child is handed - both are used
+			# when the model is built and cannot change under it.
+			"wake_speex": bool(self.client.setting(
+				"assistant.wake.wake_noise_suppression.value", False)),
+			"wake_vad": float(self.client.setting(
+				"assistant.wake.wake_speech_gate.value", 0.0)),
 			# How sure the spotter has to be. Read here rather than held,
 			# because the child is respawned when it changes.
 			"wake_sensitivity": float(self.client.setting(

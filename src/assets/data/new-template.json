@@ -491,6 +491,20 @@
                 "step": 0.05,
                 "description": "The same bar, for the moment the panel is talking. 0 means use the ordinary sensitivity above.\n\nWhile a reply is being read out the microphone carries the panel's own voice alongside yours, so the wake word arrives buried in a way it never is in a quiet room - and the setting that works for the room is often too high for this.\n\nGoing lower costs less here than it does elsewhere: a false fire only interrupts a sentence the panel was already reading out. Try 0.05 below the ordinary one and keep going while it still refuses to be interrupted. The assistant restarts itself when this changes."
             },
+            "wake_noise_suppression": {
+                "type": "bool",
+                "default": false,
+                "value": false,
+                "description": "Clean the audio before the wake word is looked for.\n\nUses SpeexDSP, which is aimed at steady background noise - a fan, an in-window air conditioner, a fridge. Exactly the sort that never stops and sits under everything said in the room.\n\nOff by default because it costs a little per frame and because a microphone that already does this in hardware - a beamforming array - does not want it done twice.\n\nNeeds speexdsp-ns installed. Without it the panel says so once and carries on."
+            },
+            "wake_speech_gate": {
+                "type": "float",
+                "default": 0.0,
+                "value": 0.0,
+                "min": 0.0,
+                "max": 0.9,
+                "description": "Refuse a wake unless the same moment also sounded like speech.\n\n0 is off. Around 0.5 is a reasonable start.\n\nA second, separate model decides whether a frame contains a voice at all, and the wake word is only accepted if it agrees. That does nothing about somebody on television saying the word, and a great deal about a clatter or a door that happens to score highly.\n\nIt asks something of the audio the wake word alone does not, so set it gently: too high and a real wake said quietly is refused, with nothing on screen to say why."
+            },
             "wake_diagnostics": {
                 "type": "bool",
                 "default": false,

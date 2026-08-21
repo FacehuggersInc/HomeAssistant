@@ -95,11 +95,17 @@ class WakeSpotter:
     """
 
     def __init__(self, wake_word: str, threshold: float = DEFAULT_THRESHOLD,
-                 refractory: float = DEFAULT_REFRACTORY, log=None):
+                 refractory: float = DEFAULT_REFRACTORY, log=None,
+                 speex: bool = False, vad_threshold: float = 0.0):
         self.wake_word = str(wake_word or "")
         self.model_name = model_for(self.wake_word)
         self.threshold = float(threshold or DEFAULT_THRESHOLD)
         self.refractory = float(refractory or 0)
+        # Two things openWakeWord can do about a noisy room, both off by
+        # default in the library and both aimed at exactly the case a fan or
+        # an air conditioner creates. See _build().
+        self.speex = bool(speex)
+        self.vad_threshold = float(vad_threshold or 0.0)
         self.log = log or (lambda level, message: None)
 
         self.model = None
@@ -161,8 +167,34 @@ class WakeSpotter:
         import os
 
         takes = inspect.signature(Model.__init__).parameters
+
+        # Only what this build actually accepts.
+        #
+        # Both of these arrived in later openWakeWord releases, and passing
+        # one to a build that predates it is a TypeError at startup - which
+        # would be the wake word not working at all, in exchange for making it
+        # work better.
+        options = {}
+        if self.speex and "enable_speex_noise_suppression" in takes:
+            options["enable_speex_noise_suppression"] = True
+        if self.vad_threshold > 0 and "vad_threshold" in takes:
+            options["vad_threshold"] = float(self.vad_threshold)
+        if options:
+            self.log("info", f"[Wake] Spotting with {options}.")
+
         if "wakeword_models" in takes:
-            return Model(wakeword_models=[self.model_name])
+            try:
+                return Model(wakeword_models=[self.model_name], **options)
+            except Exception as exc:
+                # Speex is a separate package and the VAD is a download; a
+                # build that names the argument may still fail to use it.
+                # Better a spotter with neither than no spotter at all.
+                if options:
+                    self.log("warning",
+                             f"[Wake] Falling back without {list(options)}: "
+                             f"{exc}")
+                    return Model(wakeword_models=[self.model_name])
+                raise
 
         # The older shape. Files live beside the library, named
         # "<word>_v0.1.onnx" or ".tflite" depending on the build.
@@ -180,7 +212,7 @@ class WakeSpotter:
             found = ""
         if not found:
             return None
-        return Model(wakeword_model_paths=[found])
+        return Model(wakeword_model_paths=[found], **options)
 
     ## -- listening
 

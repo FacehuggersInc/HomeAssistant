@@ -222,6 +222,34 @@ recognises the word; it falls away over the next several windows. Without
 that, every successful wake also reported a near miss for the word that had
 just worked.
 
+### Doing something about the room
+
+Two settings, both off by default and both aimed at steady background noise -
+a fan, an in-window air conditioner, a fridge.
+
+`assistant.wake.wake_noise_suppression` cleans the audio with SpeexDSP before
+the wake word is looked for. `assistant.wake.wake_speech_gate` refuses a wake
+unless a separate voice detector agrees the moment contained speech at all -
+which does nothing about a television saying the word, and a great deal about
+a clatter that happens to score highly.
+
+Both are passed to openWakeWord **only when the installed build names them**.
+Handing one to a build that predates it is a `TypeError` at startup, which is
+the wake word not working at all in exchange for making it work better. And if
+a build names an option but cannot use it - Speex is a separate package, the
+detector is a download - the model is built again without it and the log says
+what was dropped.
+
+`audio.devices.mic_processing` decides whether a captured phrase is de-noised
+before it reaches the transcriber. `hardware` means the microphone has already
+done it, and doing it twice takes the speech with it; `software` means nothing
+has, which is the plain-microphone case. It needs `noisereduce`; without it
+the panel says so once at startup rather than silently ignoring the setting.
+
+None of this closes the gap to a microphone that avoids picking the noise up
+in the first place. A beamforming array measured a floor around -60 dBFS in
+the same room where a plain microphone measured -35.
+
 ### The VAD, and phrases that never end
 
 What ends a phrase is `SILENCE_MS` of the VAD not calling speech. Constant

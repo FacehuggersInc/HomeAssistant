@@ -67,6 +67,16 @@ try:
 except Exception:
     psutil = None
 
+try:
+    # Optional. Its absence is a phrase transcribed as it arrived, not a
+    # process that will not start - and the panel says so once at startup
+    # rather than silently doing nothing with a setting somebody chose.
+    import noisereduce as nr
+    _HAS_NOISEREDUCE = True
+except Exception:
+    nr = None
+    _HAS_NOISEREDUCE = False
+
 # Guarded so a missing audio stack is a message rather than a traceback into
 # a log file nobody reads. sounddevice raises OSError when PortAudio is
 # absent, so this catches Exception rather than ImportError.
@@ -194,6 +204,8 @@ class ParakeetListener:
                  wake_report_path: str = "",
                  wake_memory_folder: str = "",
                  wake_ignore_threshold: float = 0.93,
+                 wake_speex: bool = False,
+                 wake_vad: float = 0.0,
                  initial_mode: str = "wake"):
         # First, so everything that reports during setup reports through the
         # socket rather than into a terminal nobody is reading.
@@ -235,6 +247,25 @@ class ParakeetListener:
         self.wake_sensitivity_speaking = (
             max(0.05, min(0.95, speaking)) if speaking > 0 else self.wake_sensitivity)
         self.mic_processing = str(mic_processing or "software").lower()
+        # What openWakeWord is allowed to do about the room. Both cost a
+        # little per frame and are off in the library by default, so they are
+        # asked for rather than assumed.
+        self.wake_speex = bool(wake_speex)
+        self.wake_vad = float(wake_vad or 0.0)
+
+        # Whether to take the noise out of a phrase before transcribing it.
+        #
+        # "hardware" means the microphone has already done it - a beamforming
+        # array with its own suppression - and doing it twice takes the speech
+        # with it. "software" means nothing has, which is the plain-microphone
+        # case an air conditioner ruins.
+        self._denoise = (self.mic_processing != "hardware"
+                         and _HAS_NOISEREDUCE)
+        if self.mic_processing != "hardware" and not _HAS_NOISEREDUCE:
+            self.send_log("info",
+                          "[Parakeet]: Software microphone processing is set, "
+                          "but noisereduce is not installed - phrases are "
+                          "transcribed as they arrive.")
 
         self.window_samples = int(self.SAMPLE_RATE * self.WINDOW_MS / 1000)
         self.pre_context_windows = self._windows(self.PRE_CONTEXT_MS)
@@ -421,7 +452,9 @@ class ParakeetListener:
             return False
 
         spotter = WakeSpotter(self.wake_word, threshold=self.wake_sensitivity,
-                              log=self.send_log)
+                              log=self.send_log,
+                              speex=self.wake_speex,
+                              vad_threshold=self.wake_vad)
         if not spotter.ready:
             self.reason = spotter.reason or "the wake spotter would not load"
             return False
@@ -613,6 +646,29 @@ class ParakeetListener:
                 # which is long enough for the client to give up and kill it.
                 self.stop_event.wait(5)
 
+    def as_audio(self, raw: bytes):
+        """
+        Bytes as float samples, with the room taken out of them if asked.
+
+        One helper for every transcription rather than the conversion written
+        out four times: a de-noising step added to three of them and missed on
+        the fourth is a panel that behaves differently depending on which path
+        the audio took.
+
+        De-noised HERE, on the processing thread, and never on the audio one.
+        This thread is already about to spend far longer inside the model and
+        nothing is being recorded against it.
+        """
+        audio = np.frombuffer(raw, dtype=np.int16).astype(np.float32) / 32768.0
+        if not self._denoise or audio.size == 0:
+            return audio
+        try:
+            return nr.reduce_noise(y=audio, sr=self.SAMPLE_RATE)
+        except Exception as exc:
+            self.send_log("debug",
+                          f"[Parakeet]: Noise reduction skipped: {exc}")
+            return audio
+
     def remember(self, action: str, key: str = "") -> bool:
         """
         Change the ignore list, at the panel's request.
@@ -733,7 +789,7 @@ class ParakeetListener:
             import wave as _wave
             with _wave.open(path, "rb") as handle:
                 raw = handle.readframes(handle.getnframes())
-            audio = np.frombuffer(raw, dtype=np.int16).astype(np.float32) / 32768.0
+            audio = self.as_audio(raw)
             wake_said = str(self.__clean(self.parakeet.transcribe(audio)) or "")
         except Exception as exc:
             self.send_log("debug", f"[Wake] Could not transcribe the wake: {exc}")
@@ -1489,7 +1545,7 @@ class ParakeetListener:
         never be the reason the panel stops working.
         """
         try:
-            audio = np.frombuffer(raw, dtype=np.int16).astype(np.float32) / 32768.0
+            audio = self.as_audio(raw)
             heard = self.__clean(self.parakeet.transcribe(audio))
         except Exception as exc:
             self.send_log("debug", f"[Parakeet]: Wake diagnostic failed: {exc}")
@@ -1517,7 +1573,7 @@ class ParakeetListener:
         if self.report is None:
             return
         try:
-            audio = np.frombuffer(raw, dtype=np.int16).astype(np.float32) / 32768.0
+            audio = self.as_audio(raw)
             heard = " ".join(str(self.__clean(
                 self.parakeet.transcribe(audio)) or "").split())
         except Exception as exc:
@@ -1600,7 +1656,7 @@ class ParakeetListener:
         # down; Parakeet was trained on noisy speech and does not invent
         # words out of room tone, so a de-noising pass here costs a large
         # fraction of a core to make clean speech sound underwater.
-        audio = np.frombuffer(raw, dtype=np.int16).astype(np.float32) / 32768.0
+        audio = self.as_audio(raw)
         try:
             measured = self.__measure_phrase(audio)
         except Exception as exc:
@@ -1748,6 +1804,8 @@ class ParakeetServer:
             wake_memory_folder=str(config.get("wake_memory_folder") or ""),
             wake_ignore_threshold=float(
                 config.get("wake_ignore_threshold") or 0.93),
+            wake_speex=bool(config.get("wake_speex")),
+            wake_vad=float(config.get("wake_vad") or 0.0),
         )
         self.listener.set_callbacks(
             on_wake=self.trigger_wake,

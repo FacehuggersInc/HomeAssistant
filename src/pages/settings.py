@@ -1152,14 +1152,26 @@ class SettingsPage(PageFramework):
         tl.setContentsMargins(PAD, 0, PAD, 0)
         tl.setSpacing(0)
 
-        # Two icons, because it does two things: it leaves *and* it saves, and
-        # an arrow alone says only the first.
+        # Two buttons, because leaving and saving are two decisions.
+        #
+        # One control that always did both meant somebody who opened this to
+        # read a value and changed one by accident had no way out that did not
+        # keep it - and somebody who wanted to leave had to wait for a save
+        # they never asked for.
         back_btn = ActionButton(Icons.SAVE_CONTENT, "Save and Return",
                                 self.return_and_save, kind="primary",
                                 size=44, min_width=210, icon_size=24)
         back_btn.setFont(make_font(SIZES.S3, bold=True))
+        self._save_btn = back_btn
+
+        leave_btn = ActionButton(Icons.ARROW_LEFT, "Return",
+                                 self.return_without_saving, kind="quiet",
+                                 size=44, min_width=130, icon_size=24)
+        leave_btn.setFont(make_font(SIZES.S3, bold=True))
 
         tl.addWidget(back_btn)
+        tl.addSpacing(10)
+        tl.addWidget(leave_btn)
         tl.addStretch()
 
         # ── Body ──────────────────────────────────────────────────────────────
@@ -2577,18 +2589,83 @@ class SettingsPage(PageFramework):
         )
         self.return_and_save(notify=False)
 
+    def home_page(self) -> str:
+        target = self.client.DEFAULT_PAGE or "#root"
+        return target if self.client.has_page(target) else "#root"
+
+    def return_without_saving(self, event=None) -> None:
+        """
+        Leave, keeping whatever was on disk.
+
+        Said out loud when something was changed, rather than silently. A
+        control that discards work without a word is one people stop trusting
+        after the first time it costs them something.
+        """
+        if self.unsaved():
+            self.client.simple_notify(Icons.SETTINGS, "Settings",
+                                      "Left without saving - the changes were "
+                                      "not kept.")
+        self.client.goto(self.home_page())
+
+    def unsaved(self) -> bool:
+        """Whether anything on this page differs from what is on disk."""
+        try:
+            return (scrub_secrets(self._working_settings.to_dict())
+                    != scrub_secrets(self.client.SETTINGS.to_dict()))
+        except Exception:
+            # Cannot tell, so assume there is something. Warning about
+            # nothing costs a line; staying quiet costs the changes.
+            return True
+
+    # The mixin target belongs to the method plugins mean by "save", which
+    # is this one. It sat above whatever happened to be written first,
+    # and inserting a helper there moved it silently.
     @mixin_target("settings.save")
     def return_and_save(self, event=None, notify: bool = True) -> None:
+        """
+        Save and go home, with the going home first.
+
+        **The subscribers are the slow part, not the saving.** Writing the
+        file and applying the values takes a moment; `on_settings_saved`
+        restarts the assistant, re-reads calendars and rebuilds pages, and all
+        of that ran before the page was left. The press looked ignored for
+        several seconds, which on a touch panel means it gets pressed again.
+
+        So: acknowledge the press, save, leave, and let the subscribers run
+        with the home page already up. Nothing they do needs this page to
+        still exist.
+        """
+        # Immediately, before anything slow. A control that does not change
+        # when it is touched has not been touched, as far as anybody can tell.
+        self._saving()
+
         saved = scrub_secrets(self._working_settings.to_dict())
         self.client.dump(saved, self.client.DATA)
         self.client.apply_settings(saved)
-        self.client.iterate_event_callables("on_settings_saved", self.client.SETTINGS)
         if notify:
             self.client.simple_notify(Icons.SAVE, "Settings", "Settings saved!")
-        target = self.client.DEFAULT_PAGE or "#root"
-        if not self.client.has_page(target):
-            target = "#root"
-        self.client.goto(target)
+
+        # The client rather than `self`: goto() destroys this page, and the
+        # deferred call must not reach through a widget that has gone.
+        client = self.client
+        client.goto(self.home_page())
+        QTimer.singleShot(0, lambda: client.iterate_event_callables(
+            "on_settings_saved", client.SETTINGS))
+
+    def _saving(self) -> None:
+        """Say the press landed, before the work that follows it."""
+        button = getattr(self, "_save_btn", None)
+        if button is None:
+            return
+        try:
+            button.setEnabled(False)
+            button.set_label("Saving\u2026")
+            # Painted now. Qt would otherwise draw this at the end of the
+            # event handler - which is after everything this was meant to
+            # cover, so nothing would ever be seen.
+            self.client.app.processEvents()
+        except Exception:
+            pass
 
     def start(self) -> None:
         super().start()
