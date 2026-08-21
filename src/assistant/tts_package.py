@@ -15,9 +15,15 @@ are on different machines and get updated at different times.
 from __future__ import annotations
 
 import socket
+import time
 from pathlib import Path
 
 from src.assistant.tts_protocol import DEFAULT_PORT
+
+#Bumped when what comes out changes in a way somebody would need to
+#re-download for. Printed by the scripts and named in the README, so a
+#copy on another machine can be told from the current one.
+VERSION = "1.1"
 
 FOLDER = "tts-server"
 
@@ -43,10 +49,31 @@ STARTUP_SH = """\
 # the first failure and leaves whoever ran it looking at a prompt, wondering
 # which line it was.
 
+# Started with `sh startup.sh` rather than bash?
+#
+# Then this is dash on most Linux machines, and the redirection below is a
+# bashism it refuses - one terse line about line 16, and nothing set up. Easy
+# to miss and impossible to act on. Handed to bash instead, before anything
+# bash-only is reached.
+#
+# POSIX on purpose: it has to parse under whatever is reading it.
+if [ -z "${{BASH_VERSION:-}}" ]; then
+    exec bash "$0" "$@"
+fi
+
 cd "$(dirname "$0")" || exit 1
 LOG="setup.log"
 exec > >(tee -a "$LOG") 2>&1
-echo "--- $(date) ---"
+
+# Stamped when this was built, and printed first.
+#
+# A package is generated on demand rather than kept as a file, so the copy on
+# a machine is as old as the day somebody downloaded it - and two copies look
+# identical. Without this, "it does nothing" and "it does nothing any more"
+# are the same sentence, and there is no way to tell whether the script being
+# run is the one being discussed.
+BUILT="{built}"
+echo "--- $(date) --- speech server package {version}, built $BUILT"
 
 die() {{ echo; echo "STOPPED: $*"; echo "The whole of this is in $LOG."; exit 1; }}
 
@@ -54,11 +81,15 @@ PY_BIN="$(command -v python3 || command -v python || true)"
 [ -n "$PY_BIN" ] || die "no python3 on this machine. Install Python 3.10 or newer."
 echo "Using $PY_BIN ($("$PY_BIN" --version 2>&1))"
 
-# A .venv that exists but has no interpreter in it is worse than none: the
-# old script skipped creation because the folder was there, then failed at
-# the last line for a reason that pointed nowhere.
-if [ -d .venv ] && [ ! -x .venv/bin/python ]; then
-    echo "There is a .venv here with no interpreter in it - starting again."
+# Anything called .venv that is not a usable environment is cleared out.
+#
+# A folder with no interpreter in it is worse than nothing there at all: a
+# test for the folder passes, creation is skipped, and the failure lands on
+# the last line pointing nowhere near the cause. A leftover FILE by that name
+# is worse still - `python -m venv` refuses it, and the error is about
+# permissions or paths rather than about the file being in the way.
+if [ -e .venv ] && [ ! -x .venv/bin/python ]; then
+    echo "There is a .venv here that is not a working environment - starting again."
     rm -rf .venv
 fi
 
@@ -90,6 +121,7 @@ STARTUP_BAT = """\
 REM Start the speech server. Run startup.bat from this folder.
 cd /d "%~dp0"
 set LOG=setup.log
+echo Speech server package {version}, built {built}
 
 where python >nul 2>nul
 if errorlevel 1 (
@@ -130,6 +162,11 @@ echo Starting the speech server on port {port}.
 
 README = """\
 # Speech for {panel}
+
+*Package {version}, built {built}. Downloaded again from Packages on the
+panel, this file is rebuilt with whatever the settings say at that moment - so
+if something here does not match the panel, this copy is the older of the
+two.*
 
 This runs the voice on this machine instead of on the panel. The panel sends
 text and takes back audio; nothing about the model runs there.
@@ -278,6 +315,10 @@ def build_for(client) -> tuple:
                 "machine's address on your network - `hostname -I` on Linux, "
                 "`ipconfig` on Windows.")
 
+    # When this was built, to the minute. Local time rather than UTC: it is
+    # read beside a log somebody is looking at on the same machine.
+    built = time.strftime("%Y-%m-%d %H:%M")
+
     here = Path(__file__).resolve().parent
     files: dict = {}
 
@@ -290,13 +331,15 @@ def build_for(client) -> tuple:
     language_flag = f' --language "{language}"' 
     files["startup.sh"] = STARTUP_SH.format(
         listen="0.0.0.0", port=port, voice=voice,
-        language=language_flag).encode("utf-8")
+        language=language_flag, version=VERSION,
+        built=built).encode("utf-8")
     files["startup.bat"] = STARTUP_BAT.format(
         listen="0.0.0.0", port=port, voice=voice,
-        language=language_flag).encode("utf-8")
+        language=language_flag, version=VERSION,
+        built=built).encode("utf-8")
     files["README.md"] = README.format(
-        panel=panel, port=port, address=address,
-        address_note=note).encode("utf-8")
+        panel=panel, port=port, address=address, version=VERSION,
+        built=built, address_note=note).encode("utf-8")
     return FOLDER, files
 
 
@@ -316,4 +359,4 @@ def register(client) -> None:
     client.PACKAGES.register(
         "client", "tts-server", "Speech server",
         lambda: build_for(client),
-        description=DESCRIPTION, version="1.0", contents=CONTENTS)
+        description=DESCRIPTION, version=VERSION, contents=CONTENTS)
