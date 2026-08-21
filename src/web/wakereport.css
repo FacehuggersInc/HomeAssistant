@@ -32,3 +32,24 @@
  .event .bar{color:var(--muted);font-size:12.5px;margin-top:3px}
  .event .said{margin-top:8px;font-size:14px;line-height:1.5}
  .event .said em{color:var(--muted);font-style:normal}
+
+/* A clip is something to LISTEN to before deciding, so the player is the
+   widest thing on the row rather than an afterthought beside a filename. */
+ .clips{display:flex;flex-direction:column;gap:10px}
+ .clip{border:1px solid var(--line);border-radius:12px;background:#141417;
+       padding:12px 14px}
+ .clip.ignoring{border-left:3px solid #ffd479}
+ .clip.was-ignored{opacity:.72}
+ .clip .top{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
+ .clip .score{font-size:17px;font-weight:700;font-variant-numeric:tabular-nums}
+ .clip .tag{font-size:11px;font-weight:700;letter-spacing:.05em;
+            text-transform:uppercase;color:var(--muted)}
+ .clip .tag.on{color:#ffd479}
+ .clip .when{margin-left:auto;color:var(--muted);font-size:12px;
+             font-variant-numeric:tabular-nums}
+ .clip audio{width:100%;margin-top:10px;height:34px}
+ .clip .said{margin-top:8px;font-size:14px;line-height:1.5}
+ .clip .said em{color:var(--muted);font-style:normal}
+ .clip .facts{margin-top:6px;color:var(--muted);font-size:12.5px}
+ .clip .row{margin-top:10px}
+ .clip .row .btn{min-height:38px;font-size:13.5px}

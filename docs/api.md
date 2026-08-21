@@ -486,6 +486,10 @@ than a script.
 | `GET /goto/page`                       | A page switcher for a device with a browser.              |
 | `GET /goto/web`                        | A remote control for the panel's browser.                 |
 | `GET /wake`                            | The wake report, summarised.                              |
+| `GET /wake/clips`                      | The last ten triggers, and what is ignored.               |
+| `GET /wake/clip/<key>`                 | One of them, as audio.                                    |
+| `GET /wake/ignore/<key>`               | Learn it as noise.                                        |
+| `GET /wake/forget/<key>`               | Stop ignoring it.                                         |
 | `GET /clipboard/page`                  | The clipboard, as a page a phone can open.                |
 | `GET /upload`, `GET /upload/<key>`     | Upload forms, above.                                      |
 | `GET /access/wait`, `GET /access/name` | The approval flow. See [Users](users.md).                 |

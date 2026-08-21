@@ -192,6 +192,8 @@ class ParakeetListener:
                  wake_sensitivity_speaking: float = 0.0,
                  wake_report: bool = True,
                  wake_report_path: str = "",
+                 wake_memory_folder: str = "",
+                 wake_ignore_threshold: float = 0.93,
                  initial_mode: str = "wake"):
         # First, so everything that reports during setup reports through the
         # socket rather than into a terminal nobody is reading.
@@ -263,6 +265,27 @@ class ParakeetListener:
                 self.report = None
                 self.send_log("warning",
                               f"[Parakeet]: No wake report: {exc}")
+
+        # What woke it, kept so it can be heard and so a sound that turns out
+        # to be noise can be passed over next time. Separate from the report:
+        # that records what happened, this changes what happens.
+        self.memory = None
+        self._pending_clip = None
+        if wake_memory_folder:
+            try:
+                from src.assistant.wake_memory import WakeMemory
+                self.memory = WakeMemory(wake_memory_folder,
+                                         threshold=wake_ignore_threshold,
+                                         log=self.send_log)
+                self.memory.load()
+                if self.memory.ignored:
+                    self.send_log(
+                        "info",
+                        f"[Wake] {len(self.memory.ignored)} sound(s) will be "
+                        f"ignored, at {self.memory.threshold:.2f} similarity.")
+            except Exception as exc:
+                self.memory = None
+                self.send_log("warning", f"[Wake] No memory: {exc}")
 
         # Filled for either. The report transcribes near misses out of the
         # same ring, so a panel with the report on and diagnostics off still
@@ -460,6 +483,21 @@ class ParakeetListener:
             self.audio_queue.put_nowait(None)
         except queue.Full:
             pass
+        # A turn that was still running when this was asked to stop.
+        #
+        # Judging it needs a model run and the queue is already draining, so
+        # it is closed rather than judged: marked as interrupted, which is not
+        # one of the endings that can be learned from. Left alone it would sit
+        # in the memory for ever with no outcome at all, taking one of the ten
+        # places and telling nobody anything.
+        if self.memory is not None and self._pending_clip is not None:
+            try:
+                self._pending_clip.outcome = "interrupted"
+                self._pending_clip = None
+                self.memory.save()
+            except Exception:
+                pass
+
         if self.report is not None:
             # Writes the final summary and waits for it to be on disk. The
             # totals are the part somebody actually reads, and a report that
@@ -574,6 +612,190 @@ class ParakeetListener:
                 # would otherwise be ignored for the whole five seconds,
                 # which is long enough for the client to give up and kill it.
                 self.stop_event.wait(5)
+
+    def remember(self, action: str, key: str = "") -> bool:
+        """
+        Change the ignore list, at the panel's request.
+
+        Here rather than in the panel because this process owns the memory
+        and rewrites the file every time a wake happens. A change written from
+        the other side would last until the next one.
+        """
+        if self.memory is None:
+            self.send_log("warning", "[Wake] There is no memory to change.")
+            return False
+        try:
+            if action == "IGNORE":
+                clip = next((c for c in self.memory.clips if c.key == key),
+                            None)
+                if clip is None:
+                    self.send_log("warning",
+                                  f"[Wake] No clip called {key} to ignore.")
+                    return False
+                return self.memory.learn(clip, "asked for from the panel")
+            if action == "FORGET":
+                return self.memory.forget(key)
+            if action == "FORGET_ALL":
+                gone = self.memory.clear()
+                self.send_log("info", f"[Wake] Forgot {gone} ignored sound(s).")
+                return True
+        except Exception as exc:
+            self.send_log("warning", f"[Wake] Could not {action}: {exc}")
+        return False
+
+    def __resolve_wake(self, outcome: str, transcript: str = "") -> None:
+        """
+        The turn that a wake started has ended. Decide what it was.
+
+        Queued rather than judged here, because judging it means transcribing
+        the wake word alongside the phrase - a model run, on whichever thread
+        the turn happened to end on.
+
+        `outcome` is what came of it: "answered", "nothing", "timeout" or
+        "capped". That is a far better signal than the transcript on its own -
+        a real wake is nearly always followed by a question that gets answered,
+        and the transcriber is at its worst on the wake word by itself.
+        """
+        clip = self._pending_clip
+        self._pending_clip = None
+        if clip is None or self.memory is None:
+            return
+        try:
+            self.audio_queue.put_nowait(
+                (clip.key.encode("utf-8") + b"\x00" + outcome.encode("utf-8")
+                 + b"\x00" + str(transcript or "").encode("utf-8"),
+                 time.time(), self.generation, -3))
+        except queue.Full:
+            pass
+
+    def __judge_wake(self, raw: bytes) -> None:
+        """
+        Transcribe the wake word together with what followed, and decide.
+
+        **The two are joined on purpose.** The spotter fires as the word
+        completes, so the wake context ENDS on "alexa" with nothing after it -
+        which is close to the worst case for a model trained on sentences, and
+        why so many of these came back as nothing at all. Put the question
+        after it and the transcriber sees "alexa what is the weather", where
+        the word has neighbours to be recognised against.
+
+        Nothing here can make the panel wake or not wake. The worst it can do
+        is fail to learn.
+        """
+        if self.memory is None:
+            return
+        try:
+            key, outcome, said = raw.split(b"\x00", 2)
+            key = key.decode("utf-8")
+            outcome = outcome.decode("utf-8")
+            said = said.decode("utf-8")
+        except Exception:
+            return
+
+        clip = next((c for c in self.memory.clips if c.key == key), None)
+        if clip is None:
+            return
+
+        joined = self.__wake_transcript(clip, said)
+        clip.transcript = joined
+        clip.outcome = outcome
+        try:
+            from src.assistant import wake_words
+            from src.assistant.wake_memory import should_learn
+            heard = wake_words.heard_wake(joined, self.wake_word)
+            learn, why = should_learn(joined, outcome, heard)
+        except Exception as exc:
+            self.send_log("warning", f"[Wake] Could not judge {key}: {exc}")
+            return
+
+        self.memory.save()
+        if self.report is not None:
+            try:
+                self.report.judged(clip.score, joined, outcome, learn, why)
+            except Exception:
+                pass
+        if learn:
+            self.memory.learn(clip, why)
+        else:
+            self.send_log("debug", f"[Wake] Kept {key} - {why}.")
+
+    def __wake_transcript(self, clip, said: str) -> str:
+        """
+        What was said around the wake, as one line.
+
+        The phrase transcript is reused when there is one rather than the
+        audio being run through the model twice - it is the same audio, and a
+        second run costs a second of a machine that has other work.
+        """
+        wake_said = ""
+        try:
+            path = self.memory.path_for(clip)
+            import wave as _wave
+            with _wave.open(path, "rb") as handle:
+                raw = handle.readframes(handle.getnframes())
+            audio = np.frombuffer(raw, dtype=np.int16).astype(np.float32) / 32768.0
+            wake_said = str(self.__clean(self.parakeet.transcribe(audio)) or "")
+        except Exception as exc:
+            self.send_log("debug", f"[Wake] Could not transcribe the wake: {exc}")
+        return " ".join((wake_said + " " + str(said or "")).split())
+
+    def __ignored(self, score: float, bar: float) -> bool:
+        """
+        Whether this fire matches a sound already known to be noise.
+
+        Everything is recorded either way - the clip, the score, and how close
+        the nearest known sound was. A panel that has gone quiet has to be
+        able to say why, and a threshold cannot be chosen from wakes that were
+        never measured.
+
+        Answers False on any trouble. The memory is an optimisation on top of
+        a working wake word, and it must never be the reason the panel stops
+        waking.
+        """
+        if self.memory is None:
+            return False
+        vector = getattr(self.spotter, "last_features", None)
+        clip = b"".join(self.wake_context) if self.wake_context else b""
+        try:
+            suppress, matched, similarity = (
+                self.memory.should_suppress(vector) if vector
+                else (False, None, 0.0))
+            kept = self.memory.add_clip(
+                clip, vector or [], score=score, bar=bar,
+                similarity=similarity, suppressed=suppress,
+                matched=(matched.key if matched else ""))
+        except Exception as exc:
+            self.send_log("warning", f"[Wake] Memory failed: {exc}")
+            return False
+
+        if suppress:
+            self.send_log(
+                "info",
+                f"[Wake] Ignored a wake at {score:.2f} - it matches {matched.key} "
+                f"at {similarity:.3f}, which was learned as noise. "
+                f"Saved as {kept.key}.")
+            if self.report is not None:
+                try:
+                    self.report.ignored(score, bar, similarity, matched.key)
+                except Exception:
+                    pass
+            # The spotter is reset for the same reason a stand down resets it:
+            # its frame context now describes audio nobody acted on.
+            try:
+                self.spotter.reset()
+            except Exception:
+                pass
+            # And nothing is left waiting to be judged. A clip held from an
+            # earlier fire would otherwise be resolved by whatever the NEXT
+            # turn came to - judging one wake on another's outcome, which is
+            # exactly how a genuine wake ends up learned as noise.
+            self._pending_clip = None
+            return True
+
+        # Not suppressed, so this is a real turn. Held until it resolves, and
+        # judged on what came of it rather than on the transcript alone.
+        self._pending_clip = kept
+        return False
 
     def __report_window(self, window: bytes, bar: float,
                         speech: bool = False) -> None:
@@ -865,6 +1087,13 @@ class ParakeetListener:
                     if self.spotter.threshold != wanted:
                         self.spotter.threshold = wanted
                     fired = self.spotter.feed(window)
+                    if fired is not None and self.__ignored(fired, wanted):
+                        # A sound already known to be noise. The panel never
+                        # arms, so nothing downstream sees a wake at all -
+                        # which is the point, and also why it is recorded
+                        # before it is dropped.
+                        reset_phrase()
+                        continue
                     if fired is not None:
                         if self.report is not None:
                             self.report.fired(fired, wanted)
@@ -976,6 +1205,7 @@ class ParakeetListener:
                     # this phrase cannot contain, because the word was said
                     # before the capture began. The transcript would be
                     # dropped by the very thing that let it through.
+                    self.__resolve_wake("capped")
                     self.__stand_down("phrase ran past the length limit",
                                       notify=False)
                 continue
@@ -1009,6 +1239,10 @@ class ParakeetListener:
         if self.spotter is not None:
             self.spotter.reset()
         self.send_log("debug", "[Parakeet]: Woke, but nothing was said.")
+        # This path disarms on its own rather than through __stand_down, so
+        # without this the most ordinary ending of all - a wake nobody
+        # followed up on - was the one that never reported what it came to.
+        self.__resolve_wake("timeout")
         if callable(self.on_timeout):
             self.on_timeout("wake_timeout")
 
@@ -1031,6 +1265,11 @@ class ParakeetListener:
             return
         self.armed = False
         self.waiting_since = time.time()
+        # Only if nothing has resolved it already. The capped path resolves
+        # itself first, because "cut short" and "timed out" are different
+        # things and the first is the more useful of the two.
+        if self._pending_clip is not None:
+            self.__resolve_wake("timeout")
         if self.spotter is not None:
             try:
                 self.spotter.reset()
@@ -1334,6 +1573,12 @@ class ParakeetListener:
             self.__explain_near_miss(raw)
             return True
 
+        # A turn that began with a wake has ended, and what came of it is
+        # carried in the payload rather than the audio.
+        if speech_windows == -3:
+            self.__judge_wake(raw)
+            return True
+
         if generation != self.generation:
             # Captured under a mode that has since been left. Dropped before
             # the announcement, so there is no "transcribing" to pair with.
@@ -1385,6 +1630,7 @@ class ParakeetListener:
                           f"[Parakeet]: Nothing transcribed ({model_ms}ms in "
                           f"the model) - still listening.")
             self.__report_phrase(measured, speech_windows, raw_text)
+            self.__resolve_wake("nothing")
 
             # STILL ARMED, BUT NOT FOR ANY LONGER.
             #
@@ -1429,6 +1675,11 @@ class ParakeetListener:
         self.send_log("debug",
                       f"[Parakeet]: Final transcription ({queued_ms}ms queued, "
                       f"{model_ms}ms in the model{level}): {text}")
+
+        # A transcript went out, so the wake led somewhere. Whatever it
+        # says, this is not the shape of a false wake.
+        self.__resolve_wake("answered", text)
+
         if self._capped_pending:
             # Spent. The transcript arrived, which is what the quiet stand
             # down was waiting for - and a mark left standing would close the
@@ -1494,6 +1745,9 @@ class ParakeetServer:
                 config.get("wake_sensitivity_speaking") or 0.0),
             wake_report=bool(config.get("wake_report", True)),
             wake_report_path=str(config.get("wake_report_path") or ""),
+            wake_memory_folder=str(config.get("wake_memory_folder") or ""),
+            wake_ignore_threshold=float(
+                config.get("wake_ignore_threshold") or 0.93),
         )
         self.listener.set_callbacks(
             on_wake=self.trigger_wake,
@@ -1613,9 +1867,14 @@ class ParakeetServer:
                             # never be delivered and the process survives
                             # every shutdown.
                             continue
-                        to, command = data.decode("utf-8").strip().split(":")
+                        # Split once, so a command may carry an argument.
+                        # Splitting on every colon unpacked into exactly two
+                        # names and raised the moment one did.
+                        to, command = data.decode(
+                            "utf-8").strip().split(":", 1)
                         if to != "server":
                             continue
+                        command, _, argument = command.partition(":")
                         if command == "STOP":
                             self.send_log("debug", "[Parakeet]: Received STOP.")
                             self.stop()
@@ -1630,6 +1889,13 @@ class ParakeetServer:
                             self.listener.set_muted(True)
                         elif command == "UNMUTE":
                             self.listener.set_muted(False)
+                        elif command in ("IGNORE", "FORGET", "FORGET_ALL"):
+                            # The memory belongs to this process, so the panel
+                            # asks rather than writing the file itself. Two
+                            # writers and a file that is rewritten whenever a
+                            # wake happens is a change that lasts until the
+                            # next one.
+                            self.listener.remember(command, argument)
                     except Exception as e:
                         self.send_log("warning", f"[Parakeet]: Command error: {e}")
 

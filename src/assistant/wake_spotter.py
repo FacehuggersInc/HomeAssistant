@@ -29,6 +29,12 @@ import numpy as np
 #one to one and a buffer bridges them - see feed().
 FRAME_SAMPLES = 1280
 
+#How many embedding frames the classifier reads, and so how many the vector
+#taken from a fire has to hold. openWakeWord's own default: the head is
+#trained on a (16, 96) matrix, and asking for a different number would produce
+#a vector that cannot be compared with one taken any other way.
+FEATURE_FRAMES = 16
+
 #How sure it has to be. 0.5 is the library's own suggestion; lower catches
 #more and fires on more, higher is the reverse.
 DEFAULT_THRESHOLD = 0.5
@@ -97,6 +103,9 @@ class WakeSpotter:
         self.log = log or (lambda level, message: None)
 
         self.model = None
+        # The embedding of whatever last fired, for recognising the same sound
+        # again. Set by feed() at the firing frame; see _features().
+        self.last_features = None
         self.ready = False
         self.reason = ""
         #Samples waiting to make up a whole frame.
@@ -222,11 +231,49 @@ class WakeSpotter:
                 continue
             self._quiet_for = 0
             fired = score
+            # Taken HERE, at the frame that fired, and not afterwards.
+            #
+            # The feature buffer is a rolling window that moves on with every
+            # frame handed over. Reading it once feed() has returned would
+            # describe whatever arrived since, which on a busy loop is a
+            # different moment entirely - and the whole point of the vector is
+            # that it is the sixteen frames the classifier just scored.
+            self.last_features = self._features()
         return fired
+
+    def _features(self):
+        """
+        The sixteen frames the classifier scored, as a flat list.
+
+        openWakeWord's own: mel spectrogram, then Google's speech embedding,
+        then a (16, 96) matrix that the small classifier reads. Already in
+        memory, so this costs a copy rather than a model run.
+
+        It is also the right thing to compare on. The mel stage normalises
+        level, so it does not care how loud the sound was, and the embedding
+        was trained on speech content rather than on who was speaking, so it
+        does not care about pitch.
+
+        None when it cannot be had - an older openWakeWord, or a model built
+        some other way. Everything downstream treats that as "no vector" and
+        carries on rather than failing.
+        """
+        try:
+            features = self.model.preprocessor.get_features(FEATURE_FRAMES)
+        except Exception:
+            return None
+        try:
+            return [float(x) for x in np.asarray(features).reshape(-1)]
+        except Exception:
+            return None
 
     def reset(self) -> None:
         """
-        Forget the buffered audio and the model's own state.
+        Forget the buffered audio, the model's own state, and the vector.
+
+        The vector describes a fire that is now being abandoned, and leaving
+        it would let the next fire be matched against audio it has nothing to
+        do with.
 
         Called when the panel stops listening for a while - the model carries
         context between frames, and stale context from before a gap describes
@@ -234,6 +281,7 @@ class WakeSpotter:
         """
         self._pending = np.zeros(0, dtype=np.int16)
         self._quiet_for = int(self.refractory * 16000)
+        self.last_features = None
         if self.model is not None:
             try:
                 self.model.reset()

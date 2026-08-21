@@ -2103,6 +2103,95 @@ def FlaskApp(client):
 			client.log("warning", f"[API][wake] Could not read the report: {e}")
 			return {"request": "Failed", "reason": str(e)}, 500
 
+	## -- what woke it
+
+	def _wake_memory() -> dict:
+		"""
+		The clips and the ignore list, read from disk.
+
+		Read directly and never written: the speech process owns this file and
+		rewrites it whenever a wake happens, so anything written from here
+		would last until the next one. Changes go through the process - see
+		`/wake/ignore`.
+		"""
+		from src.constants import LOG_DIR
+		import json as _json
+		try:
+			with open(LOG_DIR / "wake" / "wake-memory.json", "r",
+					  encoding="utf-8") as handle:
+				return _json.load(handle)
+		except (OSError, ValueError):
+			return {"clips": [], "ignored": []}
+
+	@app.route("/wake/clips", methods=["GET"])
+	def wake_clips():
+		"""Every trigger kept for listening to, newest first."""
+		err = auth()
+		if err: return err
+		log("debug")
+		memory = _wake_memory()
+		return {"request": "Success",
+				"clips": memory.get("clips", []),
+				"ignored": memory.get("ignored", [])}, 200
+
+	@app.route("/wake/clip/<key>", methods=["GET"])
+	def wake_clip(key):
+		"""
+		One clip, as audio to play.
+
+		Served by KEY rather than by filename. A route taking a name would be
+		a way to read any file in the folder, and the key is what everything
+		else here already uses.
+		"""
+		err = auth()
+		if err: return err
+		from src.constants import LOG_DIR
+		memory = _wake_memory()
+		for where, entries in (("clips", memory.get("clips", [])),
+							   ("ignored", memory.get("ignored", []))):
+			for entry in entries:
+				if entry.get("key") == key:
+					folder = LOG_DIR / "wake" / where
+					name = str(entry.get("wav") or "")
+					path = folder / name
+					if name and path.is_file():
+						return send_file(str(path), mimetype="audio/wav",
+										 conditional=True)
+		return {"request": "Failed",
+				"reason": f"No clip called '{key}'."}, 404
+
+	@app.route("/wake/ignore/<key>", methods=["GET", "POST"])
+	def wake_ignore(key):
+		"""Learn a clip as noise, so sounds like it are passed over."""
+		return _wake_remember("IGNORE", key,
+							  f"Sounds like '{key}' will be ignored.")
+
+	@app.route("/wake/forget/<key>", methods=["GET", "POST"])
+	def wake_forget(key):
+		"""Take one back off the ignore list."""
+		return _wake_remember("FORGET", key, f"'{key}' is no longer ignored.")
+
+	@app.route("/wake/forget-all", methods=["GET", "POST"])
+	def wake_forget_all():
+		"""Empty the ignore list. The way back from a wrong one."""
+		return _wake_remember("FORGET_ALL", "", "Nothing is being ignored now.")
+
+	def _wake_remember(action: str, key: str, said: str):
+		err = auth()
+		if err: return err
+		log()
+		if not client.SERVICES.STT.running:
+			return {"request": "Failed",
+					"reason": "The assistant is not running, so there is "
+							  "nothing holding the list."}, 409
+		command = f"{action}:{key}" if key else action
+		if not client.SERVICES.STT.send_command(command, retries=2):
+			return {"request": "Failed",
+					"reason": "The speech process did not answer."}, 502
+		client.log("info", f"[Wake] {said}")
+		# The process writes the file; a read a moment later would race it.
+		return {"request": "Success", "reason": said}, 202
+
 	@app.route("/logs/<which>", methods=["GET"])
 	def download_log(which):
 		"""

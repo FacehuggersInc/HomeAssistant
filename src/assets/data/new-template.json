@@ -502,6 +502,14 @@
                 "default": true,
                 "value": true,
                 "description": "Keep a wake word report in logs/wake.log, and a page that summarises it.\n\nWake word trouble is two symptoms with one cause. Firing at the television and missing you over a fan look like opposite problems and are usually the same one - the word arrived buried, and no sensitivity has a good setting any more. Telling them apart needs numbers from the room it happens in.\n\nThe report records what the microphone is and which channel was taken, how loud the room is, every wake, and every NEAR MISS - a say of the word that scored something but not enough. That last one is the half a log has never had: 0.45 against a bar of 0.50 and 0.02 against the same bar both look like nothing happening, and they are completely different faults.\n\nNear misses are transcribed so you can see what it heard instead, at most six a minute."
+            },
+            "wake_ignore_similarity": {
+                "type": "float",
+                "default": 0.93,
+                "value": 0.93,
+                "min": 0.5,
+                "max": 1.0,
+                "description": "How alike a wake has to be to a sound already learned as noise before it is passed over.\n\n1.0 is the same sound twice. Unrelated sounds sit far below this.\n\nThe two mistakes do not cost the same. Set too high, a television wakes the panel again and the wake shows up in the report. Set too low, the panel silently ignores you saying the wake word properly, and nothing on screen says why - so this errs high.\n\nEvery wake records how close it came to the nearest learned sound, whether or not it was passed over, so the Wake report shows the spread before you move this."
             }
         },
         "feedback": {

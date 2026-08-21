@@ -135,6 +135,9 @@ class WakeReport:
         # name shadows the method, and the call site would raise rather than
         # record the one event this whole file was added to catch.
         self.cut_short = 0
+        #Wakes passed over because they matched something learned as noise.
+        #Counted so a quiet panel can be told from a deaf one.
+        self.suppressed = 0
 
         # -- peak tracking
         self._peak = 0.0
@@ -469,6 +472,27 @@ class WakeReport:
         self._say(f"CAPPED {ran_ms}ms captured, {spoken_ms}ms of it called "
                   f"speech - the phrase never ended on its own")
 
+    def ignored(self, score: float, bar: float, similarity: float,
+                matched: str) -> None:
+        """
+        A wake that was recognised as a sound already known to be noise.
+
+        Recorded rather than passed over silently. A panel that stops waking
+        has to be able to say why it stopped, and the only alternative is a
+        quiet one that looks broken.
+        """
+        self.suppressed += 1
+        self._say(f"IGNORE {score:.2f} (bar {bar:.2f}) - matches {matched} at "
+                  f"{similarity:.3f}, learned as noise")
+
+    def judged(self, score: float, transcript: str, outcome: str,
+               learned: bool, why: str) -> None:
+        """What a wake turned out to be, once its turn had ended."""
+        said = transcript.strip() or "nothing"
+        self._say(f"  JUDGED    {score:.2f} ended as {outcome!r}, heard "
+                  f"{said[:60]!r}")
+        self._say(f"  {'LEARNED' if learned else 'KEPT':<9} {why}")
+
     def stood_down(self, why: str) -> None:
         self._say(f"DOWN   {why}")
 
@@ -534,6 +558,9 @@ class WakeReport:
         if self.cut_short:
             self._field("cut short", f"{self.cut_short} capture(s) hit the "
                                      f"length limit without ending")
+        if self.suppressed:
+            self._field("ignored", f"{self.suppressed} wake(s) matched a sound "
+                                   f"learned as noise and were passed over")
         if scored:
             rows = []
             for index, count in enumerate(self.buckets):

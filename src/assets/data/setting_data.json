@@ -74,7 +74,8 @@
         "audio.quiet.mute_sounds": "Silence the panel's own sounds",
         "assistant.wake.max_phrase_seconds": "The longest one phrase may run before it is discarded",
         "assistant.wake.wake_diagnostics": "Log what woke it, and what was being said at the time",
-        "assistant.wake.wake_report": "Record why it woke and why it did not, with a page to read it on"
+        "assistant.wake.wake_report": "Record why it woke and why it did not, with a page to read it on",
+        "assistant.wake.wake_ignore_similarity": "How close a wake must be to a known noise before it is ignored"
     },
     "prefix": {
         "application.window.size": [

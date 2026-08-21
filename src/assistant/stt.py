@@ -15,7 +15,7 @@ from threading import Thread, RLock
 from typing import TYPE_CHECKING
 
 
-from src.assistant import nlp, normalize
+from src.assistant import nlp, normalize, wake_words
 from src.constants import LOG_DIR
 from src.registries.service_registry import Restart
 
@@ -220,81 +220,27 @@ class STTProcessing():
 
 	## WAKE WORD
 
+	#The matcher lives in wake_words so the speech process can use the same
+	#one. It decides whether a wake it already acted on was real, and a second
+	#implementation there would disagree with this one the first time either
+	#changed - which would show up as the panel learning to ignore the word it
+	#had just heard correctly.
+	WAKE_RATIO = wake_words.WAKE_RATIO
+
 	@staticmethod
 	def find_wake(text: str, wake: str):
-		"""
-		Last occurrence of a wake word, case-insensitively and on word
-		boundaries. Returns the match or None.
-
-		Whisper capitalises the first word of every transcript, so the old
-		`wake in processed` test was False for essentially every real
-		utterance - "alexa" is not in "Alexa, set a timer for 1 minute." Word
-		boundaries matter too: a short wake word otherwise fires inside
-		ordinary words.
-		"""
-		if not text or not wake:
-			return None
-
-		found = None
-		for match in re.finditer(rf"\b{re.escape(wake)}\b", text, re.IGNORECASE):
-			found = match
-		if found is not None:
-			return found
-
-		# Nothing matched exactly. The wake check reads 150ms of audio with a
-		# small model, so an exact spelling is a lot to ask - see
-		# find_wake_fuzzy for what that actually returns.
-		return STTProcessing.find_wake_fuzzy(text, wake)
-	#How wrong a heard word may be and still count as the wake word.
-	#
-	#0.8 is roughly one wrong letter in five. The wake check transcribes 150ms
-	#of audio with a small model, which is barely a syllable - it comes back
-	#with "alexis", "elexa", "a lexa", "lexa" for somebody saying the word
-	#perfectly clearly. Demanding an exact spelling threw all of those away
-	#and the panel looked deaf.
-	#
-	#Only the wake word is fuzzy. Everything after it is passed on as heard,
-	#because a skill's arguments are not a known short list to match against.
-	WAKE_RATIO = 0.8
+		"""Last occurrence of a wake word. See wake_words.find_wake()."""
+		return wake_words.find_wake(text, wake)
 
 	@classmethod
 	def find_wake_fuzzy(cls, text: str, wake: str):
-		"""
-		The wake word, allowing for a small model mishearing it.
-
-		Tried only after an exact match fails. A word is compared against the
-		wake word on its own and joined with its neighbour, because the other
-		common failure is one word arriving as two.
-		"""
-		if not text or not wake:
-			return None
-		import difflib
-
-		target = wake.lower()
-		words = list(re.finditer(r"[A-Za-z']+", text))
-		best = None
-		best_score = 0.0
-
-		for index, match in enumerate(words):
-			candidates = [(match.group(0), match)]
-			if index + 1 < len(words):
-				# "a lexa" and "alex a" - one word heard as two.
-				joined = match.group(0) + words[index + 1].group(0)
-				candidates.append((joined, words[index + 1]))
-
-			for word, ending in candidates:
-				score = difflib.SequenceMatcher(
-					None, word.lower(), target).ratio()
-				if score >= cls.WAKE_RATIO and score > best_score:
-					best_score = score
-					best = ending
-		return best
+		"""The wake word, allowing for a mishearing."""
+		return wake_words.find_wake_fuzzy(text, wake)
 
 	@classmethod
 	def strip_wake(cls, text: str, wake: str) -> str:
 		"""Everything after the wake word, or the whole phrase if absent."""
-		match = cls.find_wake(text, wake)
-		return text[match.end():].strip() if match else text.strip()
+		return wake_words.strip_wake(text, wake)
 
 	## PROCESSING
 	def clean_text(self, text:str) -> str:
@@ -1679,6 +1625,11 @@ class STTProcessing():
 			"wake_report": bool(self.client.setting(
 				"assistant.wake.wake_report.value", True)),
 			"wake_report_path": str(LOG_DIR / "wake.log"),
+			# Where the clips and the learned vectors live, and how alike two
+			# sounds have to be before one is passed over.
+			"wake_memory_folder": str(LOG_DIR / "wake"),
+			"wake_ignore_threshold": float(self.client.setting(
+				"assistant.wake.wake_ignore_similarity.value", 0.93)),
 			# How sure the spotter has to be. Read here rather than held,
 			# because the child is respawned when it changes.
 			"wake_sensitivity": float(self.client.setting(

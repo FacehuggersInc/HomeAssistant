@@ -265,6 +265,77 @@ it - after which `routing()` scans the transcript for a wake word it cannot
 contain, because the word was said before the capture began. The transcript
 would be dropped by the same gate that let it through.
 
+### Hearing what woke it, and ignoring it
+
+The last ten triggers are kept as WAV files under `logs/wake/clips/`, and
+`/wake` plays them. Each carries what it scored, what was heard around it, how
+the turn ended, and how close it came to anything already learned as noise.
+
+A sound learned as noise is passed over **before the panel arms**, so nothing
+downstream sees a wake at all. It is still recorded, with the similarity and
+which entry it matched: a panel that has gone quiet has to be able to say why,
+and the alternative is one that simply looks broken.
+
+### The vector
+
+openWakeWord's own. Its pipeline is mel spectrogram, then Google's speech
+embedding, then a `(16, 96)` matrix that a small classifier reads - and that
+matrix is what the classifier just scored, so it costs a copy rather than a
+model run.
+
+It is also the right thing to compare on. The mel stage normalises level, so
+it does not care how loud the sound was, and the embedding was trained on
+speech content rather than on who was speaking, so it does not care about
+pitch. Both vectors are always the sixteen frames ending at the trigger, which
+means they are aligned by construction - comparing arbitrary clips would need
+time warping, and here a plain cosine is enough.
+
+Taken **inside** the scoring loop, at the frame that fired. The feature buffer
+rolls forward with every frame handed to it, so reading it afterwards
+describes whatever arrived since.
+
+### What gets learned, and what does not
+
+Three things have to agree, and the first is the one that matters:
+
+1. **There is a transcript at all.** Without it, somebody saying the wake word
+   and then changing their mind produces no text, no wake word in that text,
+   and a timeout - every condition satisfied, and the panel learns the real
+   wake word as noise.
+2. The wake word is not in what was heard, tested generously, so `elexa`,
+   `lexa` and `a lexa` all count as present and stop it.
+3. The turn came to nothing: it timed out, was cut short at the cap, or
+   transcribed to nothing.
+
+**The outcome is a better signal than the transcript.** A real wake is nearly
+always followed by a question that gets answered; the transcriber is at its
+worst on the wake word by itself.
+
+Which is why the wake clip and the phrase are transcribed **together**. The
+spotter fires as the word completes, so the wake context ends on "alexa" with
+nothing after it. Put the question after it and the model sees
+`alexa what is the weather`, where the word has neighbours to be recognised
+against.
+
+### When it gets it wrong
+
+`assistant.wake.wake_ignore_similarity` (0.93) is how alike two sounds have to
+be. It errs high because the two mistakes do not cost the same: too high and a
+television wakes the panel again, which shows up in the report; too low and the
+panel silently ignores somebody saying the word properly, and nothing on
+screen says why.
+
+Every wake records its nearest similarity whether or not it was passed over,
+so `/wake` shows the spread before the number is moved.
+
+Every clip has **Stop ignoring this** beside it, and there is a
+**Stop ignoring everything** below the list. The ignore list is capped at ten
+and holds a copy of each sound, so a rule can always be checked by ear.
+
+The speech process owns the list and rewrites it whenever a wake happens, so
+the panel asks rather than writing the file - `/wake/ignore/<key>` sends a
+command down the same socket as `MUTE`.
+
 ### The microphone line
 
 The first block is the one worth reading:
