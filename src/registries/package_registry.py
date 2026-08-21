@@ -189,6 +189,19 @@ class PackageRegistry:
         return folder, as_zip(files)
 
 
+#Written into the archive for anything meant to be run. A zip stores no mode
+#of its own, so a script extracted from one comes out unreadable by `./` and
+#the answer is "Permission denied" from a file whose whole job is to be the
+#first thing somebody types.
+EXECUTABLE = 0o755
+READABLE = 0o644
+
+
+def _is_runnable(name: str, body: bytes) -> bool:
+    """Whether this file is meant to be executed rather than read."""
+    return name.endswith((".sh", ".bash", ".command")) or body[:2] == b"#!"
+
+
 def as_zip(files: dict) -> bytes:
     """
     The files as a zip of the folder's CONTENTS, not of the folder.
@@ -196,9 +209,21 @@ def as_zip(files: dict) -> bytes:
     The same shape the plugin skeleton produces, so unpacking one inside a
     folder somebody made puts the files where they belong rather than nesting
     them one deeper.
+
+    Scripts come out executable. A package exists to make setting up another
+    machine short, and "chmod +x the thing I just told you to run" is a step
+    that should not be in it.
     """
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
         for relative in sorted(files):
-            archive.writestr(relative, files[relative])
+            body = bytes(files[relative])
+            info = zipfile.ZipInfo(relative)
+            info.compress_type = zipfile.ZIP_DEFLATED
+            # The mode lives in the top sixteen bits of the external
+            # attributes. Nothing sets it by default, which is why a script
+            # from a zip is never runnable without being told to be.
+            mode = EXECUTABLE if _is_runnable(relative, body) else READABLE
+            info.external_attr = (mode & 0xFFFF) << 16
+            archive.writestr(info, body)
     return buffer.getvalue()

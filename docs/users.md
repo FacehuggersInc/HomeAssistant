@@ -62,6 +62,27 @@ A token in the URL still wins over the cookie, and the cookie is replaced with
 whichever one worked. Revoking a device on the panel takes effect on its next
 request regardless of what it is holding.
 
+### While it is still waiting
+
+`/access/wait` stores its token too, which is the one exception to "only after
+it has been checked" - and it is not really one, because that token was issued
+by the panel a moment earlier. It is known and undecided rather than unknown.
+
+**A pending token that is not stored is a device whose identity changes every
+time the page reloads.** The waiting page reloads more than most: an app
+relaunching on its last address, a redirect back, somebody refreshing because
+nothing seems to be happening. Each of those asked for access again, so the
+panel showed two requests from one device and the person approved whichever
+they saw - which was as likely as not the one the device had already thrown
+away. It went on waiting, and the way out was to be approved twice or to start
+over.
+
+So `/access/wait` reads whatever the device already holds, from any of the
+three places, and **only asks again when that token is `unknown`** - revoked,
+expired, or from a panel that has since forgotten it. Pending stays pending,
+approved passes straight through, and a denial sticks across a reload rather
+than becoming a fresh request.
+
 ## Two holds, not one
 
 Approving a device sets **both** `awaiting_name` and `awaiting_decision`.

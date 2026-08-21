@@ -86,6 +86,22 @@ itself the first time either end changes, and here the two ends are on
 different machines and are updated at different times. Re-download the package
 after updating the panel rather than editing either copy.
 
+Run it with `bash startup.sh`, not `./startup.sh`. A zip extracted by a file
+manager arrives without the executable bit — `extractall` and most graphical
+tools drop permissions whatever the archive says — and that is a confusing
+first thing to hit.
+
+Every step of the script is checked and says what it wants. `set -e` alone
+stops at the first bad line and leaves somebody at a prompt wondering which
+line it was, which is the difference between "no `.venv` appeared and nothing
+failed visibly" and "install `python3-venv`". The whole run is written to
+`setup.log` beside the script.
+
+A `.venv` that exists with no interpreter in it is rebuilt rather than skipped.
+That state is worse than having none: a test for the folder passes, creation is
+skipped, and the failure lands on the last line pointing nowhere near the
+cause.
+
 See [Voice assistant](assistant.md#speaking-somewhere-else).
 
 ## The methods

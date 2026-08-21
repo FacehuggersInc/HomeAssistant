@@ -1,5 +1,21 @@
 # Updating
 
+`GET /update/now` finds the latest and installs it, for a panel that is on a
+wall and not worth climbing to. It is on the dashboard as **Update the panel**,
+marked dangerous so it asks first.
+
+It **checks before staging**, unlike `/update`, which downloads whatever the
+repository currently holds. That is right for a button pressed after reading a
+version number and wrong for a link: a panel that downloads and restarts to
+install what it is already running has been unreachable for several minutes
+for nothing.
+
+A check that cannot run is a **502 with the reason**, not a silent install.
+`force=true` skips the check for the case where the check itself is what is
+broken — a rate-limited API, or an install whose recorded commit no longer
+matches anything.
+
+
 Updates are staged while the app runs and applied while it is stopped. The
 app never overwrites its own files mid-session.
 

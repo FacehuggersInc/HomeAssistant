@@ -31,17 +31,56 @@ numpy
 
 STARTUP_SH = """\
 #!/usr/bin/env bash
-# Start the speech server. Run ./startup.sh from this folder.
-set -euo pipefail
-cd "$(dirname "$0")"
+# Start the speech server.
+#
+#     bash startup.sh
+#
+# `bash startup.sh` rather than `./startup.sh`, because a zip extracted by a
+# file manager usually arrives without the executable bit and that is a
+# confusing first thing to hit. Either works once it is set.
+#
+# Every step is checked and says what it wants. `set -e` on its own stops at
+# the first failure and leaves whoever ran it looking at a prompt, wondering
+# which line it was.
 
-if [ ! -d .venv ]; then
-    echo "First run - making a virtual environment and fetching the model."
-    python3 -m venv .venv
-    .venv/bin/pip install --upgrade pip
-    .venv/bin/pip install -r requirements.txt
+cd "$(dirname "$0")" || exit 1
+LOG="setup.log"
+exec > >(tee -a "$LOG") 2>&1
+echo "--- $(date) ---"
+
+die() {{ echo; echo "STOPPED: $*"; echo "The whole of this is in $LOG."; exit 1; }}
+
+PY_BIN="$(command -v python3 || command -v python || true)"
+[ -n "$PY_BIN" ] || die "no python3 on this machine. Install Python 3.10 or newer."
+echo "Using $PY_BIN ($("$PY_BIN" --version 2>&1))"
+
+# A .venv that exists but has no interpreter in it is worse than none: the
+# old script skipped creation because the folder was there, then failed at
+# the last line for a reason that pointed nowhere.
+if [ -d .venv ] && [ ! -x .venv/bin/python ]; then
+    echo "There is a .venv here with no interpreter in it - starting again."
+    rm -rf .venv
 fi
 
+if [ ! -d .venv ]; then
+    echo "Making a virtual environment. The model is downloaded after this and"
+    echo "takes a few minutes the first time."
+    if ! "$PY_BIN" -m venv .venv; then
+        die "python could not make a virtual environment. On Debian, Ubuntu \
+or Mint this is usually a missing package: sudo apt install python3-venv"
+    fi
+    [ -x .venv/bin/python ] || die ".venv was made but has no interpreter in it."
+    .venv/bin/python -m pip install --upgrade pip \
+        || die "pip would not update itself. Is this machine online?"
+    .venv/bin/python -m pip install -r requirements.txt \
+        || die "the requirements would not install. The reason is above."
+    echo "Environment ready."
+fi
+
+[ -x .venv/bin/python ] || die ".venv/bin/python is missing. Delete .venv and \
+run this again."
+
+echo "Starting the speech server on port {port}."
 exec .venv/bin/python tts-socket-process.py \\
     --host {listen} --port {port} --voice "{voice}"{language}
 """
@@ -50,14 +89,41 @@ STARTUP_BAT = """\
 @echo off
 REM Start the speech server. Run startup.bat from this folder.
 cd /d "%~dp0"
+set LOG=setup.log
 
-if not exist .venv (
-    echo First run - making a virtual environment and fetching the model.
-    python -m venv .venv
-    .venv\\Scripts\\pip install --upgrade pip
-    .venv\\Scripts\\pip install -r requirements.txt
+where python >nul 2>nul
+if errorlevel 1 (
+    echo STOPPED: no python on this machine. Install Python 3.10 or newer and
+    echo tick "Add python.exe to PATH" in the installer.
+    pause
+    exit /b 1
 )
 
+if exist .venv\\Scripts\\python.exe goto ready
+if exist .venv (
+    echo There is a .venv here with no interpreter in it - starting again.
+    rmdir /s /q .venv
+)
+
+echo Making a virtual environment. The model is downloaded after this and
+echo takes a few minutes the first time.
+python -m venv .venv >>%LOG% 2>&1
+if errorlevel 1 (
+    echo STOPPED: python could not make a virtual environment. See %LOG%.
+    pause
+    exit /b 1
+)
+.venv\\Scripts\\python -m pip install --upgrade pip >>%LOG% 2>&1
+.venv\\Scripts\\python -m pip install -r requirements.txt >>%LOG% 2>&1
+if errorlevel 1 (
+    echo STOPPED: the requirements would not install. See %LOG%.
+    pause
+    exit /b 1
+)
+echo Environment ready.
+
+:ready
+echo Starting the speech server on port {port}.
 .venv\\Scripts\\python tts-socket-process.py --host {listen} --port {port} ^
     --voice "{voice}"{language}
 """
@@ -81,11 +147,18 @@ is a message rather than a flag the model never reads.
 
 ## Setting it up
 
-    ./startup.sh
+    bash startup.sh
 
 or on Windows:
 
     startup.bat
+
+`bash startup.sh` rather than `./startup.sh`: a zip extracted by a file
+manager usually arrives without the executable bit, and that is a confusing
+first thing to hit. Either works once it is set.
+
+Every step is checked and says what it wants, and the whole of it is written
+to `setup.log` beside the script.
 
 The first run makes a virtual environment and downloads the model, which takes
 a few minutes. After that it starts in seconds.

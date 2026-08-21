@@ -310,6 +310,59 @@ def FlaskApp(client):
 		client.begin_update()
 		return {"request": "Success", "message": "Update staging started."}
 
+	@app.route("/update/now", methods=["GET", "POST"])
+	def update_now():
+		"""
+		Find the latest and install it, without anybody being at the panel.
+
+		`/update` stages whatever the repository currently holds without
+		asking whether it differs. That is right for a button somebody
+		pressed after reading a version number, and wrong for a link on a
+		dashboard: a panel that downloads and restarts to install what it is
+		already running has cost several minutes of being off a wall for
+		nothing.
+
+		So this checks first, and says so when there is nothing to do.
+
+		`force=true` skips the check, for the case where the check itself is
+		what is broken - a rate-limited API, or an install whose recorded
+		commit no longer matches anything.
+		"""
+		log()
+		err = auth()
+		if err: return err
+		if not client.BUILT:
+			return {"request": "Failed",
+					"reason": "Wait until the panel has started fully."}, 409
+
+		forced = _coerce(request.args.get("force", "false")) is True
+		latest, reason = None, ""
+		if not forced:
+			from src import update_check
+			try:
+				available, commit, reason = update_check.check()
+			except Exception as e:
+				# A check that cannot run is not a reason to install
+				# blindly, and it is not a reason to give up either - it is
+				# a reason to say which of the two this is.
+				return {"request": "Failed", "reason": str(e),
+						"hint": "Add force=true to install without checking."}, 502
+			latest = commit.as_dict() if commit else None
+			if not available:
+				return {"request": "Success", "updating": False,
+						"reason": reason or "Already up to date.",
+						"installed": update_check.installed_sha(),
+						"latest": latest}, 200
+
+		client.log("info", f"[Update] Updating on request"
+						   f"{' (forced)' if forced else ''}.")
+		client.begin_update()
+		return {"request": "Success", "updating": True,
+				"reason": reason or "Staging the update.",
+				"latest": latest,
+				"message": "Downloading. The panel restarts when it is "
+						   "staged, and is unreachable for a moment."}, 202
+
 	@app.route("/update/check")
 	def update_check_route():
 		"""Whether one is waiting, without downloading anything."""
@@ -1466,6 +1519,14 @@ def FlaskApp(client):
 		actions += [
 			{"url": "/ping", "label": "Ping", "danger": False,
 			 "icon": "check-network"},
+			{"url": "/update/now", "label": "Update the panel",
+			 "description": "Look for the latest and install it. The panel "
+							"restarts, so it is unreachable for a moment.",
+			 # `danger` is what makes the dashboard ask before running it -
+			 # see index.html. There is no separate confirm text: a key the
+			 # template does not read is a promise of a prompt that never
+			 # appears.
+			 "auth": True, "icon": "download", "danger": True},
 			{"url": "/update/check", "label": "Check for an update",
 			 "danger": False, "icon": "download"},
 			{"url": "/restart", "label": "Restart", "danger": True,
@@ -1864,15 +1925,44 @@ def FlaskApp(client):
 		"""
 		log()
 		target = request.args.get("next") or "/docs"
-		token = (request.args.get("token") or "").strip()
 
-		if not token:
+		# Whatever this device already holds, cookie included - NOT just the
+		# query string.
+		#
+		# A token minted here lives only in the page it was rendered into. A
+		# reload, a redirect back here, an app relaunching on its last URL -
+		# any of those asked for access a SECOND time and left the device
+		# holding a different token from the one on the panel's screen. What
+		# somebody then approved was the request the device had already
+		# abandoned, so it went on waiting, and the only way out was to be
+		# approved twice or to start over.
+		token = _token()
+		state = client.USERS.state_of(token) if token else "unknown"
+
+		if state == "unknown":
+			# Nothing usable: no token, or one that was revoked, denied long
+			# enough ago to have expired, or issued by a panel that has since
+			# forgotten it. Asking again is the right move, and it is the only
+			# case where it is.
 			name = request.user_agent.browser or "Browser"
 			platform = request.user_agent.platform or ""
 			label = f"{name} on {platform}".strip() if platform else name
 			token = client.USERS.request_access(label, request.remote_addr or "").token
 
-		return render_template("access_wait.html", token=token, next=target), 200
+		response = make_response(
+			render_template("access_wait.html", token=token, next=target))
+		# Remembered while it is still pending, which is the whole point.
+		# after_request only stores a token that has already been ACCEPTED,
+		# and a device waiting to be let in has nothing accepted yet - so
+		# without this its identity does not survive the reload that the
+		# waiting itself so often involves.
+		#
+		# Not an unknown token: this one was issued by the panel a line ago,
+		# or was already checked above.
+		if token and request.cookies.get(TOKEN_COOKIE) != token:
+			response.set_cookie(TOKEN_COOKIE, token, max_age=TOKEN_COOKIE_AGE,
+								path="/", httponly=True, samesite="Lax")
+		return response, 200
 
 	@app.route("/access/request", methods=["GET", "POST"])
 	def request_access():
