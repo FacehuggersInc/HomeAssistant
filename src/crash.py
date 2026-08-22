@@ -60,7 +60,11 @@ def _write(header: str, body: str) -> None:
 def _excepthook(kind, value, tb) -> None:
     _write("Unhandled exception on the main thread",
            "".join(traceback.format_exception(kind, value, tb)))
-    if _PREVIOUS_HOOK is not None:
+    # Chained only when something other than the interpreter was there first -
+    # a debugger, an IDE, a test runner. `_write()` has already put the same
+    # traceback on stderr, and the interpreter's own hook does nothing else,
+    # so calling it prints every crash twice.
+    if _PREVIOUS_HOOK is not None and _PREVIOUS_HOOK is not sys.__excepthook__:
         try:
             _PREVIOUS_HOOK(kind, value, tb)
         except Exception:

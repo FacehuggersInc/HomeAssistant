@@ -277,9 +277,9 @@ other.
 
 If no source has that artist, everything found is **pooled and ranked as one
 list**, with the artist back to being a quarter of the score. A result that was
-second-best on YouTube and one that was second-best on Music have never been
+second-best on YouTube and one that was second-best on Music have not been
 compared with each other until then, and judging each site's leftovers alone
-made the answer depend on which site happened to be asked first.
+would make the answer depend on which site happened to be asked first.
 
 Nothing is pooled when no artist was named: there is no condition to fail, so
 the first source with a match is already the answer.

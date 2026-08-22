@@ -361,6 +361,10 @@ class VoiceFacade:
     def __init__(self, client):
         self.client = client
         self.backend = None
+        # How the running backend was named when it was chosen. For pages
+        # that have to say which voice is speaking; there is no other way to
+        # tell "Pocket TTS" from "Speech at pi:8770" from outside.
+        self.label = ""
 
         self._spoken: list = []
         self._spoken_lock = RLock()
@@ -373,11 +377,13 @@ class VoiceFacade:
 
     ## -- what is doing the speaking
 
-    def attach(self, backend) -> None:
+    def attach(self, backend, label: str = "") -> None:
         self.backend = backend
+        self.label = str(label or "")
 
     def detach(self):
         backend, self.backend = self.backend, None
+        self.label = ""
         return backend
 
     @property
@@ -440,7 +446,7 @@ class VoiceFacade:
                 tried.append(f"{label}: {exc}")
                 continue
             if candidate.available:
-                self.attach(candidate)
+                self.attach(candidate, label)
                 self.client.log("info", f"[Assistant] Speaking through {label}.")
                 return
             tried.append(f"{label}: {candidate.error}")
@@ -461,7 +467,7 @@ class VoiceFacade:
             # session and said the backend was missing, which was never true.
             #
             # `available` re-checks, and everything reads it before speaking.
-            self.attach(waiting)
+            self.attach(waiting, waiting_label)
             self.client.log(
                 "info",
                 f"[Assistant] {waiting_label} is not ready yet - it will be "
@@ -490,10 +496,97 @@ class VoiceFacade:
         """Whoever supplies the backends now."""
         return self.client.SERVICES.provider(self.PROVIDER)
 
-    def play(self, text: str, thread: bool = True) -> None:
+    def play(self, text: str, thread: bool = True, voice: str = "") -> None:
         """Straight to the backend, with none of say()'s guards."""
         if self.backend is not None:
-            self.backend.play(text, thread=thread)
+            self.backend.play(text, thread=thread, voice=voice)
+
+    ## -- which voices there are
+
+    def voice_options(self) -> tuple:
+        """
+        The names a caller may choose from, or `()` when there is no choice.
+
+        Asked of the RUNNING backend, never of a setting. `tts_voice` holds
+        Pocket names and means nothing to Deepgram, which reads
+        `deepgram_voice`; and a socket backend's voices live on another
+        machine and are not in this panel's settings at all. Anything reading
+        one setting offers the wrong list for two of the three.
+
+        A backend with no menu to offer says so with `VOICE_CHOICE` and gets
+        `()` here - see `SocketTTSProcessing.VOICE_CHOICE`.
+        """
+        backend = self.backend
+        if backend is None or not getattr(backend, "VOICE_CHOICE", False):
+            return ()
+        try:
+            return tuple(str(name) for name in (backend.get_voices() or ()))
+        except Exception:
+            return ()
+
+    def current_voice(self) -> str:
+        """What is speaking now, as the running backend names it."""
+        backend = self.backend
+        if backend is None:
+            return ""
+        try:
+            asked = getattr(backend, "current_voice", None)
+            return str(asked()) if callable(asked) else ""
+        except Exception:
+            return ""
+
+    def unavailable_reason(self) -> str:
+        """
+        Why nothing can be said, or "" when something can.
+
+        Three causes look identical from outside - speech turned off, a
+        backend that never loaded, and one still coming up - and they send
+        somebody looking in three different places.
+        """
+        if self.available:
+            return ""
+        if self.backend is None:
+            try:
+                if not self.client.setting("audio.speech.tts_enabled.value", True):
+                    return "Spoken replies are turned off in settings."
+                chosen = str(self.client.setting(
+                    "audio.speech.tts_backend.value", "auto") or "").strip().lower()
+                if chosen == "off":
+                    return "The voice backend is set to off."
+            except Exception:
+                pass
+            return "No voice backend loaded."
+        return str(getattr(self.backend, "error", "")
+                   or "The voice is not ready yet.")
+
+    def billing(self) -> dict:
+        """
+        What speaking costs, for a backend that charges. `{}` when none does.
+
+        A page offering a voice picker to a phone is offering to spend money
+        on a backend billed per character, and it should be able to say so.
+        """
+        backend = self.backend
+        if backend is None or not getattr(backend, "BILLED", False):
+            return {}
+        try:
+            asked = getattr(backend, "usage", None)
+            figures = dict(asked()) if callable(asked) else {}
+        except Exception:
+            figures = {}
+        figures["unit"] = "character"
+        return figures
+
+    def summary(self) -> dict:
+        """Everything a page needs about the voice, in one call."""
+        return {
+            "available": self.available,
+            "reason": self.unavailable_reason(),
+            "backend": self.label,
+            "voices": list(self.voice_options()),
+            "current": self.current_voice(),
+            "billing": self.billing(),
+        }
 
     ## -- settings
 
@@ -592,9 +685,14 @@ class VoiceFacade:
 
     ## -- saying something
 
-    def say(self, text: str, thread: bool = True) -> bool:
+    def say(self, text: str, thread: bool = True, voice: str = "") -> bool:
         """
         Speak. Answers whether a person actually heard it.
+
+        `voice` names one for this sentence only. It is checked against
+        `voice_options()` and dropped if it is not one of them: the name
+        reaches a backend that may treat it as a path to an audio prompt,
+        and a name arriving over the network is not somebody's own typing.
 
         The answer is what a caller decides on: False means show the message
         instead. Said out loud in the log either way, because silence here has
@@ -605,6 +703,13 @@ class VoiceFacade:
         client = self.client
         if not text:
             return False
+
+        voice = str(voice or "").strip()
+        if voice and voice not in self.voice_options():
+            client.log("warning",
+                       f"[Assistant] Ignoring unknown voice {voice[:40]!r}.")
+            voice = ""
+
         if not self.available:
             # `available` on a recoverable backend has just re-asked, so this
             # is current rather than remembered from startup. The reason
@@ -647,7 +752,7 @@ class VoiceFacade:
             # second or two on a long reply, and a silent panel in that gap
             # looks like nothing happened.
             with client.SERVICES.STT.thinking("speaking"):
-                self.backend.play(text, thread=thread)
+                self.backend.play(text, thread=thread, voice=voice)
             return True
         except Exception as exc:
             # Released here too. The backend reports the end of speech, and a

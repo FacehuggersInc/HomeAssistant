@@ -785,10 +785,10 @@ lower-scoring one whose subject is right.
 
 **A validated hole carries a bonus.** The predicate has confirmed the subject
 against real data, which is evidence of a different order from words lining
-up. Without it, "what date is easter" fitted `what date is {holiday}` at
-0.857 while a date skill scored 0.867 as a bag of words — a hundredth of a
-point apart, decided by whichever example list had been edited last, and the
-wrong one won. The shape was right about a real holiday; the bag of words had
+up. Without it, "what date is easter" fits `what date is {holiday}` at
+0.857 while a date skill scores 0.867 as a bag of words — a hundredth of a
+point apart, decided by whichever example list was edited last, and the
+wrong one wins. The shape is right about a real holiday; the bag of words has
 only "date".
 
 `TYPED_BONUS` is a margin, not a licence. It cannot lift a frame that did not

@@ -270,6 +270,61 @@
     padding: 2px 8px;
 }
 
+/* A setting that belongs to a group.
+ *
+ * Members are drawn INSIDE the selector that owns them, behind a rule down
+ * the left. Containment is what makes it readable at a glance: the eye
+ * follows one line down and stops where the group ends, which is the thing a
+ * chip on each row cannot say.
+ *
+ * The chip stays for the ones shared between several groups, because which
+ * group is the only thing left worth knowing once containment has said the
+ * rest. */
+/* One colour per level of nesting.
+ *
+ * Groups stack - a backend chooses whether there is a voice at all, and where
+ * it runs only means anything once that has said yes - so two runs can share
+ * an edge. One colour for both leaves nothing to say where the outer ends and
+ * the inner begins. Three is as many as stay apart at a glance on a panel
+ * across a room, and MAX_GROUP_DEPTH refuses a fourth. */
+.setting-group-members-1 {
+    background: rgba(255,255,255,10);
+    border-left: 3px solid #2ff08e;
+    border-radius: 6px;
+    border-top-left-radius: 0;
+    border-bottom-left-radius: 0;
+}
+
+.setting-group-members-2 {
+    background: rgba(255,255,255,8);
+    border-left: 3px solid #58b7ff;
+    border-radius: 6px;
+    border-top-left-radius: 0;
+    border-bottom-left-radius: 0;
+}
+
+.setting-group-members-3 {
+    background: rgba(255,255,255,6);
+    border-left: 3px solid #d68cff;
+    border-radius: 6px;
+    border-top-left-radius: 0;
+    border-bottom-left-radius: 0;
+}
+
+.setting-member {
+    background: transparent;
+    border: none;
+    border-radius: 0;
+}
+
+.group-badge {
+    background: rgba(47,240,142,26);
+    color: #2ff08e;
+    border: 1px solid rgba(47,240,142,80);
+    border-radius: 6px;
+    padding: 2px 8px;
+}
+
 /* Dialog styling lives in overlays.css, next to BaseDialog. */
 
 /* Install: same visual weight as Reload — a constructive action. */

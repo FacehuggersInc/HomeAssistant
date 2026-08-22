@@ -108,26 +108,76 @@
                 "description": "Whether the assistant speaks its replies. Uses Kyutai Pocket TTS, which runs locally on the CPU and needs no key. A skill that would have spoken shows its answer instead when this is off."
             },
             "tts_backend": {
-                "type": "enum",
-                "default": "auto",
+                "type": "group",
                 "value": "auto",
-                "options": [
-                    "auto",
-                    "pocket",
-                    "off"
-                ],
-                "description": "Whether to speak replies. 'auto' and 'pocket' both use Kyutai Pocket TTS - local, no key, CPU only. 'off' silences them."
+                "groups": {
+                    "auto": [
+                        "tts_where"
+                    ],
+                    "pocket": [
+                        "tts_where"
+                    ],
+                    "deepgram": [
+                        "deepgram_api_key",
+                        "deepgram_voice"
+                    ],
+                    "off": []
+                },
+                "description": "Which voice engine to use.\n\n'auto' picks the best local option and 'pocket' forces it. 'deepgram' sends the text to Deepgram's Aura API and plays what comes back - that one needs an API key and spends credit per character. 'off' means the panel never speaks.\n\nWhere the voice runs is a choice inside this one, and only applies to the local engines."
             },
             "tts_where": {
-                "type": "enum",
-                "default": "local",
+                "type": "group",
                 "value": "local",
-                "options": [
-                    "local",
-                    "subprocess",
-                    "socket"
-                ],
+                "groups": {
+                    "local": [
+                        "tts_voice",
+                        "tts_language",
+                        "tts_voice_file"
+                    ],
+                    "subprocess": [
+                        "tts_voice",
+                        "tts_language",
+                        "tts_voice_file",
+                        "tts_port"
+                    ],
+                    "socket": [
+                        "tts_host",
+                        "tts_port"
+                    ]
+                },
                 "description": "Where the speaking happens.\n\n'local' runs the voice inside the panel.\n'subprocess' runs it beside the panel, on this machine.\n'socket' sends the text to another machine and takes back the audio.\n\nA neural voice holds a processor for a second or two per sentence, and inside the panel that is a second or two where the screen, the web page and the microphone all wait for it - one interpreter, one lock. Nothing can interrupt a model part way through either, so a wake word during that gap does nothing at all.\n\n'subprocess' fixes both without needing a second machine. The work still happens here and still costs the same, but it happens somewhere the panel is not waiting on - so the screen keeps drawing, and stopping a reply becomes a message rather than a flag the model never reads. It starts on 127.0.0.1 at the port below and is restarted for you if it stops.\n\n'socket' moves the work off this machine entirely. That one needs tts-socket-process.py running there; Packages has a download that builds it."
+            },
+            "deepgram_api_key": {
+                "type": "secret",
+                "env": "DEEPGRAM_API_KEY",
+                "value": "",
+                "description": "The Deepgram API key.\n\nStored in your .env file rather than here: this page renders the settings file wholesale and writes it on every save, so a key kept in it would be on screen and on disk in plain sight.\n\nGet one from console.deepgram.com. A key that can only reach /speak works for speaking; reading the credit balance needs the management scope as well, and without it the balance simply stays blank."
+            },
+            "deepgram_voice": {
+                "type": "enum",
+                "default": "aura-2-thalia-en",
+                "value": "aura-2-thalia-en",
+                "options": [
+                    "aura-2-thalia-en",
+                    "aura-2-andromeda-en",
+                    "aura-2-helena-en",
+                    "aura-2-apollo-en",
+                    "aura-2-arcas-en",
+                    "aura-2-aries-en",
+                    "aura-asteria-en",
+                    "aura-luna-en",
+                    "aura-stella-en",
+                    "aura-athena-en",
+                    "aura-hera-en",
+                    "aura-orion-en",
+                    "aura-arcas-en",
+                    "aura-perseus-en",
+                    "aura-angus-en",
+                    "aura-orpheus-en",
+                    "aura-helios-en",
+                    "aura-zeus-en"
+                ],
+                "description": "Which Aura voice to speak with.\n\nThe name is a whole model string - family, voice and language - because that is what the API is asked with. 'aura-2-' voices are the newer family.\n\nThis list is what the panel offers, not what your key may use. A voice the account cannot reach fails at the first reply, with the reason in the log."
             },
             "tts_host": {
                 "type": "string",

@@ -17,6 +17,7 @@ from PyQt6.QtGui import QPainter, QColor, QBrush, QPen, QPixmap, QIcon, QDesktop
 
 from src.mixins import mixin_target
 from src.settings import Settings, scrub_secrets
+from src import settings as setting_groups
 from src.ui.page import PageFramework
 from src.ui.widget import WidgetFramework
 from src.ui.controls.buttons import ActionButton, action_column, row_menu
@@ -306,6 +307,8 @@ class Field(QWidget):
 #and the setting is drawn with a label and no editor - which reads as a
 #setting that cannot be changed rather than as one that was misspelled.
 TYPE_ALIASES = {
+    # `group` is not an alias of anything - it is named here only so the list
+    # of what the dispatch understands stays in one place.
     "double": "float",
     "str": "string",
     "text": "string",
@@ -340,13 +343,75 @@ class EnumComponent(QComboBox):
                 on_change()
         self.currentIndexChanged.connect(_changed)
 
+#How many rule colours the stylesheet defines for nested groups. Named here
+#because the block picks one by number and the sheet has to have it.
+GROUP_COLOURS = 3
+
+
+class GroupComponent(QComboBox):
+    """
+    The dropdown of a `group` setting.
+
+    Its choices come from the groups themselves rather than an `options` list,
+    so there is no second list to disagree with the first. Changing it asks
+    the page to draw that block again - which is the whole point of the type,
+    and cannot be done from inside a single control.
+    """
+
+    def __init__(self, setting, on_change=None, on_group_changed=None):
+        super().__init__()
+        self._setting = setting
+        self.setFont(make_font(SIZES.S2))
+        self.setFixedHeight(44)
+        self.setStyleSheet(get_style_sheet("settings_combobox"))
+
+        names = setting_groups.group_names(setting)
+        chosen = setting_groups.chosen_group(setting)
+        for name in names:
+            self.addItem(format_name(name.strip()), userData=name)
+            if name == chosen:
+                self.setCurrentIndex(self.count() - 1)
+        # Written back even when it was not chosen, so a value naming a group
+        # that no longer exists does not survive the next save.
+        if chosen and setting.get("value") != chosen:
+            setting.__setitem__("value", chosen)
+
+        def _changed():
+            self._setting.__setitem__("value", self.currentData())
+            if on_change:
+                on_change()
+            if on_group_changed:
+                on_group_changed()
+        self.currentIndexChanged.connect(_changed)
+
+
 class SettingBlock(QFrame):
-    def __init__(self, client, setting=None, key="", content: QWidget = None):
+    def __init__(self, client, setting=None, key="", content: QWidget = None,
+                 on_group_changed=None, in_groups=None, group_members=None,
+                 depth: int = 0):
         super().__init__()
         self.client  = client
+        # Which groups claim this setting, if any. A member is drawn inside
+        # the selector that owns it, so this is only used to name WHICH group
+        # a shared setting belongs to - the containment says the rest.
+        self.in_groups = tuple(in_groups or ())
+        # The members this block holds, in order, when it is a selector.
+        self._group_members = list(group_members or [])
+        # How deeply nested this block is, which picks the colour of the rule
+        # down its left edge. Groups stack - a backend chooses whether there
+        # is a voice at all, and where it runs only means anything once that
+        # has said yes - and one colour for every level would leave two runs
+        # sharing an edge with nothing to tell them apart.
+        self.depth = max(0, int(depth or 0))
+        # Handed in rather than reached for. A block is built by the page but
+        # is not the page, so it has no way to ask for a redraw of its own -
+        # and which settings belong on screen is a decision for the block that
+        # owns them, not for one control inside it.
+        self._on_group_changed = on_group_changed
         self._setting = setting
         self._initial_value = copy.deepcopy(setting.get("value")) if setting else None
-        set_style(self, "settings", "setting-block")
+        set_style(self, "settings",
+                  "setting-member" if self.in_groups else "setting-block")
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
 
         self.sort_label = (setting.get("name") if setting else None) or format_name(key) or ""
@@ -368,6 +433,17 @@ class SettingBlock(QFrame):
         name_lbl.setFont(make_font(SIZES.S2, bold=True))
         set_style(name_lbl, "common", "text-strong")
         header.addWidget(name_lbl)
+
+        if self.in_groups:
+            # Named, not just marked. The edge says "this belongs to the
+            # choice above"; the chip says which choice - which is the only
+            # thing worth knowing about a setting shared between several,
+            # because it will still be here after switching.
+            badge = QLabel(" / ".join(format_name(name)
+                                      for name in self.in_groups))
+            badge.setFont(make_font(SIZES.S1, bold=True))
+            set_style(badge, "settings", "group-badge")
+            header.addWidget(badge)
 
         self._modified_badge = QLabel("Modified")
         self._modified_badge.setFont(make_font(SIZES.S1, bold=True))
@@ -469,6 +545,14 @@ class SettingBlock(QFrame):
         elif t == "enum":
             outer.addWidget(EnumComponent(setting, on_change=self._refresh_modified_badge))
 
+        elif t == "group":
+            outer.addWidget(GroupComponent(
+                setting, on_change=self._refresh_modified_badge,
+                on_group_changed=self._on_group_changed))
+            box = self._build_group_box()
+            if box is not None:
+                outer.addWidget(box)
+
         elif t == "list":
             # is_numeric from raw type or from value content
             list_numeric = "int" in raw_t or "float" in raw_t or "numeric" in raw_t
@@ -483,6 +567,34 @@ class SettingBlock(QFrame):
                                        description=str(setting.get("description", "") or ""),
                                        prefix=str(pfx), suffix=str(sfx),
                                        on_change=self._refresh_modified_badge))
+
+    def _build_group_box(self) -> QWidget:
+        """
+        The members, drawn inside this block.
+
+        Indented behind a rule down the left, so the eye can see where the
+        group starts and where it ends without reading anything. A chip on
+        each member says every one of them belongs to something; it does not
+        say they belong to THIS, and it does not say where they stop.
+        """
+        if not self._group_members:
+            return None
+        box = QWidget()
+        # Numbered from the depth of the members, not of this block, so the
+        # rule beside a member matches the run it is part of. Wrapped rather
+        # than clamped: a fourth level would be refused by MAX_GROUP_DEPTH
+        # long before it got here, and a modulo keeps this honest if that
+        # ever changes.
+        level = (self.depth % GROUP_COLOURS) + 1
+        set_style(box, "settings", f"setting-group-members-{level}")
+        layout = QVBoxLayout(box)
+        # The rule is the container's own left border, so this padding is
+        # what holds the members off it.
+        layout.setContentsMargins(14, 10, 0, 2)
+        layout.setSpacing(8)
+        for _key, widget in self._group_members:
+            layout.addWidget(widget)
+        return box
 
     def _build_secret_field(self, setting) -> QWidget:
         """
@@ -1355,13 +1467,109 @@ class SettingsPage(PageFramework):
                         f"[SettingsPage] Added a block to '{plugin_key}' "
                         f"({len(entry['content'])} item(s) now).")
 
+    #How far a group may nest before the indent does more harm than the
+    #structure does good. Three colours is also as many as stay apart at a
+    #glance on a panel across a room.
+    MAX_GROUP_DEPTH = 3
+
+    def _build_group(self, pointer, settings: dict, selector, key: str,
+                     path: str, depth: int = 0):
+        """
+        One selector's members, built and ready to go inside it.
+
+        Recursive, because a member can itself be a selector - `tts_backend`
+        chooses whether there is a voice at all, and `tts_where` chooses where
+        it runs, which only means anything once the first has said yes.
+
+        Answers `(built, show)` where `built` is `[(key, widget, groups)]` and
+        `show` reveals the chosen group and hides the rest.
+
+        EVERY group's members are built, not just the chosen one's. Switching
+        then costs a setVisible per block rather than a rebuild - which loses
+        the scroll position, drops an open keyboard, and discards widgets
+        somebody is looking at while a signal from one of them is in flight.
+        The cost is a handful of extra widgets on one page.
+        """
+        built = []
+        if depth >= self.MAX_GROUP_DEPTH:
+            self.client.log(
+                "warning",
+                f"[SettingsPage.builder] '{key}' nests groups more than "
+                f"{self.MAX_GROUP_DEPTH} deep - its members are not shown.")
+            return built, (lambda chosen=None: None)
+
+        try:
+            layout = setting_groups.plan(settings)
+        except Exception:
+            layout = {"all": {}}
+        all_members = layout.get("all") or {}
+
+        for member, belongs in (all_members.get(key) or []):
+            try:
+                child = pointer
+                for part in (f"{path}.{member}" if path else member).split("."):
+                    child = child[part]
+                node = settings.get(member) or {}
+                inner, inner_show = [], None
+                if setting_groups.is_group(node):
+                    # A selector inside a selector. Its own members are built
+                    # now and handed to it, exactly as this one's are.
+                    inner, inner_show = self._build_group(
+                        pointer, settings, child, member, path, depth + 1)
+                block = SettingBlock(
+                    client=self.client, setting=child, key=member,
+                    in_groups=belongs, depth=depth + 1,
+                    on_group_changed=inner_show,
+                    group_members=[(k, w) for k, w, _b in inner])
+                if inner_show is not None:
+                    inner_show()
+                built.append((member, block, tuple(belongs)))
+            except Exception as e:
+                self.client.log(
+                    "error",
+                    f"[SettingsPage.builder] could not build '{member}' under "
+                    f"group '{key}': {e}")
+
+        def show(chosen=None, _obj=selector, _built=built):
+            name = chosen or setting_groups.chosen_group(_obj)
+            wanted = set(setting_groups.visible_members(
+                name, [(k, b) for k, _w, b in _built]))
+            for member, widget, _belongs in _built:
+                try:
+                    widget.setVisible(member in wanted)
+                except RuntimeError:
+                    # The page went away between the signal and this running.
+                    pass
+
+        return built, show
+
     def builder(self, pointer, data: dict, filter_key: str = "", path: str = "") -> list:
         group = []
         if not isinstance(data, dict):
             self.client.log("warning", f"[SettingsPage.builder] data was not a Dictionary to be read (was {type(data)})")
             return group
         settings = data[filter_key] if filter_key else data
+
+        # Which settings a `group` selector has claimed. Those are drawn
+        # underneath it rather than where they were written, so the block does
+        # not show the same control twice.
+        try:
+            layout = setting_groups.plan(settings)
+            for selector, name, member in setting_groups.missing_members(settings):
+                self.client.log(
+                    "warning",
+                    f"[SettingsPage.builder] '{selector}' group '{name}' names "
+                    f"'{member}', which is not in this block - it will not be "
+                    f"shown.")
+        except Exception:
+            layout = {"order": [], "owned": {}, "groups": {}}
+        claimed = layout.get("owned") or {}
+        all_members = layout.get("all") or {}
+
         for key, val in settings.items():
+            if key in claimed and claimed[key] != key:
+                # Drawn by whichever selector owns it, below.
+                continue
             if not isinstance(val, dict):
                 self.client.log("warning", f"[SettingsPage.builder] The value under '{key}' was not a Valid object to be built with. (was {type(val)}, meant to be dict)")
                 continue
@@ -1377,7 +1585,20 @@ class SettingsPage(PageFramework):
                     obj = pointer
                     for part in extended_path.split("."):
                         obj = obj[part]
-                    group.append(SettingBlock(client=self.client, setting=obj, key=key))
+                    built, show_group = self._build_group(
+                        pointer, settings, obj, key, path, depth=0)
+
+                    # INSIDE the selector, not after it.
+                    #
+                    # A badge on each member says every one of them belongs to
+                    # something; it does not say they belong to THAT, and it
+                    # does not say where the group ends. Containment says
+                    # both, at a glance, without anything to read.
+                    group.append(SettingBlock(
+                        client=self.client, setting=obj, key=key,
+                        on_group_changed=show_group, depth=0,
+                        group_members=[(k, w) for k, w, _b in built]))
+                    show_group()
                 except Exception as e:
                     self.client.log("error", f"[SettingsPage.builder] an error was thrown under '{extended_path}'/'{key}' when creating SettingBlock: {e}", include_traceback = True)
             else:
@@ -2679,6 +2900,8 @@ class SettingsPage(PageFramework):
         super().stop()
         self.client.unsubscribe_from_event("on_interaction_timeout", self.interaction_timeout)
         self.client.USERS.unsubscribe(self._users_changed)
+
+
 
     def _users_changed(self) -> None:
         """

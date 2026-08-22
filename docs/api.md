@@ -665,8 +665,27 @@ rather than that something is.
 the same answer, and neither loses the message: it goes on screen at panel size
 instead.
 
-`&voice=anna` uses that voice for this message and puts the setting back
-afterwards — trying one from a phone is not deciding to change the panel's.
+`&voice=anna` speaks this one message in that voice, without touching the
+panel's setting. The name is checked against what the **running** backend
+offers and a name it does not know is refused with a `400` — see
+[which voices there are](services.md#asking-which-voices-there-are).
+
+The form shows the voices the running backend offers, which is a different list
+per backend and sometimes no list at all:
+
+| What is speaking     | The form shows                                        |
+|----------------------|-------------------------------------------------------|
+| Pocket TTS           | Its catalogue.                                        |
+| Deepgram Aura        | The Aura models, the balance, and the message length. |
+| A socket backend     | No picker. The far end has no menu to offer.          |
+| Nothing              | The picker, disabled, with why.                       |
+
+Deepgram is billed per character, so the form says so beside the picker and
+counts the whole spoken line — the panel says "*name* said *message*", and a
+count of the typed box alone reads low.
+
+A panel that cannot speak still takes the message. It appears on screen, which
+is what the disabled picker says it will do.
 
 ### `/quiet/<what>/<state>`
 

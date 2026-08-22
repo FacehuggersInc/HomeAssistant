@@ -432,6 +432,16 @@ class Client:
         self.SECRETS      = SecretRegistry(self)
         for _key in self.CORE_SECRETS:
             self.SECRETS.register("client", _key)
+        # Here, where SECRETS exists, and not beside the speech providers
+        # where it reads better: this runs during construction, and an
+        # attribute that is assigned further down __init__ does not exist yet
+        # however sensible the line looks.
+        #
+        # A voice can depend on a credential, and a credential never appears
+        # in the settings file - so nothing that watches settings sees one
+        # arrive. Without this, pasting a key correctly leaves the backend
+        # exactly as broken as it was.
+        self.SECRETS.subscribe(self._secret_changed)
 
         ## -- OVERLAYS
         self.OVERLAYS             = OverlayManager(self)
@@ -2025,6 +2035,12 @@ class Client:
                         or "local").strip().lower()
             port = client.setting("audio.speech.tts_port.value", 8770)
 
+            if choice == "deepgram":
+                # Where it runs is not a question for a voice that is not run
+                # anywhere near here, so this is decided before `where`.
+                from src.assistant.tts_deepgram import DeepgramTTSProcessing
+                return [("Deepgram Aura", DeepgramTTSProcessing)]
+
             if where == "socket":
                 from src.assistant.tts_socket import SocketTTSProcessing
                 host = str(client.setting("audio.speech.tts_host.value", "")
@@ -2112,6 +2128,25 @@ class Client:
         except Exception:
             pass
 
+    def _secret_changed(self, key: str) -> None:
+        """
+        A credential was written. Rebuild the voice if it might want it.
+
+        Only the voice, and only when it is not working: a backend that is
+        already speaking has no reason to be torn down because some other
+        key changed, and rebuilding the microphone for a credential it never
+        reads is several seconds of a deaf panel for nothing.
+        """
+        if not self.BUILT:
+            return
+        try:
+            if self.SERVICES.TTS.available:
+                return
+        except Exception:
+            pass
+        self.log("info", f"[Assistant] '{key}' changed - trying the voice again.")
+        self.call_on_ui(self.rebuild_voice)
+
     def _speech_provider_changed(self, name: str) -> None:
         """
         Somebody took over listening or speaking, or gave it back.
@@ -2188,7 +2223,13 @@ class Client:
     #Empty: speech is local now and needs no key. Kept as a declaration rather
     #than removed, since anything the client adds later belongs here and
     #secret() reads it.
-    CORE_SECRETS = ()
+    #Secrets the panel itself declares, as opposed to a plugin's.
+    #
+    #Registered whether or not the backend that uses one is selected, so the
+    #field is there to paste a key into before choosing the voice that needs
+    #it - the other way round is a backend that cannot start and a settings
+    #page with nowhere to fix it.
+    CORE_SECRETS = ("DEEPGRAM_API_KEY",)
 
     def secret(self, key: str, default: str = "") -> str:
         """
@@ -2224,7 +2265,7 @@ class Client:
         """The token for the most recent thing said, or 0."""
         return self.SERVICES.TTS.owner()
 
-    def say(self, text: str, thread: bool = True) -> bool:
+    def say(self, text: str, thread: bool = True, voice: str = "") -> bool:
         """
         Speak. Returns whether a person actually heard it.
 
@@ -2234,8 +2275,11 @@ class Client:
 
         The answer is what a caller decides on: False means show the message
         instead.
+
+        `voice` is for this sentence only and is checked against what the
+        running backend offers - see `VoiceFacade.voice_options()`.
         """
-        return self.SERVICES.TTS.say(text, thread=thread)
+        return self.SERVICES.TTS.say(text, thread=thread, voice=voice)
 
     def fill_device_options(self) -> None:
         """

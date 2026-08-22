@@ -482,15 +482,60 @@ currently doing it.
 | `cancel(reason)`    | Back to the wake word.                              |
 | `source`            | Whatever is listening, or None.                     |
 
-| On `SERVICES.TTS`  |                                             |
-|--------------------|---------------------------------------------|
-| `say(text)`        | Speak. Answers whether anybody heard it.    |
-| `recent_spoken()`  | The last few replies, newest first.         |
-| `owner()`          | The token for the most recent thing said.   |
-| `is_speaking()`    | Including while a sentence is being made.   |
-| `start()`          | Pick a backend, or report why there is none.|
-| `config()`         | The voice settings, its own.                |
-| `backend`          | Whatever is speaking, or None.              |
+| On `SERVICES.TTS`       |                                                |
+|-------------------------|------------------------------------------------|
+| `say(text, voice="")`   | Speak. Answers whether anybody heard it.       |
+| `recent_spoken()`       | The last few replies, newest first.            |
+| `owner()`               | The token for the most recent thing said.      |
+| `is_speaking()`         | Including while a sentence is being made.      |
+| `start()`               | Pick a backend, or report why there is none.   |
+| `config()`              | The voice settings, its own.                   |
+| `voice_options()`       | Names a caller may pick from, or `()`.         |
+| `current_voice()`       | What is speaking now.                          |
+| `unavailable_reason()`  | Why nothing can be said, or `""`.              |
+| `billing()`             | What speaking costs, or `{}`.                  |
+| `summary()`             | All of the above, for a page.                  |
+| `label`                 | How the running backend was named.             |
+| `backend`               | Whatever is speaking, or None.                 |
+
+### Asking which voices there are
+
+**`voice_options()` asks the running backend, never a setting.** There is no
+one setting that holds them: `tts_voice` is Pocket's catalogue, `deepgram_voice`
+is a list of Aura model strings, and a socket backend's voices are on another
+machine and in none of this panel's settings. Anything reading one key offers
+the wrong list for two of the three.
+
+A backend says whether it has a menu at all with `VOICE_CHOICE`:
+
+| Backend    | `VOICE_CHOICE` | Why                                              |
+|------------|----------------|--------------------------------------------------|
+| Pocket     | `True`         | Kyutai publish a catalogue.                      |
+| Deepgram   | `True`         | Aura is a published list of model strings.       |
+| Socket     | `False`        | The far end answers with what it has LOADED.     |
+
+The socket case is the one worth reading twice. Any audio prompt is a voice
+there, so the far end has nothing to enumerate and answers with the states it
+happens to hold - one name on a fresh server, growing as it is used. That
+reads as a list of choices and is not one, so `voice_options()` returns `()`
+and a picker built from it does not appear.
+
+`get_voices()` still answers on a socket backend, for anything wanting to know
+what is loaded. It is diagnostic, not a menu.
+
+**A voice given to `say()` is for that sentence only** and is checked against
+`voice_options()` first. A name that is not offered is dropped with a log line
+rather than passed on: it reaches a backend that may read it as a path to an
+audio prompt, and a name arriving over the network is not somebody's own
+typing.
+
+The alternative - writing `tts_voice`, speaking, and writing it back - does not
+work and is worth knowing why. No backend re-reads that key per sentence:
+Pocket resolves its voice once in `__init__`, the socket backend sends the one
+it was built with, and Deepgram reads `deepgram_voice` and never looks at
+`tts_voice` at all. A settings write is also global for as long as it is in
+place, so an assistant reply landing in that window comes out in whatever
+voice somebody picked on a phone.
 
 **The state is on the facade because it has to outlive the implementation.**
 Whatever is transcribing can be stopped, restarted or replaced; what the
@@ -595,9 +640,18 @@ in order, so the per-backend failure reporting survives - which is what tells a
 missing package apart from a missing key.
 
 ```python
-available   error   claim()   is_speaking()   play(text, thread=True)
-stop(owner=None)
+available   error   claim()   is_speaking()   stop(owner=None)
+play(text, thread=True, voice="")
 ```
+
+Optionally, for anything that offers a choice of voice:
+
+```python
+VOICE_CHOICE   get_voices()   current_voice()
+```
+
+And `BILLED = True` with a `usage()` dict, for one that charges - see
+`billing()` above.
 
 ### The names on the Client
 

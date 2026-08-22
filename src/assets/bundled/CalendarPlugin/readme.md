@@ -90,10 +90,10 @@ phone two minutes ago. For that, post to `calendar_add`.
 Google shows two things next to each other under **Integrate calendar**: an
 address ending `basic.ics`, and a link that opens Google. Only the first is a
 calendar. The second — the `?cid=` one — is a web page, and it **fetches
-perfectly**: the panel used to get an HTML document back, find no events in it,
-and report a clean sync of nothing, once an hour, indefinitely.
+perfectly**: fetching it gets an HTML document back, finds no events in it, and
+reports a clean sync of nothing, once an hour, indefinitely.
 
-Two things now stop that:
+Two things stop that:
 
 - A body with no `BEGIN:VCALENDAR` in it is an **error on the subscription**,
   not a sync that found nothing. It says so in red beside the calendar.
@@ -108,7 +108,7 @@ Two things now stop that:
 Each calendar shows how many events came from it, so **a feed that syncs
 cleanly and yields nothing looks different from one that is working**. Never
 synced, synced and found nothing, and synced and found events are three states
-and used to read as one.
+and are shown as three.
 
 It also says whether the address is **secret** or **public**. A Google private
 feed carries a token in its path and iCloud's published links are a token and

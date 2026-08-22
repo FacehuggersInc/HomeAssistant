@@ -23,6 +23,13 @@
  .go{display:flex;gap:10px;margin:20px 0 0}
  .go button{flex:1;min-height:54px}
  #said{display:none;margin:20px 0 0}
+ .voice{margin:0 0 24px}
+ .voice .hint{margin-top:7px}
+ /* Disabled rather than absent: the reason is the useful part, and a
+    picker that vanishes looks like a page that forgot it. */
+ select:disabled{opacity:.5;cursor:not-allowed}
+ .cost{color:var(--muted);font-size:12.5px;margin-top:7px;line-height:1.55}
+ .cost b{color:var(--text);font-weight:600}
 </style>
 </head>
 <body>
@@ -38,14 +45,46 @@
   {% endfor %}
 </div>
 
-{% if voices %}
-<label for="voice">Voice <span style="text-transform:none;font-weight:400;
-  letter-spacing:0">&mdash; for this message only</span></label>
-<select id="voice" style="margin:0 0 24px">
-  <option value="">{{ voice or 'Default' }}</option>
-  {% for v in voices %}{% if v != voice %}
-  <option value="{{ v }}">{{ v }}</option>{% endif %}{% endfor %}
-</select>
+{# Three cases, and each says what it is.
+
+   The voice cannot speak      - the picker is there and disabled, with why.
+   It speaks but offers no menu - no picker. A socket backend's voices live
+                                  on the other machine and it answers with
+                                  what it has loaded, not a list to choose
+                                  from.
+   It offers a menu             - the picker, from the RUNNING backend. #}
+{% if not speech.available %}
+<div class="voice">
+  <label for="voice">Voice</label>
+  <select id="voice" disabled>
+    <option>Not available</option>
+  </select>
+  <p class="hint">{{ speech.reason }} Your message still goes to the panel
+    &mdash; it appears on screen instead of being read out.</p>
+</div>
+{% elif speech.voices %}
+<div class="voice">
+  <label for="voice">Voice <span style="text-transform:none;font-weight:400;
+    letter-spacing:0">&mdash; for this message only</span></label>
+  <select id="voice">
+    <option value="">{{ speech.current or 'Default' }}</option>
+    {% for v in speech.voices %}{% if v != speech.current %}
+    <option value="{{ v }}">{{ v }}</option>{% endif %}{% endfor %}
+  </select>
+  {% if speech.billing %}
+  {# Billed per character, so the page says so before somebody spends the
+     credit finding out. #}
+  <p class="cost">
+    {{ speech.backend or 'This voice' }} is billed per character.
+    This message is <b><span id="chars">0</span></b> characters.
+    {% if speech.billing.balance is not none %}
+    Balance <b>{{ '%.2f'|format(speech.billing.balance) }} {{ speech.billing.units or 'credits' }}</b>.
+    {% endif %}
+  </p>
+  {% else %}
+  <p class="hint">Spoken by {{ speech.backend or 'the panel' }}.</p>
+  {% endif %}
+</div>
 {% endif %}
 
 <label for="message">Message</label>
@@ -78,6 +117,21 @@ Array.prototype.forEach.call(who.querySelectorAll('button'), function (b) {
 var mine = who.querySelector('button[data-name="{{ device }}"]');
 if (mine) { mine.click(); }
 
+var message = document.getElementById('message');
+
+// What is billed is the whole spoken line, not the typed one: the panel
+// says "<name> said <message>", and a count of the box alone reads low.
+var chars = document.getElementById('chars');
+function countChars() {
+  if (!chars) { return; }
+  var body = message.value.trim();
+  chars.textContent = body ? ((chosen || 'Somebody') + ' said ' + body).length
+                           : 0;
+}
+message.addEventListener('input', countChars);
+who.addEventListener('click', countChars);
+countChars();
+
 function show(text, bad) {
   var box = document.getElementById('said');
   /* The shared banner, so this reads the same as the one every other page
@@ -88,18 +142,18 @@ function show(text, bad) {
 }
 
 document.getElementById('send').addEventListener('click', function () {
-  var message = document.getElementById('message').value.trim();
-  if (!message) { show('Type something first.', true); return; }
+  var body = message.value.trim();
+  if (!body) { show('Type something first.', true); return; }
 
   var picker = document.getElementById('voice');
-  var voice = picker ? picker.value : '';
+  var voice = (picker && !picker.disabled) ? picker.value : '';
   fetch('/say?token=' + TOKEN + '&from=' + encodeURIComponent(chosen) +
         '&voice=' + encodeURIComponent(voice) +
-        '&message=' + encodeURIComponent(message),
+        '&message=' + encodeURIComponent(body),
         {headers: {'Accept': 'application/json'}})
     .then(function (r) { return r.json().then(function (d) {
       show(d.what || d.reason || 'Sent.', !r.ok);
-      if (r.ok) { document.getElementById('message').value = ''; }
+      if (r.ok) { message.value = ''; countChars(); }
     }); })
     .catch(function () { show('The panel did not answer.', true); });
 });

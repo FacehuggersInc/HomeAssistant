@@ -159,3 +159,231 @@ def secret_keys(data, found=None):
         for item in data:
             secret_keys(item, found)
     return found
+
+
+## SETTING GROUPS
+#
+# A `group` setting is a dropdown that decides which OTHER settings in its
+# block are worth showing.
+#
+# It exists because a block full of settings that only matter in one
+# configuration reads as a block full of settings. `audio.speech` carries a
+# host and a port that mean nothing unless the voice is on another machine,
+# and nothing on the page said so - somebody sets them, nothing changes, and
+# the setting looks broken rather than inapplicable.
+#
+#     "tts_where": {
+#         "type": "group",
+#         "value": "socket",
+#         "groups": {
+#             "local":      ["tts_voice", "tts_language"],
+#             "subprocess": ["tts_voice", "tts_language", "tts_port"],
+#             "socket":     ["tts_host", "tts_port"]
+#         }
+#     }
+#
+# **Hiding is all it does.** Every setting keeps its value and stays readable
+# and writable by name whatever is selected - `client.setting()` does not know
+# groups exist. A setting named in two groups is one setting, so choosing
+# another group that also names it finds the value that was already there.
+# One left behind in a group nobody is looking at keeps its value too, and
+# finds it again when that group comes back.
+#
+# There is deliberately no default. The value IS the selection, and a group
+# setting with nothing selected is a dropdown with nothing in it.
+
+
+GROUP_TYPE = "group"
+
+
+def is_group(setting) -> bool:
+    """Whether a setting node is a group selector."""
+    try:
+        return str(setting.get("type", "")).strip().lower() == GROUP_TYPE
+    except Exception:
+        return False
+
+
+def group_names(setting) -> list:
+    """
+    The groups it offers, in the order they were written.
+
+    Taken from the groups themselves rather than a separate `options` list.
+    Two lists that have to agree are two lists that eventually do not, and the
+    one that disagrees would offer a choice that shows nothing.
+    """
+    try:
+        groups = setting.get("groups") or {}
+        return [str(name) for name in groups.keys()]
+    except Exception:
+        return []
+
+
+def chosen_group(setting) -> str:
+    """
+    Which group is selected, falling back to the first one.
+
+    A value naming a group that no longer exists is what a plugin update
+    leaves behind, and the alternative to falling back is a page showing
+    nothing at all with no way to pick anything.
+    """
+    names = group_names(setting)
+    if not names:
+        return ""
+    try:
+        value = str(setting.get("value", "") or "")
+    except Exception:
+        value = ""
+    return value if value in names else names[0]
+
+
+def members(setting, name: str = None) -> list:
+    """The keys one group names. The selected one by default."""
+    try:
+        groups = setting.get("groups") or {}
+    except Exception:
+        return []
+    wanted = name if name is not None else chosen_group(setting)
+    return [str(key) for key in (groups.get(wanted) or [])]
+
+
+def owned(setting) -> set:
+    """
+    Every key named by ANY group.
+
+    These are drawn under the selector rather than in their own place, so the
+    block does not show a setting twice - once where it was written and once
+    inside the group that claims it.
+    """
+    try:
+        groups = setting.get("groups") or {}
+    except Exception:
+        return set()
+    out = set()
+    for keys in groups.values():
+        for key in (keys or []):
+            out.add(str(key))
+    return out
+
+
+def shared(setting) -> set:
+    """Keys more than one group names. Their value carries across a switch."""
+    try:
+        groups = setting.get("groups") or {}
+    except Exception:
+        return set()
+    seen, twice = set(), set()
+    for keys in groups.values():
+        for key in set(keys or []):
+            key = str(key)
+            if key in seen:
+                twice.add(key)
+            seen.add(key)
+    return twice
+
+
+def plan(block: dict) -> dict:
+    """
+    How one block of settings should be drawn.
+
+    Answers `{"order": [...], "owned": {key: selector_key}, "groups": {...}}`
+    where `order` is the keys to draw at the top level, with each group
+    selector followed by nothing - its members are drawn by the selector
+    itself, from `groups`.
+
+    A pure function of the block, so what the page will show can be checked
+    without building a page.
+    """
+    if not isinstance(block, dict):
+        return {"order": [], "owned": {}, "groups": {}}
+
+    selectors = [key for key, node in block.items()
+                 if isinstance(node, dict) and is_group(node)]
+
+    claimed = {}
+    for selector in selectors:
+        for key in owned(block[selector]):
+            # First selector wins. Two groups claiming one setting is a
+            # mistake in the schema, and drawing it under both would put the
+            # same control on screen twice.
+            claimed.setdefault(key, selector)
+
+    order, groups, everything = [], {}, {}
+
+    # EVERY selector gets its members worked out, including one that is itself
+    # a member of another. Groups stack - a backend chooses whether there is a
+    # voice at all, and where it runs only means anything once that has said
+    # yes - and a nested selector skipped here is one drawn as an empty
+    # dropdown with its own settings nowhere.
+    for key in selectors:
+        node = block[key]
+        groups[key] = [k for k in members(node)
+                       if k in block and claimed.get(k) == key]
+        # Every member of every group, once each, in the order they are first
+        # named, with the groups that claim them. The page builds all of them
+        # and hides the ones not currently chosen, so switching costs a
+        # visibility change rather than a rebuild.
+        seen, out = set(), []
+        for name in group_names(node):
+            for member in members(node, name):
+                if member not in block or claimed.get(member) != key:
+                    continue
+                if member in seen:
+                    continue
+                seen.add(member)
+                out.append((member, tuple(
+                    other for other in group_names(node)
+                    if member in members(node, other))))
+        everything[key] = out
+
+    for key, node in block.items():
+        if not isinstance(node, dict):
+            continue
+        if key in claimed and claimed[key] != key:
+            continue
+        order.append(key)
+    return {"order": order, "owned": claimed, "groups": groups,
+            "all": everything}
+
+
+def visible_members(chosen: str, all_members: list) -> list:
+    """
+    Which of a selector's members belong on screen for `chosen`.
+
+    Every member is built, and the ones not claimed by the current group are
+    hidden rather than destroyed - so switching costs a visibility change
+    rather than a rebuild of the page somebody is reading.
+
+    Here rather than inside the page so the rule can be run: a closure over a
+    list of widgets can only be checked by reading it.
+    """
+    out = []
+    for entry in (all_members or []):
+        try:
+            member, belongs = entry
+        except (TypeError, ValueError):
+            continue
+        if chosen in (belongs or ()):
+            out.append(member)
+    return out
+
+
+def missing_members(block: dict) -> list:
+    """
+    Group members that are not in the block. `(selector, group, key)`.
+
+    A name that does not resolve is a setting somebody expected to see and
+    will not, with nothing to say why - so it is worth reporting rather than
+    quietly drawing one fewer control.
+    """
+    out = []
+    if not isinstance(block, dict):
+        return out
+    for key, node in block.items():
+        if not isinstance(node, dict) or not is_group(node):
+            continue
+        for name in group_names(node):
+            for member in members(node, name):
+                if member not in block:
+                    out.append((key, name, member))
+    return out

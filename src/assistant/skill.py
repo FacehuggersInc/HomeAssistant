@@ -1011,9 +1011,6 @@ class Skill:
 		return {token.lemma_.lower() for token in doc[:limit]
 				if _is_content(token) and (not content_only or not token.is_stop)}
 
-	def get_patterns(self):
-		return self.normalized_patterns
-
 	def call(self, *args, **kwargs):
 		if self.func:
 			self.func(*args ,**kwargs)

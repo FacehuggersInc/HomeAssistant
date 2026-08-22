@@ -65,7 +65,7 @@ SHORT_PHRASE_WORDS = 6
 
 
 class PocketTTSProcessing:
-    """Pocket TTS behind the same interface as the ElevenLabs backend."""
+    """The panel's own voice, generated in this process."""
 
     DEFAULT_VOICE_NAME = DEFAULT_VOICE_NAME
 
@@ -86,8 +86,6 @@ class PocketTTSProcessing:
 
         self.model = None
         self.sample_rate = 24000
-        self.voices: dict = {}
-        self.voice_ids: dict = {}
         self.names: list = []
         self.default_voice = None
 
@@ -118,8 +116,6 @@ class PocketTTSProcessing:
         self.names = list(CATALOGUE)
         if self.voice_name not in self.names:
             self.names.insert(0, self.voice_name)
-        self.voices = {name: name for name in self.names}
-        self.voice_ids = dict(self.voices)
         self.default_voice = self.voice_name
 
         Thread(target=self._warm_up, name="__pocket_tts_warmup",
@@ -280,9 +276,11 @@ class PocketTTSProcessing:
         """
         PCM for `text`, as a 1D torch tensor.
 
-        `**_ignored` swallows the ElevenLabs-shaped keywords - `voice_id`,
-        `model_id`, `format` - so a caller written against that backend does
-        not raise here. There is one model and one output format.
+        `voice` names one for this call only, without touching the
+        setting or the backend's own. `**_ignored` swallows keywords a
+        different backend would take - `voice_id`, `model_id`, `format` - so
+        a caller written against one of those does not raise here. There is
+        one model and one output format.
         """
         if not self._wait_ready():
             return None
@@ -605,19 +603,18 @@ class PocketTTSProcessing:
             data = data.T
         return data
 
-    def _play_tts(self, text: str) -> None:
-        self._play_audio(self.get_audio(text))
+    def _play_tts(self, text: str, voice: str = "") -> None:
+        self._play_audio(self.get_audio(text, voice=voice or None))
 
-    def stream_audio(self, text: str, **_ignored) -> None:
+    def stream_audio(self, text: str, voice: str = "", **_ignored) -> None:
         """
         Synthesise and play.
 
-        Named for the ElevenLabs backend's method so `stream()` behaves the
-        same. Pocket TTS can stream chunks, but a panel says one short phrase
-        at a time - the whole thing is generated faster than it takes to speak,
-        and generating it whole avoids a gap mid-sentence if a chunk is late.
+        Pocket TTS can stream chunks, but a panel says one short phrase at a
+        time - the whole thing is generated faster than it takes to speak, and
+        generating it whole avoids a gap mid-sentence if a chunk is late.
         """
-        self._play_audio(self.get_audio(text))
+        self._play_audio(self.get_audio(text, voice=voice or None))
 
     ## -- helpers
 
@@ -675,15 +672,23 @@ class PocketTTSProcessing:
         self._interrupt = True
         return True
 
+    #Whether a caller may pick from `get_voices()`. Kyutai publish a
+    #catalogue, so there is a real list to choose from.
+    VOICE_CHOICE = True
+
     def get_voices(self) -> tuple:
         """
-        The one voice in use, in the shape the ElevenLabs backend returns.
+        The names a caller may choose from, best first.
 
-        Pocket TTS has no account to enumerate. Kyutai publish a catalogue and
-        any wav can be cloned, so which voices "exist" is not a question with
-        an answer here - the configured one is what there is.
+        Kyutai's published catalogue, with the configured voice at the front
+        of it. Not a restriction on what can speak - a wav path or an hf://
+        URL is cloned instead - but it is what a picker can offer.
         """
-        return dict(self.voices), dict(self.voice_ids)
+        return tuple(self.names)
+
+    def current_voice(self) -> str:
+        """What is speaking now, which is a clone path when one is set."""
+        return str(self.voice_name or "")
 
     #How much audio is written at a time, in seconds. Short enough that a
     #stop lands immediately, long enough not to starve the output.
@@ -722,7 +727,7 @@ class PocketTTSProcessing:
         return self._owner
 
     def play(self, text: str = None, audio: list = None,
-             thread: bool = True) -> None:
+             thread: bool = True, voice: str = "") -> None:
         if not self.available:
             return
         # Muted covers speech as well.
@@ -738,19 +743,19 @@ class PocketTTSProcessing:
             if thread:
                 Thread(target=self._play_tts,
                        name=f"__tts_thread({str(text)[:10]})",
-                       args=[text]).start()
+                       args=[text, voice]).start()
             else:
-                self._play_tts(text)
+                self._play_tts(text, voice)
         elif audio is not None:
             if thread:
                 Thread(target=self._play_audio, args=[audio]).start()
             else:
                 self._play_audio(audio)
 
-    def stream(self, text: str, thread: bool = True) -> None:
+    def stream(self, text: str, thread: bool = True, voice: str = "") -> None:
         if not self.available:
             return
         if thread:
-            Thread(target=self.stream_audio, args=[text]).start()
+            Thread(target=self.stream_audio, args=[text, voice]).start()
         else:
-            self.stream_audio(text)
+            self.stream_audio(text, voice)

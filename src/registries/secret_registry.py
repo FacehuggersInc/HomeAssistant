@@ -4,7 +4,7 @@ import os
 import re
 import stat
 from pathlib import Path
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Callable, Optional
 
 from src.constants import INSTALL_ROOT
 
@@ -37,6 +37,10 @@ class SecretRegistry:
         self.client = client
         self.store: dict[str, set[str]] = {}   # {owner: {KEY, ...}}
         self.meta: dict[str, dict] = {}        # {KEY: {"owner":..., "label":...}}
+        # Told when a credential changes - see subscribe(). Each entry is
+        # (owner, callback); the owner is what lets an unloading plugin's
+        # callback go with it.
+        self._watchers: list = []
         self.load_env()
 
     def load_env(self) -> int:
@@ -102,7 +106,19 @@ class SecretRegistry:
         Forget a declaration. The stored VALUE is deliberately left alone -
         unloading a plugin should not delete the user's credential, since
         reloading it would silently require typing the key in again.
+
+        Forgetting an owner entirely also forgets what it subscribed. A single
+        key does not: the owner is still here and still watching its others.
         """
+        if not key:
+            # Above the store check on purpose. Subscribing does not require
+            # declaring anything, so an owner can be watching and absent from
+            # the store, and returning early would leave the callback behind.
+            gone = self._drop_watchers(owner)
+            if gone:
+                self.client.log("debug",
+                                f"[SecretRegistry] Dropped {gone} watcher(s) "
+                                f"for '{owner}'")
         if owner not in self.store:
             return
         if key:
@@ -231,12 +247,64 @@ class SecretRegistry:
 
         os.environ[key] = value
         self.client.log("info", f"[SecretRegistry] '{key}' updated ({self.status(key)})")
+        # Told on every successful write, including one that writes the same
+        # value again: pasting a key is somebody saying to try again, and a
+        # backend that stopped asking has no other way to hear it.
+        self._notify(key)
         return True
 
     def clear(self, key: str) -> bool:
         ok = self.set(key, "")
         os.environ.pop(key, None)
         return ok
+
+    ## -- CHANGE NOTIFICATION
+
+    def subscribe(self, callback: Callable, owner: str = "client") -> None:
+        """
+        Be told when a credential is written, with the key as the argument.
+
+        A credential never appears in the settings file, so nothing watching
+        settings sees one arrive. Anything that cannot start without a key -
+        a voice backend, an API client - needs telling directly or it stays
+        exactly as broken as it was when the key was pasted in.
+
+        Pass the plugin key as `owner`, so unloading takes the callback with
+        it. A callback left behind by an unloaded plugin holds its module
+        alive and is only dropped the next time it throws, which is a write
+        that logged a failure nobody caused.
+        """
+        # Compared by equality, not identity. `self._on_key` builds a new
+        # bound method object every time it is read, so an identity test
+        # would let the same method subscribe as many times as it is passed
+        # and call it once per copy.
+        if not any(cb == callback for _owner, cb in self._watchers):
+            self._watchers.append((owner, callback))
+
+    def unsubscribe(self, callback: Callable) -> None:
+        self._watchers = [entry for entry in self._watchers
+                          if entry[1] != callback]
+
+    def _drop_watchers(self, owner: str) -> int:
+        """Forget everything an owner subscribed. Returns how many went."""
+        keep = [entry for entry in self._watchers if entry[0] != owner]
+        gone = len(self._watchers) - len(keep)
+        self._watchers = keep
+        return gone
+
+    def _notify(self, key: str) -> None:
+        for entry in list(self._watchers):
+            owner, callback = entry
+            try:
+                callback(key)
+            except Exception as e:
+                # Dropped rather than left to throw on every future write.
+                # Never include the value; the key name alone is safe.
+                if entry in self._watchers:
+                    self._watchers.remove(entry)
+                self.client.log("warning",
+                                f"[SecretRegistry] Watcher for '{owner}' failed "
+                                f"and was removed: {e}")
 
     ## -- FILE
 

@@ -996,6 +996,82 @@ somebody talking over the panel hears it stop.
 not when the sentence was asked for - see
 [Interrupting a reply nobody has heard](#interrupting-a-reply-nobody-has-heard).
 
+### Speaking through Deepgram
+
+`tts_backend` set to `deepgram` sends the text to Aura and plays what comes
+back. The panel does no synthesis at all, and somebody is billed per
+character.
+
+The key is a secret, `DEEPGRAM_API_KEY`, and it appears **inside the deepgram
+group** beside the voice — a backend selectable with nowhere to put the
+credential it cannot start without is a backend that looks broken.
+
+It is a `secret` setting, so what is typed goes to `.env` and never into the
+settings file: this page renders that file wholesale and rewrites it on every
+save, so a key kept in `value` would be on screen and on disk in plain sight.
+`scrub_secrets()` blanks it on the way out regardless.
+
+**Billing is what makes this different from a local voice.** One that fails is
+silent; one that has run out is silent *and* has an account behind it that
+somebody has to act on. So the three failures are told apart:
+
+| What happened          | What the panel does                              |
+|------------------------|--------------------------------------------------|
+| No key yet             | Says where to put one, and watches for it.       |
+| The key is refused     | Says which secret, and stops asking.             |
+| No credit left         | Says so once, notifies, and stops asking.        |
+| Rate limited           | Reports it and slows down — retrying caused it.  |
+| Cannot reach Deepgram  | Keeps trying every fifteen seconds.              |
+
+**A missing key is not a refused key.** One becomes valid the moment somebody
+pastes it in — which is the ordinary order, since the backend is chosen before
+the credential exists — and the other does not become valid by waiting. A key
+that *changes* is re-checked at once whatever the previous answer was and
+whatever the wait had left: pasting one is somebody telling the panel to try
+again.
+
+That needs a nudge from outside, because **a credential never appears in the
+settings file** — it goes straight to `.env` — so nothing that watches settings
+for changes ever sees one arrive. `SecretRegistry.subscribe()` exists for
+that, and the client rebuilds the voice when a key lands and the voice is not
+already working.
+
+Beyond that, only an unreachable Deepgram is fixed by waiting, and only that
+is retried on a timer. Hammering an
+auth endpoint every fifteen seconds is a good way to have a key taken away.
+
+**The key is checked without spending anything.** Listing projects proves the
+key works and hands back the project the balance lives under, and costs no
+characters — where synthesising a test phrase would bill for it.
+
+**Usage is counted from what Deepgram says**, not from the text sent. The
+`dg-char-count` header is the billed figure, and it differs from a count of
+the input once punctuation and normalisation are taken into account. The
+balance is re-read every fifteen minutes rather than per reply: it changes
+when somebody pays for something, not between sentences.
+
+### Waking the speaker
+
+A sink that has gone idle is **suspended**, and resuming it takes a few
+hundred milliseconds during which anything written is dropped — so a reply
+starts partway through its first word. It is the same audio every time, which
+reads as the model truncating rather than the device waking up.
+
+The local voice pads the samples it generated. A streamed voice has none to
+pad until they arrive over a network, so it writes silence into the open
+stream instead — `audio.wake_output()`, shared by the socket and Deepgram
+backends so all three sound alike.
+
+Unconditional and cheap: a device that was already awake swallows a third of a
+second nobody hears, and one that was suspended keeps the syllable. Telling
+the two apart is not worth the first word.
+
+Audio comes back as raw `linear16` with `container=none`, so the first bytes
+are samples and playback starts while the rest is still arriving. A read can
+end between the two bytes of a sample, and a stray odd byte reinterprets
+everything after it — which sounds like the voice turning to noise — so a
+half sample is held back for the next chunk.
+
 ### Speaking beside the panel
 
 `subprocess` needs no second machine and no package. The panel spawns

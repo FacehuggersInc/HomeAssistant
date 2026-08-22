@@ -106,10 +106,10 @@ See [Voice assistant](assistant.md#speaking-somewhere-else).
 
 ## The methods
 
-| Method                                 | Does                              |
-|----------------------------------------|-----------------------------------|
-| `register(owner, key, name, builder…)` | Offer one.                        |
-| `unregister(owner, key="")`            | Give back what an owner offered.  |
-| `all(search="")`                        | Every match, by name.             |
-| `get(key)` / `for_owner(owner)`         | One, or an owner's.               |
-| `build(key)`                            | `(folder, zip bytes)`.            |
+| Method                                 | Does                             |
+|----------------------------------------|----------------------------------|
+| `register(owner, key, name, builder…)` | Offer one.                       |
+| `unregister(owner, key="")`            | Give back what an owner offered. |
+| `all(search="")`                       | Every match, by name.            |
+| `get(key)` / `for_owner(owner)`        | One, or an owner's.              |
+| `build(key)`                           | `(folder, zip bytes)`.           |

@@ -159,20 +159,45 @@ Reads are **scoped to the owner**. A plugin can only read a key it declared:
 key = self.client.SECRETS.get_for("myplugin", "MYSERVICE_KEY", "")
 ```
 
-| Method                            | Does                                             |
-|-----------------------------------|--------------------------------------------------|
-| `register(owner, key, label="")`  | Declare a key.                                   |
-| `get_for(owner, key, default="")` | Read, scoped.                                    |
-| `set_for(owner, key, value)`      | Write to `.env`.                                 |
-| `is_set(key)`                     | Whether it has a value.                          |
-| `is_declared(key)`                | Whether anything declared it.                    |
-| `status(key)`                     | A human-readable state for the Settings page.    |
-| `masked(key)`                     | The value with most of it replaced by asterisks. |
-| `keys_for(owner)`                 | What an owner declared.                          |
-| `clear(key)`                      | Remove it from `.env`.                           |
+| Method                              | Does                                             |
+|-------------------------------------|--------------------------------------------------|
+| `register(owner, key, label="")`    | Declare a key.                                   |
+| `get_for(owner, key, default="")`   | Read, scoped.                                    |
+| `set_for(owner, key, value)`        | Write to `.env`.                                 |
+| `is_set(key)`                       | Whether it has a value.                          |
+| `is_declared(key)`                  | Whether anything declared it.                    |
+| `status(key)`                       | A human-readable state for the Settings page.    |
+| `masked(key)`                       | The value with most of it replaced by asterisks. |
+| `keys_for(owner)`                   | What an owner declared.                          |
+| `clear(key)`                        | Remove it from `.env`.                           |
+| `subscribe(callback, owner)`        | Be told when any key is written.                 |
+| `unsubscribe(callback)`             | Stop being told.                                 |
 
 Never log a secret, and never put one in a notification. Use `masked()` when
 you need to show that a key is present.
+
+### Being told when a key arrives
+
+A credential goes to `.env` and never to the settings file, so nothing that
+watches settings sees one arrive. Anything that cannot start without a key
+subscribes instead:
+
+```python
+self.client.SECRETS.subscribe(self._key_changed, self.plugin_key())
+
+def _key_changed(self, key: str) -> None:
+    if key == "MYSERVICE_KEY":
+        self.reconnect()
+```
+
+The callback takes the key name, never the value, and fires on every
+successful write - including one that writes the same value again, because
+pasting a key is somebody saying to try again.
+
+Pass the plugin key as the second argument. `unregister(owner)` drops what
+that owner subscribed, so unloading takes the callback with it. A callback
+that raises is dropped and the failure is logged; a write is never failed by
+a watcher.
 
 Declaring a key with a `secret` setting type gives you a masked field in
 Settings for free — see [Settings](settings.md).

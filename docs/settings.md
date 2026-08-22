@@ -184,6 +184,7 @@ them*, not what it sets.
 | `string`                   | Text field, opens the QWERTY keyboard.                |
 | `body`                     | Multi-line text field.                                |
 | `enum`                     | Dropdown. Requires an `options` list.                 |
+| `group`                    | Dropdown that chooses which other settings show.      |
 | `path`                     | Text field with a Browse button.                      |
 | `secret`                   | Masked field backed by `.env`. Requires an `env` key. |
 | `list[int]`, `list[float]` | Comma-separated numeric field.                        |
@@ -221,6 +222,92 @@ will not let you pick again, with code reading a string no branch handles.
   "description": "v2 is English-only and slightly faster."
 }
 ```
+
+### `group`
+
+A dropdown that decides which **other** settings in its block are worth
+showing.
+
+It exists because a block full of settings that only matter in one
+configuration reads as a block full of settings. `audio.speech` carries a host
+and a port that mean nothing unless the voice is on another machine, and
+nothing on the page said so — somebody sets them, nothing changes, and the
+setting looks broken rather than inapplicable.
+
+```json
+"tts_where": {
+  "type": "group",
+  "value": "socket",
+  "groups": {
+    "local":      ["tts_voice", "tts_language", "tts_voice_file"],
+    "subprocess": ["tts_voice", "tts_language", "tts_voice_file", "tts_port"],
+    "socket":     ["tts_host", "tts_port"]
+  },
+  "description": "Where the speaking happens."
+}
+```
+
+**No `options`, and no `default`.** The choices are the keys of `groups`, so
+there is no second list to disagree with the first — one that did would offer
+a choice that shows nothing. And the value *is* the selection; a group setting
+with nothing selected is a dropdown with nothing in it. A value naming a group
+that no longer exists falls back to the first, which is what a plugin update
+leaves behind.
+
+**Sharing is a key in more than one group.** `tts_voice` is the same choice
+whether the model runs here or beside the panel; `tts_port` is the same port
+on the loopback or on another machine. It is one setting, so switching to
+another group that also names it finds the value that was already there.
+
+**Hiding is all it does.** Every setting keeps its value and stays readable
+and writable by name whatever is selected — `client.setting()` does not know
+groups exist. A setting left behind in a group nobody is looking at keeps its
+value and finds it again when that group comes back. Nothing is reset and
+nothing is dropped from the file.
+
+Members are drawn **inside** the selector's own block, indented behind a rule
+down the left, so where the group starts and where it ends is visible without
+reading anything. A chip on each row would say that every one of them belongs
+to something; it would not say they belong to *that*, nor where they stop.
+
+The chip stays only on settings shared between several groups, because which
+group is the one thing containment cannot say.
+
+### Groups stack
+
+A member can itself be a selector. `tts_backend` chooses whether there is a
+voice at all; `tts_where` chooses where it runs, which only means anything
+once the first has said yes — so `where` is a member of `backend`, and carries
+its own members inside it.
+
+```json
+"tts_backend": {
+  "type": "group",
+  "value": "auto",
+  "groups": { "auto": ["tts_where"], "pocket": ["tts_where"], "off": [] }
+}
+```
+
+Choosing `off` names nothing, so the whole run below it disappears and the
+block is left with the enable toggle and the two settings that apply whatever
+speaks.
+
+**Each level of nesting gets its own colour** down the left edge. Two runs can
+share an edge once groups stack, and one colour for both leaves nothing to say
+where the outer ends and the inner begins. Three levels are defined, which is
+as many as stay apart at a glance on a panel across a room —
+`MAX_GROUP_DEPTH` refuses a fourth and logs which selector asked for it, so a
+schema that nests itself in a circle stops rather than recursing for ever.
+
+Everything not named by any group stays exactly where it was written. A member naming a setting that is not in the block
+is logged as a warning and skipped — a control somebody expected and does not
+get, with nothing to say why, is worth a line.
+
+**Changing the dropdown rebuilds nothing.** Every member is built once,
+whichever group names it, and switching shows and hides them. So the scroll
+position holds, an open keyboard stays open, and a value typed into a setting
+that is then hidden is still there when its group comes back. The cost is a
+handful of extra widgets on one page.
 
 ### `secret`
 

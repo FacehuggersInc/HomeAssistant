@@ -247,10 +247,10 @@ def FlaskApp(client):
 			return payload, status
 		# `_token()`, which also reads the cookie.
 		#
-		# This used to look in the query string and the header only. An
-		# approved phone browses on its cookie and puts no ?token= on the
-		# address bar, so `token` was EMPTY on exactly the devices this is
-		# rendered for - which passes `auth()` (it checks the cookie) and
+		# Looking in the query string and the header alone is not enough
+		# here. An approved phone browses on its cookie and puts no ?token=
+		# on the address bar, so `token` is EMPTY on exactly the devices this
+		# is rendered for - which passes `auth()` (it checks the cookie) and
 		# then fails every permission check and writes an empty token into
 		# every link on the page.
 		token = _token()
@@ -456,10 +456,10 @@ def FlaskApp(client):
 
 		# `_token()`, which also reads the cookie.
 		#
-		# This used to look in the query string and the header only. An
-		# approved phone browses on its cookie and puts no ?token= on the
-		# address bar, so `token` was EMPTY on exactly the devices this is
-		# rendered for - which passes `auth()` (it checks the cookie) and
+		# Looking in the query string and the header alone is not enough
+		# here. An approved phone browses on its cookie and puts no ?token=
+		# on the address bar, so `token` is EMPTY on exactly the devices this
+		# is rendered for - which passes `auth()` (it checks the cookie) and
 		# then fails every permission check and writes an empty token into
 		# every link on the page.
 		token = _token()
@@ -1399,10 +1399,10 @@ def FlaskApp(client):
 
 		# `_token()`, which also reads the cookie.
 		#
-		# This used to look in the query string and the header only. An
-		# approved phone browses on its cookie and puts no ?token= on the
-		# address bar, so `token` was EMPTY on exactly the devices this is
-		# rendered for - which passes `auth()` (it checks the cookie) and
+		# Looking in the query string and the header alone is not enough
+		# here. An approved phone browses on its cookie and puts no ?token=
+		# on the address bar, so `token` is EMPTY on exactly the devices this
+		# is rendered for - which passes `auth()` (it checks the cookie) and
 		# then fails every permission check and writes an empty token into
 		# every link on the page.
 		token = _token()
@@ -1625,10 +1625,10 @@ def FlaskApp(client):
 
 		# `_token()`, which also reads the cookie.
 		#
-		# This used to look in the query string and the header only. An
-		# approved phone browses on its cookie and puts no ?token= on the
-		# address bar, so `token` was EMPTY on exactly the devices this is
-		# rendered for - which passes `auth()` (it checks the cookie) and
+		# Looking in the query string and the header alone is not enough
+		# here. An approved phone browses on its cookie and puts no ?token=
+		# on the address bar, so `token` is EMPTY on exactly the devices this
+		# is rendered for - which passes `auth()` (it checks the cookie) and
 		# then fails every permission check and writes an empty token into
 		# every link on the page.
 		token = _token()
@@ -1641,16 +1641,18 @@ def FlaskApp(client):
 				names = [u.name for u in client.USERS.all_users()]
 			except Exception:
 				names = []
-			voices, current = [], ""
+			# Asked of the running voice, not of a settings key. `tts_voice`
+			# is Pocket's list and is the wrong one for Deepgram, which reads
+			# `deepgram_voice`, and for a socket backend, whose voices are on
+			# another machine entirely.
 			try:
-				entry = client.SETTINGS.audio.speech.tts_voice
-				voices = list(entry.options)
-				current = str(entry.value)
-			except Exception:
-				pass
+				speech = client.SERVICES.TTS.summary()
+			except Exception as e:
+				client.log("warning", f"[Say] Could not read the voice: {e}")
+				speech = {"available": False, "reason": str(e), "backend": "",
+						  "voices": [], "current": "", "billing": {}}
 			return render_template(
-				"say.html", users=names, token=token, voices=voices,
-				voice=current,
+				"say.html", users=names, token=token, speech=speech,
 				panel=client.panel_name(),
 				device=user.name if user else ""), 200
 
@@ -1658,40 +1660,38 @@ def FlaskApp(client):
 			sender = user.name if user else "Somebody"
 		spoken = f"{sender} said {message}"
 
+		# A voice, for this message only.
+		#
+		# Passed down to the backend rather than written into settings and put
+		# back. A settings write is global for as long as it is in place, so an
+		# assistant reply landing in that window would come out in the voice
+		# somebody picked on a phone - and no backend re-reads that key per
+		# sentence anyway, so it never reached the one being asked to speak.
+		#
+		# say() refuses a name the running backend does not offer, which is
+		# what keeps an arbitrary string off a backend that would read it as a
+		# path to an audio prompt.
+		voice = str(request.values.get("voice") or "").strip()
+		if voice:
+			try:
+				offered = client.SERVICES.TTS.voice_options()
+			except Exception:
+				offered = ()
+			if voice not in offered:
+				return answered({"request": "Failed",
+								 "reason": f"'{voice}' is not a voice this "
+										   f"panel can speak with."}, 400)
+
 		# Said if it can, shown if it cannot.
 		#
 		# say() returns whether anything came out, so quiet mode and a missing
 		# voice are the same answer - and neither should mean the message is
 		# lost. answer() puts it on screen at panel size.
-		# A voice, for this message only.
-		#
-		# Put back afterwards rather than left: somebody trying a voice from a
-		# phone has not decided to change the panel's, and finding it different
-		# tomorrow would be a setting changed by accident.
-		voice = str(request.values.get("voice") or "").strip()
-		previous = ""
-		if voice:
-			try:
-				previous = str(client.SETTINGS.audio.speech.tts_voice.value)
-				if voice != previous:
-					client.SETTINGS.audio.speech.tts_voice.value = voice
-				else:
-					previous = ""
-			except Exception as e:
-				client.log("debug", f"[Say] Could not set the voice: {e}")
-				previous = ""
-
 		heard = False
 		try:
-			heard = bool(client.say(spoken, thread=False))
+			heard = bool(client.say(spoken, thread=False, voice=voice))
 		except Exception as e:
 			client.log("warning", f"[Say] Could not speak: {e}")
-
-		if previous:
-			try:
-				client.SETTINGS.audio.speech.tts_voice.value = previous
-			except Exception:
-				pass
 
 		if not heard:
 			try:

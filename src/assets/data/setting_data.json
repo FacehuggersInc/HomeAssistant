@@ -38,6 +38,8 @@
         "assistant.feedback.voice_bar_hold": "Minimum time a transcript stays on the activity bar",
         "audio.speech.tts_backend": "Whether replies are spoken, and by what",
         "audio.speech.tts_where": "Speak on this panel, or on another machine",
+        "audio.speech.deepgram_api_key": "Your Deepgram API key",
+        "audio.speech.deepgram_voice": "Which Aura voice speaks",
         "audio.speech.tts_host": "Which machine speaks, when it is not this one",
         "audio.speech.tts_port": "The port it is listening on",
         "audio.speech.tts_voice": "Which Pocket TTS voice speaks",

@@ -361,19 +361,19 @@ client.subscribe_to_event("on_coin_flip", lambda event: ...)
 
 ## Settings
 
-| Setting                  | Does                                                   |
-|--------------------------|--------------------------------------------------------|
-| `animation.enabled`      | Off shows the result immediately, with no flip or roll.|
-| `animation.flip_ms`      | How long the coin is in the air.                       |
-| `animation.roll_ms`      | How long the dice tumble before the first one settles. |
-| `animation.spin_ms`      | How long the wheel turns before it stops.              |
-| `animation.dice_collide` | Let dice shove and knock each other. Never changes a result. |
-| `animation.frame_ms`     | Time between frames. Raise it on a panel that stutters.|
-| `stage.title_ms`         | How long a title is held before the coin appears.      |
-| `stage.result_ms`        | How long the result stays up for one thing.            |
-| `stage.result_per_item_ms`| Added for each thing after the first.                 |
-| `stage.result_max_ms`    | The longest it will ever hold.                         |
-| `stage.wheel_bonus_ms`   | Added to a wheel's result, to look at where it stopped.|
-| `stage.outcome_ms`       | How long an outcome banner stays up after it.          |
-| `speech.speak_result`    | Say the result as well as showing it.                  |
-| `notify.remember_results`| Keep every flip and roll in the notification history.  |
+| Setting                    | Does                                                         |
+|----------------------------|--------------------------------------------------------------|
+| `animation.enabled`        | Off shows the result immediately, with no flip or roll.      |
+| `animation.flip_ms`        | How long the coin is in the air.                             |
+| `animation.roll_ms`        | How long the dice tumble before the first one settles.       |
+| `animation.spin_ms`        | How long the wheel turns before it stops.                    |
+| `animation.dice_collide`   | Let dice shove and knock each other. Never changes a result. |
+| `animation.frame_ms`       | Time between frames. Raise it on a panel that stutters.      |
+| `stage.title_ms`           | How long a title is held before the coin appears.            |
+| `stage.result_ms`          | How long the result stays up for one thing.                  |
+| `stage.result_per_item_ms` | Added for each thing after the first.                        |
+| `stage.result_max_ms`      | The longest it will ever hold.                               |
+| `stage.wheel_bonus_ms`     | Added to a wheel's result, to look at where it stopped.      |
+| `stage.outcome_ms`         | How long an outcome banner stays up after it.                |
+| `speech.speak_result`      | Say the result as well as showing it.                        |
+| `notify.remember_results`  | Keep every flip and roll in the notification history.        |

@@ -182,7 +182,20 @@ class SocketTTSProcessing:
 
     ## -- what the rest of the panel calls
 
+    #Whether a caller may pick from `get_voices()`.
+    #
+    #No. The far end answers with the voices it has LOADED so far, not a
+    #catalogue - any audio prompt is a voice there, so there is nothing to
+    #enumerate. A picker built from it would offer one name on a fresh
+    #server and grow as the server was used, which reads as a list of
+    #choices and is not one.
+    VOICE_CHOICE = False
+
     def get_voices(self) -> tuple:
+        """
+        What the far end currently has loaded. Diagnostic, not a menu -
+        see VOICE_CHOICE.
+        """
         if self._voices:
             return self._voices
         try:
@@ -193,6 +206,9 @@ class SocketTTSProcessing:
             return ()
         self._voices = tuple(answer.get("voices") or ())
         return self._voices
+
+    def current_voice(self) -> str:
+        return str(self.voice or "")
 
     def claim(self) -> int:
         with self._claim_lock:
@@ -229,7 +245,7 @@ class SocketTTSProcessing:
         return True
 
     def play(self, text: str = None, audio: list = None,
-             thread: bool = True) -> None:
+             thread: bool = True, voice: str = "") -> None:
         if not self.available or not text:
             return
         try:
@@ -238,18 +254,18 @@ class SocketTTSProcessing:
         except Exception:
             pass
         if thread:
-            Thread(target=self._speak, args=[text],
+            Thread(target=self._speak, args=[text, voice],
                    name=f"__tts_socket({str(text)[:10]})", daemon=True).start()
         else:
-            self._speak(text)
+            self._speak(text, voice)
 
-    def stream(self, text: str, thread: bool = True) -> None:
+    def stream(self, text: str, thread: bool = True, voice: str = "") -> None:
         """The same thing. Every reply here is streamed."""
-        self.play(text, thread=thread)
+        self.play(text, thread=thread, voice=voice)
 
     ## -- saying it
 
-    def _speak(self, text: str) -> None:
+    def _speak(self, text: str, voice: str = "") -> None:
         """
         Ask for the audio, then play it as it arrives.
 
@@ -262,7 +278,7 @@ class SocketTTSProcessing:
             self._pending = True
             key = ""
             try:
-                key = self._begin(text)
+                key = self._begin(text, voice)
                 if key:
                     self._stream(key)
             except Exception as exc:
@@ -277,9 +293,11 @@ class SocketTTSProcessing:
                     self._cancel(key)
                 self._told_stt()
 
-    def _begin(self, text: str) -> str:
+    def _begin(self, text: str, voice: str = "") -> str:
+        # `voice` is for this request only. The far end takes one per `say`,
+        # so nothing here has to be put back afterwards.
         answer = self._ask({"cmd": "say", "text": text,
-                            "voice": self.voice})
+                            "voice": voice or self.voice})
         if not answer.get("ok"):
             self.client.log("warning",
                             f"[TTS] Refused: {answer.get('reason')}")
@@ -360,6 +378,9 @@ class SocketTTSProcessing:
         played = 0
         try:
             stream.start()
+            # Silence first, so the first word is not eaten by a sink waking
+            # up - see audio.wake_output().
+            audio_backend.wake_output(stream, self.rate)
             while True:
                 if self._interrupt:
                     self.client.log("debug", "[TTS] Interrupted mid-sentence.")

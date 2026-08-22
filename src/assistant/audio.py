@@ -405,3 +405,43 @@ def model_size_hint(model: str) -> str:
         "small.en": "~490 MB", "small": "~490 MB",
         "parakeet-v3": "~600 MB", "parakeet-v2": "~600 MB",
     }.get(model, "a few hundred MB")
+
+
+## SPEAKER WARM-UP
+#
+#A sink that has gone idle is SUSPENDED, and resuming it takes a few hundred
+#milliseconds during which anything written is dropped. What comes out is a
+#reply that starts partway through its first word - the same audio every time,
+#so it reads as the model truncating rather than the device waking up.
+#
+#The local voice pads the samples it generated. A streamed voice has no
+#samples to pad until the first ones arrive over a network, so it writes
+#silence into the open stream instead, which is the same trick a step earlier.
+
+#How long to hold the device open before real audio. Matches the local
+#voice's own lead so all three sound alike.
+RESUME_LEAD_MS = 320
+
+
+def wake_output(stream, rate: int, milliseconds: int = None) -> None:
+    """
+    Write silence into a freshly opened stream, so the first word survives.
+
+    Cheap and unconditional: a device that was already awake swallows a third
+    of a second of silence nobody hears, and one that was suspended keeps the
+    syllable that would otherwise be missing. Telling the two apart is not
+    worth the first word.
+    """
+    try:
+        import numpy as np
+    except Exception:
+        return
+    try:
+        span = RESUME_LEAD_MS if milliseconds is None else int(milliseconds)
+        frames = int(int(rate) * max(0, span) / 1000)
+        if frames <= 0:
+            return
+        stream.write(np.zeros(frames, dtype="float32"))
+    except Exception:
+        # A warm-up that fails is not a reason to lose the sentence.
+        pass
