@@ -19,6 +19,7 @@ ships four. Neither is right for everybody, which is why the setting exists.
 from __future__ import annotations
 
 import os
+from threading import Lock
 from typing import Optional
 
 import numpy as np
@@ -114,6 +115,13 @@ class WakeSpotter:
         self.last_features = None
         self.ready = False
         self.reason = ""
+        # feed() runs on the audio thread and reset() has been called from
+        # the command thread. The model carries state from frame to frame and
+        # both halves write it, so a reset landing inside a predict() left the
+        # frames still being scored running against a model that was half
+        # cleared - and cleared the refractory under them, which is a wake
+        # fired on nothing. One lock, held for a frame at a time.
+        self._lock = Lock()
         #Samples waiting to make up a whole frame.
         self._pending = np.zeros(0, dtype=np.int16)
         #Frames since it last fired, as samples, so no clock is needed.
@@ -236,42 +244,44 @@ class WakeSpotter:
         if not len(samples):
             return None
 
-        self._pending = np.concatenate([self._pending, samples])
-        fired = None
+        with self._lock:
+            self._pending = np.concatenate([self._pending, samples])
+            fired = None
 
-        while len(self._pending) >= FRAME_SAMPLES:
-            frame = self._pending[:FRAME_SAMPLES]
-            self._pending = self._pending[FRAME_SAMPLES:]
-            self._quiet_for += FRAME_SAMPLES
+            while len(self._pending) >= FRAME_SAMPLES:
+                frame = self._pending[:FRAME_SAMPLES]
+                self._pending = self._pending[FRAME_SAMPLES:]
+                self._quiet_for += FRAME_SAMPLES
 
-            try:
-                scores = self.model.predict(frame)
-            except Exception as e:
-                self.log("warning", f"[Wake] Scoring failed: {e}")
-                self.ready = False
-                return None
+                try:
+                    scores = self.model.predict(frame)
+                except Exception as e:
+                    self.log("warning", f"[Wake] Scoring failed: {e}")
+                    self.ready = False
+                    return None
 
-            score = float(max(scores.values()) if scores else 0.0)
-            self.last_score = score
-            if score < self.threshold:
-                continue
+                score = float(max(scores.values()) if scores else 0.0)
+                self.last_score = score
+                if score < self.threshold:
+                    continue
 
-            # Above the line. Ignored if it fired a moment ago: one utterance
-            # produces a run of high frames as the word passes through, and
-            # each is the same detection.
-            if self._quiet_for < self.refractory * 16000:
-                continue
-            self._quiet_for = 0
-            fired = score
-            # Taken HERE, at the frame that fired, and not afterwards.
-            #
-            # The feature buffer is a rolling window that moves on with every
-            # frame handed over. Reading it once feed() has returned would
-            # describe whatever arrived since, which on a busy loop is a
-            # different moment entirely - and the whole point of the vector is
-            # that it is the sixteen frames the classifier just scored.
-            self.last_features = self._features()
-        return fired
+                # Above the line. Ignored if it fired a moment ago: one
+                # utterance produces a run of high frames as the word passes
+                # through, and each is the same detection.
+                if self._quiet_for < self.refractory * 16000:
+                    continue
+                self._quiet_for = 0
+                fired = score
+                # Taken HERE, at the frame that fired, and not afterwards.
+                #
+                # The feature buffer is a rolling window that moves on with
+                # every frame handed over. Reading it once feed() has returned
+                # would describe whatever arrived since, which on a busy loop
+                # is a different moment entirely - and the whole point of the
+                # vector is that it is the sixteen frames the classifier just
+                # scored.
+                self.last_features = self._features()
+            return fired
 
     def _features(self):
         """
@@ -299,7 +309,7 @@ class WakeSpotter:
         except Exception:
             return None
 
-    def reset(self) -> None:
+    def reset(self, deafen: bool = False) -> None:
         """
         Forget the buffered audio, the model's own state, and the vector.
 
@@ -310,12 +320,27 @@ class WakeSpotter:
         Called when the panel stops listening for a while - the model carries
         context between frames, and stale context from before a gap describes
         audio that is no longer adjacent to what comes next.
+
+        **Still best called on the thread that calls `feed()`.** The lock
+        makes it safe from any thread, but not sensible from any thread: a
+        reset in the middle of an utterance throws away frames that were
+        about to be scored together, and the caller that wanted it usually
+        wanted it at a frame boundary. See `switch_mode()` in the speech
+        process, which defers it to the audio loop for exactly that reason.
+
+        `deafen` is for a CANCELLATION. Ordinarily the refractory is left
+        satisfied, so a mode change does not cost a second and a half of a
+        panel that cannot hear its own name. A cancel is the one case that
+        wants the opposite: the word that caused it is still in the air, and
+        scoring its tail against a fresh model with no refractory is how a
+        panel wakes itself up on the way down.
         """
-        self._pending = np.zeros(0, dtype=np.int16)
-        self._quiet_for = int(self.refractory * 16000)
-        self.last_features = None
-        if self.model is not None:
-            try:
-                self.model.reset()
-            except Exception:
-                pass
+        with self._lock:
+            self._pending = np.zeros(0, dtype=np.int16)
+            self._quiet_for = 0 if deafen else int(self.refractory * 16000)
+            self.last_features = None
+            if self.model is not None:
+                try:
+                    self.model.reset()
+                except Exception:
+                    pass

@@ -340,9 +340,9 @@ def normalize(text: str) -> str:
     return " ".join(out.split())
 
 
-# Phrases that abandon whatever the assistant is doing. Matched against the
-# whole normalised utterance, not searched within it, so "never mind the
-# weather" stays a weather query.
+# Phrases that abandon whatever the assistant is doing, when they are the
+# WHOLE utterance. See is_cancellation() for the ones that arrive at the end
+# of a longer one, which is a different question with a different answer.
 CANCEL_PHRASES = {
     "nevermind", "never mind", "no nevermind", "no never mind",
     "cancel", "cancel that", "forget it", "forget that",
@@ -351,6 +351,45 @@ CANCEL_PHRASES = {
     "dont worry about it", "don't worry about it",
     "leave it", "as you were", "disregard", "scratch that",
 }
+
+
+# Cancel phrases that mean it wherever they land, because no request ends
+# with one. "Set a timer for ten minutes, no forget it" is not a timer.
+TERMINAL_CANCELS = (
+    "never mind", "nevermind", "forget it", "forget that",
+    "forget about it", "cancel that", "scratch that", "disregard that",
+    "dont worry about it", "don't worry about it",
+    "stop listening", "quit listening", "as you were",
+)
+
+# And the ones that are ordinary words in ordinary requests. These need
+# something in front of them saying a person changed their mind, or they
+# have to be the whole utterance.
+#
+# "What time does the bus stop" ends in a cancel word and is a question.
+# "How do I stop a nosebleed" contains one and is a question. Treating
+# either as backing out is worse than missing a cancellation, because a
+# missed cancellation costs one more word and a wrong one eats the question.
+GUARDED_CANCELS = (
+    "stop it", "stop", "cancel", "nothing", "quit", "abort", "enough",
+    "disregard", "leave it",
+)
+
+# What somebody says while changing their mind. One of these directly in
+# front of a guarded word is what makes it a cancellation.
+CANCEL_MARKERS = (
+    "on second thought", "on second thoughts", "you know what",
+    "hold on", "hang on", "wait no", "no wait",
+    "actually", "no", "wait", "oh", "eh", "well", "sorry",
+    "okay", "ok", "alright", "hmm", "um", "uh",
+)
+
+# Politeness on the end of a cancellation, dropped before it is looked for.
+# "Actually never mind then, thanks" is the same instruction as "never mind".
+CANCEL_TRAILERS = (
+    "then", "thanks", "thank you", "please", "sorry", "anyway",
+    "ok", "okay", "alright", "instead", "actually",
+)
 
 
 # What Whisper says when nobody is speaking.
@@ -518,9 +557,120 @@ def is_hallucination(text: str) -> bool:
     return False
 
 
+def _strip_trailers(words: list) -> list:
+    """
+    Politeness off the end. "Never mind then thanks" is "never mind".
+
+    Stripped until none is left rather than a fixed number of times. Each
+    pass removes at least one word so it cannot run away, and a cap only
+    decided how many "then thanks please" a person was allowed before the
+    cancellation stopped being one. An utterance that is nothing BUT
+    politeness empties itself, which is the right answer for it anyway.
+    """
+    words = list(words)
+    while words:
+        for trailer in sorted(CANCEL_TRAILERS, key=lambda t: -len(t.split())):
+            tail = trailer.split()
+            if len(words) >= len(tail) and words[-len(tail):] == tail:
+                words = words[:-len(tail)]
+                break
+        else:
+            break
+    return words
+
+
+def cancel_keyword_applies(phrase: str, keyword: str) -> bool:
+    """
+    Whether a registered cancel keyword FOUND in this phrase actually means it.
+
+    The same two tiers as `is_cancellation()`, applied to whatever the thing
+    in front registered rather than to a list here. A phrase in
+    `TERMINAL_CANCELS` is one nobody ends a sentence with by accident, so it
+    counts wherever it lands. Anything else has to be the last thing said.
+
+    This is what stops an open conversation being closed by the room. Flat
+    containment is what a session wants for "how do I, how do I, how do I
+    stop" - and it also ends the conversation on "you have to stop blaming
+    yourself", "I can't cancel the meeting now" and "there's nothing I can
+    do", which are television.
+    """
+    wanted = str(keyword or "").lower().split()
+    if not wanted:
+        return False
+    if " ".join(wanted) in TERMINAL_CANCELS:
+        return True
+
+    words = _strip_trailers(_cancel_words(phrase))
+    return len(words) >= len(wanted) and words[-len(wanted):] == wanted
+
+
+def _cancel_words(text: str) -> list:
+    """A phrase as plain lowercase words, apostrophes kept."""
+    cleaned = re.sub(r"[^a-z0-9' ]", " ", str(text or "").lower())
+    return cleaned.split()
+
+
 def is_cancel(text: str) -> bool:
-    """Whether an utterance is the user backing out."""
+    """Whether the WHOLE utterance is the user backing out."""
     if not text:
         return False
     stripped = " ".join(str(text).lower().split()).strip(".,!?\u2026 ")
     return stripped in CANCEL_PHRASES
+
+
+def is_cancellation(text: str) -> str:
+    """
+    The cancellation this utterance ends with, or "" for none.
+
+    **Position, not containment.** A cancel word somewhere inside a sentence
+    is usually a word - "how do I stop a nosebleed", "never mind the weather,
+    tell me the news" - while one on the END is somebody who has changed
+    their mind mid-sentence and is the case a whole-utterance test cannot see:
+    "set a timer for ten minutes, no forget it" scores as a timer and sets
+    one, because the request's own content words outweigh a short cancel
+    example every time.
+
+    Two tiers, because the words are not equally safe. `TERMINAL_CANCELS` mean
+    it wherever they land; `GUARDED_CANCELS` are ordinary words and need a
+    marker in front of them or have to be the whole thing.
+
+    Returns the phrase that matched, so a caller can say which word it acted
+    on rather than guessing.
+    """
+    words = _cancel_words(text)
+    if not words:
+        return ""
+
+    # The whole utterance, first and unconditionally. This is the plain case
+    # and it does not care about tiers or markers.
+    joined = " ".join(words)
+    if joined in CANCEL_PHRASES:
+        return joined
+
+    words = _strip_trailers(words)
+    if not words:
+        return ""
+    if " ".join(words) in CANCEL_PHRASES:
+        return " ".join(words)
+
+    def ends_with(sequence: list) -> bool:
+        return len(words) >= len(sequence) and words[-len(sequence):] == sequence
+
+    # Longest first, so "stop listening" is not reported as "stop".
+    for phrase in sorted(TERMINAL_CANCELS, key=lambda p: -len(p.split())):
+        if ends_with(phrase.split()):
+            return phrase
+
+    for phrase in sorted(GUARDED_CANCELS, key=lambda p: -len(p.split())):
+        wanted = phrase.split()
+        if not ends_with(wanted):
+            continue
+        before = words[:-len(wanted)]
+        if not before:
+            # The whole utterance after trailers came off. "Stop, thanks".
+            return phrase
+        for marker in sorted(CANCEL_MARKERS, key=lambda m: -len(m.split())):
+            lead = marker.split()
+            if len(before) >= len(lead) and before[-len(lead):] == lead:
+                return phrase
+    return ""

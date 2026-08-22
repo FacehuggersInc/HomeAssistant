@@ -60,32 +60,56 @@ class CancelAction:
         except Exception:
             return False
 
-    def matches(self, phrase: str) -> bool:
+    def matched(self, phrase: str) -> str:
         """
-        Whether this action's words are IN the phrase.
+        Which of this action's keywords is IN the phrase, or "".
 
-        Contained, not equal to. It used to be equality, which meant a
-        registered keyword only ever fired when somebody said exactly that
-        word and nothing else - "stop the music" did not stop music, and
-        "why are you still hearing me, stop" cancelled nothing in front and
-        fell through to the assistant simply standing down.
+        Contained, not equal to. A registered keyword that only ever fired
+        when somebody said exactly that word and nothing else would miss
+        "stop the music" and "why are you still hearing me, stop".
 
         Whole words, in order, not a substring: "stop" must not fire on
         "stopwatch", and punctuation is dropped so a comma cannot separate
         somebody from what they asked for.
+
+        The keyword rather than a bool, so a caller can say which word it
+        acted on. `matches()` is the same question asked yes-or-no, and
+        `matched_all()` gives every one that fits.
+        """
+        found = self.matched_all(phrase)
+        return found[0] if found else ""
+
+    def matched_all(self, phrase: str) -> list:
+        """
+        Every keyword of this action that is in the phrase, longest first.
+
+        Longest first because keywords overlap: "please stop it" contains
+        both `stop` and `stop it`, and the more specific one is what somebody
+        said. Reported alphabetically, "stop" came back and a caller asking
+        whether it was said at the END was told no - the last word is "it".
+
+        All of them, because a caller can have a reason to reject the best
+        one and still want the next.
         """
         words = _words(phrase)
         if not words:
-            return False
-        for keyword in self.keywords:
+            return []
+        found = []
+        for keyword in sorted(self.keywords,
+                              key=lambda k: (-len(k.split()), k)):
             wanted = keyword.split()
             if not wanted:
                 continue
             span = len(wanted)
             for start in range(len(words) - span + 1):
                 if words[start:start + span] == wanted:
-                    return True
-        return False
+                    found.append(keyword)
+                    break
+        return found
+
+    def matches(self, phrase: str) -> bool:
+        """Whether any of this action's keywords is in the phrase."""
+        return bool(self.matched(phrase))
 
     def run(self) -> bool:
         try:
@@ -174,3 +198,25 @@ class CancelRegistry:
             self.client.log("warning", f"[Cancel] '{action.key}' failed; "
                                        f"trying the next.")
         return None
+
+    def handle(self, phrase: str) -> bool:
+        """
+        Back out of whatever that phrase means right now. Always handled.
+
+        `run()` answers what applied; this answers what to DO about it, which
+        is the part every caller was writing out for itself. There are three -
+        the check ahead of the skills, a follow-up inside a session, and the
+        nevermind skill - and a fourth would have copied it too.
+
+        Nothing applying is not a failure. It means there was nothing in front
+        to close, so backing out is the listening itself.
+        """
+        action = self.run(phrase)
+        if action is None:
+            self.client.cancel_assistant("nevermind")
+            return True
+        # Stopping the music does not mean somebody has finished talking, so
+        # the action says whether standing down goes with it.
+        if action.stops_listening:
+            self.client.cancel_assistant(f"nevermind: {action.key}")
+        return True

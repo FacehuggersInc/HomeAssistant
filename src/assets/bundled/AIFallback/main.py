@@ -225,7 +225,21 @@ class AIFallback(Plugin):
                         # out itself and answers None, so "stop" never reached
                         # the check below and the panel stayed up with nothing
                         # listening to it.
-                        dismissed = bool(getattr(session, "cancelled", False))
+                        # Cancelled by a person, not by the clock.
+                        #
+                        # The session's idle window is a minute, and it is
+                        # short because nothing said inside a session goes
+                        # through the addressed gate - so it is a stretch of
+                        # room the panel does not judge, and in front of a
+                        # television it fills up. The PANEL's own timeout is
+                        # a different question and much longer: a card left
+                        # on screen with nobody talking to it is fine, and
+                        # `conversation.panel_timeout` decides when it goes.
+                        #
+                        # Treating the two as one made a quiet minute close
+                        # the conversation somebody was still reading.
+                        dismissed = bool(getattr(session, "cancelled", False)
+                                         and not getattr(session, "expired", False))
                         break
                     phrase = phrase.strip()
                     if not phrase:

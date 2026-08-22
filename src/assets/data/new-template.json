@@ -574,6 +574,12 @@
                 "min": 0.5,
                 "max": 1.0,
                 "description": "How alike a wake has to be to a sound already learned as noise before it is passed over.\n\n1.0 is the same sound twice. Unrelated sounds sit far below this.\n\nThe two mistakes do not cost the same. Set too high, a television wakes the panel again and the wake shows up in the report. Set too low, the panel silently ignores you saying the wake word properly, and nothing on screen says why - so this errs high.\n\nEvery wake records how close it came to the nearest learned sound, whether or not it was passed over, so the Wake report shows the spread before you move this."
+            },
+            "gate_unaddressed": {
+                "type": "bool",
+                "default": true,
+                "value": true,
+                "description": "Whether a phrase that matched no skill has to look like it was said to the panel before it reaches the AI fallback.\n\nA wake word fires on television audio often enough that something has to decide what to do with what follows, and without this the answer is always \"ask the AI\" - so the panel answers the room out loud. With it on, an utterance shaped like conversation rather than a request is dropped and logged.\n\nBiased toward dropping: an utterance with no signal either way goes too. A missed request costs saying it again; a phantom interaction costs a panel talking over what you were watching. Turn this off if the log shows it dropping things you meant."
             }
         },
         "feedback": {

@@ -8,6 +8,7 @@ from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFrame
 from PyQt6.QtCore import Qt
 
 from src.plugin.template import Plugin
+from src.assistant import normalize
 from src.assistant.skill import Skill, SkillDeclined
 from .skills import build_all
 from .skills import units
@@ -400,16 +401,21 @@ class CoreSkills(Plugin):
         be cancelled registers its own words and its own condition on
         `client.CANCEL`, and this asks rather than holding a list of cases that
         would grow every time something new appeared.
+
+        **Declined when the phrase is not actually somebody backing out.**
+        The examples are short and every one of them is an ordinary word, so
+        this skill wins phrases that merely contain one: "how do I stop a
+        nosebleed" scored as a cancellation and stood the panel down instead
+        of answering. `is_cancellation()` is the same test the check ahead of
+        the skills uses, so a phrase cannot be a cancellation on one path and
+        a question on the other.
         """
-        action = self.client.CANCEL.run(phrase)
+        if phrase and not normalize.is_cancellation(phrase):
+            raise SkillDeclined(
+                f"'{phrase}' contains a cancel word but is not one - "
+                f"see normalize.is_cancellation()")
 
-        if action is None:
-            # Nothing was in front. Standing down is the whole instruction.
-            self.client.cancel_assistant("nevermind")
-            return
-
-        if action.stops_listening:
-            self.client.cancel_assistant(f"nevermind: {action.key}")
+        self.client.CANCEL.handle(phrase)
     def quit_application(self):
         try:
             confirm = bool(self.settings.general.confirm_quit.value)

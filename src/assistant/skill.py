@@ -8,7 +8,7 @@ import traceback
 from threading import Thread
 from typing import TYPE_CHECKING, Callable, Optional, List
 
-from src.assistant import nlp
+from src.assistant import addressed, nlp
 
 if TYPE_CHECKING:
 	from src.main import Client
@@ -1189,16 +1189,116 @@ class SkillIntentEngine:
 
 		# Nobody took it. The same destination as a phrase that matched
 		# nothing at all, because from the outside that is what happened.
+		#
+		# A skill matching and then declining is weaker evidence than it
+		# looks - it matched on words, which is the thing that goes wrong in
+		# front of a television - so this is gated like the rest. A phrase
+		# that a skill looked at properly is nearly always shaped like a
+		# request anyway, and passes.
 		self.client.log("info",
 			"[SkillIntentEngine] Every skill declined - passing it on.")
 		self.client.ASSIST_STATUS = "LIVE"
+		self._fall_back(text)
+
+	def _fall_back(self, phrase: str, doc = None) -> None:
+		"""
+		Nothing here answered it. Hand it on, or drop it.
+
+		**One funnel for three call sites.** A phrase reaches this from three
+		places - nothing matched at all, a follow-up with no subject of its
+		own, and every candidate skill declining - and each used to fire
+		`on_assistant_fallback` itself. A gate written at one of them would
+		have been missing from the other two.
+
+		**Which branch it arrived from does not decide whether it is gated.**
+		That was the first shape of this and it was wrong. The follow-up
+		branch looked safe to exempt - it exists to hand "tell me more" to
+		whatever remembers the turn before - but it identifies a follow-up by
+		its content lemmas, and "I told him she wouldn't be there" reduces to
+		{"tell"}, which is one of them. Exempting the branch exempted the
+		television along with it.
+
+		`_should_gate()` asks the question that actually matters instead:
+		was the panel in a conversation. A real follow-up has something to
+		follow, and a fragment with no antecedent has nothing to lose by
+		being tested.
+		"""
 		context = None
 		try:
 			context = self.client.CONTEXT.last
 		except Exception:
 			pass
+
+		if self._should_gate(context):
+			verdict = addressed.is_addressed(doc if doc is not None
+											 else self.parse_doc(phrase))
+			if not verdict.addressed:
+				# Dropped, and said so. This is the only record that the
+				# panel heard something and chose to do nothing, and from
+				# the room the two look identical.
+				self.client.log("info",
+					f"[SkillIntentEngine] Dropped '{phrase}' - "
+					f"{verdict.reason} ({verdict.rule}).")
+				self.client.iterate_event_callables(
+					"on_assistant_unaddressed", phrase)
+				return
+			self.client.log("debug",
+				f"[SkillIntentEngine] '{phrase}' passed the gate - "
+				f"{verdict.reason} ({verdict.rule}).")
+
 		self.client.iterate_event_callables(
-			"on_assistant_fallback", text, extra=context)
+			"on_assistant_fallback", phrase, extra=context)
+
+	#How recently the panel must have answered for the next phrase to be
+	#taken on trust as a follow-up.
+	#
+	#Deliberately not `CONTEXT.RELEVANT_FOR`, which is five minutes. That is
+	#the right window for what "that" refers to and the wrong one for this:
+	#it would mean a single real interaction exempts everything said in the
+	#room for the next five minutes, which in front of a television is the
+	#whole problem rather than an edge of it. A follow-up arrives in seconds.
+	FOLLOW_UP_WITHIN = 30.0
+
+	def _should_gate(self, context) -> bool:
+		"""
+		Whether this turn has to prove itself. Three reasons it does not.
+
+		Turned off in settings, because a panel that silently discards what
+		somebody said needs an off switch that is easy to find.
+
+		A session is open, which means a skill asked a question and is
+		waiting for the answer - and an answer is not shaped like a request.
+		"Tuesday" is a complete reply to "which day?" and passes no test for
+		question shape.
+
+		The panel ANSWERED something a moment ago, which makes this a
+		follow-up for the same reason. Answered, not merely asked: a turn
+		that produced nothing is not a conversation somebody is continuing,
+		and treating it as one would let the first false wake hold the gate
+		open for every one after it.
+		"""
+		try:
+			if not self.client.setting(
+					"assistant.wake.gate_unaddressed.value", True):
+				return False
+		except Exception:
+			pass
+		try:
+			if self.client.SERVICES.STT.is_session():
+				return False
+		except Exception:
+			pass
+		try:
+			if (context is not None and context.answer
+					and context.age <= self.FOLLOW_UP_WITHIN):
+				return False
+		except Exception:
+			pass
+		return True
+
+	def parse_doc(self, phrase: str):
+		"""The utterance as a doc, for anything that needs one and has none."""
+		return nlp.model()(str(phrase or ""))
 
 	def rebuild_idf(self) -> None:
 		"""
@@ -1631,13 +1731,11 @@ class SkillIntentEngine:
 				f"subject of its own - passing it on.")
 			self.client.ASSIST_STATUS = "LIVE"
 			if use_skill:
-				context = None
-				try:
-					context = self.client.CONTEXT.last
-				except Exception:
-					pass
-				self.client.iterate_event_callables(
-					"on_assistant_fallback", phrase, extra=context)
+				# Gated, and the gate lets a real follow-up through on the
+				# conversation rather than on the words: `_should_gate()`
+				# stands aside when the panel answered something moments
+				# ago. "Tell me more" passes on its own shape as well.
+				self._fall_back(phrase, doc=match_doc)
 			return None, None
 
 		# `.get`, not indexing. The Matcher is shared across the process,
@@ -1768,13 +1866,13 @@ class SkillIntentEngine:
 				# question it follows is the only thing that makes it
 				# answerable. Handlers that take one argument still get one;
 				# see `_accepts_two` in main.py.
-				context = None
-				try:
-					context = self.client.CONTEXT.last
-				except Exception:
-					pass
-				self.client.iterate_event_callables(
-					"on_assistant_fallback", phrase, extra=context)
+				#
+				# GATED. This is the branch a television arrives at: the wake
+				# word fired on something, the words were real English, and
+				# no skill wanted them. Without a test for whether anybody
+				# was being addressed, "nothing matched" means "ask the AI",
+				# and the panel answers the room out loud.
+				self._fall_back(phrase, doc=match_doc)
 			return None, None
 		else:
 			if use_skill:

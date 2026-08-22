@@ -17,6 +17,12 @@ Two ways a name becomes real:
   plugin owns - the calendar does this for `on_calendar_changed`, guarded by
   an `in` test so a reload does not clear the subscribers.
 
+`on_assistant_unaddressed` is its own event rather than a flavour of the
+fallback. "Nothing wanted it" and "nobody was talking to us" are different
+things, and a display that shows the first for the second is reporting a
+failure that did not happen. See
+[was anybody talking to the panel](assistant.md#was-anybody-talking-to-the-panel).
+
 ### An event that carries two things
 
 `on_assistant_fallback` sends the phrase **and** the turn before it - a
@@ -71,6 +77,7 @@ A fixed set of built-in events the Client fires itself, at predictable moments.
 | `on_assistant_transcribed` | A phrase was transcribed.                               | The transcript                  |
 | `on_assistant_cancelled`   | The user cancelled mid-conversation.                    | `None`                          |
 | `on_assistant_fallback`    | A phrase matched no skill.                              | The transcript, and the context |
+| `on_assistant_unaddressed` | A phrase was judged not to have been said to the panel. | The transcript                  |
 | `on_transcribing_assistant`| Audio captured; the model is working on it.             | `None`                          |
 | `on_transcribed_assistant` | The model finished, whatever it found.                  | `None`                          |
 | `on_heard_assistant`       | A finished transcript, before anything routes it.       | The transcript                  |

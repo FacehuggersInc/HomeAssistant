@@ -37,19 +37,39 @@ def _has_words(text: str) -> bool:
 
 
 class Session():
+
+	#How long a conversation waits with nobody saying anything.
+	#
+	#**This is a trust window, not a convenience.** Nothing said while a
+	#session is open goes through the addressed gate - a follow-up is exempt
+	#by design, because "Tuesday" and "tell me more" pass no test for
+	#question shape. So one false wake that gets an answer opens a stretch in
+	#which the room is not judged at all, and in front of a television that
+	#stretch fills up.
+	#
+	#A minute rather than five. A person who has just been answered replies
+	#in seconds; five minutes was long enough for the television to hold a
+	#conversation of its own.
+	IDLE_TIMEOUT = 60.0
+
 	def __init__(self, client):
 		self.__client = client
 		self.__queued = queue.Queue()
 		self.matcher = nlp.new_matcher()
 		self.is_open = False
 		self.cancelled = False
+		# Whether the session ended because the room went quiet rather than
+		# because somebody said they were finished. Both cancel it; only one
+		# of them is a person deciding the conversation is over.
+		self.expired = False
 		self.__id = f"session:{self.__client.uuid()}"
 
 	def __enter__(self):
 		self.is_open = True
 		self.cancelled = False
+		self.expired = False
 		self.__client.SERVICES.STT.open_session()
-		self.__client.TIMEOUTS.add(60 * 5, self.timed_out, self.__id,
+		self.__client.TIMEOUTS.add(self.IDLE_TIMEOUT, self.timed_out, self.__id,
 		                           transient=True)
 		self.__client.TIMEOUTS.start(self.__id)
 		return self
@@ -75,10 +95,11 @@ class Session():
 			pass
 
 	def timed_out(self):
-		# Used to call close_session() directly, which reset the STT but left
-		# wait_for_phrase() blocked on an empty queue forever - the skill
-		# thread never returned.
+		# Calling close_session() directly resets the STT and leaves
+		# wait_for_phrase() blocked on an empty queue forever, so the skill
+		# thread never returns. cancel() releases it.
 		self.__client.log("info", "[Session] Timed out.")
+		self.expired = True
 		self.cancel()
 
 	def cancel(self):
@@ -102,22 +123,78 @@ class Session():
 
 		None means cancelled, timed out or closed - callers should break out
 		of their prompt loop rather than asking again.
-		"""
-		try:
-			phrase = self.__queued.get(timeout=timeout) if timeout else self.__queued.get()
-		except queue.Empty:
-			return None
 
-		if phrase is _CANCELLED or not self.is_open:
-			return None
-		# A follow-up question inside a session. Backing out here is still
-		# handled directly: there is no intent matching in a session, so there
-		# is no skill to route it to.
-		if normalize.is_cancel(phrase):
-			self.__client.log("info", f"[Session] Cancelled by '{phrase}'.")
+		**Backing out is looser here than on the wake path**, and deliberately.
+		Out there a cancel word has to be in the right place, because "how do
+		I stop a nosebleed" is a question and treating it as a cancellation
+		eats it. In here somebody is already mid-conversation with the panel,
+		is looking at it, and is trying to make it stop - so a cancel word
+		counts wherever it lands, the way the wake word does. "How do I, how
+		do I, how do I stop" is somebody stuttering at a panel that will not
+		shut up, and it has to work.
+
+		The vocabulary comes from `client.CANCEL`, which is what the thing in
+		front registered for itself - so this asks the answer panel what
+		closes it rather than holding a second list that would drift from the
+		first.
+		"""
+		while True:
+			try:
+				phrase = self.__queued.get(timeout=timeout) if timeout else self.__queued.get()
+			except queue.Empty:
+				return None
+
+			if phrase is _CANCELLED or not self.is_open:
+				return None
+
+			cancelled = normalize.is_cancellation(phrase)
+			if not cancelled:
+				cancelled = self.__cancel_word_in(phrase)
+			if not cancelled:
+				return phrase
+
+			self.__client.log("info",
+				f"[Session] Cancelled by '{cancelled}' in '{phrase}'.")
+
+			# What that means depends on what is in front - the same question
+			# the skill asks, and the same answer.
+			action = None
+			try:
+				action = self.__client.CANCEL.run(phrase)
+			except Exception:
+				pass
+
+			if action is not None and not action.stops_listening:
+				# Something was stopped and the conversation was not it.
+				# Stopping the music does not mean somebody has finished
+				# talking, so keep waiting rather than closing.
+				self.keep_waiting()
+				continue
+
 			self.cancel()
 			return None
-		return phrase
+
+	def __cancel_word_in(self, phrase: str) -> str:
+		"""
+		A registered cancel phrase found anywhere in this utterance.
+
+		Only words belonging to something ACTIVE - `applicable()` asks each
+		action whether it is - so this is never a list of words in the
+		abstract. With nothing in front there is nothing to find, and the
+		positional test is the only one that speaks.
+		"""
+		try:
+			for action in self.__client.CANCEL.applicable(phrase):
+				# Every keyword it matched, not just the best one. "Please
+				# stop it" matches both `stop it` and `stop`, and only the
+				# longer one is at the end - rejecting on the first tried
+				# would drop a real cancellation.
+				for found in action.matched_all(phrase):
+					if normalize.cancel_keyword_applies(phrase, found):
+						return found
+		except Exception:
+			pass
+		return ""
 	
 	def push(self):
 		self.__client.SERVICES.STT.processing = False
@@ -279,6 +356,28 @@ class STTProcessing():
 		# misheard then cannot tell whether the microphone failed or the
 		# skill did.
 		self.client.iterate_event_callables("on_heard_assistant", phrase)
+
+		# BACKING OUT, AHEAD OF THE SKILLS.
+		#
+		# Not as a skill, because a skill has to win a scoring contest to run
+		# and a cancellation on the end of a request loses it: "set a timer
+		# for ten minutes, no forget it" is mostly a timer request by every
+		# measure the engine has, so the timer skill takes it and sets one.
+		# The words that undo it arrive too late to be voted on.
+		#
+		# Position is what makes this safe to check here - see
+		# normalize.is_cancellation(). A cancel word in the middle of a
+		# sentence is a word, and only one on the end is somebody changing
+		# their mind.
+		cancelled = normalize.is_cancellation(phrase)
+		if cancelled:
+			self.client.log("info",
+				f"[STTProcessing] '{phrase}' ends in '{cancelled}' - "
+				f"backing out rather than answering.")
+			self.client.CANCEL.handle(phrase)
+			self.woke_with = None
+			self.processing = False
+			return
 
 		skill, _ = self.client.SKILLS.parse( phrase )
 		if skill:
@@ -1294,6 +1393,21 @@ class STTProcessing():
 			self.session.cancel()
 		else:
 			self.close_session()
+
+		# Said again, and said differently.
+		#
+		# Both branches above put the child back to the wake word, and neither
+		# can say WHY - a session ending on its own and a person saying "stop"
+		# arrive at `close_session()` as the same call. The difference matters:
+		# an ordinary mode change must not cost a second and a half of a panel
+		# deaf to its own name, and a cancel has to, because the tail of the
+		# word that caused it is still in the air and is otherwise scored
+		# against a freshly reset model with no refractory left. That is the
+		# panel waking itself up on the way down.
+		#
+		# START_WAKE is idempotent, so sending it twice costs a drained queue
+		# that is already empty.
+		self.send_command("START_WAKE:deafen", retries=2)
 
 		self.woke_with = None
 		self.woke_at = 0.0

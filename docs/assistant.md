@@ -883,6 +883,104 @@ whose *entire* lexical overlap with an example is bare asking-verbs is not a
 match. "Tell me a joke" and "tell me about Mount Fuji" agree about the word
 "tell", which is a grammatical accident rather than a shared subject.
 
+### Was anybody talking to the panel
+
+**Nothing matching is not the same as "ask the AI".** A wake word fires on
+television audio, and what follows is real English that no skill wants — so a
+panel with two categories, understood and not-understood, answers the room out
+loud. There is a third: not addressed to anybody here.
+
+`addressed.is_addressed(doc)` answers it, in `src/assistant/addressed.py`.
+Rules rather than a model: everything it looks at is a shape of speech rather
+than a subject, so it costs microseconds on a doc the engine already parsed,
+and it can be read and argued with.
+
+| Shape                                       | Verdict        |
+|---------------------------------------------|----------------|
+| Contains *he*, *she*, *they*, *him*, *her*… | Not addressed. |
+| Opens with *what*, *who*, *how*, *why*…     | Addressed.     |
+| Opens with *is*, *can*, *did*, *would*…     | Addressed.     |
+| Opens with a command verb, or *let's*       | Addressed.     |
+| *I need*, *I'd like*, *I can't remember*    | Addressed.     |
+| A bare imperative (spaCy tags it `VB`)      | Addressed.     |
+| Subject is *we*, *us*, *somebody*           | Not addressed. |
+| Past tense with somebody else in it         | Not addressed. |
+| Only reaction words                         | Not addressed. |
+| Several statements, none of them asking     | Not addressed. |
+| None of the above                           | Not addressed. |
+
+**The pronoun row is first, and that is the point.** Television is full of
+questions and instructions, and every one of them passes a test for question
+shape: "what did she tell you" is accepted on *what* long before *she* is
+looked at. A pronoun with nothing to point at is the one signal that beats
+shape, so it is asked before anything else.
+
+It is only ever asked when no conversation is open — see `_should_gate()`. A
+follow-up that says "what did they build" has an antecedent and never comes
+here; without one there is nothing for the pronoun to point at, and the panel
+could not answer it either way. *We* and *us* are deliberately not in the set:
+"what should we watch tonight" is somebody talking to the panel about
+themselves.
+
+The cost is real and worth knowing: "when did he die" and "tell me about her
+life" are dropped when said cold. Both work as follow-ups.
+
+**What still gets through.** "Come over here", "put that down" and "give me
+the gun" name nobody, so nothing in their shape can say who they were aimed
+at. That is the floor for deciding an addressee from a transcript, not a rule
+that is missing.
+
+Contractions are handled by looking a few tokens past *I* rather than at the
+next one. spaCy splits them — "I'd like" is `["i", "'d", "like"]` and "I can't
+remember" is `["i", "ca", "n't", "remember"]` — so a rule looking for `id` or
+`ive` as a whole token finds nothing, ever.
+
+That last row is the deliberate part. **An utterance with no signal either way
+is dropped.** A missed request costs saying it again; a phantom interaction
+costs a panel talking over what somebody was watching, which is the thing being
+fixed. `assistant.wake.gate_unaddressed` turns it off.
+
+A dropped phrase is logged with the rule that dropped it, and fires
+`on_assistant_unaddressed`. From the room, "heard it and chose not to act" and
+"never heard it" look identical, and the log is the only place they differ.
+
+### One funnel, and what is exempt
+
+All three fallback sites go through `SkillIntentEngine._fall_back()` — nothing
+matched, a subjectless follow-up, and every candidate skill declining. One
+funnel rather than three, so a gate cannot be present at one site and missing
+from the others.
+
+**Which branch a phrase arrived from does not decide whether it is gated.**
+Exempting the follow-up branch looks safe, since it exists to hand "tell me
+more" to whatever remembers the turn before — but it identifies a follow-up by
+content lemmas, and "I told him she wouldn't be there" reduces to `{"tell"}`,
+which is one of them. Exempting the branch exempts the television with it.
+
+`_should_gate()` asks whether the panel was in a conversation instead:
+
+- The setting is off.
+- A session is open. A skill asked a question and is waiting; "Tuesday" is a
+  complete answer and passes no test for question shape.
+- The panel **answered** something within `FOLLOW_UP_WITHIN` (30s).
+
+**A session is a trust window, so it is a short one.** Nothing said while one
+is open is judged at all, which is right for "Tuesday" and "tell me more" and
+wrong for a room with a television in it: one false wake that gets answered
+opens a stretch the panel does not look at, and that stretch fills up.
+`Session.IDLE_TIMEOUT` is a minute.
+
+The conversation PANEL is a separate question and lives by
+`conversation.panel_timeout`. `Session.expired` separates the two: the room
+going quiet closes the session, somebody saying they are finished closes both.
+Treating them as one would make a quiet minute take away a card that is still
+being read.
+
+Answered, not merely asked — otherwise the first false wake holds the gate open
+for every one after it. And 30 seconds rather than `CONTEXT.RELEVANT_FOR`,
+which is 300: that is the right window for what "that" refers to and far too
+long to hold this open in a room with a television.
+
 ### Speaking over a reply
 
 The wake word interrupts. It is never the panel hearing itself, because the

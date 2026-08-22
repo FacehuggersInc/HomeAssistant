@@ -298,6 +298,13 @@ class Client:
                 "on_assistant_transcribed": [],
                 "on_assistant_cancelled":   [],
                 "on_assistant_fallback":    [],
+                #Heard, understood to be English, and judged not to have
+                #been said to the panel at all - see addressed.py. Its own
+                #event because "nothing wanted it" and "nobody was talking
+                #to us" are different things, and a display that shows the
+                #first for the second is reporting a failure that did not
+                #happen.
+                "on_assistant_unaddressed": [],
                 #The counterpart of the fallback: a skill took the phrase.
                 #Both, so a display can tell "understood" from "nothing
                 #wanted it" rather than only being told about the failure.

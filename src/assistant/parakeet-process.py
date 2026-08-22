@@ -339,6 +339,10 @@ class ParakeetListener:
         # which is what a session and the microphone test page want.
         self.mode = initial_mode if initial_mode in ("wake", "passthrough") else "wake"
         self.switching = False
+        # Whether the pending switch came from a cancellation, which is the
+        # one transition that should leave the panel briefly deaf. Read and
+        # cleared by the stream loop; see switch_mode().
+        self.deafen_next = False
 
         # Bumped on every mode switch. A queued phrase carries the generation
         # it was captured under, and one from before a switch is dropped.
@@ -567,7 +571,7 @@ class ParakeetListener:
         self.send_log("debug",
                       f"[Parakeet]: Capture {'held' if value else 'resumed'}.")
 
-    def switch_mode(self, mode: str) -> None:
+    def switch_mode(self, mode: str, deafen: bool = False) -> None:
         """
         Change what the child is listening for, and abandon what it had.
 
@@ -587,10 +591,21 @@ class ParakeetListener:
         panel back into LISTENING with nobody having said the word. Saying
         "stop" again re-entered the same state, which is why it took several.
 
-        Both callers are deliberate transitions - opening a conversation and
-        leaving one - and neither wants the previous wake carried across.
+        **The spotter is not reset here.** This runs on the command thread and
+        `feed()` runs on the audio thread, with no lock between them: the model
+        carries state from frame to frame and both halves write it, so a reset
+        landing inside a `predict()` leaves the frames still being scored
+        running against a model that is half cleared. The stream loop does it
+        instead, on the frame it notices `switching` - which is the same work,
+        four lines from where the model is fed, on the thread that owns it.
+
+        `deafen` says this transition was a CANCELLATION, and is passed
+        through to that reset. See `WakeSpotter.reset()`.
         """
         self.mode = mode if mode in ("wake", "passthrough") else "wake"
+        # Set BEFORE `switching`, so the loop cannot see the flag and act on
+        # it while this is still the previous transition's value.
+        self.deafen_next = bool(deafen)
         self.switching = True
         self.generation += 1
         while True:
@@ -601,15 +616,6 @@ class ParakeetListener:
 
         self.armed = False
         self.waiting_since = time.time()
-        if self.spotter is not None:
-            try:
-                # The model carries context between frames. Context from
-                # before a mode change describes audio that is no longer
-                # adjacent to what comes next, and a wake scored against it
-                # is scored against a join that never happened.
-                self.spotter.reset()
-            except Exception:
-                pass
 
     ## -- LISTENING -----------------------------------------------------
 
@@ -1089,12 +1095,22 @@ class ParakeetListener:
 
             if self.switching:
                 self.switching = False
+                # Read and cleared together, so a second switch arriving
+                # while this one is being handled cannot have its flag
+                # dropped on the floor.
+                deafen, self.deafen_next = self.deafen_next, False
                 self.armed = False
                 reset_phrase()
                 if self.spotter is not None:
-                    self.spotter.reset()
+                    # HERE, not in switch_mode(). The model carries context
+                    # between frames and this is the thread that feeds it -
+                    # a reset from the command thread lands inside a
+                    # predict() and leaves the frames still being scored
+                    # running against a model that is half cleared.
+                    self.spotter.reset(deafen=deafen)
                 self.send_log("debug",
-                              f"[Parakeet]: Mode -> {self.mode}, state reset.")
+                              f"[Parakeet]: Mode -> {self.mode}, state reset"
+                              f"{' (deaf briefly - cancelled)' if deafen else ''}.")
                 continue
 
             # THE VAD, FOR EVERY WINDOW.
@@ -1938,8 +1954,16 @@ class ParakeetServer:
                             self.stop()
                             break
                         elif command == "START_WAKE":
-                            self.listener.switch_mode("wake")
-                            self.send_log("debug", "[Parakeet]: Mode -> WAKE.")
+                            # The argument says whether a person cancelled.
+                            # Ordinary mode changes must not deafen the panel;
+                            # a cancel has to, because the word that caused it
+                            # is still in the air.
+                            deafen = argument.strip().lower() == "deafen"
+                            self.listener.switch_mode("wake", deafen=deafen)
+                            self.send_log(
+                                "debug",
+                                f"[Parakeet]: Mode -> WAKE"
+                                f"{' (cancelled)' if deafen else ''}.")
                         elif command == "START_PASSTHROUGH":
                             self.listener.switch_mode("passthrough")
                             self.send_log("debug", "[Parakeet]: Mode -> PASSTHROUGH.")
