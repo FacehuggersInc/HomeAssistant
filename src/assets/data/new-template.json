@@ -580,6 +580,62 @@
                 "default": true,
                 "value": true,
                 "description": "Whether a phrase that matched no skill has to look like it was said to the panel before it reaches the AI fallback.\n\nA wake word fires on television audio often enough that something has to decide what to do with what follows, and without this the answer is always \"ask the AI\" - so the panel answers the room out loud. With it on, an utterance shaped like conversation rather than a request is dropped and logged.\n\nBiased toward dropping: an utterance with no signal either way goes too. A missed request costs saying it again; a phantom interaction costs a panel talking over what you were watching. Turn this off if the log shows it dropping things you meant."
+            },
+            "judge_backend": {
+                "type": "enum",
+                "default": "off",
+                "value": "off",
+                "options": [
+                    "off",
+                    "qwen"
+                ],
+                "description": "A small language model asked whether an utterance was meant for the panel, consulted after the rules and before anything answers.\n\nThe rules in addressed.py decide by sentence shape, which cannot tell a question asked of the panel from the same question asked of somebody on television. A model can weigh the wording, the wake word and the turn before it.\n\n'off' leaves the rules to decide on their own, which is what the panel does today. 'qwen' runs Qwen3-0.6B.\n\nIt answers with a key and nothing else - not prose, not a score. Whenever it cannot answer, times out, or says something that is not a key, the rules decide instead."
+            },
+            "judge_where": {
+                "type": "group",
+                "value": "local",
+                "groups": {
+                    "local": [
+                        "judge_model",
+                        "judge_timeout"
+                    ],
+                    "subprocess": [
+                        "judge_model",
+                        "judge_port",
+                        "judge_timeout"
+                    ],
+                    "socket": [
+                        "judge_host",
+                        "judge_port",
+                        "judge_timeout"
+                    ]
+                },
+                "description": "Where the judging happens.\n\n'local' runs the model inside the panel.\n'subprocess' runs it beside the panel, on this machine.\n'socket' asks another machine.\n\nEvery reply the panel gives waits on this, so where it runs is a question about how long a person stands there. A small model on a panel's own processor is a few hundred milliseconds; the same model on a desktop is less, plus whatever the network costs."
+            },
+            "judge_host": {
+                "type": "string",
+                "default": "",
+                "value": "",
+                "description": "The machine doing the judging, when 'where' is socket.\n\nAn address or a name - 192.168.1.20, or desktop.local. Blank means there is nowhere to ask, and the panel will say so at startup rather than the first time somebody speaks."
+            },
+            "judge_port": {
+                "type": "int",
+                "default": 8771,
+                "value": 8771,
+                "description": "The port the judge listens on. Clear of the panel's own 5000, the speech process's 65432, and the voice server's 8770."
+            },
+            "judge_model": {
+                "type": "string",
+                "default": "onnx-community/Qwen3-0.6B-ONNX",
+                "value": "onnx-community/Qwen3-0.6B-ONNX",
+                "description": "Which model to run, as a Hugging Face repository.\n\nDownloaded once, on first use, and kept. The panel runs the int8 build - around 350MB rather than 600MB, on hardware that is also holding a screen, a microphone and a web server. A machine reached over a socket has no such constraint and uses fp16."
+            },
+            "judge_timeout": {
+                "type": "float",
+                "default": 1.0,
+                "value": 1.0,
+                "suffix": "sec",
+                "description": "How long the panel waits for a key before deciding without one.\n\nA ceiling, not a target. Somebody is standing in front of the panel while this runs, so a judge that has gone slow has to stop being consulted rather than hold up the answer - and the rules are already there to decide."
             }
         },
         "feedback": {

@@ -33,12 +33,19 @@ import time
 import uuid
 import wave
 
-#How many triggering clips to keep for listening to. Ten is enough to hear a
-#pattern and small enough that the folder never needs managing.
-MAX_CLIPS = 10
+#How many triggering clips to keep for listening to. A pattern in what is
+#setting the panel off shows up over an evening rather than over a handful of
+#wakes, and in a room with a television in it a handful is an hour.
+#
+#The cost is the index rather than the audio. Each clip carries a packed
+#(16, 96) vector, and the whole file is rewritten on every wake, so this is
+#around 430KB a write against 85KB - which is nothing on an SSD and worth
+#knowing on an SD card.
+MAX_CLIPS = 50
 
-#How many learned vectors to keep. The same cap, for the same reason, and
-#because a list this size can be read on a phone in one screen.
+#How many learned vectors to keep. Deliberately smaller than the clip list:
+#every entry here is compared against on every single wake, and it is a list
+#somebody has to be able to audit by ear in one screen.
 MAX_IGNORED = 10
 
 #Audio the clips are written at.
@@ -289,8 +296,8 @@ class WakeMemory:
         Put a clip on the ignore list.
 
         Its audio is copied rather than referenced. A clip falls off the
-        listening list after ten more wakes, and an ignore entry whose sound
-        had been deleted would be a rule nobody could check by ear.
+        listening list once `MAX_CLIPS` more have arrived, and an ignore entry
+        whose sound had been deleted would be a rule nobody could check by ear.
         """
         if any(entry.key == clip.key for entry in self.ignored):
             return False
@@ -346,15 +353,25 @@ class WakeMemory:
     def _evict(self) -> None:
         while len(self.clips) > MAX_CLIPS:
             old = self.clips.pop()
-            if not old.ignored:
+            if old.ignored:
+                # The listening copy only. `learn()` took its own copy into
+                # the ignored folder and that one outlives this list, so
+                # dropping both here would delete the audio behind a rule
+                # that is still in force - and a rule nobody can check by ear
+                # is the thing the copy exists to prevent.
+                self._drop_one(old, False)
+            else:
                 self._drop(old)
 
+    def _drop_one(self, clip: Clip, ignored: bool) -> None:
+        try:
+            os.remove(os.path.join(self.clip_dir(ignored), clip.wav))
+        except OSError:
+            pass
+
     def _drop(self, clip: Clip) -> None:
-        for ignored in (clip.ignored, not clip.ignored):
-            try:
-                os.remove(os.path.join(self.clip_dir(ignored), clip.wav))
-            except OSError:
-                pass
+        for ignored in (True, False):
+            self._drop_one(clip, ignored)
 
     def _write_wav(self, folder: str, name: str, audio: bytes) -> bool:
         try:

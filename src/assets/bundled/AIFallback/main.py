@@ -116,6 +116,41 @@ class AIFallback(Plugin):
             description="close the answer panel and its session",
         )
 
+        # And the same thing from a phone. Saying "nevermind" needs the panel
+        # to hear you, which is the one thing that is not working when a
+        # conversation has been left open in an empty room - the session
+        # swallows every phrase as a follow-up until it times out, so from
+        # anywhere else the panel simply stops answering.
+        self.client.API.register(
+            "aifallback", "ai_close", self.api_close, requires_auth=True,
+            action="Close the AI conversation", icon="close",
+            description="Close the conversation panel and end its session.")
+
+    def api_close(self, **_ignored):
+        """
+        Close the conversation and its panel, from anywhere.
+
+        Answers whether there was one, rather than always saying done. A
+        button that reports success on an empty room tells somebody nothing
+        about whether the thing they were trying to fix was ever there.
+
+        Through `close_panel()` and not around it: the teardown is the
+        timeout, the voice, the session, the history and the panel, in that
+        order, and it is re-entrant. A second path that did four of the five
+        would leave the session open, which is the failure this exists for.
+        """
+        if not self._panel_is_open():
+            return {"request": "Success", "closed": False,
+                    "what": "No conversation is open."}, 200
+        try:
+            self.client.call_on_ui(self.close_panel)
+        except Exception as e:
+            self.client.log("warning",
+                            f"[AIFallback] Could not close the panel: {e}")
+            return {"request": "Failed", "reason": str(e)[:140]}, 500
+        return {"request": "Success", "closed": True,
+                "what": "Conversation closed."}, 200
+
     def unload(self, carryover=None):
         self.client.unsubscribe_from_event("on_assistant_fallback", self.on_fallback)
         self.client.unsubscribe_from_event("on_interaction", self.on_interaction)
@@ -123,6 +158,9 @@ class AIFallback(Plugin):
             self.client.CANCEL.unregister("aifallback")
         except Exception:
             pass
+        # The endpoint is not unregistered here. The loader does it for every
+        # plugin - see PluginLoader.unload - and CANCEL is the one that needs
+        # saying because it has no such sweep.
         self.close_panel()
 
     ## SETTINGS

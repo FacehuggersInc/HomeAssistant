@@ -1,9 +1,9 @@
 """
 What the panel knows about listening and speaking.
 
-Two facades, held by the service registry and reached as `SERVICES.STT` and
-`SERVICES.TTS`. Each owns the state and delegates the work to whatever is
-currently doing it.
+Three facades, held by the service registry and reached as `SERVICES.STT`,
+`SERVICES.TTS` and `SERVICES.JUDGE`. Each owns the state and delegates the
+work to whatever is currently doing it.
 
 **The state is here rather than inside the implementation because it has to
 outlive it.** Whatever is transcribing can be stopped, restarted or replaced;
@@ -17,6 +17,8 @@ exactly the window it is most likely to hear it.
 import time
 from contextlib import contextmanager
 from threading import RLock
+
+from src.assistant import judge_protocol
 
 
 class SpeechFacade:
@@ -222,6 +224,25 @@ class SpeechFacade:
             return False
         self.source.cancel(reason)
         return True
+
+    def silence(self, why: str = "") -> bool:
+        """
+        Stop whatever is being said. Answers whether anything was talking.
+
+        On the RECOGNISER rather than on `TTS`, because stopping a reply is
+        only half of it. The other half is the bookkeeping that keeps the
+        settle window and the self-hearing grace from swallowing whatever is
+        said next, and that state lives here. `TTS.stop_speaking()` is the
+        half without it, and is for a caller putting down a reply it owns.
+        """
+        if self.source is None:
+            return False
+        try:
+            return bool(self.source.silence(why))
+        except Exception as exc:
+            self.client.log("warning",
+                            f"[Assistant] Could not stop the voice: {exc}")
+            return False
 
     def hold_capture(self, held: bool) -> None:
         """
@@ -760,3 +781,245 @@ class VoiceFacade:
             client.SERVICES.STT.hold_capture(False)
             client.log("warning", f"[Assistant] TTS failed: {exc}")
             return False
+
+
+class JudgeFacade:
+    """
+    Whether an utterance was meant for the panel, decided by a model.
+
+    `SERVICES.JUDGE`. The third of these, and the smallest: there is no state
+    to outlive the implementation here - one question, one key, no memory
+    between them - so this is a facade for the sake of the provider stack
+    rather than for the sake of what it holds.
+
+    **`addressed.py` is what happens when this is not there.** The rules are
+    free, instant and always available, and they are the answer whenever this
+    facade cannot give one. Nothing here is allowed to make the panel worse
+    than it is with the judge turned off.
+    """
+
+    #The capability this is a facade for. A plugin claiming this name
+    #replaces the judge the same way it would replace the voice.
+    PROVIDER = "assistant.judge"
+
+    def __init__(self, client):
+        self.client = client
+        self.backend = None
+        # How the running backend was named when it was chosen, for a page
+        # or a log line that has to say which one answered.
+        self.label = ""
+
+    ## -- what is doing the judging
+
+    def attach(self, backend, label: str = "") -> None:
+        self.backend = backend
+        self.label = str(label or "")
+
+    def detach(self):
+        backend, self.backend = self.backend, None
+        self.label = ""
+        return backend
+
+    @property
+    def available(self) -> bool:
+        return bool(self.backend is not None
+                    and getattr(self.backend, "available", False))
+
+    def unavailable_reason(self) -> str:
+        """Why there is no judge, or "" when there is one."""
+        if self.available:
+            return ""
+        if self.backend is None:
+            try:
+                chosen = str(self.client.setting(
+                    "assistant.wake.judge_backend.value", "off")
+                    or "").strip().lower()
+                if chosen == "off":
+                    return "The judge is turned off in settings."
+            except Exception:
+                pass
+            return "No judge loaded."
+        return str(getattr(self.backend, "error", "")
+                   or "The judge is not ready yet.")
+
+    ## -- asking it
+
+    def judge(self, text: str, transcript: str = "", wake: str = "",
+              in_session: bool = False) -> str:
+        """
+        `ANSWER`, `IGNORE`, or "" when it could not say.
+
+        Empty is not a third opinion. It means ask something else - and the
+        something else is always the rules, at both call sites. A judge that
+        is down, slow, or answering nonsense has to leave the panel exactly
+        as it would be with no judge at all, because that is the state
+        everything was tested in.
+
+        Never raises. This sits on the path a person is waiting on, and an
+        exception here would take down the reply rather than the judgement.
+        """
+        if not self.available:
+            return ""
+
+        payload = judge_protocol.request(
+            text=text,
+            transcript=transcript or text,
+            wake=wake,
+            in_session=in_session,
+            **self._turn_before())
+
+        started = time.time()
+        try:
+            key = str(self.backend.judge(payload) or "").strip().upper()
+        except Exception as exc:
+            self.client.log("warning", f"[Judge] {self.label or 'the judge'} "
+                                       f"failed: {exc}")
+            return ""
+
+        spent = (time.time() - started) * 1000
+        if key not in judge_protocol.KEYS:
+            # Logged rather than swallowed. A backend answering something
+            # else is a backend that has been changed or has broken, and the
+            # panel carrying on quietly is how that goes unnoticed for weeks.
+            self.client.log("warning",
+                            f"[Judge] {self.label or 'the judge'} answered "
+                            f"{key[:40]!r}, which is not a key.")
+            return ""
+
+        self.client.log("debug",
+                        f"[Judge] {key} for {str(text)[:60]!r} "
+                        f"in {spent:.0f}ms.")
+        return key
+
+    def _turn_before(self) -> dict:
+        """
+        What the panel last answered, for judging a fragment against it.
+
+        A follow-up is only judgeable against what it follows. "Tuesday" is a
+        complete reply to a question asked a moment ago and is nothing on its
+        own, and a judge shown the fragment alone would be right to call it
+        ambient.
+        """
+        try:
+            entry = self.client.CONTEXT.last
+        except Exception:
+            entry = None
+        if entry is None:
+            return {"last_query": "", "last_answer": ""}
+        return {"last_query": str(getattr(entry, "query", "") or ""),
+                "last_answer": str(getattr(entry, "answer", "") or "")}
+
+    ## -- lifecycle, the same shape as the voice
+
+    def start(self) -> None:
+        """Pick a backend, or report why there is none."""
+        self.detach()
+        try:
+            if not self.client.setting("assistant.wake.gate_unaddressed.value",
+                                       True):
+                self.client.log("info",
+                                "[Judge] The gate is off, so nothing is judged.")
+                return
+        except Exception:
+            pass
+
+        tried = []
+        waiting, waiting_label = None, ""
+        for label, backend in self.backends():
+            try:
+                candidate = backend(self.client)
+            except Exception as exc:
+                tried.append(f"{label}: {exc}")
+                continue
+            if candidate.available:
+                self.attach(candidate, label)
+                self.client.log("info", f"[Judge] Judging with {label}.")
+                return
+            tried.append(f"{label}: {candidate.error}")
+            if waiting is None and getattr(candidate, "RECOVERS", False):
+                waiting, waiting_label = candidate, label
+
+        for reason in tried:
+            self.client.log("info", f"[Judge]   {reason}")
+
+        if waiting is not None:
+            # Kept, for the same reason the voice keeps one: something that
+            # talks to a server is not ready the instant it is built, and
+            # discarding it throws away the only object that knows how to ask
+            # again. `available` re-checks, and `judge()` reads it every time.
+            self.attach(waiting, waiting_label)
+            self.client.log(
+                "info",
+                f"[Judge] {waiting_label} is not ready yet - it will be asked "
+                f"again, and the rules decide until it answers.")
+            return
+
+        if tried:
+            self.client.log("info",
+                            "[Judge] No judge available - the rules decide.")
+
+    def backends(self) -> list:
+        """
+        The backends to try, in order, from whoever provides `assistant.judge`.
+
+        A list rather than one, so the per-backend failure reporting survives
+        - which is what tells a missing package apart from a missing model.
+        """
+        try:
+            built = self.client.SERVICES.build(self.PROVIDER, self.client)
+        except Exception as exc:
+            self.client.log("warning",
+                            f"[Judge] Could not ask who provides "
+                            f"{self.PROVIDER}: {exc}")
+            return []
+        return list(built or [])
+
+    def provider(self):
+        """Whoever supplies the backends now."""
+        return self.client.SERVICES.provider(self.PROVIDER)
+
+    def stop(self) -> None:
+        backend = self.detach()
+        if backend is None:
+            return
+        try:
+            closing = getattr(backend, "stop", None)
+            if callable(closing):
+                closing()
+        except Exception as exc:
+            self.client.log("warning", f"[Judge] Error stopping the judge: {exc}")
+
+    ## -- settings
+
+    def config(self) -> tuple:
+        """
+        The settings this backend was built against.
+
+        Its own tuple, like the other two: a save compares them one at a time,
+        so changing the judge rebuilds the judge and leaves the microphone and
+        the voice alone.
+        """
+        def setting(path, default=None):
+            try:
+                return self.client.setting(path, default)
+            except Exception:
+                return default
+
+        return (
+            setting("assistant.wake.gate_unaddressed.value", True),
+            setting("assistant.wake.judge_backend.value", "off"),
+            setting("assistant.wake.judge_where.value", "local"),
+            setting("assistant.wake.judge_host.value", ""),
+            setting("assistant.wake.judge_port.value",
+                    judge_protocol.DEFAULT_PORT),
+            setting("assistant.wake.judge_model.value", ""),
+            setting("assistant.wake.judge_timeout.value", 1.0),
+        )
+
+    def summary(self) -> dict:
+        """Everything a page needs about the judge, in one call."""
+        return {
+            "available": self.available,
+            "reason": self.unavailable_reason(),
+            "backend": self.label,
+        }

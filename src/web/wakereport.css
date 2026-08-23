@@ -12,26 +12,33 @@
            overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
  .field .v{flex:1;min-width:0;word-break:break-word}
 
- .warn{margin:12px 0 0;padding:12px 14px;border-radius:10px;
+ .warn{margin:0 0 14px;padding:12px 14px;border-radius:10px;
        border:1px dashed var(--accent);color:var(--text);
        font-size:13.5px;line-height:1.6}
 
- .events{display:flex;flex-direction:column;gap:8px}
- .event{border:1px solid var(--line);border-radius:12px;background:#141417;
-        padding:12px 14px}
-/* A wake and a near miss are the two halves of the same story and get read
-   against each other, so the difference has to survive a glance. */
- .event.woke{border-left:3px solid #7ee081}
- .event.near{border-left:3px solid #ffd479}
- .event .top{display:flex;align-items:baseline;gap:10px}
- .event .score{font-size:17px;font-weight:700;font-variant-numeric:tabular-nums}
- .event .what{font-size:12px;font-weight:700;letter-spacing:.05em;
-              text-transform:uppercase;color:var(--muted)}
- .event .when{margin-left:auto;color:var(--muted);font-size:12px;
-              font-variant-numeric:tabular-nums}
- .event .bar{color:var(--muted);font-size:12.5px;margin-top:3px}
- .event .said{margin-top:8px;font-size:14px;line-height:1.5}
- .event .said em{color:var(--muted);font-style:normal}
+/* The folded half. `summary` carries the whole hit target rather than the
+   triangle alone, which on a phone is a few pixels wide. */
+ .details{padding-top:14px}
+ .details>summary{cursor:pointer;list-style:none;font-size:14px;
+       color:var(--muted);display:flex;align-items:center;gap:10px;
+       min-height:34px}
+ .details>summary::-webkit-details-marker{display:none}
+ .details>summary::after{content:'';margin-left:auto;width:8px;height:8px;
+       border-right:2px solid var(--muted);border-bottom:2px solid var(--muted);
+       transform:rotate(45deg);transition:transform .15s}
+ .details[open]>summary{color:var(--text)}
+ .details[open]>summary::after{transform:rotate(225deg)}
+ .details>summary+*{margin-top:16px}
+ .details .label{margin-top:20px}
+
+/* Three views of one list, so they sit on the row above it rather than
+   reading as three separate things to choose between. */
+ .tabs{display:flex;gap:6px;margin:0 0 14px;overflow-x:auto}
+ .tabs .tab{flex:1;min-height:40px;padding:0 12px;font-size:13.5px;
+       font-weight:500;white-space:nowrap;border-radius:10px;
+       background:var(--card);color:var(--muted)}
+ .tabs .tab.on{border-color:var(--accent);color:var(--accent);
+       background:linear-gradient(150deg,rgba(47,240,142,.14),var(--card) 70%)}
 
 /* A clip is something to LISTEN to before deciding, so the player is the
    widest thing on the row rather than an afterthought beside a filename. */
@@ -40,8 +47,11 @@
        padding:12px 14px}
  .clip.ignoring{border-left:3px solid #ffd479}
  .clip.was-ignored{opacity:.72}
- .clip .top{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
+ .clip .top{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
  .clip .score{font-size:17px;font-weight:700;font-variant-numeric:tabular-nums}
+/* Against the score, quieter than it. The pair is one reading. */
+ .clip .bar{color:var(--muted);font-size:12.5px;
+            font-variant-numeric:tabular-nums;margin-right:4px}
  .clip .tag{font-size:11px;font-weight:700;letter-spacing:.05em;
             text-transform:uppercase;color:var(--muted)}
  .clip .tag.on{color:#ffd479}

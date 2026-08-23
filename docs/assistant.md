@@ -295,9 +295,15 @@ would be dropped by the same gate that let it through.
 
 ### Hearing what woke it, and ignoring it
 
-The last ten triggers are kept as WAV files under `logs/wake/clips/`, and
-`/wake` plays them. Each carries what it scored, what was heard around it, how
-the turn ended, and how close it came to anything already learned as noise.
+The last fifty triggers are kept as WAV files under `logs/wake/clips/`, and
+`/wake` plays them. Each carries what it scored, the bar it had to clear, what
+was heard around it, and how the turn ended.
+
+Fifty rather than a handful because the pattern in what is setting a panel off
+shows up over an evening, and in a room with a television in it a handful is
+an hour. The cost is the index rather than the audio: each entry carries a
+packed vector and the whole file is rewritten on every wake, which is around
+400KB a write.
 
 A sound learned as noise is passed over **before the panel arms**, so nothing
 downstream sees a wake at all. It is still recorded, with the similarity and
@@ -353,12 +359,21 @@ television wakes the panel again, which shows up in the report; too low and the
 panel silently ignores somebody saying the word properly, and nothing on
 screen says why.
 
-Every wake records its nearest similarity whether or not it was passed over,
-so `/wake` shows the spread before the number is moved.
+Every wake records its nearest similarity whether or not it was passed over.
+`/wake` shows it where it is the REASON for something - on a wake that was
+passed over, and on each entry in the ignore list - rather than on every row,
+where it is a tuning number nobody is reading. The whole spread is in
+`logs/wake.log`.
 
-Every clip has **Stop ignoring this** beside it, and there is a
+An ignore entry has **Stop ignoring this** beside it, and there is a
 **Stop ignoring everything** below the list. The ignore list is capped at ten
-and holds a copy of each sound, so a rule can always be checked by ear.
+and holds a copy of each sound, so a rule can always be checked by ear. Ten
+rather than fifty because every entry is compared against on every wake, and
+because it is a list somebody has to be able to audit in one screen.
+
+Its copy of the audio outlives the clip it was learned from. A clip drops off
+the listening list once fifty more have arrived, and a rule whose sound had
+gone with it would be one nobody could check.
 
 The speech process owns the list and rewrites it whenever a wake happens, so
 the panel asks rather than writing the file - `/wake/ignore/<key>` sends a
@@ -476,8 +491,31 @@ looking for, which is that it got worse after a change.
 
 It leads with a sentence saying what the numbers mean, because somebody
 standing at a panel with a phone wants to know whether to move a microphone or
-change a number, and a table cannot say which. The whole file is a download
-from there, or from `/logs/wake`.
+change a number, and a table cannot say which.
+
+Under it are the clips, in three tabs over one list:
+
+| Tab       | Holds                                               |
+|-----------|-----------------------------------------------------|
+| `Newest`  | The last ten. What lands while somebody is testing. |
+| `All`     | Every clip kept.                                    |
+| `Ignored` | The ignore list, and the way back off it.           |
+
+Each row is what it scored against the bar it had to clear, what was said
+around it, and how the turn ended. That is the question the page is opened to
+answer, so it is the only thing not folded away.
+
+The microphone, the session summary and the settings sit in one closed
+section, because none of them changes between visits. It opens on its own
+when the microphone line carries a warning: every score on the page is a score
+of whichever channel that line names, so a warning there is what to settle
+before reading any number above it. The whole file is a download from the same
+place, or from `/logs/wake`.
+
+Near misses are not drawn. A near miss has no audio to play and nothing to act
+on, and the two figures worth having from them - how many, and how far short
+the closest came - are in the opening sentence and in the summary. The file
+has every one.
 
 The page polls while it is open: the useful way to read this is to stand in
 the room saying the wake word and watch what lands.
@@ -824,6 +862,38 @@ panel's words first. Saying the wake word first always gets through.
 A near miss - 0.5 or better and still refused - is logged at `debug` with its
 score, so the threshold can be read off a real transcript rather than guessed.
 
+### Talking over a reply
+
+The microphone is muted while the panel speaks - `hold_capture(True)` sends
+`MUTE` to the child - so a reply read into a live microphone is never
+captured, never transcribed and never matched against anything. The SPOTTER
+keeps running, at `wake_sensitivity_speaking`, so the wake word still gets
+through.
+
+**The mute stops applying the moment the wake word fires.** From then on the
+microphone has a person in it, and continuing to discard audio throws away the
+sentence they said the word in order to start.
+
+```python
+speaking_over = self.armed and self.muted
+capturing = (self.mode == "passthrough" or self.armed) \
+    and (not self.muted or speaking_over)
+```
+
+Waiting for the panel to unmute does not work, and it is worth being precise
+about why. The panel learns about the wake by MESSAGE - `host:woke:` over a
+socket - then stops the speech, then sends `UNMUTE` back. That round trip is a
+couple of hundred milliseconds of somebody already talking, and it lands on the
+FRONT of what they said: "alexa, stop" arrives as "op", which matches nothing.
+Saying it again was the only thing that worked, which reads as a panel that
+will not listen.
+
+Safe because the wake word is the one sound the panel never makes. Its own
+voice cannot arm the child, so audio captured after arming is not the reply
+coming back - and the reply is being stopped as this runs. A child that has
+NOT been woken still captures nothing while the panel talks, which is what the
+mute is for.
+
 ### Interrupting a reply nobody has heard
 
 The wake interrupt fires only once the reply is **audible**, not merely
@@ -842,6 +912,24 @@ and from the room the panel took the question and said nothing.
 
 `TTS.is_audible()` is the narrower question. A backend that does not offer it
 falls back to `is_speaking()`, which is no worse than not having asked.
+
+### Stopping a reply from somewhere else
+
+`SERVICES.STT.silence(why)` is the whole of stopping a reply on somebody's
+behalf: it stops the voice, opens the settle window, clears `spoke_until` and
+defends that clear with `note_interrupted()`. Four moves that only work
+together, in one place, because leaving one out shows up as the panel
+discarding the sentence after the interruption rather than as anything near
+the code that stopped it.
+
+It answers whether anything was actually talking, and the flag is only set
+when something was — with nothing playing there is no unwinding callback to
+defend against, and the flag would sit there and swallow the grace after the
+next reply.
+
+Both the wake-word interrupt and `/assistant/hush` go through it.
+`TTS.stop_speaking()` is the half without the bookkeeping, for a caller
+putting down a reply it owns rather than acting for a person.
 
 ### Stopping a reply that has not started
 
@@ -1009,6 +1097,88 @@ AEC shortens that: `audio.devices.mic_processing = hardware` uses
 panel spoke, and the transcriber only runs on silence, so the last thing it
 was saying arrives just after it was stopped, looking like a question.
 
+
+## Asking a model who was being spoken to
+
+The rules in `addressed.py` decide by sentence shape. That works for "what
+time is it" and cannot work for "what did she tell you", which is a question
+by every measure and was asked of somebody on television. `SERVICES.JUDGE`
+puts a small language model between the skills and the fallback.
+
+Off by default. `assistant.wake.judge_backend` turns it on.
+
+### It answers with a key
+
+`ANSWER` or `IGNORE`, and nothing else — not prose, not a probability. There
+is nowhere in the wire format to put an explanation, and `judge_protocol.answer()`
+raises on anything that is not one of the two, so a chatty model cannot get a
+sentence onto the wire.
+
+The local backend does not generate at all. The prompt is built so the next
+token is the decision, the logits for that position are read once, and the
+larger of two candidates is the verdict. That has three properties generation
+does not: it cannot answer anything except a key, it costs one forward pass
+rather than one per token, and it is deterministic — the same utterance in the
+same room gets the same answer, which is what makes a log worth reading.
+
+Both keys are checked at load for starting with the same token. If they did,
+every answer would be the same answer and nothing downstream could tell: valid
+key, ordinary log, and a panel that either answers the television every time
+or ignores its owner every time.
+
+### The rules are what happens when it is not there
+
+**Nothing about the judge is allowed to make the panel worse than it is with
+the judge turned off.** Off, downloading, slow, unreachable, or answering
+nonsense — every one of those has to leave the panel exactly as it behaves
+without it, because that is the state everything else was tested in.
+
+`JudgeFacade.judge()` never raises and returns `""` for all of them. Empty is
+not a third opinion; it means ask something else.
+
+**What "something else" is differs by call site, and that is deliberate.**
+
+| Where               | No judge means                                |
+|---------------------|-----------------------------------------------|
+| The fallback funnel | The rules decide, which is today's behaviour. |
+| Inside a session    | The phrase goes through.                      |
+
+The second is not the first. There is no gate on a session today, so falling
+back to the rules there would start dropping "Tuesday" and "tell me more" —
+which carry no signal of their own and are complete answers to a question the
+panel just asked. A judge that goes down mid-conversation must not begin
+swallowing the replies.
+
+And when it does say the room was talking, a session waits past it rather than
+cancelling. Ending somebody's conversation on a line from the television would
+be worse than the ungated window it closes.
+
+A TYPED request is never judged. Something arriving over the API or off a
+keyboard has already said who it is talking to by arriving at all.
+
+### What it is told
+
+The phrase, the transcript with the wake word still in it, which word that
+was, what the panel last answered, and whether a conversation is open.
+
+The transcript matters and is nearly lost: `process_phrase()` receives the
+phrase with the wake word stripped and the punctuation cleaned, which is right
+for matching a skill and wrong for judging who was being spoken to. How
+somebody addressed the panel is evidence about whether they addressed it at
+all. It is carried as an argument rather than kept on the client, because two
+utterances in flight would otherwise be matched with each other's transcripts.
+
+### Where it runs
+
+`local` in the panel, `subprocess` beside it, or `socket` on another machine —
+the same three places the voice has, and the same `PACKAGES` builder to set a
+remote one up. `subprocess` and `socket` are the same code pointed at
+different addresses: a local mode with its own code path is a second thing to
+keep working, and only one of them gets used enough to notice when it breaks.
+
+`judge_timeout` is a ceiling, not a target. Somebody is standing in front of
+the panel while this runs, so a judge that has gone slow stops being consulted
+rather than holding up the answer.
 
 ## Speaking somewhere else
 

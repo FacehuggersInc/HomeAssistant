@@ -57,7 +57,7 @@ No device token is needed.
 | [Updating](docs/updating.md)                             | Update checks, staging, rollback, exit codes.           |
 | [Architecture](docs/architecture.md)                     | How the client, backend and plugins fit together.       |
 | [Plugins](docs/plugins.md)                               | `plugin.toml`, `main.py`, and the full lifecycle.       |
-| [Bundled plugins](docs/bundled-plugins.md)               | The nine that ship, and what each provides.             |
+| [Bundled plugins](docs/bundled-plugins.md)               | The ten that ship, and what each provides.              |
 | [Pages](docs/pages.md)                                   | Registering a page, a full example, sub-pages.          |
 | [Widgets](docs/widgets.md)                               | Writing and registering widgets, layout, persistence.   |
 | [Tiles](docs/tiles.md)                                   | Writing and registering tiles, the grid and panel.      |

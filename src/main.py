@@ -425,6 +425,8 @@ class Client:
         self.register_speech_providers()
         from src.assistant import tts_package
         tts_package.register(self)
+        from src.assistant import judge_package
+        judge_package.register(self)
 
         ## -- APIS
         # One registry for both: the HTTP endpoints a plugin serves, and the
@@ -2056,6 +2058,11 @@ class Client:
                          SocketTTSProcessing)]
 
             if where == "subprocess":
+                # Started by the service registry, which owns its lifetime -
+                # it goes down when the panel does, and comes back if it
+                # dies. Nothing here waits for it: SocketJudge answers "not
+                # ready" until the model is open, and the rules decide until
+                # then.
                 # The same server, on this machine. The work still costs what
                 # it costs; what changes is that it no longer happens inside
                 # the interpreter the screen and the microphone share.
@@ -2067,10 +2074,49 @@ class Client:
             from src.assistant.tts_pocket import PocketTTSProcessing
             return [("Pocket TTS", PocketTTSProcessing)]
 
+        def judging(client):
+            """
+            What decides whether an utterance was meant for the panel.
+
+            One or the other, never both, and never a silent fallback from a
+            remote judge to a local one: a panel quietly running a model it
+            was told to run somewhere else would be a panel that works,
+            slowly, for a reason nobody can see.
+            """
+            choice = str(client.setting("assistant.wake.judge_backend.value",
+                                        "off") or "off").strip().lower()
+            if choice == "off":
+                return []
+
+            where = str(client.setting("assistant.wake.judge_where.value",
+                                       "local") or "local").strip().lower()
+            port = client.setting("assistant.wake.judge_port.value", 8771)
+
+            if where == "socket":
+                from src.assistant.judge_socket import SocketJudge
+                host = str(client.setting("assistant.wake.judge_host.value", "")
+                           or "").strip()
+                return [(f"A judge at {host or 'nowhere'}:{port}", SocketJudge)]
+
+            if where == "subprocess":
+                # The same script another machine would run. One
+                # implementation rather than two: a local mode with its own
+                # code path is a second thing to keep working, and the socket
+                # one is the tested one.
+                from src.assistant.judge_socket import SocketJudge
+                client.start_judge_process()
+                return [(f"A judge beside the panel on :{port}",
+                         lambda c: SocketJudge(c, "127.0.0.1", port))]
+
+            from src.assistant.judge_local import LocalJudge
+            return [("Qwen, inside the panel", LocalJudge)]
+
         self.SERVICES.provide("client", "assistant.stt", parakeet,
                               "Parakeet, in a child process")
         self.SERVICES.provide("client", "assistant.tts", speaking,
                               "The panel's own voice")
+        self.SERVICES.provide("client", "assistant.judge", judging,
+                              "Whether somebody was talking to the panel")
         self.SERVICES.watch_provider("assistant.stt", self._speech_provider_changed)
         self.SERVICES.watch_provider("assistant.tts", self._speech_provider_changed)
 
@@ -2132,6 +2178,64 @@ class Client:
         """Stop it, if it is running. A no-op in the other two modes."""
         try:
             self.SERVICES.stop(self.SPEECH_SERVICE)
+        except Exception:
+            pass
+
+    JUDGE_SERVICE = "assistant.judge.process"
+    #Slower to give up than the speech one. This is optional: a judge that
+    #will not start costs the panel the rules, which is what it has anyway,
+    #so there is no reason to keep hammering a machine that cannot run it.
+    JUDGE_RESTART = Restart(backoff=(0.0, 10.0, 60.0), window=300.0)
+
+    def start_judge_process(self) -> None:
+        """
+        Run the judge beside the panel, on the loopback.
+
+        The same script a second machine would run, for the same reason the
+        speech one is: a local mode with its own code path is a second thing
+        to keep working, and only one of them gets used enough to notice when
+        it breaks.
+        """
+        port = self.setting("assistant.wake.judge_port.value", 8771)
+        try:
+            port = int(port or 8771)
+        except (TypeError, ValueError):
+            port = 8771
+        model = str(self.setting("assistant.wake.judge_model.value", "")
+                    or "onnx-community/Qwen3-0.6B-ONNX").strip()
+
+        def argv():
+            # A factory, so a restart takes the model as it is now rather
+            # than as it was when the panel started.
+            from pathlib import Path as _Path
+            script = (_Path(__file__).resolve().parent
+                      / "assistant" / "judge-socket-process.py")
+            return [sys.executable, str(script),
+                    "--host", "127.0.0.1", "--port", str(port),
+                    "--model", model,
+                    # int8 beside the panel: this is the same machine, with
+                    # the same screen and microphone on it, as the local
+                    # backend. The remote package asks for fp16.
+                    "--file", "onnx/model_q4.onnx"]
+
+        def gone(code, restarting):
+            if restarting:
+                return
+            # Info rather than a notification. Nothing is broken: every
+            # utterance goes to the rules, which is how the panel behaves
+            # with the judge turned off, and a popup for a feature degrading
+            # to its own default is a popup nobody can act on.
+            self.log("info", f"[Judge] The judge process exited ({code}) and "
+                             f"is not coming back. The rules decide.")
+
+        self.SERVICES.spawn("client", self.JUDGE_SERVICE, command=argv,
+                            on_exit=gone, restart=self.JUDGE_RESTART)
+        self.SERVICES.start(self.JUDGE_SERVICE)
+
+    def stop_judge_process(self) -> None:
+        """Stop it, if it is running. A no-op in the other two modes."""
+        try:
+            self.SERVICES.stop(self.JUDGE_SERVICE)
         except Exception:
             pass
 

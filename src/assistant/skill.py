@@ -8,7 +8,7 @@ import traceback
 from threading import Thread
 from typing import TYPE_CHECKING, Callable, Optional, List
 
-from src.assistant import addressed, nlp
+from src.assistant import addressed, judge_protocol, nlp
 
 if TYPE_CHECKING:
 	from src.main import Client
@@ -1122,7 +1122,8 @@ class SkillIntentEngine:
 		s = re.sub(r"\s+", " ", s)
 		return s
 	
-	def __skill_call_with_status_update(self, ranked, match, ask_args=None):
+	def __skill_call_with_status_update(self, ranked, match, ask_args=None,
+										heard: dict = None):
 		"""
 		Run the best skill, and the next one if it declines.
 
@@ -1198,9 +1199,9 @@ class SkillIntentEngine:
 		self.client.log("info",
 			"[SkillIntentEngine] Every skill declined - passing it on.")
 		self.client.ASSIST_STATUS = "LIVE"
-		self._fall_back(text)
+		self._fall_back(text, heard=heard)
 
-	def _fall_back(self, phrase: str, doc = None) -> None:
+	def _fall_back(self, phrase: str, doc = None, heard: dict = None) -> None:
 		"""
 		Nothing here answered it. Hand it on, or drop it.
 
@@ -1230,8 +1231,9 @@ class SkillIntentEngine:
 			pass
 
 		if self._should_gate(context):
-			verdict = addressed.is_addressed(doc if doc is not None
-											 else self.parse_doc(phrase))
+			rules = addressed.is_addressed(doc if doc is not None
+										   else self.parse_doc(phrase))
+			verdict = self._judged(phrase, heard, context, rules)
 			if not verdict.addressed:
 				# Dropped, and said so. This is the only record that the
 				# panel heard something and chose to do nothing, and from
@@ -1258,6 +1260,49 @@ class SkillIntentEngine:
 	#room for the next five minutes, which in front of a television is the
 	#whole problem rather than an edge of it. A follow-up arrives in seconds.
 	FOLLOW_UP_WITHIN = 30.0
+
+	def _judged(self, phrase: str, heard: dict, context, rules):
+		"""
+		The model's verdict, or the rules' when it has none.
+
+		**The rules are what happens when the judge is not there**, and that
+		is the whole contract. A judge that is off, downloading, slow,
+		unreachable or answering nonsense has to leave the panel exactly as
+		it behaves with no judge at all - because that is the state
+		everything else was tested in, and a feature that makes the panel
+		worse when it breaks is worse than not having it.
+
+		A TYPED request is never judged. Something arriving over the API or
+		off a keyboard has already said who it is talking to by arriving at
+		all, and the judge would be shown an utterance with no wake word and
+		no transcript and would be right to doubt it.
+		"""
+		heard = heard or {}
+		if heard.get("typed"):
+			return rules
+
+		try:
+			key = self.client.SERVICES.JUDGE.judge(
+				phrase,
+				transcript=heard.get("transcript", ""),
+				wake=heard.get("wake", ""),
+				in_session=False)
+		except Exception as exc:
+			# Never allowed to reach the caller. This sits on the path a
+			# person is waiting on, and an exception here would take down
+			# the reply rather than the judgement.
+			self.client.log("warning", f"[SkillIntentEngine] The judge "
+										f"failed: {exc}")
+			return rules
+
+		if not key:
+			return rules
+
+		if key == judge_protocol.ANSWER:
+			return addressed.Verdict(True, "the judge says it was meant for "
+										   "the panel", "judge")
+		return addressed.Verdict(False, "the judge says nobody was talking to "
+									    "the panel", "judge")
 
 	def _should_gate(self, context) -> bool:
 		"""
@@ -1683,7 +1728,8 @@ class SkillIntentEngine:
 			f"[SkillIntentEngine] Rule phase matched '{best_skill.key}' @ {round(best_score, 2)}")
 		return best_skill, best_score
 
-	def parse(self, phrase: str, use_skill: bool = True) -> Intent | None:
+	def parse(self, phrase: str, use_skill: bool = True,
+			  heard: dict = None) -> Intent | None:
 		start = time.time()
 
 		self.client.log("info", f"[SkillIntentEngine] Searching for Intent in '{phrase}' ...")
@@ -1735,7 +1781,7 @@ class SkillIntentEngine:
 				# conversation rather than on the words: `_should_gate()`
 				# stands aside when the panel answered something moments
 				# ago. "Tell me more" passes on its own shape as well.
-				self._fall_back(phrase, doc=match_doc)
+				self._fall_back(phrase, doc=match_doc, heard=heard)
 			return None, None
 
 		# `.get`, not indexing. The Matcher is shared across the process,
@@ -1872,7 +1918,7 @@ class SkillIntentEngine:
 				# no skill wanted them. Without a test for whether anybody
 				# was being addressed, "nothing matched" means "ask the AI",
 				# and the panel answers the room out loud.
-				self._fall_back(phrase, doc=match_doc)
+				self._fall_back(phrase, doc=match_doc, heard=heard)
 			return None, None
 		else:
 			if use_skill:
@@ -1891,7 +1937,7 @@ class SkillIntentEngine:
 					ranked.remove(best_skill)
 				ranked.insert(0, best_skill)
 				Thread(target = self.__skill_call_with_status_update,
-					   args = [ranked, match_doc, ask_args]).start()
+					   args = [ranked, match_doc, ask_args, heard]).start()
 			else:
 				self.client.ASSIST_STATUS = "LIVE"
 			self.client.log("info", f"[SkillIntentEngine] Matcher found '{best_skill.key}' @ {best_score} : {time.time() - start}s")

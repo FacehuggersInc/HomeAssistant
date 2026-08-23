@@ -2,34 +2,22 @@
 
 <!-- The whole point of the page. Somebody standing at the panel with a phone
      wants to know whether to move a microphone or change a number, and a
-     table cannot say which - so the sentence goes first and the numbers
-     underneath it are the working. -->
+     table cannot say which - so the sentence goes first and everything else
+     is the working behind it. -->
 <section class="card verdict" id="verdict">
   <p class="label">What it looks like</p>
   <p class="says" id="says">Reading the report&hellip;</p>
 </section>
 
+<!-- The clips are the page. Each one is a sound that got through, what it
+     scored, and what was said around it - which is the question somebody
+     opens this to answer. -->
 <section class="card">
-  <p class="label">The microphone</p>
-  <div class="fields" id="device"></div>
-  <p class="warn" id="channels" style="display:none"></p>
-</section>
-
-<section class="card">
-  <p class="label">This session</p>
-  <div class="fields" id="summary"></div>
-  <p class="hint" id="partial" style="display:none">The report was already
-    running before the part shown here. Restart the assistant for a clean
-    session.</p>
-</section>
-
-<section class="card">
-  <p class="label">Settings it ran with</p>
-  <div class="fields" id="settings"></div>
-</section>
-
-<section class="card">
-  <p class="label">What woke it, and what it sounded like</p>
+  <div class="tabs" id="tabs">
+    <button type="button" class="tab on" data-tab="newest">Newest</button>
+    <button type="button" class="tab" data-tab="all">All</button>
+    <button type="button" class="tab" data-tab="ignored">Ignored</button>
+  </div>
   <p class="hint" id="clips-hint">Loading&hellip;</p>
   <div class="clips" id="clips"></div>
   <div class="row" id="forget-all-row" style="display:none">
@@ -37,10 +25,28 @@
   </div>
 </section>
 
-<section class="card">
-  <p class="label">What happened, newest first</p>
-  <div class="events" id="events"><p class="hint">Loading&hellip;</p></div>
+<!-- Closed, because none of it changes between visits and none of it is what
+     somebody came here for. It is opened on its own when the microphone line
+     has a warning on it, since that one decides whether any score on the
+     page describes the hardware somebody thinks it does. -->
+<details class="card details" id="details">
+  <summary>The microphone, the room, and what it ran with</summary>
+
+  <p class="warn" id="channels" style="display:none"></p>
+
+  <p class="label">The microphone</p>
+  <div class="fields" id="device"></div>
+
+  <p class="label">This session</p>
+  <div class="fields" id="summary"></div>
+  <p class="hint" id="partial" style="display:none">The report was already
+    running before the part shown here. Restart the assistant for a clean
+    session.</p>
+
+  <p class="label">Settings it ran with</p>
+  <div class="fields" id="settings"></div>
+
   <div class="row">
     <a class="btn" id="download" href="/logs/wake">Download the whole report</a>
   </div>
-</section>
+</details>

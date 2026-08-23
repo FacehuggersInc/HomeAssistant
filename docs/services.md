@@ -498,6 +498,34 @@ currently doing it.
 | `label`                 | How the running backend was named.             |
 | `backend`               | Whatever is speaking, or None.                 |
 
+### `SERVICES.JUDGE`
+
+| On `SERVICES.JUDGE`             |                                             |
+|---------------------------------|---------------------------------------------|
+| `judge(text, transcript, wake, in_session)` | `ANSWER`, `IGNORE`, or `""`.    |
+| `available`                     | Whether there is one to ask.                |
+| `unavailable_reason()`          | Why there is not, or `""`.                  |
+| `start()` / `stop()`            | Pick a backend, or let it go.               |
+| `config()`                      | The judge settings, its own.                |
+| `summary()`                     | All of it, for a page.                      |
+| `label`                         | How the running backend was named.          |
+
+`""` is the important one. It means the judge could not answer - off, loading,
+slow, unreachable, or saying something that is not a key - and every caller
+has to have an answer for it that does not depend on the judge. Nothing here
+is allowed to make the panel worse than it is with the judge turned off. See
+[asking a model who was being spoken to](assistant.md#asking-a-model-who-was-being-spoken-to).
+
+A backend has the same shape the voice backends do:
+
+```python
+available   error   judge(payload)   stop()
+```
+
+Optionally `RECOVERS = True`, which says a "no" may become a "yes" without
+anything being rebuilt - a model still downloading, a server on another
+machine started after the panel was.
+
 ### Asking which voices there are
 
 **`voice_options()` asks the running backend, never a setting.** There is no

@@ -54,24 +54,28 @@ Everything in the tree above boils down to a handful of ideas, each covered in f
 * **Mixins** rigidly extend existing behavior.
 * **Events** let any part of the application react to things happening elsewhere.
 * **Registries** manage and store extendable, plugin-ownable objects. There are
-  nine, each with its own section under [Registries](registries.md):
+  thirteen. Most have a section under [Registries](registries.md); the two
+  with enough behaviour of their own have a page — [Cancelling](cancel.md)
+  and [Status icons](status.md):
 
-| Registry              | Reached by       | Holds                                                                             |
-|-----------------------|------------------|-----------------------------------------------------------------------------------|
-| `APIRegistry`         | `client.API`     | HTTP endpoints a plugin serves                                                    |
-| `PageRegistry`        | `client.PAGES`   | Full-screen pages. A sub-page is reached through its parent's entry, not by name. |
-| `PublicRegistry`      | `client.public`  | Data one plugin offers to the others                                              |
-| `SecretRegistry`      | `client.SECRETS` | API keys, kept out of the settings file                                           |
-| `QuickAccessRegistry` | `client.QUICK`   | Buttons on the quick settings panel                                               |
-| `UserRegistry`        | `client.USERS`   | Approved devices and their tokens                                                 |
-| `AudioRegistry`       | `client.AUDIO`   | Sounds by name, and where their files live                                        |
-| `PlayerRegistry`      | `client.PLAYER`  | Whatever is playing, from any source                                              |
-| `StatusRegistry`      | `client.STATUS`  | What the panel is busy with, as icons                                             |
-| `CancelRegistry`      | `client.CANCEL`  | What "stop" means right now                                                       |
-| `ServiceRegistry`     | `client.SERVICES`| Threads, child processes, and the speech facades                                  |
-| `PackageRegistry`     | `client.PACKAGES`| Set-up bundles other machines can be built from                                   |
+| Registry              | Reached by        | Holds                                                                             |
+|-----------------------|-------------------|-----------------------------------------------------------------------------------|
+| `APIRegistry`         | `client.API`      | HTTP endpoints a plugin serves                                                    |
+| `PageRegistry`        | `client.PAGES`    | Full-screen pages. A sub-page is reached through its parent's entry, not by name. |
+| `PublicRegistry`      | `client.public`   | Data one plugin offers to the others                                              |
+| `SecretRegistry`      | `client.SECRETS`  | API keys, kept out of the settings file                                           |
+| `ContextRegistry`     | `client.CONTEXT`  | What was last asked and answered, for resolving "that"                            |
+| `QuickAccessRegistry` | `client.QUICK`    | Buttons on the quick settings panel                                               |
+| `UserRegistry`        | `client.USERS`    | Approved devices and their tokens                                                 |
+| `AudioRegistry`       | `client.AUDIO`    | Sounds by name, and where their files live                                        |
+| `PlayerRegistry`      | `client.PLAYER`   | Whatever is playing, from any source                                              |
+| `StatusRegistry`      | `client.STATUS`   | What the panel is busy with, as icons                                             |
+| `CancelRegistry`      | `client.CANCEL`   | What "stop" means right now                                                       |
+| `ServiceRegistry`     | `client.SERVICES` | Threads, child processes, and the speech facades                                  |
+| `PackageRegistry`     | `client.PACKAGES` | Set-up bundles other machines can be built from                                   |
 
-Keep these in mind as you read on — nearly everything else in these docs is one of these seven ideas in more detail.
+Keep these in mind as you read on — nearly everything else in these docs is
+one of the ideas above in more detail.
 
 ---
 

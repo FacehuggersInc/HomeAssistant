@@ -1517,6 +1517,14 @@ def FlaskApp(client):
 		]
 
 		actions += [
+			{"url": "/assistant/hush", "label": "Stop talking",
+			 "description": "Cut off whatever the panel is saying. It carries "
+							"on listening.",
+			 "auth": True, "icon": "volume-off", "danger": False},
+			{"url": "/assistant/stand-down", "label": "Stand down",
+			 "description": "Close any conversation and go back to waiting "
+							"for the wake word.",
+			 "auth": True, "icon": "microphone-off", "danger": False},
 			{"url": "/ping", "label": "Ping", "danger": False,
 			 "icon": "check-network"},
 			{"url": "/update/now", "label": "Update the panel",
@@ -1578,6 +1586,75 @@ def FlaskApp(client):
 		return send_from_directory(str(folder), safe,
 								   mimetype="font/ttf",
 								   max_age=60 * 60 * 24 * 30)
+
+	@app.route("/assistant/hush", methods=["GET", "POST"])
+	def assistant_hush():
+		"""
+		Stop the panel talking, and leave it listening.
+
+		The narrow half of a cancel. Somebody in a room with a panel reading
+		out a long answer wants the noise to stop and nothing else - the
+		conversation is still theirs and the next thing they say should still
+		be heard.
+
+		Through the recogniser rather than `TTS.stop_speaking()` directly.
+		Cutting a reply off mid-word leaves a settle window and a
+		self-hearing grace that would otherwise swallow the next sentence,
+		and that bookkeeping lives with the recogniser - see
+		`STTProcessing.silence()`.
+		"""
+		log()
+		err = auth()
+		if err: return err
+		try:
+			stopped = client.SERVICES.STT.silence("asked from the dashboard")
+		except Exception as e:
+			return {"request": "Failed", "reason": str(e)}, 500
+		return answered({
+			"request": "Success", "stopped": bool(stopped),
+			"what": ("Stopped talking." if stopped
+					 else "Nothing was being said.")})
+
+	@app.route("/assistant/stand-down", methods=["GET", "POST"])
+	def assistant_stand_down():
+		"""
+		Abandon whatever the assistant is doing and wait for the wake word.
+
+		Closes any open conversation, clears the wake state and puts the
+		child back to the wake word with the refractory in force, so the tail
+		of whatever caused this is not scored against a freshly reset model.
+
+		**It does not stop the voice**, and it does not turn the assistant
+		off. Talking and listening are separate here because they are
+		separate things to want stopped: `/assistant/hush` is the one for a
+		panel that is being too loud, and `assistant.enabled` is the one for
+		a panel that should not be listening at all. A button that quietly
+		did all three would be a button nobody could predict.
+
+		Unconditional, rather than going through `client.CANCEL`. A phrase
+		asks what "stop" means right now and gets an answer that depends on
+		what is registered and in front; a button labelled Stand down means
+		one thing wherever it is pressed from.
+		"""
+		log()
+		err = auth()
+		if err: return err
+		try:
+			was_session = bool(client.SERVICES.STT.is_session())
+		except Exception:
+			was_session = False
+		try:
+			ran = client.SERVICES.STT.cancel("asked from the dashboard")
+		except Exception as e:
+			return {"request": "Failed", "reason": str(e)}, 500
+		if not ran:
+			return answered({"request": "Success", "stood_down": False,
+							 "what": "Nothing is listening."})
+		return answered({
+			"request": "Success", "stood_down": True,
+			"session_closed": was_session,
+			"what": ("Conversation closed and back to the wake word."
+					 if was_session else "Back to the wake word.")})
 
 	@app.route("/quiet/<what>/<state>", methods=["GET"])
 	def set_quiet(what, state):

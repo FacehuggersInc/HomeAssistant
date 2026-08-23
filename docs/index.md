@@ -23,7 +23,7 @@ you write any background work - it is the rule most easily broken by accident.
 [Services](services.md) is the other half of that: anything long-running, and
 anything that is a process rather than a thread.
 
-[Bundled plugins](bundled-plugins.md) describes the nine that ship. They are
+[Bundled plugins](bundled-plugins.md) describes the ten that ship. They are
 ordinary plugins with no special privileges, so they are the worked examples
 for everything above.
 
@@ -72,7 +72,7 @@ can subscribe to.
 | [Updating](updating.md)                             | Update checks, staging, rollback, exit codes.           |
 | [Architecture](architecture.md)                     | How the client, backend and plugins fit together.       |
 | [Plugins](plugins.md)                               | `plugin.toml`, `main.py`, and the full lifecycle.       |
-| [Bundled plugins](bundled-plugins.md)               | The nine that ship, and what each provides.             |
+| [Bundled plugins](bundled-plugins.md)               | The ten that ship, and what each provides.              |
 | [Remote plugins](plugins-remote.md)                 | Installing and updating a plugin over the network.      |
 | [Pages](pages.md)                                   | Registering a page, a full example, sub-pages.          |
 | [Widgets](widgets.md)                               | Writing and registering widgets, layout, persistence.   |

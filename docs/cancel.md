@@ -130,6 +130,31 @@ It is a different question from `is_cancellation()`, and the two are not
 interchangeable.
 
 
+## Buttons do not ask
+
+Everything above is about a phrase, where "stop" has to mean whatever is in
+front. A button does not have that problem: somebody pressing one has already
+said which thing they meant by choosing it.
+
+So the dashboard's controls go straight to what they name rather than through
+`CANCEL.run()`:
+
+| Button                    | Does                                               |
+|---------------------------|----------------------------------------------------|
+| Stop talking              | Cuts off the reply. Keeps listening.               |
+| Stand down                | Closes any conversation, back to the wake word.    |
+| Close the AI conversation | Tears down the conversation panel and its session. |
+
+Routing these through the registry would make a button's effect depend on what
+happens to be registered and in front, which is right for a word and wrong for
+a control with a label on it. See [Backend API](api.md#assistanthush-and-assistantstand-down).
+
+The last one is registered by AI Fallback, not by the panel, and is what
+reaches a conversation left open in an empty room — the case the spoken
+"nevermind" cannot help with, because the session swallows every phrase as a
+follow-up until it times out.
+
+
 ### Inside a session, a cancel word counts anywhere
 
 **Looser in here, and deliberately.** On the wake path a cancel word has to be

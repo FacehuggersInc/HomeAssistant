@@ -1191,7 +1191,26 @@ class ParakeetListener:
             # microphone is never captured, never transcribed and never
             # matched against anything. The spotter above still runs, so the
             # wake word still interrupts.
-            capturing = (self.mode == "passthrough" or self.armed) and not self.muted
+            #
+            # **Except once the wake word has fired.** From that moment the
+            # microphone has a person in it, and the mute is throwing away
+            # the sentence they said the word in order to start.
+            #
+            # The panel does unmute when it hears the wake - but it hears it
+            # by message, over a socket, after stopping the speech, and the
+            # UNMUTE has to come back the same way. That round trip is a
+            # couple of hundred milliseconds of somebody already talking, and
+            # it lands on the FRONT of what they said: "alexa, stop" arrives
+            # as "op", which matches nothing and is why saying it again was
+            # the only thing that worked.
+            #
+            # Safe because the wake word is the one sound the panel never
+            # makes. Its own voice cannot arm the child, so audio captured
+            # after arming is not the reply coming back - and the reply is
+            # being stopped as this runs.
+            speaking_over = self.armed and self.muted
+            capturing = (self.mode == "passthrough" or self.armed) \
+                and (not self.muted or speaking_over)
             if capturing and self.report is not None:
                 # Level and VAD only. The spotter did not run for this window,
                 # so `last_score` describes an earlier moment and feeding it

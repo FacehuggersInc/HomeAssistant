@@ -1,6 +1,6 @@
 # Bundled plugins
 
-Nine plugins ship in `src/assets/bundled/`. They are ordinary plugins with no
+Ten plugins ship in `src/assets/bundled/`. They are ordinary plugins with no
 special privileges - the same lifecycle, the same registries, the same
 `plugin.toml`. Almost everything visible on a fresh install comes from them,
 which is deliberate: if the bundled plugins could do something your plugin
@@ -19,11 +19,12 @@ Read them when the documentation runs out. They are the worked examples.
 | `musicplugin`       | Music                | Playing music by voice, and the now-playing card.          |
 | `calendar`          | Calendar             | Events, holidays, a calendar sub-page, widgets and a tile. |
 | `astronomy`         | Astronomy            | Sun and moon arithmetic, for anything that asks.           |
+| `randomchance`      | Random Chance        | Coin flips, dice and wheels, drawn on the screen.          |
 
 
 ## Core Widgets Bundle
 
-`corewidgetsbundle` - the largest of the nine, and the one to read first.
+`corewidgetsbundle` - the largest of the ten, and the one to read first.
 
 Registers the home page and its sub-pages, and every widget and tile that
 comes with the app:
@@ -301,6 +302,24 @@ per-session token counts so the cost of a conversation is visible while you
 are having it. Remote images in a reply are fetched and displayed; the panel
 closes on a tap outside it, which also cancels the assistant session.
 
+### Closing it from a phone
+
+`Close the AI conversation` is on the dashboard, from the `ai_close` endpoint.
+
+The session is the part that matters. Left open after the conversation is
+finished with, every phrase in the room goes into the session queue as a
+follow-up rather than being treated as a fresh request, so nothing else
+answers until it times out. From anywhere but in front of the panel that
+reads as an assistant that has stopped working.
+
+Saying "nevermind" fixes it and needs the panel to hear you, which is the one
+thing not working — so this is the way in that does not go through the
+microphone. It runs the same `close_panel()` teardown as the spoken word: the
+timeout, this conversation's own voice, the session, the history and the
+panel, in that order. It answers `closed` false rather than reporting success
+when there was nothing open, since an empty room and a cleared one are
+different things to have found.
+
 ### The pill in the panel
 
 `StatusPill` says what the assistant is doing at the bottom of the
@@ -525,6 +544,49 @@ Exposed under `astronomy`: `sun_times`, `next_sun_event`, `describe_wait`,
 No network - it is arithmetic on a date and a position. `sun_times` answers in
 UTC with a timezone attached, so convert before comparing against
 `datetime.now()`.
+
+
+## Random Chance
+
+`randomchance` - settling something by chance, drawn on the screen rather than
+reported as a number.
+
+A coin flip, dice, and named wheels. Say "flip a coin", "roll 2d20 and a d10",
+or "roll the dice" for a random one from the standard set; spoken numbers work
+as well as digits, and one phrase can carry several groups.
+
+**The outcome is decided before anything is drawn**, and the animation is
+choreographed to arrive at it. A dropped frame, a slow panel or animation
+turned off entirely cannot change what was rolled, and `flip()` and `roll()`
+hand the answer back while it is still in the air. The trap in that is worth
+knowing: anything ANNOUNCING a result has to wait for the drawing rather than
+for the decision, or the panel says the answer while the coin is still
+turning.
+
+Everything is drawn on an overlay rather than on the home page, because a
+flip asked for by voice happens wherever the panel already is. Nothing it
+puts up takes a tap.
+
+**Random Chance** is also a card on the dashboard, serving from
+`/public/randomchance_page` - a control surface for a phone, where the panel
+does the showing. The phone is deliberately not told the answer: reading the
+result off a phone while the coin is still turning spoils the only
+interesting second of it.
+
+How long a result is held scales with what is on the stage - `stage.result_ms`
+plus `stage.result_per_item_ms` for each item after the first, capped at
+`stage.result_max_ms`. One rule for every kind of chance, so a new one gets
+the behaviour without knowing about it. A coin holds for 2.4s and sixty dice
+for 6.5s.
+
+Exposed on the public registry as `flip`, `roll`, `spin` and `wheels`, and it
+publishes `on_coin_flip`, `on_dice_roll` and `on_wheel_spin`. Wheels are saved
+to `wheels.json` in the user data directory rather than to the plugin's
+`settings.json`, which ships with the app and is replaced by an update.
+
+Its own readme has the full surface: the argument shapes, the outcome rules,
+the collision behaviour, and why the page is served as plain files rather than
+templated.
 
 
 ## Reading them

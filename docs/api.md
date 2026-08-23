@@ -42,6 +42,8 @@ revoked on its own.
 | `POST /access/request?name=`     | Ask to be allowed. No auth, by definition.             |
 | `GET /access/state?token=`       | Whether that request has been answered.                |
 | `GET /process?...`               | Run an assistant intent.                               |
+| `GET /assistant/hush`            | Stop the panel talking. It keeps listening.            |
+| `GET /assistant/stand-down`      | Close any conversation and wait for the wake word.     |
 | `GET /pages`                     | Every registered page key, and which is on screen.     |
 | `GET` or `POST` `/goto/<page>`   | Switch pages. Query parameters become the page's data. |
 | `GET /browser/state`             | What the panel's browser is showing.                   |
@@ -486,10 +488,11 @@ than a script.
 | `GET /goto/page`                       | A page switcher for a device with a browser.              |
 | `GET /goto/web`                        | A remote control for the panel's browser.                 |
 | `GET /wake`                            | The wake report, summarised.                              |
-| `GET /wake/clips`                      | The last ten triggers, and what is ignored.               |
+| `GET /wake/clips`                      | Every trigger kept, and what is ignored.                  |
 | `GET /wake/clip/<key>`                 | One of them, as audio.                                    |
 | `GET /wake/ignore/<key>`               | Learn it as noise.                                        |
 | `GET /wake/forget/<key>`               | Stop ignoring it.                                         |
+| `GET /wake/forget-all`                 | Empty the ignore list.                                    |
 | `GET /clipboard/page`                  | The clipboard, as a page a phone can open.                |
 | `GET /upload`, `GET /upload/<key>`     | Upload forms, above.                                      |
 | `GET /access/wait`, `GET /access/name` | The approval flow. See [Users](users.md).                 |
@@ -686,6 +689,47 @@ count of the typed box alone reads low.
 
 A panel that cannot speak still takes the message. It appears on screen, which
 is what the disabled picker says it will do.
+
+### `/assistant/hush` and `/assistant/stand-down`
+
+Two buttons because they stop two different things, and somebody standing in
+a room usually wants one of them rather than both.
+
+| Endpoint                   | Stops                                             |
+|----------------------------|---------------------------------------------------|
+| `/assistant/hush`          | Talking. It carries on listening.                 |
+| `/assistant/stand-down`    | Listening. Any conversation closes.               |
+
+`hush` cuts off whatever is being read out. It goes through the recogniser
+rather than through the voice, because stopping a reply mid-word is only half
+of it: the other half is clearing the self-hearing grace and opening the
+settle window, or the next sentence somebody says is discarded as the tail of
+the reply that was just stopped. `SERVICES.STT.silence()` is that pair, and
+`TTS.stop_speaking()` is the half without it — for a caller putting down a
+reply it owns, such as a panel closing over its own answer.
+
+It answers `stopped`, which is false when nothing was being said.
+
+`stand-down` closes any open conversation, clears the wake state and puts the
+speech process back to the wake word with the refractory in force, so the tail
+of whatever caused it is not scored against a freshly reset model. It answers
+`session_closed` separately from `stood_down`, since "there was a conversation
+and it is gone" and "there was nothing happening" are different things to have
+pressed a button for.
+
+**It does not stop the voice, and it does not turn the assistant off.**
+Talking and listening are kept apart here because they are separate things to
+want stopped, and `assistant.enabled` is the setting for a panel that should
+not be listening at all.
+
+**Unconditional, rather than going through `client.CANCEL`.** A spoken "stop"
+asks what stopping means right now and gets an answer that depends on what is
+registered and what is in front — see [Cancelling](cancel.md). A button
+labelled Stand down means the same thing wherever it is pressed from.
+
+A plugin can offer its own alongside these: AI Fallback registers
+**Close the AI conversation**, which is the one that clears a conversation
+panel left open in an empty room.
 
 ### `/quiet/<what>/<state>`
 

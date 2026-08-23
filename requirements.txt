@@ -89,3 +89,14 @@ pocket-tts
 # system bindings to match against the interpreter. Optional: without it the
 # Bluetooth section says what is missing instead of failing.
 jeepney
+
+# ── The judge ─────────────────────────────────────────────────────────────────
+
+#Decides whether an utterance was meant for the panel at all, when the rules
+#in src/assistant/addressed.py cannot tell. Off by default; nothing here is
+#downloaded until it is turned on.
+#
+#onnxruntime and huggingface_hub are already here for the transcriber, so
+#this is the only addition - a few megabytes rather than the whole of
+#transformers, which would bring a second copy of much of what torch does.
+tokenizers

@@ -66,6 +66,20 @@ PATHS = {
     # make a dot with.
     "dice-multiple":     "M4 10h10v10H4zM10 4h10v10h-6"
                          "M7 13h.01M11 13h.01M7 17h.01M11 17h.01M9 15h.01",
+    # A capsule, a cradle under it and a stem. The dashboard and the wake
+    # report both ask for this one by name.
+    "microphone":        "M12 3a3 3 0 013 3v5a3 3 0 01-6 0V6a3 3 0 013-3z"
+                         "M6 11a6 6 0 0012 0M12 17v4M9 21h6",
+    # The same, struck through. A stroke across it rather than a different
+    # glyph, so the pair reads as one thing on and off.
+    "microphone-off":    "M12 3a3 3 0 013 3v5a3 3 0 01-6 0V6a3 3 0 013-3z"
+                         "M6 11a6 6 0 0012 0M12 17v4M9 21h6M4 4l16 16",
+    # volume-high without the waves, struck through, so the two sit together.
+    "volume-off":        "M4 9v6h4l5 4V5L8 9H4zM16 10l4 4M20 10l-4 4",
+    "close":             "M6 6l12 12M18 6L6 18",
+    # A box with a lid seam and a flap. The Packages card asks for this.
+    "package-variant":   "M4 7.5l8-4 8 4v9l-8 4-8-4zM4 7.5l8 4m0 0l8-4"
+                         "m-8 4v9M8 5.5l8 4",
 }
 #Everything else.
 FALLBACK = "M12 8a4 4 0 100 8 4 4 0 000-8z"

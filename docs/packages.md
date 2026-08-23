@@ -104,6 +104,33 @@ cause.
 
 See [Voice assistant](assistant.md#speaking-somewhere-else).
 
+## The judge server
+
+The panel ships this one too. `Settings -> Assistant -> Wake -> judge_where`
+set to `socket` sends an utterance to another machine and takes back one word;
+the package is what sets that machine up.
+
+Built with the port and the model already filled in, and a README that names
+the four settings to change at the panel end. It carries
+`judge-socket-process.py`, `judge_protocol.py`, `judge_prompt.py`,
+`requirements.txt`, a `startup.sh` and `startup.bat`, and a README.
+
+**Two files are copied from this tree rather than written out again.** The
+wire format for the reason the speech server copies its own, and the PROMPT
+for a reason of its own: two prompts is two behaviours, and the one nobody is
+watching is the one that drifts. A judge on another machine that has been
+asked a slightly different question is a judge that disagrees with the panel
+for a reason nobody can see.
+
+It asks for the fp16 build where the panel runs int8. A machine reached over
+a socket is not holding a screen and a microphone, and the larger build judges
+a little better for memory nobody is short of.
+
+**If that machine is off, the panel is not broken.** Every utterance falls
+back to the rules, which is how the panel behaves with the judge turned off.
+
+See [was anybody talking to the panel](assistant.md#was-anybody-talking-to-the-panel).
+
 ## The methods
 
 | Method                                 | Does                             |

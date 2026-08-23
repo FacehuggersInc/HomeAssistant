@@ -15,7 +15,7 @@ from threading import Thread, RLock
 from typing import TYPE_CHECKING
 
 
-from src.assistant import nlp, normalize, wake_words
+from src.assistant import judge_protocol, nlp, normalize, wake_words
 from src.constants import LOG_DIR
 from src.registries.service_registry import Restart
 
@@ -62,6 +62,11 @@ class Session():
 		# because somebody said they were finished. Both cancel it; only one
 		# of them is a person deciding the conversation is over.
 		self.expired = False
+		# What was heard for the phrase most recently taken - the transcript
+		# with the wake word still in it, and which word it was. Filled by
+		# wait_for_phrase(), for anything that has to judge the phrase
+		# against how it arrived.
+		self.heard: dict = {}
 		self.__id = f"session:{self.__client.uuid()}"
 
 	def __enter__(self):
@@ -114,8 +119,16 @@ class Session():
 	def close(self):
 		self.__exit__(None, None, None)
 
-	def put(self, next_transcribed:str):
-		self.__queued.put(next_transcribed)
+	def put(self, next_transcribed: str, heard: dict = None):
+		"""
+		A phrase for the conversation, and what was heard to get it.
+
+		The pair travels together through the queue rather than being kept
+		beside it. One is only meaningful with the other, and a phrase that
+		arrives while the last one is still being taken would otherwise be
+		matched with somebody else's transcript.
+		"""
+		self.__queued.put((next_transcribed, dict(heard or {})))
 
 	def wait_for_phrase(self, timeout: float = None) -> str | None:
 		"""
@@ -140,17 +153,25 @@ class Session():
 		"""
 		while True:
 			try:
-				phrase = self.__queued.get(timeout=timeout) if timeout else self.__queued.get()
+				item = self.__queued.get(timeout=timeout) if timeout else self.__queued.get()
 			except queue.Empty:
 				return None
 
-			if phrase is _CANCELLED or not self.is_open:
+			if item is _CANCELLED or not self.is_open:
 				return None
+			phrase, self.heard = item
 
 			cancelled = normalize.is_cancellation(phrase)
 			if not cancelled:
 				cancelled = self.__cancel_word_in(phrase)
 			if not cancelled:
+				if self.__was_the_room(phrase):
+					# The television, mid-conversation. Ignored and waited
+					# past rather than answered - and NOT cancelled, because
+					# ending somebody's conversation on a line from the room
+					# would be worse than the ungated window this closes.
+					self.keep_waiting()
+					continue
 				return phrase
 
 			self.__client.log("info",
@@ -173,6 +194,38 @@ class Session():
 
 			self.cancel()
 			return None
+
+	def __was_the_room(self, phrase: str) -> bool:
+		"""
+		Whether the judge says this follow-up was not aimed at the panel.
+
+		**False whenever there is no judge**, and that is deliberate. Outside
+		a conversation, falling back to the rules means falling back to
+		today's behaviour. In here it would not: there is no gate on a
+		session today, so the rules taking over would start dropping
+		"Tuesday" and "tell me more", which carry no signal of their own and
+		are complete answers to a question the panel just asked. A judge that
+		goes down mid-conversation must not begin swallowing the replies.
+
+		So the rules are not consulted here at all. Either the model says the
+		room was talking, or the phrase goes through.
+		"""
+		try:
+			key = self.__client.SERVICES.JUDGE.judge(
+				phrase,
+				transcript=str(self.heard.get("transcript", "") or ""),
+				wake=str(self.heard.get("wake", "") or ""),
+				in_session=True)
+		except Exception as exc:
+			self.__client.log("warning", f"[Session] The judge failed: {exc}")
+			return False
+
+		if key != judge_protocol.IGNORE:
+			return False
+		self.__client.log("info",
+			f"[Session] Ignored '{phrase}' - the judge says nobody was "
+			f"talking to the panel.")
+		return True
 
 	def __cancel_word_in(self, phrase: str) -> str:
 		"""
@@ -347,7 +400,7 @@ class STTProcessing():
 				continue
 		return "".join(kept).strip()
 
-	def process_phrase(self, phrase:str):
+	def process_phrase(self, phrase: str, heard: dict = None):
 		# Said before the search, not after it.
 		#
 		# Parsing is fast when it matches and no slower when it does not, so
@@ -379,7 +432,7 @@ class STTProcessing():
 			self.processing = False
 			return
 
-		skill, _ = self.client.SKILLS.parse( phrase )
+		skill, _ = self.client.SKILLS.parse( phrase, heard=heard )
 		if skill:
 			self.client.iterate_event_callables("on_woke_assistant", (skill, phrase))
 		if self.woke_with: self.woke_with = None
@@ -424,7 +477,22 @@ class STTProcessing():
 
 		if wake and phrase:
 			self.client.log("info", f"[STTProcessing] Routing -> '{processed}' to {self.route}")
-			Thread(target = self.process_phrase, args = [self.clean_text( phrase.strip() ), ] ).start()
+			# What was HEARD travels with the phrase.
+			#
+			# `phrase` is the wake word stripped off and the punctuation
+			# cleaned, which is right for matching a skill and wrong for
+			# judging who was being spoken to: how somebody addressed the
+			# panel is evidence about whether they addressed it at all, and
+			# stripping it throws that evidence away at the only point it
+			# existed.
+			#
+			# Passed as an argument rather than kept on `self`, because
+			# process_phrase runs on a thread of its own and two utterances
+			# in flight would otherwise be matched with each other's
+			# transcripts.
+			heard = {"transcript": processed, "wake": wake, "typed": False}
+			Thread(target = self.process_phrase,
+				   args = [self.clean_text( phrase.strip() ), heard]).start()
 		else:
 			# The wake word on its own, with nothing after it. Stood back down
 			# rather than left armed: woke_with lingering here is how the
@@ -455,7 +523,12 @@ class STTProcessing():
 						self.client.ASSIST_STATUS = "LISTENING"
 					else:
 						self.client.log("info", f"[STTProcessing] Routing -> '{spoken}' to {self.route}")
-						self.session.put(spoken)
+						# `spoken` has had the wake word taken off it by
+						# for_session(); `processed` is what was actually
+						# heard, and is what says how the panel was addressed.
+						self.session.put(spoken, {"transcript": processed,
+												  "wake": self.woke_with or "",
+												  "typed": False})
 						self.client.ASSIST_STATUS = "LISTENING"
 				else:
 					self.close_session()
@@ -664,28 +737,71 @@ class STTProcessing():
 				f"what the panel said (needs {self.ECHO_RATIO}).")
 		return False
 
+	#How many words a transcript may have and still be somebody saying a
+	#cancel word rather than the panel reading one.
+	#
+	#Requiring the WHOLE transcript to be a registered phrase is what this
+	#used to do, and it is too strict by a long way: "just stop", "hey stop",
+	#"stop stop", "will you stop", "i said stop" and "stop please" are all
+	#somebody saying stop, and every one of them was ignored with "the panel
+	#was talking" in the log. Sixteen of twenty phrasings were.
+	#
+	#Four is short enough that the panel does not produce one by accident.
+	#Its replies are sentences; the fragments a session finalises on a pause
+	#are longer than this, and the short ones that are not are caught by the
+	#check against what it just said.
+	CANCEL_WORD_MAX = 4
+
 	def is_cancel_word(self, transcribed: str) -> bool:
 		"""
-		Whether this transcript is nothing but a registered cancel phrase.
-
-		The WHOLE phrase, matched against what `client.CANCEL` answers to -
-		not a word found somewhere inside one. A reply mentioning "stop" in
-		passing is the panel; a transcript that is only "stop" is somebody
-		saying it, because the panel does not speak in single words.
+		Whether this transcript is somebody saying a cancel word.
 
 		Content, where `heard_itself()` is a clock. That is the point: the
-		clock cannot tell a person from an echo, and this can - a cancel word
-		on its own is never a fragment of prose the panel just read.
+		clock cannot tell a person from an echo, and this can.
+
+		Three things have to hold. The transcript is SHORT - the panel speaks
+		in sentences and a person cutting it off does not. It CONTAINS a
+		phrase `client.CANCEL` answers to, at the end of it once politeness
+		is off, because "stop" arriving last is somebody stopping something
+		and "stop" in the middle is usually a word. And it is not a piece of
+		what the panel just said, which is the one case where a short phrase
+		ending in a cancel word really is the panel reading its own reply
+		back into the microphone.
 		"""
 		phrase = " ".join(str(transcribed or "").lower().split())
 		phrase = phrase.strip(" .,!?;:")
 		if not phrase:
 			return False
+
+		words = normalize._strip_trailers(phrase.split())
+		if not words or len(words) > self.CANCEL_WORD_MAX:
+			return False
+
 		try:
-			return phrase in {" ".join(str(word).lower().split())
-							  for word in self.client.CANCEL.keywords()}
+			keywords = {" ".join(str(word).lower().split())
+						for word in self.client.CANCEL.keywords()}
 		except Exception:
 			return False
+
+		# Any of them, not the best of them. This answers yes or no, so
+		# which keyword matched changes nothing and sorting for the longest
+		# would be a line that cannot be wrong.
+		if not any(wanted and len(words) >= len(wanted)
+				   and words[-len(wanted):] == wanted
+				   for wanted in (keyword.split() for keyword in keywords)):
+			return False
+
+		# The panel reading its own words back. `echoed()` will not catch
+		# this one - it refuses to judge anything under three words - so a
+		# reply that happens to end a fragment on "stop" would otherwise
+		# close the panel it is being read into.
+		try:
+			for spoken in self.client.recent_spoken() or []:
+				if phrase and phrase in normalize.flatten(str(spoken)):
+					return False
+		except Exception:
+			pass
+		return True
 
 	def interrupt_for_wake(self, transcribed: str) -> bool:
 		"""
@@ -714,25 +830,63 @@ class STTProcessing():
 		if not spoken or not any(self.find_wake(spoken, w) for w in words if w):
 			return False
 
-		stopped = self.client.SERVICES.TTS.stop_speaking()
+		stopped = self.silence()
 
 		self.client.log("info",
 			f"[STTProcessing] Heard '{transcribed}' over the panel"
 			+ (" and stopped it." if stopped else "."))
-		# When the words are allowed to start piling up again.
-		self.interrupted_at = time.time()
-		# Whatever was still coming is not coming now, so the grace would only
-		# suppress the next real thing said.
-		self.spoke_until = 0.0
-		# Only when something was actually stopped. With nothing playing
-		# there is no unwinding callback to defend against, and the flag
-		# would sit there and swallow the grace after the NEXT reply.
-		if stopped:
-			self.note_interrupted()
 		# Said immediately rather than waiting for the wake pipeline: this is
 		# the moment somebody is looking for a sign they were heard.
 		self.client.ASSIST_STATUS = "LISTENING"
 		return True
+
+	def silence(self, why: str = "") -> bool:
+		"""
+		Stop the voice, and leave nothing behind that swallows what is said
+		next. Answers whether anything was actually talking.
+
+		Four moves, and they only work together. Every caller that stops a
+		reply on somebody's behalf wants all four, so they live here rather
+		than being written out again at each one - a fourth copy of this is
+		a fourth chance to leave one of them out, and leaving one out shows
+		up as the panel dropping the sentence after the interruption rather
+		than as anything near this code.
+
+		`interrupted_at` opens the settle window, so the tail of the cut-off
+		reply is not read as a question.
+
+		`spoke_until` is CLEARED, not stamped. `heard_itself()` treats
+		anything within the grace of it as the panel overhearing its own
+		voice, and the sentence somebody is saying right now lands inside
+		that window - so stamping it here throws away the very thing the
+		interruption was made in order to say. A reply stopped mid-word has
+		no tail left to overhear.
+
+		`note_interrupted()` is what makes that clear stick: `stop()` returns
+		before the playback thread has noticed, so that thread reaches
+		`note_speech_ended()` a moment later and would stamp the grace
+		straight back over the clear.
+
+		And only when something was stopped. With nothing playing there is no
+		unwinding callback to defend against, and the flag would sit there
+		and swallow the grace after the NEXT reply.
+		"""
+		try:
+			stopped = bool(self.client.SERVICES.TTS.stop_speaking())
+		except Exception as e:
+			self.client.log("warning",
+				f"[STTProcessing] Could not stop the voice: {e}")
+			stopped = False
+
+		self.interrupted_at = time.time()
+		self.spoke_until = 0.0
+		if stopped:
+			self.note_interrupted()
+		if why:
+			self.client.log("info",
+				f"[STTProcessing] Voice stopped ({why})"
+				+ ("." if stopped else " - nothing was talking."))
+		return stopped
 
 	def hold_capture(self, held: bool) -> None:
 		"""
@@ -913,8 +1067,16 @@ class STTProcessing():
 
 			self.client.log("info",
 				f"[STTProcessing] Submitted -> '{processed}'")
+			# TYPED, and that is the whole point of the flag.
+			#
+			# A request arriving over the API or off a keyboard has already
+			# said who it is talking to by arriving at all. Nothing should
+			# ever ask a model whether it was meant for the panel, and
+			# without saying so here the judge would be handed a phrase with
+			# no wake word and no transcript and would be right to doubt it.
+			heard = {"transcript": processed, "wake": "", "typed": True}
 			Thread(target=self.process_phrase,
-			       args=[self.clean_text(processed)],
+			       args=[self.clean_text(processed), heard],
 			       daemon=True).start()
 			return True
 		except Exception as exc:

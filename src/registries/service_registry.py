@@ -160,9 +160,14 @@ class ServiceRegistry:
         # as whatever is currently implementing them. They hold the state -
         # what the assistant is doing, what it last said - which has to
         # outlive any one implementation of it. See src/registries/speech.py.
-        from src.registries.speech import SpeechFacade, VoiceFacade
+        from src.registries.speech import (JudgeFacade, SpeechFacade,
+                                           VoiceFacade)
         self.STT = SpeechFacade(client)
         self.TTS = VoiceFacade(client)
+        # The judge holds no state of its own - one question, one key. It is
+        # a facade so that it sits on the provider stack like the other two,
+        # and so a plugin can replace it without anything else knowing.
+        self.JUDGE = JudgeFacade(client)
 
         # Who supplies each named capability. `providers[name]` is whoever
         # holds it now; `_displaced[name]` is everything under them, newest

@@ -388,7 +388,7 @@ CANCEL_MARKERS = (
 # "Actually never mind then, thanks" is the same instruction as "never mind".
 CANCEL_TRAILERS = (
     "then", "thanks", "thank you", "please", "sorry", "anyway",
-    "ok", "okay", "alright", "instead", "actually",
+    "ok", "okay", "alright", "instead", "actually", "now",
 )
 
 
