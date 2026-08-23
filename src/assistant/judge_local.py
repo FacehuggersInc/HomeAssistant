@@ -29,9 +29,11 @@ from __future__ import annotations
 
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as Expired
 from typing import TYPE_CHECKING
 
-from src.assistant.judge_prompt import build_prompt, chat_prompt
+from src.assistant.judge_prompt import (LABELS, build_prompt, chat_prompt,
+                                        system_for)
 from src.assistant.judge_protocol import ANSWER, IGNORE
 
 if TYPE_CHECKING:
@@ -40,7 +42,7 @@ if TYPE_CHECKING:
 #The build to fetch. int8 on a panel: around 350MB rather than 600, on
 #hardware with a screen and a microphone on it. A machine reached over a
 #socket has no such constraint and its package asks for fp16.
-DEFAULT_REPO = "onnx-community/Qwen3-0.6B-ONNX"
+DEFAULT_REPO = "onnx-community/Qwen3-1.7B-ONNX"
 DEFAULT_FILE = "onnx/model_q4.onnx"
 FALLBACK_FILES = ("onnx/model_quantized.onnx", "onnx/model_int8.onnx",
                   "onnx/model.onnx")
@@ -62,7 +64,14 @@ class LocalJudge:
         self.client = client
         self.error = "loading the model"
         self._ready = False
-        self._lock = threading.Lock()
+        # One worker, so two utterances arriving together are serialised - an
+        # onnxruntime session is not safe to run concurrently, and a panel
+        # woken twice in a second is ordinary. `_running` is what stops them
+        # QUEUEING: a caller that cannot be served now is told so rather than
+        # waiting behind a pass that has already outlived its own deadline.
+        self._pool = ThreadPoolExecutor(max_workers=1,
+                                        thread_name_prefix="__judge")
+        self._running = False
 
         self.session = None
         self.tokenizer = None
@@ -72,6 +81,9 @@ class LocalJudge:
         # answer without anything looking wrong.
         self.answer_id = None
         self.ignore_id = None
+        # Filled by _pick_keys, which also builds the instruction naming them.
+        self.system = None
+        self.labels = ()
 
         self.repo = str(self._setting("assistant.wake.judge_model.value",
                                       DEFAULT_REPO) or DEFAULT_REPO).strip()
@@ -172,34 +184,50 @@ class LocalJudge:
 
     def _pick_keys(self) -> bool:
         """
-        The token each key starts with, and a check that they differ.
+        The pair of words the model will be asked to say, and their tokens.
 
-        A tokenizer that gave both keys the same first token would make every
-        answer the same answer, and nothing downstream could tell: the facade
-        would see a valid key, the log would look ordinary, and the panel
-        would either answer the television every time or ignore its owner
-        every time. Checked once, here, where it can be said out loud.
+        **Each has to be exactly one token.** The comparison happens at one
+        position, so a label spelling as several tokens is represented by its
+        first - and a leading fragment like `ANS` carries the weight of every
+        word the vocabulary can finish it with. Against a whole word such as
+        `IGNORE` it wins regardless of the utterance, which reads as a model
+        that agrees with everything.
+
+        So the pairs are tried in order and the first where BOTH sides are a
+        single token is taken. The instruction is then built from that pair,
+        so what the model is asked to say and what is compared cannot drift.
         """
-        try:
-            answer = self.tokenizer.encode(ANSWER, add_special_tokens=False).ids
-            ignore = self.tokenizer.encode(IGNORE, add_special_tokens=False).ids
-        except Exception as exc:
-            self.error = f"could not encode the keys: {exc}"
-            self._log("warning", self.error)
-            return False
+        tried = []
+        for yes, no in LABELS:
+            try:
+                first = self.tokenizer.encode(yes, add_special_tokens=False).ids
+                second = self.tokenizer.encode(no, add_special_tokens=False).ids
+            except Exception as exc:
+                self.error = f"could not encode the keys: {exc}"
+                self._log("warning", self.error)
+                return False
 
-        if not answer or not ignore:
-            self.error = "the tokenizer produced nothing for the keys"
-            self._log("warning", self.error)
-            return False
-        if answer[0] == ignore[0]:
-            self.error = (f"'{ANSWER}' and '{IGNORE}' start with the same "
-                          f"token, so the two cannot be told apart")
-            self._log("warning", self.error)
-            return False
+            if len(first) != 1 or len(second) != 1:
+                tried.append(f"{yes}/{no}: {len(first)} and {len(second)} tokens")
+                continue
+            if first[0] == second[0]:
+                # Both keys the same token would make every answer the same
+                # answer, with nothing downstream able to tell: a valid key,
+                # an ordinary log, and a panel that either answers the
+                # television every time or ignores its owner every time.
+                tried.append(f"{yes}/{no}: the same token")
+                continue
 
-        self.answer_id, self.ignore_id = answer[0], ignore[0]
-        return True
+            self.answer_id, self.ignore_id = first[0], second[0]
+            self.system = system_for(yes, no)
+            self.labels = (yes, no)
+            self._log("info", f"Answering with {yes} or {no}.")
+            return True
+
+        self.error = (f"no usable pair of labels for this tokenizer "
+                      f"({'; '.join(tried)})")
+        self._log("warning", self.error)
+        return False
 
     ## -- asking
 
@@ -211,12 +239,37 @@ class LocalJudge:
         if not self.available:
             raise RuntimeError(self.error or "the model is not ready")
 
-        prompt = chat_prompt(build_prompt(payload))
-        # One at a time. An onnxruntime session is not safe to run
-        # concurrently, and two utterances arriving together is ordinary on a
-        # panel that has just been woken twice.
-        with self._lock:
-            logits = self._forward(prompt)
+        prompt = chat_prompt(build_prompt(payload), self.system)
+
+        # **Bounded, because somebody is standing in front of the panel.**
+        #
+        # A forward pass cannot be interrupted - onnxruntime runs to
+        # completion whatever this thread does - so the deadline is on the
+        # WAIT rather than on the work. The pass finishes into nothing and
+        # the caller gets the rules, which is what a judge that has gone slow
+        # is supposed to cost. Without this, `judge_timeout` is a number in
+        # the settings file that decides nothing, and a model too big for the
+        # hardware holds up every reply with no way to say so.
+        if self._running:
+            raise RuntimeError("still working on the last one")
+
+        self._running = True
+        try:
+            pending = self._pool.submit(self._forward, prompt)
+        except Exception:
+            self._running = False
+            raise
+
+        def done(_):
+            self._running = False
+
+        pending.add_done_callback(done)
+
+        try:
+            logits = pending.result(timeout=self.timeout)
+        except Expired as exc:
+            raise RuntimeError(
+                f"took longer than {self.timeout:.1f}s") from exc
 
         answer = float(logits[self.answer_id])
         ignore = float(logits[self.ignore_id])
@@ -271,5 +324,12 @@ class LocalJudge:
 
     def stop(self) -> None:
         self._ready = False
+        # Not waited for. A pass already inside onnxruntime cannot be
+        # stopped, and the assistant is being taken down - holding shutdown
+        # for a judgement nobody will read is the wrong trade.
+        try:
+            self._pool.shutdown(wait=False)
+        except Exception:
+            pass
         self.session = None
         self.tokenizer = None

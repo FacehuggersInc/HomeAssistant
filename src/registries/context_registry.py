@@ -83,6 +83,28 @@ class ContextRegistry:
         self._lock = RLock()
         self._entries: list = []
         self._open: ContextEntry | None = None
+        # When somebody last said they were finished. Not a turn: a cancel
+        # produces no question and no answer, so it cannot be an entry, and
+        # the thing that needs to know about it is asking whether a
+        # conversation is still going rather than what was in it.
+        self._cancelled_at = 0.0
+
+    @property
+    def cancelled_at(self) -> float:
+        """When the last conversation was ended on purpose, or 0."""
+        return self._cancelled_at
+
+    def note_cancelled(self) -> None:
+        """
+        Somebody said they were finished.
+
+        Read by the fallback gate. An answer a moment ago normally means the
+        next thing said is a follow-up and can be taken on trust - but a
+        cancel is the opposite of a follow-up, and the trust it would
+        otherwise leave behind is a window with nothing in front of it.
+        """
+        with self._lock:
+            self._cancelled_at = time.time()
 
     ## -- writing, client only
 

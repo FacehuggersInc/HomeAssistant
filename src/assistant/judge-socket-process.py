@@ -34,9 +34,10 @@ except ImportError:  # running from inside the project
                                               read_line, send_line)
 
 try:
-    from judge_prompt import build_prompt, chat_prompt
+    from judge_prompt import LABELS, build_prompt, chat_prompt, system_for
 except ImportError:
-    from src.assistant.judge_prompt import build_prompt, chat_prompt
+    from src.assistant.judge_prompt import (LABELS, build_prompt, chat_prompt,
+                                            system_for)
 
 
 STARTED = time.time()
@@ -69,23 +70,36 @@ class Model:
         self.session = onnxruntime.InferenceSession(
             model_path, options, providers=["CPUExecutionProvider"])
 
-        first = self.tokenizer.encode(ANSWER, add_special_tokens=False).ids
-        second = self.tokenizer.encode(IGNORE, add_special_tokens=False).ids
-        if not first or not second:
-            raise RuntimeError("the tokenizer produced nothing for the keys")
-        if first[0] == second[0]:
-            # Both keys starting with the same token would make every answer
-            # the same answer, with nothing downstream able to tell.
-            raise RuntimeError(f"'{ANSWER}' and '{IGNORE}' start with the "
-                               f"same token")
-        self.answer_id, self.ignore_id = first[0], second[0]
+        # The same rule the in-panel backend follows, for the same reason:
+        # one position is read, so a label spelling as several tokens is
+        # represented by its first - and a leading fragment carries the
+        # weight of every word that can be spelled from it, which beats a
+        # whole word whatever was said. Both sides must be one token.
+        self.system = None
+        tried = []
+        for yes, no in LABELS:
+            first = self.tokenizer.encode(yes, add_special_tokens=False).ids
+            second = self.tokenizer.encode(no, add_special_tokens=False).ids
+            if len(first) != 1 or len(second) != 1:
+                tried.append(f"{yes}/{no}: {len(first)} and {len(second)} tokens")
+                continue
+            if first[0] == second[0]:
+                tried.append(f"{yes}/{no}: the same token")
+                continue
+            self.answer_id, self.ignore_id = first[0], second[0]
+            self.system = system_for(yes, no)
+            print(f"Answering with {yes} or {no}.", flush=True)
+            break
+        if self.system is None:
+            raise RuntimeError("no usable pair of labels for this tokenizer "
+                               f"({'; '.join(tried)})")
         self._lock = threading.Lock()
         print(f"Ready in {time.time() - STARTED:.1f}s.", flush=True)
 
     def judge(self, payload: dict) -> str:
         import numpy as np
 
-        prompt = chat_prompt(build_prompt(payload))
+        prompt = chat_prompt(build_prompt(payload), self.system)
         ids = self.tokenizer.encode(prompt).ids
         length = len(ids)
 
@@ -195,7 +209,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="A judge on a socket.")
     parser.add_argument("--host", default="0.0.0.0")
     parser.add_argument("--port", type=int, default=8771)
-    parser.add_argument("--model", default="onnx-community/Qwen3-0.6B-ONNX")
+    parser.add_argument("--model", default="onnx-community/Qwen3-1.7B-ONNX")
     parser.add_argument("--file", default="onnx/model_fp16.onnx",
                         help="fp16 by default: a machine reached over a "
                              "socket is not a panel and has room for it")

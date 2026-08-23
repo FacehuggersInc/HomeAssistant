@@ -158,8 +158,11 @@ class Clip:
         return time.strftime("%H:%M:%S", time.localtime(self.at))
 
 
-#Outcomes that say the turn came to nothing. A wake followed by a question
-#that was answered is a wake that worked, whatever it transcribed as.
+#Outcomes that say the turn came to nothing.
+#
+#`answered` is the child's word for "a transcript went out". It does NOT mean
+#the panel answered - the child never learns what happened next - so it is
+#read here as "the wake produced usable speech" and nothing more.
 BAD_OUTCOMES = ("nothing", "timeout", "capped")
 
 
@@ -167,27 +170,35 @@ def should_learn(transcript: str, outcome: str, heard_wake: bool) -> tuple:
     """
     Whether a trigger was noise, and why. Answers (learn, reason).
 
-    All three have to agree, and the first is the one that matters most.
-
     **There has to be a transcript at all.** Without it, somebody saying the
     wake word and then changing their mind produces no text, no wake word in
     that text, and a timeout - every condition satisfied, and the panel
     learns the real wake word as noise. Requiring evidence to exist before
     acting on it costs nothing and closes that.
 
-    Then: the wake word is not in what was heard, tested generously, so a
-    mishearing counts as present and blocks learning. And the turn came to
-    nothing, which is a far better signal than the transcript on its own -
-    a real wake is nearly always followed by a question that gets answered.
+    **Then: the wake word is not in what was heard**, tested generously, so a
+    mishearing counts as present and blocks learning. This is the strong
+    signal, and it is strong because of how the transcript is made: the wake
+    clip and the phrase that followed are run through the model TOGETHER, so
+    the word is read with its neighbours around it rather than alone, which
+    is the case the transcriber is worst at. A joint transcript with no wake
+    word anywhere in it describes audio that did not contain one.
+
+    The outcome refines the reason rather than deciding it. A turn that came
+    to nothing is the clearest shape of a false wake; one that produced
+    speech and still carried no wake word is a room talking through an open
+    microphone, which is the same fault with more evidence, not less.
     """
     said = str(transcript or "").strip()
     if not said:
         return False, "nothing was transcribed, so there is no evidence either way"
     if heard_wake:
         return False, "the wake word is in what was heard"
-    if outcome not in BAD_OUTCOMES:
-        return False, f"the turn ended as '{outcome}' rather than coming to nothing"
-    return True, f"heard {said[:40]!r} with no wake word in it, and it {outcome}"
+    if outcome in BAD_OUTCOMES:
+        return True, f"heard {said[:40]!r} with no wake word in it, and it {outcome}"
+    return True, (f"heard {said[:40]!r} with no wake word in it, and it was "
+                  f"transcribed rather than coming to nothing - speech that "
+                  f"was not addressed here")
 
 
 class WakeMemory:

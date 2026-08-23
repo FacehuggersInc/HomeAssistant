@@ -385,6 +385,17 @@ class GroupComponent(QComboBox):
         self.currentIndexChanged.connect(_changed)
 
 
+def _text_lines(text: str) -> int:
+    """
+    A rough line count, for a folded header to say how much is in there.
+
+    Blank lines are not counted: descriptions are written in paragraphs, and
+    counting the gaps between them makes a three-paragraph note read as twice
+    the length it is.
+    """
+    return len([line for line in str(text or "").splitlines() if line.strip()])
+
+
 class SettingBlock(QFrame):
     def __init__(self, client, setting=None, key="", content: QWidget = None,
                  on_group_changed=None, in_groups=None, group_members=None,
@@ -454,13 +465,28 @@ class SettingBlock(QFrame):
         header.addStretch()
         outer.addLayout(header)
 
-        desc = setting.get("description", "")
+        # Folded away, like a plugin readme and for the same reason.
+        #
+        # A description is several paragraphs on the settings that need one,
+        # and rendered inline they push the controls somebody came for off the
+        # bottom of the screen - a category of a dozen settings becomes a page
+        # of prose with widgets buried in it. The header says how many lines
+        # are in there, so a closed one is visibly something rather than
+        # nothing.
+        #
+        # `_Collapsible` is defined below this class. That resolves because it
+        # is looked up when a block is BUILT rather than when the module is
+        # read, and the page builds nothing at import time.
+        self.description_block = None
+        desc = str(setting.get("description", "") or "")
         if desc:
             dl = QLabel(desc)
             dl.setFont(make_font(SIZES.S1))
             set_style(dl, "common", "text-muted")
             dl.setWordWrap(True)
-            outer.addWidget(dl)
+            self.description_block = _Collapsible(
+                "Description", dl, lines=_text_lines(desc))
+            outer.addWidget(self.description_block)
 
         raw_t  = setting.get("type", "string")
         t      = normalize_setting_type(raw_t)
@@ -1158,8 +1184,11 @@ class _Collapsible(QFrame):
     """
 
     def __init__(self, title: str, content: QWidget, lines: int = 0,
-                 open_at_start: bool = False):
+                 open_at_start: bool = False, on_toggle=None):
         super().__init__()
+        # Called after every fold, by hand or in bulk. Optional: a readme has
+        # nothing watching it.
+        self._on_toggle = on_toggle
         self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         set_style(self, "settings", "settings-collapsible")
 
@@ -1214,10 +1243,21 @@ class _Collapsible(QFrame):
             suffix = f"   {self._lines} line{'s' if self._lines != 1 else ''}"
         self._header.setText(f"  {self._title}{suffix}")
 
+    def is_open(self) -> bool:
+        return self._open
+
     def toggle(self) -> None:
         self._open = not self._open
         self._content.setVisible(self._open)
         self._sync_header()
+        # Told, so a page-wide control can say what the next press will do.
+        # Without this, folding the last open one by hand leaves the button
+        # offering to collapse a page where nothing is open.
+        if callable(self._on_toggle):
+            try:
+                self._on_toggle()
+            except Exception:
+                pass
 
     def set_open(self, value: bool) -> None:
         if bool(value) != self._open:
@@ -1281,9 +1321,24 @@ class SettingsPage(PageFramework):
                                  size=44, min_width=130, icon_size=24)
         leave_btn.setFont(make_font(SIZES.S3, bold=True))
 
+        # One control rather than two.
+        #
+        # Collapse-all and expand-all are the same button in two states, and
+        # the state is knowable: if anything on screen is open, the useful
+        # press closes everything, and once nothing is open the useful press
+        # opens it. Two buttons would leave one of them doing nothing
+        # whichever way the page happened to be.
+        self._descriptions_btn = ActionButton(
+            Icons.CHEVRON_RIGHT, "Collapse descriptions",
+            self.toggle_all_descriptions, kind="quiet",
+            size=44, min_width=250, icon_size=24)
+        self._descriptions_btn.setFont(make_font(SIZES.S3, bold=True))
+
         tl.addWidget(back_btn)
         tl.addSpacing(10)
         tl.addWidget(leave_btn)
+        tl.addSpacing(10)
+        tl.addWidget(self._descriptions_btn)
         tl.addStretch()
 
         # ── Body ──────────────────────────────────────────────────────────────
@@ -2165,12 +2220,7 @@ class SettingsPage(PageFramework):
         # Folded away to start with. A plugin readme can run to pages, and a
         # page that opens on one has pushed the settings somebody came for off
         # the bottom of the screen.
-        return _Collapsible("Readme", label, lines=self._readme_lines(text))
-
-    @staticmethod
-    def _readme_lines(text: str) -> int:
-        """A rough line count, for the summary."""
-        return len([line for line in text.splitlines() if line.strip()])
+        return _Collapsible("Readme", label, lines=_text_lines(text))
 
 
     SORT_AXES = ("alpha", "dependants", "type")
@@ -2211,6 +2261,65 @@ class SettingsPage(PageFramework):
         """
         labelled = [w for w in (content or []) if hasattr(w, "sort_label")]
         return len(labelled) >= 2
+
+    ## -- descriptions, folded and unfolded
+
+    def description_blocks(self) -> list:
+        """
+        Every foldable description on screen right now.
+
+        Found by walking the page rather than kept in a list. A category
+        switch rebuilds the content and throws the old blocks away, and a
+        remembered list would then hold widgets Qt has already deleted -
+        which is a crash rather than a stale button.
+        """
+        try:
+            return [block.description_block
+                    for block in self.findChildren(SettingBlock)
+                    if getattr(block, "description_block", None) is not None]
+        except Exception as exc:
+            self.client.log("debug",
+                            f"[SettingsPage] Could not find descriptions: {exc}")
+            return []
+
+    def toggle_all_descriptions(self, event=None) -> None:
+        """
+        Close every description, or open every one when none is open.
+
+        Asked of the page each time rather than tracked, because the folds
+        also move one at a time: somebody who opened three by hand and then
+        presses this means close them, and a remembered flag would say open.
+        """
+        blocks = self.description_blocks()
+        if not blocks:
+            return
+        opening = not any(block.is_open() for block in blocks)
+        for block in blocks:
+            block.set_open(opening)
+        self._sync_descriptions_button()
+
+    def _sync_descriptions_button(self) -> None:
+        """
+        The label says what pressing it will DO next.
+
+        Reads the folds rather than being told. A caller that passes what it
+        just did and a caller asking what is next are describing opposite
+        things, and one label mapping cannot serve both - so there is one
+        source, and it is the page.
+        """
+        button = getattr(self, "_descriptions_btn", None)
+        if button is None:
+            return
+        blocks = self.description_blocks()
+        # Nothing open means the next press opens. Anything open means it
+        # closes - the same rule the press itself follows.
+        will_open = bool(blocks) and not any(b.is_open() for b in blocks)
+        button.setEnabled(bool(blocks))
+        # The chevron moves with the label, so the control reads the same way
+        # a folded header does: pointing down when the press will open.
+        button.set_label(
+            "Expand descriptions" if will_open else "Collapse descriptions",
+            icon=Icons.CHEVRON_DOWN if will_open else Icons.CHEVRON_RIGHT)
 
     def _build_sort_toolbar(self, in_plugins_category: bool = False) -> QWidget:
         bar = QWidget()
@@ -2794,6 +2903,14 @@ class SettingsPage(PageFramework):
                 self._content_layout.insertWidget(
                     self._content_layout.count() - 1, block,
                     stretch=1 if getattr(block, "fills_height", False) else 0)
+
+        # The blocks are new, so the button is out of date and the folds have
+        # nothing watching them. Wired here rather than in SettingBlock: a
+        # block is built by the page but is not the page, and handing it a
+        # reference back would be the one thing it does not otherwise need.
+        for block in self.description_blocks():
+            block._on_toggle = self._sync_descriptions_button
+        self._sync_descriptions_button()
 
         self._content_scroll.verticalScrollBar().setValue(0)
 

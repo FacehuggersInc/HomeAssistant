@@ -1551,6 +1551,15 @@ class STTProcessing():
 		"""
 		self.client.log("info", f"[STTProcessing] Cancelled{f' ({reason})' if reason else ''}.")
 
+		# Said, so the fallback gate stops treating the last answer as an open
+		# conversation. Ending one is not continuing one, and the trust window
+		# an answer leaves behind would otherwise stay open with nobody in
+		# front of the panel.
+		try:
+			self.client.CONTEXT.note_cancelled()
+		except Exception:
+			pass
+
 		if self.is_session():
 			self.session.cancel()
 		else:

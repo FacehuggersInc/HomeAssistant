@@ -808,6 +808,11 @@ class JudgeFacade:
         # How the running backend was named when it was chosen, for a page
         # or a log line that has to say which one answered.
         self.label = ""
+        # What it was built against, compared on save. Empty rather than the
+        # current settings: before the first start there is nothing built,
+        # and seeding it from settings would make the first save look like
+        # nothing had changed.
+        self._config = ()
 
     ## -- what is doing the judging
 
@@ -912,13 +917,26 @@ class JudgeFacade:
     ## -- lifecycle, the same shape as the voice
 
     def start(self) -> None:
-        """Pick a backend, or report why there is none."""
+        """
+        Pick a backend, or report why there is none.
+
+        **`judge_backend` decides whether the judge runs. The gate setting
+        does not.** They govern different things and are asked at different
+        places: `assistant.wake.gate_unaddressed` decides whether a phrase
+        that matched no skill has to prove it was addressed, and is read by
+        `SkillIntentEngine._should_gate()` at that one call site. The judge is
+        also consulted INSIDE a conversation, where the gate never applies
+        and where the rules are deliberately not asked at all - so tying the
+        judge's existence to the gate would take the in-session judge away
+        with a setting whose description says nothing about it.
+        """
         self.detach()
         try:
-            if not self.client.setting("assistant.wake.gate_unaddressed.value",
-                                       True):
-                self.client.log("info",
-                                "[Judge] The gate is off, so nothing is judged.")
+            chosen = str(self.client.setting(
+                "assistant.wake.judge_backend.value", "off")
+                or "").strip().lower()
+            if chosen in ("", "off"):
+                self.client.log("info", "[Judge] Turned off in settings.")
                 return
         except Exception:
             pass
@@ -998,6 +1016,12 @@ class JudgeFacade:
         Its own tuple, like the other two: a save compares them one at a time,
         so changing the judge rebuilds the judge and leaves the microphone and
         the voice alone.
+
+        `gate_unaddressed` is deliberately NOT in here. It decides whether the
+        fallback funnel gates at all, which is a question for the engine at
+        that call site rather than a question about what is doing the judging
+        - and rebuilding the judge when it moves would take the in-session
+        judge down for a setting that has nothing to do with it.
         """
         def setting(path, default=None):
             try:
@@ -1006,7 +1030,6 @@ class JudgeFacade:
                 return default
 
         return (
-            setting("assistant.wake.gate_unaddressed.value", True),
             setting("assistant.wake.judge_backend.value", "off"),
             setting("assistant.wake.judge_where.value", "local"),
             setting("assistant.wake.judge_host.value", ""),
@@ -1015,6 +1038,13 @@ class JudgeFacade:
             setting("assistant.wake.judge_model.value", ""),
             setting("assistant.wake.judge_timeout.value", 1.0),
         )
+
+    def remembered(self) -> tuple:
+        return self._config
+
+    def remember(self, config: tuple = None) -> tuple:
+        self._config = tuple(config) if config is not None else self.config()
+        return self._config
 
     def summary(self) -> dict:
         """Everything a page needs about the judge, in one call."""

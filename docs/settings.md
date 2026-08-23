@@ -223,6 +223,26 @@ will not let you pick again, with code reading a string no branch handles.
 }
 ```
 
+### Descriptions are folded
+
+Every description is drawn as a fold, the same control a plugin readme uses,
+closed to start with. A description is several paragraphs on the settings that
+need one, and rendered inline they push the controls somebody came for off the
+bottom of the screen - a category of a dozen settings becomes a page of prose
+with widgets buried in it.
+
+The closed header carries a line count, so a fold is visibly something rather
+than nothing. Blank lines are not counted: descriptions are written in
+paragraphs, and counting the gaps makes a three-paragraph note read as twice
+its length.
+
+**Collapse descriptions** sits beside Save and Return and moves all of them at
+once. One control rather than two: with anything open it closes everything,
+and once nothing is open the same press opens everything, so the label always
+says what pressing it will do. It reads the folds each time rather than
+remembering, because they also move one at a time - somebody who opened three
+by hand and then presses this means close them.
+
 ### `group`
 
 A dropdown that decides which **other** settings in its block are worth

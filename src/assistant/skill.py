@@ -1258,8 +1258,33 @@ class SkillIntentEngine:
 	#the right window for what "that" refers to and the wrong one for this:
 	#it would mean a single real interaction exempts everything said in the
 	#room for the next five minutes, which in front of a television is the
-	#whole problem rather than an edge of it. A follow-up arrives in seconds.
-	FOLLOW_UP_WITHIN = 30.0
+	#whole problem rather than an edge of it.
+	#
+	#Ten seconds, because this window is not a memory - it is a stretch in
+	#which NOTHING is judged, and everything the room says during it reaches
+	#the panel unexamined. A real follow-up lands in the pause after an
+	#answer; a television fills the rest. The cost of being too short is
+	#saying the wake word again, and the cost of being too long is the panel
+	#answering the room out loud, which is the thing the gate exists for.
+	FOLLOW_UP_WITHIN = 10.0
+
+	def _conversation_ended(self, context) -> bool:
+		"""
+		Whether somebody closed the conversation the last answer belonged to.
+
+		The follow-up exemption exists because an answer is usually followed by
+		a question about it. A cancel is the one thing that is never that: it
+		is somebody saying they are finished, and the window it would otherwise
+		leave open stands in front of an empty room.
+
+		Compared against the turn rather than against now, so an answer given
+		AFTER a cancel opens a fresh window normally.
+		"""
+		try:
+			ended = float(self.client.CONTEXT.cancelled_at or 0.0)
+		except Exception:
+			return False
+		return bool(ended and ended >= getattr(context, "at", 0.0))
 
 	def _judged(self, phrase: str, heard: dict, context, rules):
 		"""
@@ -1335,7 +1360,8 @@ class SkillIntentEngine:
 			pass
 		try:
 			if (context is not None and context.answer
-					and context.age <= self.FOLLOW_UP_WITHIN):
+					and context.age <= self.FOLLOW_UP_WITHIN
+					and not self._conversation_ended(context)):
 				return False
 		except Exception:
 			pass

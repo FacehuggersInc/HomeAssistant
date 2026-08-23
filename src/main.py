@@ -2202,7 +2202,7 @@ class Client:
         except (TypeError, ValueError):
             port = 8771
         model = str(self.setting("assistant.wake.judge_model.value", "")
-                    or "onnx-community/Qwen3-0.6B-ONNX").strip()
+                    or "onnx-community/Qwen3-1.7B-ONNX").strip()
 
         def argv():
             # A factory, so a restart takes the model as it is now rather
@@ -2483,10 +2483,14 @@ class Client:
 
         self.SERVICES.STT.stop()
         self.SERVICES.TTS.detach()
+        # Before the processes below, because a socket backend pointed at the
+        # loopback is talking to one of them.
+        self.SERVICES.JUDGE.stop()
         # Taken down with the assistant. Left running it would hold the port
         # against the one the next start spawns, and the second would find it
         # taken and be silent for a reason nobody would look for here.
         self.stop_speech_process()
+        self.stop_judge_process()
         self.ASSIST_STATUS = "DORMANT"
         self.ASSIST_VOICE_ACTIVITY_LEVEL = 0.0
 
@@ -2509,6 +2513,10 @@ class Client:
             # several the speech process takes to come back - so picking a
             # different voice must not leave the panel deaf while it does.
             self.restart_voice_if_changed()
+            # And the judge, separately again. It is a third thing with its
+            # own settings and its own cost to rebuild, and it is optional -
+            # so a change to it must not take the other two down.
+            self.restart_judge_if_changed()
             return
 
         # Listening IS restarting, and start_assistant() builds the voice as
@@ -2517,6 +2525,8 @@ class Client:
         # means spawning a speech process only to terminate it. Remembering
         # the voice settings is enough; the restart applies them.
         self.SERVICES.TTS.remember()
+        # The judge is rebuilt by the same restart, for the same reason.
+        self.SERVICES.JUDGE.remember()
 
         was_enabled = previous[0] if previous else False
         self.SERVICES.STT.remember(current)
@@ -2577,11 +2587,41 @@ class Client:
         self.rebuild_voice()
         return True
 
+    def restart_judge_if_changed(self) -> bool:
+        """
+        Rebuild the judge, and nothing else, when a judge setting changed.
+
+        Its own comparison for the same reason the voice has one: a panel
+        that stops listening for several seconds because somebody moved the
+        judge's timeout is a panel that punishes the smallest setting on the
+        page. Nothing here touches the microphone or the voice.
+        """
+        current = self.SERVICES.JUDGE.config()
+        if current == self.SERVICES.JUDGE.remembered():
+            return False
+        self.SERVICES.JUDGE.remember(current)
+
+        if not self.BUILT:
+            # Before the first start there is nothing to rebuild, and the
+            # start that follows builds it against these settings anyway.
+            return False
+
+        self.log("info", "[Judge] Settings changed, rebuilding it.")
+        self.SERVICES.JUDGE.stop()
+        # Stopped whatever the new setting is, for the reason the voice is:
+        # moving off `subprocess` otherwise leaves a process holding the port
+        # against the next one to want it. start_judge_process() puts it back
+        # when the provider asks for it.
+        self.stop_judge_process()
+        self.SERVICES.JUDGE.start()
+        return True
+
     def start_assistant(self) -> None:
         from src.assistant import audio
 
         self.SERVICES.STT.remember()
         self.SERVICES.TTS.remember()
+        self.SERVICES.JUDGE.remember()
 
         if not self.assistant_enabled():
             self.log("info", "[Assistant] Disabled in settings.")
@@ -2924,6 +2964,13 @@ class Client:
         self.apply_minimum_volume()
 
         self.SERVICES.TTS.start()
+
+        # Alongside the voice, and before listening. It is optional and the
+        # rules decide without it, so nothing below waits on it and a failure
+        # is a log line rather than an assistant that will not start - see
+        # JudgeFacade.start(), which reports rather than raises.
+        self.SERVICES.JUDGE.start()
+        self.SERVICES.JUDGE.remember()
 
         try:
             # Built by whoever provides `assistant.stt` rather than named

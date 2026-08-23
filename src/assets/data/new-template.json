@@ -549,11 +549,12 @@
             },
             "wake_speech_gate": {
                 "type": "float",
-                "default": 0.0,
-                "value": 0.0,
+                "default": 0.5,
+                "value": 0.5,
                 "min": 0.0,
                 "max": 0.9,
-                "description": "Refuse a wake unless the same moment also sounded like speech.\n\n0 is off. Around 0.5 is a reasonable start.\n\nA second, separate model decides whether a frame contains a voice at all, and the wake word is only accepted if it agrees. That does nothing about somebody on television saying the word, and a great deal about a clatter or a door that happens to score highly.\n\nIt asks something of the audio the wake word alone does not, so set it gently: too high and a real wake said quietly is refused, with nothing on screen to say why."
+                "description": "Refuse a wake unless the same moment also sounded like speech.\n\n0.5 by default. 0 turns it off.\n\nA second, separate model decides whether a frame contains a voice at all, and the wake word is only accepted if it agrees. That does nothing about somebody on television saying the word, and a great deal about a clatter or a door that happens to score highly.\n\nIt asks something of the audio the wake word alone does not, so move it gently: too high and a real wake said quietly is refused, with nothing on screen to say why. The Wake report is where that shows up.\n\nThe detector is a download. A panel that cannot fetch it builds the spotter without the gate and says so in the log, rather than not listening at all.",
+                "step": 0.05
             },
             "wake_diagnostics": {
                 "type": "bool",
@@ -579,17 +580,18 @@
                 "type": "bool",
                 "default": true,
                 "value": true,
-                "description": "Whether a phrase that matched no skill has to look like it was said to the panel before it reaches the AI fallback.\n\nA wake word fires on television audio often enough that something has to decide what to do with what follows, and without this the answer is always \"ask the AI\" - so the panel answers the room out loud. With it on, an utterance shaped like conversation rather than a request is dropped and logged.\n\nBiased toward dropping: an utterance with no signal either way goes too. A missed request costs saying it again; a phantom interaction costs a panel talking over what you were watching. Turn this off if the log shows it dropping things you meant."
+                "description": "Whether a phrase that matched no skill has to look like it was said to the panel before it reaches the AI fallback.\n\nA wake word fires on television audio often enough that something has to decide what to do with what follows, and without this the answer is always \"ask the AI\" - so the panel answers the room out loud. With it on, an utterance shaped like conversation rather than a request is dropped and logged.\n\nBiased toward dropping: an utterance with no signal either way goes too. A missed request costs saying it again; a phantom interaction costs a panel talking over what you were watching. Turn this off if the log shows it dropping things you meant.\n\nThis is the gate on the fallback only. It does not turn the judge off - that is 'A model decides who was spoken to' below - and a conversation already open is never gated, so the judge still weighs what is said inside one."
             },
             "judge_backend": {
-                "type": "enum",
-                "default": "off",
+                "type": "group",
                 "value": "off",
-                "options": [
-                    "off",
-                    "qwen"
-                ],
-                "description": "A small language model asked whether an utterance was meant for the panel, consulted after the rules and before anything answers.\n\nThe rules in addressed.py decide by sentence shape, which cannot tell a question asked of the panel from the same question asked of somebody on television. A model can weigh the wording, the wake word and the turn before it.\n\n'off' leaves the rules to decide on their own, which is what the panel does today. 'qwen' runs Qwen3-0.6B.\n\nIt answers with a key and nothing else - not prose, not a score. Whenever it cannot answer, times out, or says something that is not a key, the rules decide instead."
+                "groups": {
+                    "off": [],
+                    "qwen": [
+                        "judge_where"
+                    ]
+                },
+                "description": "A small language model asked whether an utterance was meant for the panel, consulted after the rules and before anything answers.\n\nMEASURED, AND NOT WORTH TURNING ON YET. Qwen3-0.6B was run against a 33-phrase corpus on a panel: 13 right, against rules that get 7 of 8 television questions and cost nothing. The two classes do not separate - television lines score slightly HIGHER than real requests - so no threshold rescues it, and rewording only moves the bias. It also costs about 1.1 seconds on the path somebody is waiting on.\n\nThe wiring around it is sound and measured; it is the model that is too small. 'socket' points at another machine, which is where a larger one would go. Run measure_judge.py against any candidate before trusting it: a verdict table alone looks fine, and the number that matters is the separation between the two classes.\n\n'off' leaves the rules to decide on their own, which is what the panel does today.\n\nIt is asked in two places - a phrase that matched no skill, and anything said inside an open conversation - and only the first is affected by the gate setting above."
             },
             "judge_where": {
                 "type": "group",
@@ -626,16 +628,16 @@
             },
             "judge_model": {
                 "type": "string",
-                "default": "onnx-community/Qwen3-0.6B-ONNX",
-                "value": "onnx-community/Qwen3-0.6B-ONNX",
-                "description": "Which model to run, as a Hugging Face repository.\n\nDownloaded once, on first use, and kept. The panel runs the int8 build - around 350MB rather than 600MB, on hardware that is also holding a screen, a microphone and a web server. A machine reached over a socket has no such constraint and uses fp16."
+                "default": "onnx-community/Qwen3-1.7B-ONNX",
+                "value": "onnx-community/Qwen3-1.7B-ONNX",
+                "description": "Which model to run, as a Hugging Face repository.\n\nDownloaded once, on first use, and kept.\n\nQwen3-0.6B was measured on a panel and could not do the job: its two answers did not separate, so it agreed with almost everything. 1.7B is the next size up and is roughly three times the work, which is why 'socket' exists.\n\nThe panel and a process beside it run the q4 build; a machine reached over a socket has the memory for fp16 and its package asks for that.\n\nMeasure anything you put here with measure_judge.py before trusting it. The number that decides whether a model is usable is the SEPARATION between the two classes, not how many verdicts look right - a model that agrees with everything scores well on any corpus that is mostly things worth answering."
             },
             "judge_timeout": {
                 "type": "float",
-                "default": 1.0,
-                "value": 1.0,
+                "default": 2.0,
+                "value": 2.0,
                 "suffix": "sec",
-                "description": "How long the panel waits for a key before deciding without one.\n\nA ceiling, not a target. Somebody is standing in front of the panel while this runs, so a judge that has gone slow has to stop being consulted rather than hold up the answer - and the rules are already there to decide."
+                "description": "How long the panel waits for a key before deciding without one.\n\nA ceiling, not a target. Somebody is standing in front of the panel while this runs, so a judge that has gone slow has to stop being consulted rather than hold up the answer - the rules are already there to decide.\n\n2 seconds covers Qwen3-0.6B on a panel's own processor, which measures around 1.1s typical and 1.3s at its slowest. Set this below what your hardware actually does and the judge is abandoned on the calls that needed it most, which is worse than not having one: every one of those falls back to the rules after having already cost the wait.\n\nMeasure before moving it. A machine reached over a socket is usually faster than the panel plus whatever the network costs."
             }
         },
         "feedback": {

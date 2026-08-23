@@ -192,7 +192,7 @@ def build_for(client) -> tuple:
         port = DEFAULT_PORT
 
     model = str(client.setting("assistant.wake.judge_model.value", "")
-                or "onnx-community/Qwen3-0.6B-ONNX").strip()
+                or "onnx-community/Qwen3-1.7B-ONNX").strip()
     host = str(client.setting("assistant.wake.judge_host.value", "")
                or "").strip()
 

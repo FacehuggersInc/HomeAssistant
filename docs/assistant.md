@@ -224,14 +224,23 @@ just worked.
 
 ### Doing something about the room
 
-Two settings, both off by default and both aimed at steady background noise -
-a fan, an in-window air conditioner, a fridge.
+Two settings, both aimed at steady background noise - a fan, an in-window air
+conditioner, a fridge.
 
 `assistant.wake.wake_noise_suppression` cleans the audio with SpeexDSP before
-the wake word is looked for. `assistant.wake.wake_speech_gate` refuses a wake
-unless a separate voice detector agrees the moment contained speech at all -
-which does nothing about a television saying the word, and a great deal about
-a clatter that happens to score highly.
+the wake word is looked for, and is **off** by default: it costs a little per
+frame, and a microphone that already does this in hardware does not want it
+done twice.
+
+`assistant.wake.wake_speech_gate` refuses a wake unless a separate voice
+detector agrees the moment contained speech at all - which does nothing about
+a television saying the word, and a great deal about a clatter that happens to
+score highly. It is **on at 0.5**, which is where the detector is worth having
+without refusing a wake said quietly. 0 turns it off.
+
+A panel that cannot fetch the detector builds the spotter without the gate and
+says which option was dropped, so the default costs a log line rather than a
+wake word.
 
 Both are passed to openWakeWord **only when the installed build names them**.
 Handing one to a build that predates it is a `TypeError` at startup, which is
@@ -338,12 +347,23 @@ Three things have to agree, and the first is the one that matters:
    wake word as noise.
 2. The wake word is not in what was heard, tested generously, so `elexa`,
    `lexa` and `a lexa` all count as present and stop it.
-3. The turn came to nothing: it timed out, was cut short at the cap, or
-   transcribed to nothing.
+3. The outcome, which decides the reason rather than the verdict: a turn that
+   came to nothing is the clearest shape of a false wake, and one that
+   produced speech with no wake word in it is the same fault with more
+   evidence.
 
-**The outcome is a better signal than the transcript.** A real wake is nearly
-always followed by a question that gets answered; the transcriber is at its
-worst on the wake word by itself.
+**The transcript is the signal, and the outcome refines it.** The wake clip
+and the phrase are transcribed TOGETHER, so the word is read with neighbours
+around it rather than alone — which is the case the transcriber is worst at.
+A joint transcript carrying no wake word anywhere describes audio that did not
+contain one, and that holds whether the turn came to nothing or produced
+speech.
+
+`answered` is the speech process's word for "a transcript went out". It does
+not mean the panel answered: the child never learns what happened next. So a
+false wake that reached the fallback and got a reply is still a false wake,
+and is learned as one — which is the case where the panel most needs to stop
+doing it again.
 
 Which is why the wake clip and the phrase are transcribed **together**. The
 spotter fires as the word completes, so the wake context ends on "alexa" with
@@ -1065,9 +1085,17 @@ Treating them as one would make a quiet minute take away a card that is still
 being read.
 
 Answered, not merely asked — otherwise the first false wake holds the gate open
-for every one after it. And 30 seconds rather than `CONTEXT.RELEVANT_FOR`,
+for every one after it. And ten seconds rather than `CONTEXT.RELEVANT_FOR`,
 which is 300: that is the right window for what "that" refers to and far too
 long to hold this open in a room with a television.
+
+**A cancel closes the window.** The exemption exists because an answer is
+usually followed by a question about it, and a cancel is the one thing that is
+never that — it is somebody saying they are finished. Without this, saying
+"stop" leaves ten seconds in which nothing said in the room is judged at all,
+standing in front of a panel nobody is talking to. `CONTEXT.note_cancelled()`
+stamps it and `_conversation_ended()` compares against the turn, so an answer
+given *after* a cancel opens a fresh window normally.
 
 ### Speaking over a reply
 
@@ -1121,10 +1149,69 @@ does not: it cannot answer anything except a key, it costs one forward pass
 rather than one per token, and it is deterministic — the same utterance in the
 same room gets the same answer, which is what makes a log worth reading.
 
-Both keys are checked at load for starting with the same token. If they did,
-every answer would be the same answer and nothing downstream could tell: valid
-key, ordinary log, and a panel that either answers the television every time
-or ignores its owner every time.
+**What the model says is not what goes on the wire.** The protocol speaks
+`ANSWER` and `IGNORE`; the model is asked for `YES` or `NO` and the backend
+maps one to the other. Two properties decide that pair, and neither is
+obvious.
+
+**One token each.** The comparison happens at a single position, so a label
+spelling as several tokens is represented by its FIRST - and a leading
+fragment carries the weight of every word the vocabulary can finish it with.
+`ANSWER` spells as `ANS` + more, and `ANS` sits above `IGNORE` whatever was
+said, which reads as a model that agrees with everything. `judge_prompt.LABELS`
+is tried in order and the first pair where both sides are one token is taken.
+
+**Neither may be a word the instruction uses.** A label that is also the verb
+in "answer with one word" is primed by the sentence asking for it. `A`/`B`
+fails the same test less obviously, since "a" is an article.
+
+The instruction is built from the pair that was chosen, so what the model is
+asked to say and what is compared cannot drift. Both are also checked for
+being the same token: if they were, every answer would be the same answer and
+nothing downstream could tell - valid key, ordinary log, and a panel that
+either answers the television every time or ignores its owner every time.
+
+### What it measures, on a panel
+
+Qwen3-0.6B, against a 33-phrase corpus, on the hardware this runs on:
+
+| Measured                           |                     |
+|------------------------------------|---------------------|
+| Right                              | 13 of 33            |
+| Meant for the panel, median margin | +0.717              |
+| The room, median margin            | +0.994              |
+| Separation between the two         | **-1.865**          |
+| Cost per judgement                 | ~1.1s p50, 1.2s p95 |
+
+The panel ships **Qwen3-1.7B**, the next size up, on the reasoning that 0.6B
+sat below the floor where this task works at all rather than near it. That is
+roughly three times the work per judgement, which is what `socket` is for -
+and it is a hypothesis until it is measured, not a fix.
+
+**The margin is the number that matters, not the verdicts.** A verdict table
+flatters any wording that agrees with everything, because the corpus is mostly
+things that should be answered. The margin is the logit gap the verdict is a
+sign bit of, and here the two classes overlap - the room scores HIGHER than a
+real request, so the model is slightly inverted rather than merely undecided.
+No threshold fixes a negative separation.
+
+Rewording does not close it. Framing the decision as one utterance rather than
+a scene reaches -1.578; six worked examples reach -0.886 by moving both
+medians to +5.2, which is bias rather than discrimination.
+
+**And the framing outweighs the utterance.** The same eight phrases, judged
+bare and then with the turn before them attached, move by -1.639 on average -
+roughly twice the entire spread between the two classes. What the panel last
+said decides more than what was just heard, which is the wrong way round for
+something deciding who was spoken to.
+
+So `judge_backend` stays off, and the rules decide. Everything around the
+judge is measured and works - the protocol, the facade, the failure paths, the
+socket backend, the package - and it is the model that is too small for the
+job. `socket` is where a larger one would go.
+
+Run `measure_judge.py` against any candidate before trusting it. It prints the
+separation and says outright when the classes overlap.
 
 ### The rules are what happens when it is not there
 
@@ -1179,6 +1266,50 @@ keep working, and only one of them gets used enough to notice when it breaks.
 `judge_timeout` is a ceiling, not a target. Somebody is standing in front of
 the panel while this runs, so a judge that has gone slow stops being consulted
 rather than holding up the answer.
+
+**The deadline is on the WAIT, not on the work.** A forward pass cannot be
+interrupted - onnxruntime runs to completion whatever the caller does - so an
+overdue pass finishes into nothing and the caller gets the rules. That is what
+a judge which has gone slow is supposed to cost.
+
+An utterance arriving while one is still running is **refused rather than
+queued**. Queueing would make the second caller wait out the first pass and
+then its own deadline on top, which is the one thing the ceiling exists to
+prevent.
+
+### What turns it on, and what does not
+
+`assistant.wake.judge_backend` decides whether there is a judge. It starts
+with the assistant, alongside the voice, and stops with it.
+
+It is a `group` rather than a plain dropdown, so choosing `off` takes the
+whole run of judge settings off the page rather than leaving five controls
+that do nothing. `judge_where` sits inside it and carries its own members -
+see [Groups stack](settings.md#groups-stack).
+
+**`gate_unaddressed` does not.** The two are near each other in Settings and
+govern different things:
+
+| Setting             | Decides                                              |
+|---------------------|------------------------------------------------------|
+| `judge_backend`     | Whether a model is loaded and asked at all.          |
+| `gate_unaddressed`  | Whether the fallback funnel gates a phrase.          |
+
+The gate is read by `SkillIntentEngine._should_gate()`, at that one call
+site. The judge is asked at two — the funnel and inside a conversation — and
+the second is where the difference shows: a session has no gate, the rules
+are deliberately not consulted there, and the judge is the only thing that
+can tell a line from the television apart from a follow-up. Tying the judge's
+existence to the gate would take that away with a setting whose description
+says nothing about conversations.
+
+So turning the gate off leaves a working judge that the funnel stops asking,
+and a session that still asks it. Turning `judge_backend` off leaves the
+rules, everywhere.
+
+The judge's settings are their own tuple and are compared on save on their
+own, so moving the timeout rebuilds the judge and leaves the microphone and
+the voice running — the same treatment the voice gets, for the same reason.
 
 ## Speaking somewhere else
 
