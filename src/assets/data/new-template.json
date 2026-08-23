@@ -545,7 +545,7 @@
                 "type": "bool",
                 "default": false,
                 "value": false,
-                "description": "Clean the audio before the wake word is looked for.\n\nUses SpeexDSP, which is aimed at steady background noise - a fan, an in-window air conditioner, a fridge. Exactly the sort that never stops and sits under everything said in the room.\n\nOff by default because it costs a little per frame and because a microphone that already does this in hardware - a beamforming array - does not want it done twice.\n\nNeeds speexdsp-ns installed. Without it the panel says so once and carries on."
+                "description": "Clean the audio before the wake word is looked for.\n\nUses SpeexDSP, which is aimed at steady background noise - a fan, an in-window air conditioner, a fridge. Exactly the sort that never stops and sits under everything said in the room.\n\nOff by default because it costs a little per frame and because a microphone that already does this in hardware - a beamforming array - does not want it done twice.\n\nNeeds speexdsp-ns installed. Without it the panel says so once and carries on.\n\nNeeds the 'speexdsp-ns' package. Without it the wake word starts without this and says so in the log - it is an improvement to the spotter, never a condition of it running."
             },
             "wake_speech_gate": {
                 "type": "float",
@@ -553,7 +553,7 @@
                 "value": 0.5,
                 "min": 0.0,
                 "max": 0.9,
-                "description": "Refuse a wake unless the same moment also sounded like speech.\n\n0.5 by default. 0 turns it off.\n\nA second, separate model decides whether a frame contains a voice at all, and the wake word is only accepted if it agrees. That does nothing about somebody on television saying the word, and a great deal about a clatter or a door that happens to score highly.\n\nIt asks something of the audio the wake word alone does not, so move it gently: too high and a real wake said quietly is refused, with nothing on screen to say why. The Wake report is where that shows up.\n\nThe detector is a download. A panel that cannot fetch it builds the spotter without the gate and says so in the log, rather than not listening at all.",
+                "description": "Refuse a wake unless the same moment also sounded like speech.\n\n0.5 by default. 0 turns it off.\n\nA second, separate model decides whether a frame contains a voice at all, and the wake word is only accepted if it agrees. That does nothing about somebody on television saying the word, and a great deal about a clatter or a door that happens to score highly.\n\nIt asks something of the audio the wake word alone does not, so move it gently: too high and a real wake said quietly is refused, with nothing on screen to say why. The Wake report is where that shows up.\n\nThe detector is a download. A panel that cannot fetch it starts the wake word without the gate and names it in the log, rather than not listening at all.",
                 "step": 0.05
             },
             "wake_diagnostics": {

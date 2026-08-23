@@ -115,6 +115,10 @@ class WakeSpotter:
         self.last_features = None
         self.ready = False
         self.reason = ""
+        # Options asked for and dropped because this install cannot use them.
+        # A spotter that started is not the same as one that started with
+        # everything it was configured with, and only this side knows.
+        self.degraded = ()
         # feed() runs on the audio thread and reset() has been called from
         # the command thread. The model carries state from frame to frame and
         # both halves write it, so a reset landing inside a predict() left the
@@ -170,39 +174,38 @@ class WakeSpotter:
             self.log("warning", f"[Wake] {self.reason}")
 
     def _build(self, Model, openwakeword):
-        """One model, however this version of the library wants to be asked."""
+        """
+        One model, however this version of the library wants to be asked.
+
+        Two shapes are in the wild: newer releases take model NAMES and
+        download on demand, older ones take PATHS to files shipped beside the
+        library. Which one pip installed is not something a panel should care
+        about.
+
+        **Every construction goes through `_attempt`, and every option is
+        droppable.** A build can NAME an option it cannot use - Speex is a
+        separate package and the voice detector is a download - so accepting
+        the argument says nothing about whether it will work. An option that
+        cannot be used must never be the reason the panel is deaf: it is an
+        improvement to the wake word, and the wake word is the feature.
+        """
         import inspect
         import os
 
         takes = inspect.signature(Model.__init__).parameters
 
-        # Only what this build actually accepts.
-        #
-        # Both of these arrived in later openWakeWord releases, and passing
-        # one to a build that predates it is a TypeError at startup - which
-        # would be the wake word not working at all, in exchange for making it
-        # work better.
+        # Only what this build accepts at all. Passing one to a release that
+        # predates it is a TypeError at startup, which is the wake word not
+        # working in exchange for making it work better.
         options = {}
         if self.speex and "enable_speex_noise_suppression" in takes:
             options["enable_speex_noise_suppression"] = True
         if self.vad_threshold > 0 and "vad_threshold" in takes:
             options["vad_threshold"] = float(self.vad_threshold)
-        if options:
-            self.log("info", f"[Wake] Spotting with {options}.")
 
         if "wakeword_models" in takes:
-            try:
-                return Model(wakeword_models=[self.model_name], **options)
-            except Exception as exc:
-                # Speex is a separate package and the VAD is a download; a
-                # build that names the argument may still fail to use it.
-                # Better a spotter with neither than no spotter at all.
-                if options:
-                    self.log("warning",
-                             f"[Wake] Falling back without {list(options)}: "
-                             f"{exc}")
-                    return Model(wakeword_models=[self.model_name])
-                raise
+            return self._attempt(Model, {"wakeword_models": [self.model_name]},
+                                 options)
 
         # The older shape. Files live beside the library, named
         # "<word>_v0.1.onnx" or ".tflite" depending on the build.
@@ -220,7 +223,34 @@ class WakeSpotter:
             found = ""
         if not found:
             return None
-        return Model(wakeword_model_paths=[found], **options)
+        return self._attempt(Model, {"wakeword_model_paths": [found]}, options)
+
+    def _attempt(self, Model, base: dict, options: dict):
+        """
+        Build it with the options, and again without them if that fails.
+
+        The retry is the whole point, so it lives here rather than beside one
+        of the two shapes above - written out per branch it was present on
+        one and missing from the other, which is a spotter that starts on a
+        panel whose library is new and refuses on a panel whose library is
+        old, for a reason neither one names.
+        """
+        if not options:
+            return Model(**base)
+
+        self.log("info", f"[Wake] Spotting with {options}.")
+        try:
+            return Model(**base, **options)
+        except Exception as exc:
+            # Named individually, because which one is missing is what
+            # somebody has to act on: Speex is `pip install speexdsp-ns`, the
+            # detector is a download that failed.
+            self.log("warning",
+                     f"[Wake] Starting without {', '.join(sorted(options))} - "
+                     f"{exc}. The wake word still works; that option does "
+                     f"not, and this panel is missing what it needs.")
+            self.degraded = tuple(sorted(options))
+            return Model(**base)
 
     ## -- listening
 

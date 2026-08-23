@@ -238,9 +238,31 @@ a television saying the word, and a great deal about a clatter that happens to
 score highly. It is **on at 0.5**, which is where the detector is worth having
 without refusing a wake said quietly. 0 turns it off.
 
-A panel that cannot fetch the detector builds the spotter without the gate and
-says which option was dropped, so the default costs a log line rather than a
-wake word.
+**An option that cannot be used is never the reason the panel is deaf.** A
+build can NAME an option and still fail on it - Speex is a separate package
+(`speexdsp-ns`, which requirements.txt installs where a wheel exists) and the
+detector is a download - so accepting the argument
+says nothing about whether it works. Either way the spotter is built again
+without whichever options were refused, and the log names them, so the
+missing package is answerable from the file:
+
+```
+[Wake] Starting without enable_speex_noise_suppression - No module named
+  'speexdsp_ns'. The wake word still works; that option does not, and this
+  panel is missing what it needs.
+```
+
+That retry covers **both** ways the library can be asked for a model. Newer
+releases take model names and older ones take file paths, and a retry written
+out per branch is a spotter that starts on one install and refuses on another
+for a reason neither one names.
+
+`speexdsp-ns` publishes manylinux wheels only - x86_64 and aarch64, up to
+CPython 3.12 - and no source distribution, so requirements.txt asks for it
+behind a marker. Elsewhere pip skips it, and the wake word starts without
+noise suppression rather than the install failing: `pip install -r` is one
+call for the whole file, so a requirement with no candidate on this platform
+takes every other package down with it.
 
 Both are passed to openWakeWord **only when the installed build names them**.
 Handing one to a build that predates it is a `TypeError` at startup, which is

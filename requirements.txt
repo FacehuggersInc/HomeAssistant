@@ -30,6 +30,25 @@ webrtcvad
 #Spots the wake word with a model built for the job rather than
 #transcribing a fragment of audio and checking the spelling.
 openwakeword
+#Noise suppression for the audio the wake word is looked for in, behind
+#assistant.wake.wake_noise_suppression. Aimed at a fan or an air conditioner:
+#the steady sort that never stops and sits under everything said in the room.
+#
+#**Linux only, and only where a wheel exists.** The project publishes
+#manylinux x86_64 and aarch64 wheels for CPython up to 3.12, and nothing
+#else - no Windows, no macOS, and no source distribution to fall back on. Off
+#a marker, pip finds no candidate at all on those platforms and fails the
+#WHOLE file, which is a panel that cannot install because of an optional
+#audio filter.
+#
+#Where it is skipped the wake word starts without it and the log names what
+#was dropped - see WakeSpotter._attempt(). It is an improvement to the
+#spotter, never a condition of it running.
+speexdsp-ns; sys_platform == "linux" and python_version < "3.13"
+
+#Cleans a captured phrase before it reaches the transcriber, behind
+#audio.devices.mic_processing. Pure Python wheels everywhere, so no marker.
+noisereduce
 #Runs NVIDIA's Parakeet for transcription. NeMo is the usual route and
 #brings torch with it; this is four megabytes and loads the same
 #published weights.
@@ -39,7 +58,6 @@ onnx-asr[cpu,hub]
 faster-whisper
 numpy
 torch
-noisereduce
 
 # ── TTS ───────────────────────────────────────────────────────────────────────
 
