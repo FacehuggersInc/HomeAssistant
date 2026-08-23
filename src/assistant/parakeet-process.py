@@ -77,6 +77,30 @@ except Exception:
     nr = None
     _HAS_NOISEREDUCE = False
 
+# Where an import failure gets the name of the thing to install added to it -
+# see explain_import(). Guarded like everything else in a child process: this
+# is stdlib-only and beside this file, but a message that lost its hint is
+# better than a process that will not start because the hint would not load.
+try:
+    from src.system.requirements import explain_import
+except Exception:
+    def explain_import(error):
+        return f"{type(error).__name__}: {error}"
+
+# webrtcvad reads its own version through pkg_resources, which setuptools v82
+# removed - see src/system/pkg_resources_shim.py. Around the import only, and
+# only when the real one is absent.
+try:
+    from src.system import pkg_resources_shim as _pkg_shim
+except Exception:
+    import contextlib as _contextlib
+
+    class _pkg_shim:
+        @staticmethod
+        @_contextlib.contextmanager
+        def installed():
+            yield False
+
 # Guarded so a missing audio stack is a message rather than a traceback into
 # a log file nobody reads. sounddevice raises OSError when PortAudio is
 # absent, so this catches Exception rather than ImportError.
@@ -84,10 +108,11 @@ _IMPORT_ERROR = None
 try:
     import numpy as np
     import sounddevice as sd
-    import webrtcvad
+    with _pkg_shim.installed():
+        import webrtcvad
 except Exception as _e:
     np = sd = webrtcvad = None
-    _IMPORT_ERROR = f"{type(_e).__name__}: {_e}"
+    _IMPORT_ERROR = explain_import(_e)
 
 
 def _pid_alive(pid: int) -> bool:

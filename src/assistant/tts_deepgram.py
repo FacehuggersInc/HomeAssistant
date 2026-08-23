@@ -32,6 +32,17 @@ if TYPE_CHECKING:
 #Where the audio comes from, and where the account is.
 SPEAK_URL = "https://api.deepgram.com/v1/speak"
 PROJECTS_URL = "https://api.deepgram.com/v1/projects"
+#The published catalogue. A `tts` array of models, each with a
+#`canonical_name` that is the string /v1/speak is asked with.
+MODELS_URL = "https://api.deepgram.com/v1/models"
+
+#Only the family this backend speaks with.
+#
+#The catalogue also carries Deepgram's newer Flux voices, which are served on
+#/v2/speak and answer 400 here - so a picker built from the raw list offers
+#voices that fail at the first reply, which is the shape of bug this fetch
+#exists to stop rather than to introduce.
+SPEAKABLE_PREFIX = "aura-"
 
 #The environment variable the key lives in.
 SECRET_KEY = "DEEPGRAM_API_KEY"
@@ -101,6 +112,17 @@ class DeepgramTTSProcessing:
         self.model = str(client.setting("audio.speech.deepgram_voice.value",
                                         DEFAULT_MODEL) or DEFAULT_MODEL).strip()
         self.rate = SAMPLE_RATE
+
+        # The catalogue as Deepgram published it, or () when it could not be
+        # reached. Empty means fall back - see get_voices().
+        self.voices: tuple = ()
+        # And what to fall back TO, read once, here, before anything has had a
+        # chance to move it. `fetch_voices()` writes the catalogue into the
+        # same key so the settings dropdown holds it, so a fallback that read
+        # that key when it was needed would answer with the fetch - which is
+        # not a fallback at all, and looks like one right up until the panel
+        # is offline.
+        self.fallback: tuple = self._settings_voices()
 
         # What has been spent since the panel started, in characters, which is
         # the unit Deepgram bills in and reports back on every request.
@@ -186,6 +208,7 @@ class DeepgramTTSProcessing:
         self.project = str(projects[0].get("project_id") or "")
         self.error = ""
         self.out_of_credit = False
+        self.fetch_voices()
         self.refresh_balance(force=True)
         if not quiet:
             self.client.log("info",
@@ -324,15 +347,99 @@ class DeepgramTTSProcessing:
         """
         The voices this panel offers.
 
-        From settings rather than from the API: Aura's catalogue is a list of
-        model strings that changes when Deepgram adds one, and there is no
-        endpoint that answers "which voices may this key use".
+        The published catalogue when it could be read, and the list the panel
+        started with when it could not - somewhere with no network still has
+        to offer something, and the last list this panel knew is the best
+        guess available.
+        """
+        return self.voices or self.fallback
+
+    def _settings_voices(self) -> tuple:
+        """
+        The list in `deepgram_voice.options` as it stands right now.
+
+        Read from settings rather than held in code so there is one list
+        rather than two: the dropdown is built from the same key, and a second
+        copy here is a second thing to update and forget. Called once, at
+        construction - see `self.fallback`.
         """
         try:
             options = self.client.SETTINGS.audio.speech.deepgram_voice.options
-            return tuple(str(name) for name in options)
+            names = tuple(str(name) for name in options if str(name).strip())
         except Exception:
-            return (DEFAULT_MODEL,)
+            names = ()
+        return names or (DEFAULT_MODEL,)
+
+    def fetch_voices(self) -> tuple:
+        """
+        The catalogue, from Deepgram, and into the settings dropdown with it.
+
+        Aura gains voices between releases of this panel, and a list written
+        into the template is a list that is wrong by the time somebody reads
+        it. `canonical_name` is the exact string `/v1/speak` is asked with, so
+        nothing has to be assembled from parts here.
+
+        Failure is not an error, and in particular is not a bad key. A panel
+        that cannot reach the catalogue can still speak with every voice it
+        already knows, so this logs at debug and leaves `voices` empty for
+        `get_voices()` to fall through.
+        """
+        try:
+            answer = self._ask(MODELS_URL)
+        except DeepgramError as exc:
+            self.client.log("debug",
+                            f"[TTS] Could not read the voice catalogue: {exc}")
+            return self.voices
+
+        found = []
+        for entry in (answer.get("tts") or []):
+            try:
+                name = str(entry.get("canonical_name") or "").strip()
+            except AttributeError:
+                continue
+            if name.startswith(SPEAKABLE_PREFIX) and name not in found:
+                found.append(name)
+        if not found:
+            self.client.log("debug",
+                            "[TTS] The voice catalogue held no Aura voices.")
+            return self.voices
+
+        # Sorted, because Deepgram returns them in no particular order and a
+        # picker that reshuffles between starts is one nobody can find
+        # anything in twice.
+        #
+        # Plainly, and that is enough to put the newer family first: every
+        # aura-2 name has a digit where an aura-1 name has a letter, and a
+        # digit sorts first. A key spelling that out would be a line that
+        # cannot be wrong.
+        found.sort()
+        self.voices = tuple(found)
+        self._offer_voices(self.voices)
+        self.client.log("info",
+                        f"[TTS] Deepgram offers {len(self.voices)} voices.")
+        return self.voices
+
+    def _offer_voices(self, names: tuple) -> None:
+        """
+        Put them in the dropdown - see `Client.fill_device_options()`, which
+        does the same job for audio devices and for the same reason: the
+        settings page reads `options` when it builds the control, so a list
+        that only exists in this object is a list nobody can pick from.
+
+        The current voice is kept even when the catalogue does not name it.
+        Dropping it rewrites the setting to whatever came first, so a voice
+        Deepgram has retired would silently become a different one.
+        """
+        try:
+            setting = self.client.SETTINGS.audio.speech.deepgram_voice
+            offered = list(names)
+            current = str(getattr(setting, "value", "") or "").strip()
+            if current and current not in offered:
+                offered.append(current)
+            setting.options = offered
+        except Exception as exc:
+            self.client.log("debug",
+                            f"[TTS] Could not offer the voice list: {exc}")
 
     def current_voice(self) -> str:
         return str(self.model or "")

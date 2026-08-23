@@ -94,9 +94,50 @@ REQUIREMENTS = {
 }
 
 
+#Import failures whose message names something nobody installs.
+#
+#The module in an ImportError is usually also the package to install, and
+#when it is there is nothing to add. These are the cases where it is not, and
+#each one has cost somebody an afternoon: the name in the message is the
+#thing they searched for, and it does not exist under that name.
+#
+#Matched against the rendered message rather than `error.name`, because only
+#ImportError carries that attribute and the audio stack fails with OSError as
+#often as not.
+IMPORT_HINTS = (
+    ("pkg_resources",
+     "pkg_resources was REMOVED in setuptools v82, so installing setuptools "
+     "does not bring it back and pinning it below 82 holds the whole "
+     "environment on a superseded build tool. Whatever asked for it needs "
+     "standing in for: src/system/pkg_resources_shim.py does that for "
+     "webrtcvad, so seeing this from the speech process means the shim did "
+     "not run."),
+    ("PortAudio",
+     "PortAudio is the C library sounddevice records through. It is a system "
+     "package rather than a Python one, so pip will not have brought it. "
+     "Install it with: sudo apt install libportaudio2"),
+)
+
+
+def explain_import(error: BaseException) -> str:
+    """
+    An import failure, with the thing to install in it where the two differ.
+
+    `str(error)` alone is enough whenever the missing module is the package
+    somebody would install. It is not enough when it is not: "No module named
+    'pkg_resources'" reads as a missing dependency that was somehow left out
+    of requirements.txt, and the speech process repeats it on every restart
+    while the answer is a package with a different name entirely.
+    """
+    said = f"{type(error).__name__}: {error}"
+    for needle, hint in IMPORT_HINTS:
+        if needle in said:
+            return f"{said}. {hint}"
+    return said
+
+
 def get(key: str) -> Optional[Requirement]:
     return REQUIREMENTS.get(key)
-
 
 def explain(client, key: str) -> bool:
     """

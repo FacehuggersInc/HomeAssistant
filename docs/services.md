@@ -530,17 +530,32 @@ machine started after the panel was.
 
 **`voice_options()` asks the running backend, never a setting.** There is no
 one setting that holds them: `tts_voice` is Pocket's catalogue, `deepgram_voice`
-is a list of Aura model strings, and a socket backend's voices are on another
-machine and in none of this panel's settings. Anything reading one key offers
-the wrong list for two of the three.
+is one Aura model string and its dropdown, and a socket backend's voices are on
+another machine and in none of this panel's settings. Anything reading one key
+offers the wrong list for two of the three.
 
 A backend says whether it has a menu at all with `VOICE_CHOICE`:
 
 | Backend    | `VOICE_CHOICE` | Why                                              |
 |------------|----------------|--------------------------------------------------|
 | Pocket     | `True`         | Kyutai publish a catalogue.                      |
-| Deepgram   | `True`         | Aura is a published list of model strings.       |
+| Deepgram   | `True`         | Aura's catalogue is fetched - see below.         |
 | Socket     | `False`        | The far end answers with what it has LOADED.     |
+
+Deepgram's list comes from the API. `fetch_voices()` reads `GET /v1/models`
+when the key is checked and keeps every `canonical_name` under the `tts` key
+that begins `aura-`, which is the exact string `/v1/speak` is asked with. The
+prefix is the important part: the same array carries Deepgram's Flux voices,
+which are served on a different endpoint and answer 400 here.
+
+The names go into `audio.speech.deepgram_voice.options`, so the settings
+dropdown holds them as well - the same move `fill_device_options()` makes for
+audio devices, and for the same reason. The voice currently set is kept in the
+list even when the catalogue does not name it, so a retired voice does not
+silently become whichever one sorts first.
+
+A panel that cannot reach the catalogue falls back to the list in that
+setting, which is the English voices it shipped knowing about.
 
 The socket case is the one worth reading twice. Any audio prompt is a voice
 there, so the far end has nothing to enumerate and answers with the states it

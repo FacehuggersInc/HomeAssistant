@@ -135,6 +135,21 @@ def available() -> bool:
     return DOCS_DIR.is_dir()
 
 
+#Files that live in docs/ and are not part of the documentation.
+#
+#`writing-docs.md` is the rules these pages are written to. It is kept beside
+#them because that is where somebody editing one will look, and it is not one
+#of them: a reader wanting to know how the panel works has no use for the
+#house style, and a page about the pages is the kind of thing that ends up
+#read first by accident.
+#
+#Being absent from NAV_GROUPS is enough to keep it out of the sidebar, the
+#prev/next chain and the search index, all of which walk the nav. It is NOT
+#enough to keep it off the endpoint - resolve() maps any .md in the folder -
+#so it is named here as well.
+UNLISTED = frozenset({"writing-docs.md"})
+
+
 def resolve(name: str) -> Optional[Path]:
     """
     Map a URL fragment to a file inside docs/, or None.
@@ -142,12 +157,19 @@ def resolve(name: str) -> Optional[Path]:
     Resolved and then checked against the docs directory rather than filtered
     for "..": a symlink or an absolute path would walk straight past a
     blacklist, and this endpoint has no auth in front of it.
+
+    `UNLISTED` files answer None, so they are unreachable rather than merely
+    unlinked. An unlisted page that still served on a guessed URL would be a
+    page nobody maintains and anybody can find.
     """
     if not name:
         name = "index"
     name = name.strip().strip("/")
     if not name.endswith(".md"):
         name += ".md"
+
+    if name.lower() in UNLISTED:
+        return None
 
     try:
         candidate = (DOCS_DIR / name).resolve()
@@ -308,12 +330,19 @@ def nav_groups() -> list:
     A page on disk that no group names goes into a final "Everything else"
     rather than being dropped. Silently omitting it would mean a page nobody
     can reach; putting it somewhere visible means the omission gets noticed and
-    filed properly.
+    filed properly. Anything in `UNLISTED` is excluded from that sweep - it is
+    absent on purpose rather than by oversight.
     """
     if not available():
         return []
 
-    on_disk = {p.name for p in DOCS_DIR.glob("*.md")}
+    # `UNLISTED` first, so the "Everything else" sweep below cannot pick it
+    # up. That sweep exists to stop a page being lost by omission, which is
+    # the right default and the wrong one here: these files are omitted on
+    # purpose, and a rule about writing the docs surfacing in the sidebar of
+    # the docs is exactly the accident it is kept out of.
+    on_disk = {p.name for p in DOCS_DIR.glob("*.md")
+               if p.name.lower() not in UNLISTED}
     groups = []
     for title, entries in NAV_GROUPS:
         rows = []

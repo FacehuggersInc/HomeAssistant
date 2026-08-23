@@ -9,7 +9,11 @@ dynaconf
 
 # ── NLP / Intent Engine ───────────────────────────────────────────────────────
 spacy
-# After install run: python -m spacy download en_core_web_sm
+# The model is NOT installed by this file. spaCy models are separate
+# downloads and are not on PyPI, and a direct wheel URL here would pin a
+# version against a spaCy release and fail this WHOLE file when the two drift
+# apart - install() is one all-or-nothing pip call. src/assistant/nlp.py
+# fetches en_core_web_sm on the first start that finds it missing.
 #Compares two lemmas that are nearly the same word. JaroWinkler weights a
 #shared prefix, which is how a mishearing behaves - see fuzzy_equal() in
 #src/assistant/skill.py. C++ backed, so the comparison is not what costs.
@@ -26,6 +30,11 @@ sounddevice
 # else - pocket-tts lists it, but pip does not necessarily install it as a
 # transitive dependency, and a panel that got this far without it is silent.
 soundfile
+# Reads its own version through `pkg_resources` on its first line, which
+# setuptools v82 removed - so a current environment cannot import it and the
+# speech process will not start. There is no version of setuptools to add
+# here that fixes it and no newer webrtcvad that drops the call, so the panel
+# stands in for that one function instead: src/system/pkg_resources_shim.py.
 webrtcvad
 #Spots the wake word with a model built for the job rather than
 #transcribing a fragment of audio and checking the spelling.

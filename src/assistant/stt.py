@@ -302,6 +302,9 @@ class STTProcessing():
 		#should hold it, and only for as long as that lasts.
 		self.capture_held : bool = False
 		self.held_since : float = 0.0
+		#When the wake word was heard while a reply was on its way out but
+		#not yet audible. See wake_interrupts_speech().
+		self.woke_while_pending : float = 0.0
 		self.process_type = process
 		self.__process_path = None
 		match self.process_type:
@@ -912,6 +915,16 @@ class STTProcessing():
 				f"[STTProcessing] Could not {'hold' if held else 'resume'} "
 				f"capture: {e}")
 
+	#How long a wake that landed before a reply was audible stays worth
+	#acting on.
+	#
+	#Long enough to cover the slowest synthesis plus the sentence somebody
+	#says after the word, because the transcript of that sentence is what
+	#spends this and it does not exist until they stop talking. Bounded all
+	#the same: a flag with no deadline outlives the reply it was set against
+	#and lets a line from the room through half a minute later.
+	WOKE_WHILE_PENDING = 10.0
+
 	def wake_interrupts_speech(self) -> None:
 		"""
 		The spotter fired while the panel was talking. Stop it and listen.
@@ -929,57 +942,105 @@ class STTProcessing():
 		transcribe. The spotter is the only thing that can hear anything in
 		this window, so it has to be the thing that acts.
 
-		Only once the reply is audible - see below.
+		Three states, and each says something different in the log, because
+		from the room they are one event - the word said, and nothing
+		happening.
 		"""
 		# AUDIBLE, not merely speaking.
 		#
 		# A reply spends a second or two being synthesised before any sound
 		# exists, and `is_speaking()` counts that - correctly, for everything
-		# else that asks. Here it is wrong: a wake word arriving during
-		# generation arrived into silence, so it is the room rather than
-		# somebody talking over an answer. Acting on it dropped the answer
-		# before it was ever heard, and a fan produces enough of them to
+		# else that asks. Stopping on it is wrong: a wake word arriving
+		# during generation arrived into silence, so it may be the room rather
+		# than somebody talking over an answer. Acting on it drops an answer
+		# before it is ever heard, and a fan produces enough of them to
 		# swallow every reply in a row - the question routed, the skill ran,
 		# and nothing came out.
-		audible = False
+		tts = self.client.SERVICES.TTS
+		audible = speaking = False
 		try:
-			audible = self.client.SERVICES.TTS.is_audible()
+			audible = bool(tts.is_audible())
+			speaking = audible or bool(tts.is_speaking())
 		except Exception:
-			audible = False
-		if not audible:
+			audible = speaking = False
+
+		if audible:
+			# All four moves, through `silence()` rather than written out here.
+			# This was the fourth copy of them.
+			self.silence()
+			self.woke_while_pending = 0.0
+			# And listening again. Muted was correct while it was talking; it
+			# is not talking any more, and the sentence after the wake word is
+			# already being said.
+			self.hold_capture(False)
+			self.client.log("info",
+				"[STTProcessing] Wake word heard over a reply - stopped it and "
+				"reopened the microphone.")
 			return
 
-		try:
-			self.client.SERVICES.TTS.stop_speaking()
-		except Exception as e:
-			self.client.log("warning",
-				f"[STTProcessing] Could not stop speech on wake: {e}")
+		if speaking:
+			# The gap between a reply being asked for and any of it being
+			# heard. Capture is ALREADY muted - `say()` holds it before the
+			# backend is even called - so a return here leaves somebody who
+			# said the word into that gap with a reply about to start over
+			# them and a self-hearing guard that will drop whatever they say
+			# next. That is the word working perfectly and nothing happening.
+			#
+			# Not stopped, because a fan lands here too and nobody has heard
+			# anything yet. Remembered instead, and spent by the first thing
+			# actually said - see `woke_before_it_spoke()`. A fan says nothing
+			# afterwards, so a fire on its own still costs the reply nothing.
+			self.woke_while_pending = time.time()
+			self.client.log("info",
+				"[STTProcessing] Wake word heard while a reply was still being "
+				"made - nothing audible to stop, so the next thing said will "
+				"not be taken for the panel's own voice.")
+			return
 
-		# Marked as an interruption, so the settle window treats whatever
-		# arrives next as the question rather than as the tail of the reply
-		# that was just cut off.
-		self.interrupted_at = time.time()
-		# Cleared, NOT stamped. `heard_itself()` treats anything within the
-		# grace of this as the panel overhearing its own voice, and the
-		# sentence somebody is saying right now arrives inside that window -
-		# so stamping it here threw away the question that the wake word was
-		# said in order to ask. The reply was stopped mid-word: whatever else
-		# was coming is not coming, and there is nothing left to overhear.
-		# `interrupt_for_wake` clears it for the same reason.
-		self.spoke_until = 0.0
-		# And the clear is defended. `tts.stop()` above returns before the
-		# playback thread has noticed, so that thread calls
-		# note_speech_ended() a moment from now and would stamp the grace
-		# right back over this line.
-		self.note_interrupted()
+		# Nothing on its way at all. Said out loud because this is the line
+		# that tells a spotter problem apart from an interrupt problem: the
+		# word WAS heard, and there was simply nothing to interrupt.
+		self.client.log("debug",
+			"[STTProcessing] Wake word heard with nothing being said - "
+			"nothing to stop.")
 
-		# And listening again. Muted was correct while it was talking; it is
-		# not talking any more, and the sentence after the wake word is
-		# already being said.
+	def woke_before_it_spoke(self, transcribed: str) -> bool:
+		"""
+		Whether this transcript is the sentence a deferred wake was waiting for.
+
+		The corroboration half of the gap above. A wake that landed before a
+		reply was audible is not acted on by itself, because a fan fires the
+		same way a person does and neither has heard anything yet. A wake
+		FOLLOWED BY somebody saying something is a person: fans do not talk.
+
+		So the reply is stopped here rather than there, at the first sentence
+		that is neither the panel's own voice nor an invention, and that
+		sentence goes through instead of being dropped as an echo.
+
+		Spent when it is used. There is one interruption to catch, and a flag
+		that kept letting phrases past the self-hearing guard would do it for
+		every fragment of the reply still to be transcribed.
+		"""
+		woke = getattr(self, "woke_while_pending", 0.0)
+		if not woke or (time.time() - woke) > self.WOKE_WHILE_PENDING:
+			return False
+		if not _has_words(transcribed):
+			return False
+		# NOT corroboration. The panel reading its own reply into its own
+		# microphone is the one voice that cannot be the person who woke it,
+		# and spending the wake on it throws the interruption away on the
+		# very thing it was made to stop.
+		if self.echoed(transcribed) or normalize.is_hallucination(transcribed):
+			return False
+
+		self.woke_while_pending = 0.0
+		self.silence()
 		self.hold_capture(False)
 		self.client.log("info",
-			"[STTProcessing] Wake word heard over a reply - stopped it and "
-			"reopened the microphone.")
+			f"[STTProcessing] '{transcribed}' followed a wake word that landed "
+			f"before the reply was audible - stopping the reply and taking it "
+			f"as the question.")
+		return True
 
 	#How long a stop takes to unwind. `tts.stop()` only ASKS the playback
 	#thread to break: it finishes the buffer it is holding, waits out the
@@ -1111,6 +1172,14 @@ class STTProcessing():
 				self.client.log("debug",
 					f"[STTProcessing] '{transcribed}' is a cancel word - "
 					f"letting it through the self-hearing guard.")
+			elif self.woke_before_it_spoke(transcribed):
+				# Somebody said the wake word before the reply was audible,
+				# and this is what they said after it. The word itself is
+				# already gone - it was heard by the spotter, not
+				# transcribed - so `interrupt_for_wake` above cannot find it
+				# in here and this is the only thing that can let the
+				# question through.
+				pass
 			else:
 				# Info, not debug. From outside this looks like the panel
 				# hearing somebody and then doing nothing, which is the
@@ -1516,6 +1585,7 @@ class STTProcessing():
 		self.client.log("info",
 			"[STTProcessing] Listening timed out with nothing said - standing down.")
 		self.woke_at = 0.0
+		self.woke_while_pending = 0.0
 		self.listening_since = 0.0
 		self.woke_with = None
 		self.processing = False
@@ -1582,6 +1652,10 @@ class STTProcessing():
 
 		self.woke_with = None
 		self.woke_at = 0.0
+		# A deferred wake is wake state too. Left behind, it would let the
+		# first thing said after a cancel past the self-hearing guard, which
+		# is the tail of the reply the cancel just stopped.
+		self.woke_while_pending = 0.0
 		self.processing = False
 		self.route = "wake"
 		self.listening_since = 0.0
@@ -1747,6 +1821,26 @@ class STTProcessing():
 										self.woke_with = data.strip()
 										self.woke_at = time.time()
 										self.client.ASSIST_STATUS = "LISTENING"
+										# The arrival, before anything is done
+										# about it.
+										#
+										# Two lines answer "the wake word did
+										# nothing": this one says the spotter
+										# heard it and the message got here,
+										# and whatever wake_interrupts_speech
+										# writes next says what there was to
+										# stop. Missing this one is a spotter
+										# problem; having it without the other
+										# is an interrupt problem, and they
+										# are fixed in different files.
+										self.client.log("debug",
+											f"[STTProcessing] Woke on "
+											f"'{self.woke_with}' "
+											f"(route {self.route}, "
+											f"session "
+											f"{'open' if self.is_session() else 'closed'}, "
+											f"capture "
+											f"{'held' if self.capture_held else 'live'}).")
 										self.wake_interrupts_speech()
 										# Somebody in the room said something
 										# TO the panel, which is an
@@ -1847,10 +1941,20 @@ class STTProcessing():
 		self.client.ASSIST_STATUS = "DORMANT"
 		self.client.log("error", f"[STTProcessing] Audio error: {message}")
 		self.client.simple_notify("error", "Assistant", "Microphone unavailable. Tap for details.")
+		# Counted from the policy rather than written out.
+		#
+		# The restarts are bounded, so a promise that the panel will go on
+		# trying is false. A cause that cannot change - a missing package, a
+		# model with no weights - exhausts them in under two minutes, and a
+		# dialog saying something is still being done would sit in front of
+		# the card that says the assistant has stopped.
+		attempts = self.RESTART_POLICY.attempts
 		self.client.alert(
 			"Microphone unavailable",
-			"The voice assistant cannot record audio. It will keep retrying in "
-			"the background.",
+			f"The voice assistant cannot record audio. The speech process is "
+			f"restarted up to {attempts} time{'s' if attempts != 1 else ''}; "
+			f"if it fails every time, the wake word stops working until the "
+			f"assistant is started again. Everything else works normally.",
 			detail=message,
 		)
 

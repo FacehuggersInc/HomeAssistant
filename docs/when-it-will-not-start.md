@@ -53,7 +53,7 @@ missing feature.
 
 ## The stages that hang rather than fail
 
-Most startup work either succeeds or raises. Three do neither:
+Most startup work either succeeds or raises. Four do neither:
 
 **Opening the microphone.** This is the one that has actually happened.
 
@@ -88,6 +88,20 @@ holding a download. `python3 hactl.py speech-model` answers locally while it
 is happening, and names the files still missing. See
 [the assistant](assistant.md#asked-once).
 
+**Loading the language model.** The first start after a rebuilt virtual
+environment reaches the network.
+
+`pip install -r requirements.txt` brings spaCy and no model — models are
+separate downloads and are not on PyPI. `nlp.preload()` runs before the
+plugins, so a missing `en_core_web_sm` is fetched at a point with a log line
+either side rather than from inside whichever plugin declared the first
+skill. Bounded by `DOWNLOAD_TIMEOUT`.
+
+If it cannot be had, the panel stops with `ModelMissing` and the command to
+run by hand. That is one of the few things worth refusing to start over: the
+model is what turns a phrase into something a skill can match, so an assistant
+without one understands nothing said to it.
+
 **The embedded browser.** QtWebEngine is the largest thing in the process and
 starts a second one. A line like
 
@@ -108,6 +122,43 @@ set QTWEBENGINE_CHROMIUM_FLAGS=--disable-gpu && python app.py   :: Windows, cmd
 ```
 
 If that starts cleanly, the problem is graphics, not the panel.
+
+## When a missing package is not a missing package
+
+`No module named 'pkg_resources'` is the one to know, and the obvious move is
+the wrong one. It is not in requirements.txt, `pip install setuptools` answers
+that it is already installed, and searching the name leads to advice written
+before setuptools v82 removed the module. `webrtcvad` imports it on its first
+line, to read its own version number and for nothing else, so a current
+environment cannot import webrtcvad at all:
+
+```
+[WARN][Parakeet]: Not starting - the audio stack is unavailable
+                  (ModuleNotFoundError: No module named 'pkg_resources').
+```
+
+`src/system/pkg_resources_shim.py` stands in for the one function webrtcvad
+calls, backed by `importlib.metadata`. **Only around that import, and only
+when the real module is absent.** A fake `pkg_resources` left in
+`sys.modules` is worse than none: a package that asks for a part the shim does
+not have gets an `AttributeError` where it would have got a clean
+`ImportError` and taken its own fallback. Libraries read their version at
+import time, so there is nothing left for it to do once the import returns.
+
+Pinning `setuptools<82` is the other answer and is worse. It holds the whole
+environment on a superseded build tool for one line in one dependency, and
+`install()` is a single all-or-nothing pip call - a pin that conflicts with
+anything else fails every package in requirements.txt at once.
+
+`explain_import()` in `src/system/requirements.py` appends the thing to do
+where the missing module is not the package to install, and `IMPORT_HINTS` is
+where another one goes. Both speech processes report through it, and both fall
+back to the bare message if the helper itself will not load - a hint is worth
+less than a process that starts.
+
+The speech process is restarted a bounded number of times, from
+`STTProcessing.RESTART_POLICY`. A cause that cannot change exhausts them and
+the panel says so; everything else carries on.
 
 ## A note on platforms
 

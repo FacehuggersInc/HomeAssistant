@@ -938,22 +938,50 @@ mute is for.
 
 ### Interrupting a reply nobody has heard
 
-The wake interrupt fires only once the reply is **audible**, not merely
-`is_speaking()`.
+A reply is asked for some time before any of it is heard, and `say()` holds
+capture from the first of those moments. So a wake word has three states to
+land in, and they look identical from the room:
 
-A sentence spends a second or two being synthesised before any sound exists,
-and `is_speaking()` counts that - correctly, for everything else that asks,
-because an answer panel timing out over a reply still being made is worse. For
-this one caller it is wrong. A wake word arriving during generation arrived
-into silence, so it is the room rather than somebody talking over an answer,
-and acting on it drops an answer that was never spoken.
+| State     | `is_audible()` | `is_speaking()` | What happens                   |
+|-----------|----------------|-----------------|--------------------------------|
+| audible   | `True`         | `True`          | The reply is stopped now.      |
+| pending   | `False`        | `True`          | The wake is remembered.        |
+| silent    | `False`        | `False`         | Nothing to stop.               |
 
-A fan produces enough of those to swallow every reply in a row: the question
-routes, the skill runs, `Stopped before it started - dropped` goes in the log,
-and from the room the panel took the question and said nothing.
+**The reply is stopped only once it is audible.** A sentence spends a second
+or two being synthesised before any sound exists, and `is_speaking()` counts
+that - correctly, for everything else that asks, because an answer panel
+timing out over a reply still being made is worse. Stopping on it is wrong
+here: a wake word arriving during generation arrives into silence, so it may
+be the room rather than somebody talking over an answer, and acting on it
+drops an answer nobody ever heard. A fan produces enough of those to swallow
+every reply in a row - the question routes, the skill runs, and from the room
+the panel took the question and said nothing.
+
+**The middle state is not the same as nothing, though.** Capture is already
+muted, and a reply is about to start over whoever just spoke, so a wake that
+is merely returned from leaves them talking into a self-hearing guard that
+drops what they say. That is the word working perfectly and nothing happening.
+
+So it is remembered - `woke_while_pending` - and spent by the first thing
+actually said. `woke_before_it_spoke()` stops the reply then and lets the
+sentence through the guard instead of dropping it as an echo. **Fans do not
+talk**, so a fire with nobody behind it still costs a reply nothing: no
+sentence follows, and the wake ages out after `WOKE_WHILE_PENDING` seconds.
+
+The panel's own voice is not corroboration either. A transcript that
+[`echoed()`](#hearing-itself) recognises, or one `is_hallucination()` rejects,
+or one with no words in it leaves the wake unspent - spending it on the reply
+would throw the interruption away on the one thing it was made to stop.
 
 `TTS.is_audible()` is the narrower question. A backend that does not offer it
 falls back to `is_speaking()`, which is no worse than not having asked.
+
+Each of the three writes its own line, because from the room they are one
+event - the word said, and nothing happening. `Woke on '<word>' (route ...,
+session ..., capture ...)` is written as the message arrives, before anything
+is done about it: without that line the spotter is the suspect, and with it
+and no second line the interrupt is.
 
 ### Stopping a reply from somewhere else
 

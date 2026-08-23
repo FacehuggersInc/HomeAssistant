@@ -522,6 +522,18 @@ class Client:
         # page without carrying a browser of its own.
         self.add_page("#webpage",  "Web",           WebPage)
 
+        # The language model, before the plugins rather than during them.
+        #
+        # Every Skill a plugin declares is built against it, so it loads on
+        # the first one either way. Doing it here means the several seconds
+        # of a first-run download - see nlp.download() - happen at a moment
+        # with a log line either side, instead of halfway through loading
+        # whichever plugin happened to declare the first skill, where the
+        # failure reads as that plugin's fault.
+        from src.assistant import nlp
+        nlp.set_log(self.log)
+        nlp.preload()
+
         self.PLUGIN = PluginManager(self, self.plugin_dirs)
         self.PLUGIN.load_plugins()
         self.MIXINS.apply_mixins_to(self)

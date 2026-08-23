@@ -32,6 +32,26 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
+That does not bring the language model with it. spaCy models are separate
+downloads and are not on PyPI, so the first start that finds `en_core_web_sm`
+missing fetches it and says so in the log:
+
+```
+[INFO][NLP] 'en_core_web_sm' is not installed - fetching it now.
+```
+
+It happens once, before the plugins load, and takes a moment. A panel with no
+network at that point refuses to start and says what to run by hand, because
+the model is what turns a phrase into something a skill can match and there is
+nothing useful the assistant can do without one.
+
+`webrtcvad` reads its own version through `pkg_resources`, which setuptools
+v82 removed. There is no version of setuptools to add to this file that fixes
+that - having it installed is not the question, and pinning below 82 holds the
+whole environment on a superseded build tool - so the panel stands in for that
+one function while webrtcvad is imported. See
+[when it will not start](when-it-will-not-start.md).
+
 ## Run the application
 
 ```bash
