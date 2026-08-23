@@ -305,6 +305,9 @@ class STTProcessing():
 		#When the wake word was heard while a reply was on its way out but
 		#not yet audible. See wake_interrupts_speech().
 		self.woke_while_pending : float = 0.0
+		#What the microphone turned out to be, as the child found it. Empty
+		#until it opens one, because until then nothing has.
+		self.audio_device : dict = {}
 		self.process_type = process
 		self.__process_path = None
 		match self.process_type:
@@ -1785,6 +1788,40 @@ class STTProcessing():
 												level.strip() or "debug",
 												body)
 
+									case "dsp_levels" | "dsp_frame":
+										# hide_logging is NOT optional here.
+										#
+										# iterate_event_callables writes
+										# "Event 'X' was called" at info by
+										# default. At ten to sixteen a second
+										# that is half a million lines a day
+										# and the Logs page stops being usable
+										# for the thing somebody opened it for.
+										#
+										# This runs on the SOCKET READER
+										# thread, not the UI one. Anything
+										# subscribing has to stash the frame
+										# and let its own timer pick it up.
+										self.client.iterate_event_callables(
+											"on_audio_levels"
+											if command == "dsp_levels"
+											else "on_audio_spectrum",
+											data, hide_logging=True)
+
+									case "audio_device":
+										# What the child opened, which is the
+										# only place the answer exists - this
+										# side enumerates with its own
+										# PortAudio and the two lists have been
+										# seen to disagree.
+										try:
+											self.audio_device = json.loads(data)
+										except ValueError:
+											self.audio_device = {}
+										self.client.log("info",
+											f"[Assistant] Microphone: "
+											f"{self.describe_audio_device()}")
+
 									case "transcribe":
 										# Anything watching gets it raw, before
 										# normalising, wake matching or routing.
@@ -1959,6 +1996,93 @@ class STTProcessing():
 		)
 
 	## PROCESS
+	def describe_audio_device(self) -> str:
+		"""
+		The microphone in one line, for a log and for a page with no room.
+
+		The channel is in it because on an array the channel is the part that
+		matters and the part nothing else says. A line naming a four-capsule
+		device without saying which one was heard cannot answer the question
+		anybody asks it.
+		"""
+		found = self.audio_device or {}
+		name = str(found.get("device") or "unknown")
+		channels = int(found.get("channels") or 0)
+		if channels <= 1:
+			return name
+		if str(found.get("mix")) == "mean":
+			return f"{name} (the mean of {channels} channels)"
+		return (f"{name} (channel {int(found.get('stt_channel') or 0)} "
+		        f"of {channels})")
+
+	def channel_choice(self) -> dict:
+		"""
+		Which capsule to take, and how to reduce the rest.
+
+		Asked of the facade rather than read from a file here, so there is one
+		store and one lock over it however many things want the answer.
+
+		Guarded down to today's behaviour. A panel whose store will not read
+		listens on the first channel, which is what it did before any of this
+		existed - the wrong capsule is a worse microphone, and refusing to
+		start over it would be no microphone at all.
+		"""
+		try:
+			chosen = self.client.SERVICES.STT.channels()
+			return {"stt_channel": int(chosen.get("stt_channel") or 0),
+			        "channel_mix": str(chosen.get("mix") or "first")}
+		except Exception as exc:
+			self.client.log("debug",
+				f"[STTProcessing] Could not read the channel choice ({exc}) - "
+			f"taking the first.")
+			return {"stt_channel": 0, "channel_mix": "first"}
+
+	def set_channels(self, stt_channel: int, mix: str = "first") -> bool:
+		"""Take a different capsule, without reopening the microphone."""
+		return self.send_command(
+			f"CHANNEL:{int(stt_channel)}:{str(mix or 'first')}", retries=2)
+
+	def dsp_choice(self) -> dict:
+		"""
+		The filter curve to start with, and where it runs.
+
+		Guarded down to no filter, which is what the panel did before any of
+		this - the audio is worse than it could be and the panel works, which
+		is the right way round for something optional.
+		"""
+		try:
+			chosen = self.client.SERVICES.STT.dsp_profile()
+			return {"mic_dsp": dict(chosen.get("dsp") or {}),
+			        "mic_dsp_stream": bool(chosen.get("dsp_stream"))}
+		except Exception as exc:
+			self.client.log("debug",
+				f"[STTProcessing] Could not read the microphone filter "
+			f"({exc}) - the audio is unchanged.")
+			return {"mic_dsp": {}, "mic_dsp_stream": False}
+
+	def audio_monitor(self) -> str:
+		"""The tier anything is watching at, or "off"."""
+		try:
+			return str(self.client.SERVICES.STT.audio_tier() or "off")
+		except Exception:
+			return "off"
+
+	def set_audio_monitor(self, tier: str) -> bool:
+		"""Start or stop the meters, without reopening the microphone."""
+		return self.send_command(f"DSP_MONITOR:{str(tier or 'off')}",
+		                         retries=2)
+
+	def set_dsp(self, profile: dict = None, stream: bool = False) -> bool:
+		"""
+		Change the curve, without reopening the microphone.
+
+		JSON in one command, rather than a field per slider. A curve is one
+		thing and half of it applied is a filter nobody asked for.
+		"""
+		body = json.dumps({"dsp": profile or {}, "dsp_stream": bool(stream)},
+		                  sort_keys=True)
+		return self.send_command(f"DSP_PROFILE:{body}", retries=2)
+
 	def argv(self) -> list:
 		"""
 		The command line the child is started with.
@@ -1990,6 +2114,17 @@ class STTProcessing():
 			"session_silence_ms": self.session_silence_ms,
 			# What the microphone does for itself - see mic_profile().
 			"mic_processing": self.mic_processing(),
+			# The microphone filter, and which capsule feeds the transcriber.
+			#
+			# From a file rather than from settings, and sent here rather
+			# than read there - see src/assistant/mic_store.py. It can also
+			# be changed live, so this is the value to START with rather
+			# than the only chance to set it.
+			**self.channel_choice(),
+			**self.dsp_choice(),
+			# Whether anything has a meter open. Read at spawn as well as
+			# pushed, so a page that was watching before a restart still is.
+			"audio_monitor": self.audio_monitor(),
 			# Which Parakeet weights. The child has to be told: it checks
 			# the cache for itself before loading, and int8 and full
 			# precision are different files.

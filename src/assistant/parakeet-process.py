@@ -32,6 +32,7 @@ survived in the seams between them.
 from __future__ import annotations
 
 import collections
+import base64
 import json
 import math
 import os
@@ -100,6 +101,18 @@ except Exception:
         @_contextlib.contextmanager
         def installed():
             yield False
+
+# The microphone filter. Optional in the sense that a panel with no curve
+# never builds one - not in the sense of a missing import: it is core's own
+# module and numpy is already required above. Guarded anyway, because this
+# process refusing to start is a deaf panel and a filter is not worth one.
+try:
+    from src.assistant import mic_dsp_stream
+except Exception as _e:
+    mic_dsp_stream = None
+    _DSP_IMPORT_ERROR = f"{type(_e).__name__}: {_e}"
+else:
+    _DSP_IMPORT_ERROR = ""
 
 # Guarded so a missing audio stack is a message rather than a traceback into
 # a log file nobody reads. sounddevice raises OSError when PortAudio is
@@ -209,6 +222,43 @@ class ParakeetListener:
     SILENT_DBFS = -70.0
     QUIET_DBFS = -45.0
 
+    # What the monitor may be asked for, cheapest first.
+    MONITOR_TIERS = ("off", "levels", "spectrum")
+
+    # One levels message per this many windows, and one spectrum frame per
+    # this many LEVELS messages. Windows are 30ms, so about ten and about
+    # five a second.
+    #
+    # Both are slower than they could be, on purpose. This socket is how the
+    # wake word, the transcript and STOP arrive, and telemetry is what they
+    # would have to arrive THROUGH - the same reasoning as LEVEL_EVERY above,
+    # which is the meter that already exists.
+    LEVELS_EVERY = 3
+    SPECTRUM_EVERY = 2
+
+    # Bands per channel in a spectrum frame. Log-spaced, so 96 from 20 Hz to
+    # just under Nyquist is finer than any screen a panel has.
+    SPECTRUM_BANDS = 96
+
+    # The floor a band is reported at. int8 reaches -128, so -127 leaves the
+    # bottom value spare and every band fits in one byte instead of the six a
+    # JSON float costs.
+    SPECTRUM_FLOOR = -127.0
+
+    # Never open more than this many inputs, whatever the device claims.
+    #
+    # The count is asked of the device rather than configured: how many
+    # capsules a microphone has is a fact about the microphone, and a setting
+    # for it is only a way to be wrong about it. Opening ALL of them, always,
+    # is also what makes the channel choice live - a panel that opened one
+    # would have to be torn down and rebuilt to look at another, and looking
+    # at another is the whole point.
+    #
+    # The cap is for the devices that lie. A loopback or virtual input can
+    # report thirty-two, and every one is a copy of every window taken for a
+    # capsule that is not in the room.
+    MAX_INPUT_CHANNELS = 8
+
     # How long after a wake to keep waiting for a phrase that never comes.
     # The client has its own, longer timeout as a backstop; this one exists
     # so the panel stands down at the right moment rather than that one.
@@ -231,6 +281,11 @@ class ParakeetListener:
                  wake_ignore_threshold: float = 0.93,
                  wake_speex: bool = False,
                  wake_vad: float = 0.0,
+                 stt_channel: int = 0,
+                 channel_mix: str = "first",
+                 dsp_profile: dict = None,
+                 dsp_stream: bool = False,
+                 monitor: str = "off",
                  initial_mode: str = "wake"):
         # First, so everything that reports during setup reports through the
         # socket rather than into a terminal nobody is reading.
@@ -256,6 +311,32 @@ class ParakeetListener:
         # Filled by __resolve_input() at open time.
         self.device_used = input_device
         self.device_why = ""
+        # Which capsule of an array is heard, and how the rest are reduced.
+        # Clamped against the device once there is one open - a stored 2 on a
+        # panel whose array has been swapped for a headset must not be the
+        # reason nothing is heard.
+        #
+        # Defaulted here as well as in set_callbacks(), because
+        # __announce_device() guards on it and a listener nobody called
+        # set_callbacks() on would raise instead of staying quiet.
+        self.on_audio_device = None
+        # The filter, in two. They are built from one curve and are not one
+        # object: the phrase one clears its state per capture and the stream
+        # one keeps its state across windows, which is the difference between
+        # a filter that works on a continuous feed and one that works on a
+        # buffer with silence either side of it.
+        self.dsp_settings: dict = dict(dsp_profile or {})
+        self.dsp_on_stream = bool(dsp_stream)
+        self.dsp_phrase = None
+        self.dsp_stream = None
+        self.monitor = str(monitor or "off").strip().lower()
+        if self.monitor not in self.MONITOR_TIERS:
+            self.monitor = "off"
+        self.stt_channel = max(0, int(stt_channel or 0))
+        self.channel_mix = str(channel_mix or "first").strip().lower()
+        # How many were actually opened. 1 until a device is open, so anything
+        # reading it before then gets the answer that is true so far.
+        self.opened_channels = 1
         # How sure openWakeWord has to be. Lower hears the word through more
         # noise and fires on more things that were not it; higher is the
         # reverse. A fan in the room is the case this is for.
@@ -432,7 +513,9 @@ class ParakeetListener:
 
     def set_callbacks(self, on_wake=None, on_final=None, on_timeout=None,
                       on_voice_activity=None, on_audio_error=None,
-                      on_transcribing=None, on_transcribed=None) -> None:
+                      on_transcribing=None, on_transcribed=None,
+                      on_audio_device=None, on_audio_levels=None,
+                      on_audio_spectrum=None) -> None:
         self.on_wake = on_wake
         self.on_final = on_final
         self.on_timeout = on_timeout
@@ -440,6 +523,9 @@ class ParakeetListener:
         self.on_audio_error = on_audio_error
         self.on_transcribing = on_transcribing
         self.on_transcribed = on_transcribed
+        self.on_audio_device = on_audio_device
+        self.on_audio_levels = on_audio_levels
+        self.on_audio_spectrum = on_audio_spectrum
 
     ## -- SETUP ---------------------------------------------------------
 
@@ -457,6 +543,11 @@ class ParakeetListener:
             return False
 
         self._load_normalizer()
+        # Before the models, because it is the cheap one and because a curve
+        # that will not build should say so while the log is still about
+        # setting up rather than thirty seconds later inside the first
+        # phrase.
+        self.build_dsp()
         if not self._load_spotter():
             return False
         return self._load_parakeet()
@@ -644,6 +735,298 @@ class ParakeetListener:
 
     ## -- LISTENING -----------------------------------------------------
 
+    def build_dsp(self, profile: dict = None, stream: bool = None) -> None:
+        """
+        Build both filters from a curve, or take them away.
+
+        Built fresh and ASSIGNED, never adjusted in place. The audio thread is
+        reading these between windows, and a chain whose coefficients are
+        rewritten under it would filter part of a window with one curve and
+        the rest with another - which is a discontinuity, which is a click.
+        Assignment is the one operation that thread cannot see half of.
+        """
+        if profile is not None:
+            self.dsp_settings = dict(profile or {})
+        if stream is not None:
+            self.dsp_on_stream = bool(stream)
+
+        if mic_dsp_stream is None:
+            if self.dsp_settings:
+                self.send_log("warning",
+                              f"[Parakeet]: A microphone filter is set and "
+                              f"cannot be built ({_DSP_IMPORT_ERROR}) - the "
+                              f"audio is unchanged.")
+            self.dsp_phrase = self.dsp_stream = None
+            return
+
+        try:
+            phrase = mic_dsp_stream.build(self.dsp_settings, self.SAMPLE_RATE)
+            live = mic_dsp_stream.build(self.dsp_settings, self.SAMPLE_RATE,
+                                        stream=True) \
+                if self.dsp_on_stream else None
+        except Exception as exc:
+            # A curve that will not build must not stop the microphone. The
+            # panel keeps listening with the audio it had before, which is a
+            # working panel.
+            self.send_log("warning",
+                          f"[Parakeet]: Could not build the microphone "
+                          f"filter ({exc}) - the audio is unchanged.")
+            self.dsp_phrase = self.dsp_stream = None
+            return
+
+        self.dsp_phrase, self.dsp_stream = phrase, live
+        self.send_log("info", f"[Parakeet]: Microphone filter: "
+                              f"{self.describe_dsp()}.")
+
+    def set_monitor(self, tier: str) -> None:
+        """
+        Start or stop reporting what the microphone is hearing.
+
+        Off is the default and off is free: the branch in the stream loop
+        returns before anything is copied, so a panel nobody is watching pays
+        nothing for the ability to be watched.
+        """
+        tier = str(tier or "off").strip().lower()
+        if tier not in self.MONITOR_TIERS:
+            tier = "off"
+        if tier == self.monitor:
+            return
+        self.monitor = tier
+        self._monitor_windows = 0
+        self.send_log("debug", f"[Parakeet]: Audio monitor: {tier}.")
+
+    def __band_edges(self, bins: int):
+        """
+        Where each band starts and ends, as indices into the FFT.
+
+        Log-spaced, because hearing is: a linear split puts sixty of ninety-six
+        bands above 4 kHz where there is nothing but hiss, and three across the
+        whole of speech.
+
+        Worked out once and kept. Both sides compute these from the rate and
+        the band count in the message header rather than the edges being sent,
+        so this is arithmetic that has to match rather than data that travels.
+        """
+        if self._monitor_bands is not None and \
+                self._monitor_bands[0] == bins:
+            return self._monitor_bands[1]
+        top = self.SAMPLE_RATE / 2.0 * 0.98
+        edges = np.geomspace(20.0, top, self.SPECTRUM_BANDS + 1)
+        indices = np.clip(
+            (edges / (self.SAMPLE_RATE / 2.0) * (bins - 1)).astype(np.int32),
+            0, bins - 1)
+        self._monitor_bands = (bins, indices)
+        return indices
+
+    def __spectrum(self, window) -> bytes:
+        """
+        Every channel as 96 dB values, one signed byte each.
+
+        int8 rather than JSON floats: four channels is 384 bytes raw and about
+        512 base64, against roughly six times that as text. At sixteen frames
+        a second the difference is the one that fits comfortably under the
+        receiving side's message cap and the one that does not.
+        """
+        audio = np.asarray(window, dtype=np.float64)
+        if audio.ndim == 1:
+            audio = audio.reshape(-1, 1)
+        audio = audio / 32768.0
+
+        # Hann, or every band carries the leakage of the window's own edges
+        # rather than what is in the room.
+        shaped = audio * np.hanning(audio.shape[0]).reshape(-1, 1)
+        spectrum = np.abs(np.fft.rfft(shaped, axis=0)) / max(
+            1, audio.shape[0] // 2)
+
+        indices = self.__band_edges(spectrum.shape[0])
+        out = np.empty((audio.shape[1], self.SPECTRUM_BANDS), dtype=np.int8)
+        for band in range(self.SPECTRUM_BANDS):
+            low, high = indices[band], max(indices[band + 1], indices[band] + 1)
+            # The loudest bin in the band, not the mean. A narrow tone
+            # averaged across a wide band at the top of the range disappears
+            # into it, and a tone is exactly what somebody is looking for.
+            peak = spectrum[low:high].max(axis=0)
+            with np.errstate(divide="ignore"):
+                out[:, band] = np.clip(
+                    20.0 * np.log10(np.maximum(peak, 1e-9)),
+                    self.SPECTRUM_FLOOR, 0.0).astype(np.int8)
+        return out.tobytes()
+
+    def __report_monitor(self, window) -> None:
+        """
+        What every capsule is hearing, for whoever is watching.
+
+        The RAW window, before `__take()` reduces it to one channel. That is
+        the entire point: the question is which capsule is worth listening to,
+        and it cannot be answered from the one already chosen.
+        """
+        if self.monitor == "off":
+            return
+        self._monitor_windows += 1
+
+        try:
+            audio = np.asarray(window, dtype=np.float64)
+            if audio.ndim == 1:
+                audio = audio.reshape(-1, 1)
+            scaled = audio / 32768.0
+
+            if self._monitor_windows % self.LEVELS_EVERY == 0 and \
+                    callable(self.on_audio_levels):
+                rms = np.sqrt(np.mean(scaled ** 2, axis=0))
+                peak = np.max(np.abs(scaled), axis=0)
+                # A bit per channel. Clipping is the fault that explains
+                # everything else about a channel and it is invisible in an
+                # RMS, which is an average of a signal that spent its time
+                # pinned at the top.
+                clipped = 0
+                for index, value in enumerate(peak):
+                    if value >= 0.999:
+                        clipped |= 1 << index
+                self.on_audio_levels(
+                    self.SAMPLE_RATE, audio.shape[1],
+                    [self.__dbfs(float(v)) for v in rms],
+                    [self.__dbfs(float(v)) for v in peak],
+                    clipped)
+
+            if self.monitor == "spectrum" and \
+                    self._monitor_windows % self.SPECTRUM_EVERY == 0 and \
+                    callable(self.on_audio_spectrum):
+                self.on_audio_spectrum(
+                    self.SAMPLE_RATE, audio.shape[1], self.SPECTRUM_BANDS,
+                    self.__spectrum(window))
+        except Exception as exc:
+            # Telemetry, and nothing downstream depends on it. A panel that
+            # stopped listening because a meter would not draw is a far worse
+            # trade than a meter that is missing.
+            self.send_log("debug",
+                          f"[Parakeet]: Audio monitor skipped: {exc}")
+
+    def filter_window(self, window):
+        """
+        One window of the live feed, filtered if the curve runs there.
+
+        A method rather than four lines in the stream loop, because the loop
+        cannot be driven without a sound card and this can. A branch left
+        inside it was a branch nothing could check had not been switched off.
+
+        The VAD and the WAKE SPOTTER see this, not just the model, which is
+        why it is a separate switch from the phrase path and why it is off by
+        default: openWakeWord is trained on unprocessed audio, and a curve
+        that helps transcription is not automatically neutral for the word
+        that starts everything.
+
+        State is kept between windows on purpose - the audio is continuous, so
+        a reset here would put a seam in it thirty-three times a second.
+        """
+        if self.dsp_stream is None:
+            return window
+        try:
+            return self.dsp_stream.process_int16(window)
+        except Exception as exc:
+            # The unfiltered window, not no window. A filter that fails is a
+            # worse microphone; returning nothing is a deaf one.
+            self.send_log("debug",
+                          f"[Parakeet]: Microphone filter skipped on the "
+                          f"live feed: {exc}")
+            return window
+
+    def describe_dsp(self) -> str:
+        """The filter in words, for a log line and for the report."""
+        if self.dsp_phrase is None and self.dsp_stream is None:
+            return "off"
+        chain = self.dsp_phrase or self.dsp_stream
+        where = "phrases and the live feed" if self.dsp_stream is not None \
+            else "phrases only"
+        return f"{chain.describe()}, on {where}"
+
+    def set_dsp(self, profile: dict = None, stream: bool = None) -> None:
+        """Change the curve, now, without reopening anything."""
+        self.build_dsp(profile, stream)
+
+    def __wanted_channels(self, sd) -> int:
+        """
+        How many inputs to open: as many as the device has, within the cap.
+
+        Asked every time the stream is opened rather than once, because the
+        device can change under a reopen - the reopen loop below exists for
+        exactly the unplug-and-replug that changes it.
+
+        A device that will not answer is worth one channel. That is what the
+        panel took before any of this, so the failure costs nothing that was
+        not already the case.
+        """
+        try:
+            info = sd.query_devices(self.device_used, "input")
+            available = int(info.get("max_input_channels") or 1)
+        except Exception as exc:
+            self.send_log("debug",
+                          f"[Parakeet]: Could not ask the device how many "
+                          f"inputs it has ({exc}) - taking one.")
+            return 1
+        return max(1, min(self.MAX_INPUT_CHANNELS, available))
+
+    def __open_input(self, sd, wanted: int):
+        """
+        The stream, falling back to one channel if the device refuses several.
+
+        The fallback is the point. A device that reports four inputs and opens
+        only one would otherwise raise into the reopen loop, which treats a
+        failed open as an outage and tries again every five seconds - so a
+        panel that worked yesterday would become permanently deaf on the
+        strength of the count being asked for at all.
+        """
+        try:
+            stream = sd.InputStream(samplerate=self.SAMPLE_RATE,
+                                    channels=wanted, dtype="int16",
+                                    device=self.device_used)
+            self.opened_channels = wanted
+            return stream
+        except Exception as exc:
+            if wanted <= 1:
+                raise
+            # Once per open, not once per attempt: this runs again on every
+            # reopen and a device that never does multichannel would otherwise
+            # say so every five seconds for the life of the panel.
+            self.send_log("debug",
+                          f"[Parakeet]: The device would not open {wanted} "
+                          f"channels ({exc}) - taking one.")
+        stream = sd.InputStream(samplerate=self.SAMPLE_RATE, channels=1,
+                                dtype="int16", device=self.device_used)
+        self.opened_channels = 1
+        return stream
+
+    def __taking(self) -> str:
+        """How the channels are being reduced, in words, for a log line."""
+        if self.opened_channels <= 1:
+            return "1 channel"
+        if self.channel_mix == "mean":
+            return f"the mean of {self.opened_channels} channels"
+        return (f"channel {self.channel_for(self.opened_channels)} "
+                f"of {self.opened_channels}")
+
+    def channel_for(self, available: int) -> int:
+        """
+        The stored channel, clamped to what is really there.
+
+        Out of range means channel 0 rather than an error. The stored value is
+        about a device that may have been unplugged since, and a panel that
+        refuses to listen because a microphone was swapped is a worse failure
+        than one listening to the wrong capsule - which is at least audible.
+        """
+        return min(max(0, int(self.stt_channel)), max(0, int(available) - 1))
+
+    def set_channels(self, stt_channel: int, mix: str) -> None:
+        """
+        Take a different capsule, now, without reopening anything.
+
+        Assigned rather than mutated. The audio thread reads these between
+        windows, so a value that changes halfway through being worked out
+        would take one channel's index with another's mix.
+        """
+        self.stt_channel = max(0, int(stt_channel or 0))
+        self.channel_mix = str(mix or "first").strip().lower()
+        self.send_log("info", f"[Parakeet]: Now taking {self.__taking()}.")
+
     def __listen_loop(self) -> None:
         """
         Hold the microphone open, and reopen it when it goes.
@@ -656,11 +1039,20 @@ class ParakeetListener:
         while not self.stop_event.is_set():
             try:
                 self.device_used, self.device_why = self.__resolve_input(sd)
-                with sd.InputStream(samplerate=self.SAMPLE_RATE, channels=1,
-                                    dtype="int16",
-                                    device=self.device_used) as stream:
-                    self.send_log("debug", "[Parakeet]: Microphone opened.")
+                wanted = self.__wanted_channels(sd)
+                with self.__open_input(sd, wanted) as stream:
+                    # HERE, and nowhere else. A reopen is a break in the
+                    # audio - the device went and came back - so the state
+                    # carried across it is state from before the gap. A mode
+                    # switch is NOT a break, which is why nothing resets this
+                    # beside the spotter in __stream_loop.
+                    if self.dsp_stream is not None:
+                        self.dsp_stream.reset()
+                    self.send_log("debug",
+                                  f"[Parakeet]: Microphone opened "
+                                  f"({self.__taking()}).")
                     self.__report_device(sd)
+                    self.__announce_device(sd)
                     if not connected and callable(self.on_audio_error):
                         self.on_audio_error("")   # recovered
                     connected = True
@@ -691,6 +1083,22 @@ class ParakeetListener:
         nothing is being recorded against it.
         """
         audio = np.frombuffer(raw, dtype=np.int16).astype(np.float32) / 32768.0
+
+        # BEFORE the de-noiser, not after.
+        #
+        # noisereduce estimates a noise floor from the signal it is handed,
+        # and rumble that the high pass is about to remove would otherwise
+        # dominate that estimate - so it spends its budget suppressing
+        # something already on its way out, and less of it on what is left.
+        #
+        # The chain clears its state per phrase; see PhraseFilter.
+        if self.dsp_phrase is not None:
+            try:
+                audio = self.dsp_phrase.process(audio)
+            except Exception as exc:
+                self.send_log("debug",
+                              f"[Parakeet]: Microphone filter skipped: {exc}")
+
         if not self._denoise or audio.size == 0:
             return audio
         try:
@@ -1012,6 +1420,45 @@ class ParakeetListener:
             return None
         return self.__inputs(sd)
 
+    def __announce_device(self, sd) -> None:
+        """
+        Tell the panel what was actually opened.
+
+        Every open, not once: the reopen loop runs on an unplug, and a device
+        that came back with a different number of capsules would otherwise
+        leave the panel drawing a picker for the old one.
+
+        This is the only place the answer exists. The panel enumerates with
+        its own PortAudio and the two lists have been seen to disagree, so
+        anything on that side asking the device directly is asking a
+        different device. It is also what stops a page needing to open the
+        microphone itself to find out - which means taking it off the
+        assistant to do so.
+        """
+        if not callable(self.on_audio_device):
+            return
+        name = ""
+        try:
+            info = sd.query_devices(self.device_used, "input")
+            name = str(info.get("name") or "")
+        except Exception:
+            name = self.input_device_name
+        try:
+            self.on_audio_device({
+                "device": name,
+                "asked_for": self.input_device_name,
+                "rate": self.SAMPLE_RATE,
+                "channels": self.opened_channels,
+                "stt_channel": self.channel_for(self.opened_channels),
+                "mix": self.channel_mix,
+            })
+        except Exception as exc:
+            # Said, not swallowed. Nothing downstream breaks when this fails,
+            # so a silent one is a panel whose channel picker is permanently
+            # empty with no line anywhere saying why.
+            self.send_log("debug",
+                          f"[Parakeet]: Could not report the device: {exc}")
+
     def __report_device(self, sd) -> None:
         """
         What the microphone is, and what was taken from it.
@@ -1062,7 +1509,16 @@ class ParakeetListener:
             others = []
 
         extra = {"native rate": f"{rate} Hz" if rate else "unknown",
-                 "processing": self.mic_processing}
+                 "processing": self.mic_processing,
+                 # Which capsule, in the block whose whole job is to say what
+                 # the scores below are scores OF. A report naming a
+                 # four-channel array and not saying which of them was heard
+                 # is a report that cannot answer the question it exists for.
+                 "taking": self.__taking(),
+                 # Every score below this is a score of filtered audio when
+                 # the filter is on the live feed, which is a different
+                 # measurement from the same room.
+                 "filter": self.describe_dsp()}
         if self.input_device_name:
             # What was ASKED for, beside what was opened. A fallback that
             # says only what it opened reads like a choice somebody made.
@@ -1079,7 +1535,7 @@ class ParakeetListener:
 
         try:
             self.report.opened(opened, name, channels,
-                               self.SAMPLE_RATE, taken=1,
+                               self.SAMPLE_RATE, taken=self.opened_channels,
                                extra=extra, others=others, missing=missing)
             self.report.settings(
                 sensitivity=self.wake_sensitivity,
@@ -1116,7 +1572,17 @@ class ParakeetListener:
                     self.send_log("warning",
                                   f"[Parakeet]: Audio overflow x{self._overflows} "
                                   f"- input dropped, processing is behind realtime.")
-            window = window[:, 0].tobytes()
+            # An ARRAY, and turned into bytes on the next line rather than
+            # inside __take(). Everything downstream wants bytes, but a
+            # processing stage added between the two would otherwise have to
+            # unpack them and pack them again for no reason - and the stage
+            # is coming.
+            # BEFORE __take(), on the raw multichannel window. The question
+            # the monitor exists to answer is which capsule is worth
+            # listening to, and it cannot be answered from the one already
+            # chosen.
+            self.__report_monitor(window)
+            window = self.filter_window(self.__take(window)).tobytes()
 
             if self.switching:
                 self.switching = False
@@ -1428,6 +1894,33 @@ class ParakeetListener:
 
         if callable(self.on_wake):
             self.on_wake(self.wake_word)
+
+    def __take(self, window):
+        """
+        One channel out of however many were opened, as mono int16.
+
+        `channels=1` asks the driver for the first capsule, and on an array
+        that is not always the processed output - on some devices channel 0 is
+        a bare microphone with the beamforming and noise suppression bypassed.
+        Nothing downstream can tell: the VAD, the spotter and the model all
+        just get quieter audio and behave worse, for a reason that appears in
+        no log.
+
+        Mono because everything after this is: webrtcvad, openWakeWord and
+        Parakeet all take one channel, so the reduction happens once, here,
+        rather than three times in three shapes.
+        """
+        if window.ndim == 1:
+            return window
+        available = window.shape[1]
+        if available <= 1:
+            return window[:, 0]
+        if self.channel_mix == "mean":
+            # Averaged in a wider type. int16 samples summed in int16 wrap,
+            # and a wrap is a full-scale sign flip - which reads as a click
+            # in the audio and as broadband noise on a spectrum.
+            return window.mean(axis=1, dtype=np.float32).astype(np.int16)
+        return window[:, self.channel_for(available)]
 
     def __report_level(self, window: bytes) -> None:
         if not callable(self.on_voice_activity):
@@ -1866,6 +2359,20 @@ class ParakeetServer:
                 config.get("wake_ignore_threshold") or 0.93),
             wake_speex=bool(config.get("wake_speex")),
             wake_vad=float(config.get("wake_vad") or 0.0),
+            # Which capsule of an array to take. Not a setting - see
+            # src/assistant/mic_store.py - so it arrives here rather than
+            # being read out of the settings tree.
+            stt_channel=int(config.get("stt_channel") or 0),
+            channel_mix=str(config.get("channel_mix") or "first"),
+            # The curve, and whether it also runs before the wake spotter.
+            # From the same file the channel comes from, sent rather than
+            # read - see src/assistant/mic_store.py.
+            dsp_profile=config.get("mic_dsp") or {},
+            dsp_stream=bool(config.get("mic_dsp_stream")),
+            # Whether anything is watching. Sent at spawn as well as live,
+            # because a page open across a restart of the assistant is still
+            # open when it comes back.
+            monitor=str(config.get("audio_monitor") or "off"),
         )
         self.listener.set_callbacks(
             on_wake=self.trigger_wake,
@@ -1875,6 +2382,9 @@ class ParakeetServer:
             on_transcribed=self.send_transcribed,
             on_voice_activity=self.send_voice_activity,
             on_audio_error=self.send_audio_error,
+            on_audio_device=self.send_audio_device,
+            on_audio_levels=self.send_audio_levels,
+            on_audio_spectrum=self.send_audio_spectrum,
         )
 
     ## -- EVENTS --------------------------------------------------------
@@ -1927,6 +2437,50 @@ class ParakeetServer:
     def send_audio_error(self, message: str) -> None:
         self.__send(f"host:audio_error:{message}".encode("utf-8"), False)
 
+    def send_audio_levels(self, rate: int, channels: int, rms: list,
+                          peak: list, clipped: int) -> None:
+        """
+        Per-channel dBFS, about sixty bytes.
+
+        Enough on its own to answer the question the whole monitor is for -
+        which capsule is loudest, which is silent, which is clipping - with no
+        spectrum at all.
+        """
+        self.__send(
+            f"host:dsp_levels:{rate}:{channels}:"
+            f"{','.join(f'{v:.1f}' for v in rms)}:"
+            f"{','.join(f'{v:.1f}' for v in peak)}:"
+            f"{clipped}".encode("utf-8"), False)
+
+    def send_audio_spectrum(self, rate: int, channels: int, bands: int,
+                            payload: bytes) -> None:
+        """
+        The spectrum, base64 over a socket that carries text lines.
+
+        The header is there so the other side does not have to guess: the band
+        EDGES are geomspace(20, rate/2 * 0.98, bands + 1) and both sides work
+        them out from these three numbers rather than sending them every
+        frame.
+        """
+        self.__send(
+            f"host:dsp_frame:{rate}:{channels}:{bands}:"
+            f"{base64.b64encode(payload).decode('ascii')}".encode("utf-8"),
+            False)
+
+    def send_audio_device(self, device: dict) -> None:
+        """
+        What the microphone turned out to be, once per open.
+
+        JSON rather than a colon-separated line like every other message
+        here, because this is the one that carries a device name and device
+        names contain colons often enough - "hw:0,0" is one of them.
+        """
+        try:
+            body = json.dumps(device, sort_keys=True)
+        except (TypeError, ValueError):
+            return
+        self.__send(f"host:audio_device:{body}".encode("utf-8"), False)
+
     def trigger_wake(self, wake_word: str) -> None:
         self.__send(f"host:woke:{wake_word}".encode("utf-8"))
 
@@ -1977,7 +2531,7 @@ class ParakeetServer:
                     break
                 with conn:
                     try:
-                        data = conn.recv(1024)
+                        data = self.__read_command(conn)
                         if not data:
                             # continue, NOT break. An empty connection - a
                             # port probe, a client that reconnected and
@@ -2011,6 +2565,26 @@ class ParakeetServer:
                         elif command == "START_PASSTHROUGH":
                             self.listener.switch_mode("passthrough")
                             self.send_log("debug", "[Parakeet]: Mode -> PASSTHROUGH.")
+                        elif command == "DSP_MONITOR":
+                            self.listener.set_monitor(argument)
+                        elif command == "DSP_PROFILE":
+                            # A curve is arrived at by moving something and
+                            # listening, so this cannot cost a respawn per
+                            # move. JSON, and the payload is why the command
+                            # socket had to learn to read more than one
+                            # buffer's worth - see __read_command().
+                            body = json.loads(argument) if argument else {}
+                            self.listener.set_dsp(
+                                body.get("dsp"),
+                                body.get("dsp_stream"))
+                        elif command == "CHANNEL":
+                            # Live, because choosing a capsule means comparing
+                            # them, and a choice that only took effect on the
+                            # next spawn would mean tearing the microphone
+                            # down between every comparison.
+                            index, _, mix = argument.partition(":")
+                            self.listener.set_channels(
+                                int(index or 0), mix or "first")
                         elif command == "MUTE":
                             self.listener.set_muted(True)
                         elif command == "UNMUTE":
@@ -2024,6 +2598,48 @@ class ParakeetServer:
                             self.listener.remember(command, argument)
                     except Exception as e:
                         self.send_log("warning", f"[Parakeet]: Command error: {e}")
+
+    #Nothing legitimate on this socket is anywhere near this long, and
+    #something that is has gone wrong rather than grown.
+    MAX_COMMAND = 64 * 1024
+
+    def __read_command(self, conn) -> bytes:
+        """
+        One command, however many reads it takes to arrive.
+
+        `recv(n)` answers with whatever bytes have turned up, not with a
+        message. A single `recv(1024)` was fine while every command was a word
+        - STOP, MUTE - and stops being fine the moment one carries a payload:
+        anything past the buffer is silently cut, and a payload split across
+        two TCP segments is silently cut even when it would have fitted.
+        Raising the number does not fix either; it moves the size at which
+        they happen.
+
+        The framing is the connection. `send_command()` opens a socket per
+        command and closes it, so end-of-stream is end-of-message and there is
+        nothing to delimit - which is also why two commands cannot run
+        together here the way two messages do on the data socket.
+        """
+        conn.settimeout(2.0)
+        chunks: list = []
+        total = 0
+        while True:
+            try:
+                chunk = conn.recv(4096)
+            except (TimeoutError, OSError):
+                # A sender that connected and went quiet must not hold this
+                # thread: STOP arrives on this socket, and a thread stuck here
+                # is a process that survives every shutdown.
+                break
+            if not chunk:
+                break
+            chunks.append(chunk)
+            total += len(chunk)
+            if total > self.MAX_COMMAND:
+                self.send_log("warning",
+                              "[Parakeet]: Dropped an oversized command.")
+                return b""
+        return b"".join(chunks)
 
     def __accept_data(self) -> None:
         with socket(AF_INET, SOCK_STREAM) as s:

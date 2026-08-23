@@ -655,6 +655,16 @@ class PluginManager():
 			del self.plugins[plugin_key]
 			self.client.SKILLS.un_register( plugin_key )
 			self.client.public.clear( plugin_key )
+
+			# A watcher that is gone must stop being counted, or the panel keeps
+			# writing telemetry down the socket the wake word arrives on for the
+			# rest of the day. Unloading is not something a plugin should have to
+			# remember to do properly - which is the whole reason it is counted
+			# by owner.
+			try:
+				self.client.SERVICES.STT.unwatch_audio(plugin_key)
+			except Exception:
+				pass
 			# Forgets the declaration only. The stored value stays, so a
 			# reload does not silently require retyping the credential.
 			self.client.SECRETS.unregister(plugin_key)

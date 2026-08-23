@@ -212,6 +212,15 @@ def _accepts_two(callable_) -> bool:
     return accepts
 
 
+#What the microphone reports when something is watching it.
+#
+#`on_audio_levels` is per-channel dBFS and `on_audio_spectrum` is 96
+#log-spaced bands per channel, both arriving as the raw message body. They
+#fire on the SOCKET READER thread rather than the UI one, so a subscriber
+#stashes what it is given and lets its own timer draw it.
+AUDIO_EVENT_NAMES = ("on_audio_levels", "on_audio_spectrum")
+
+
 class Client:
 
     MIN_INTERACTION_TIMEOUT_MS = 1000
@@ -533,6 +542,17 @@ class Client:
         from src.assistant import nlp
         nlp.set_log(self.log)
         nlp.preload()
+
+        # Declared here rather than left to whoever wants them.
+        #
+        # `iterate_event_callables` answers with an empty list for a name it
+        # does not know, so an undeclared event is not an error - it is a
+        # subscription that silently never fires. Declaring them before the
+        # plugins load means anything can subscribe on the way up without
+        # each one carrying the same guarded create_on_call_event() dance.
+        for name in AUDIO_EVENT_NAMES:
+            if name not in self.EVENTS["on_call"]:
+                self.create_on_call_event(name)
 
         self.PLUGIN = PluginManager(self, self.plugin_dirs)
         self.PLUGIN.load_plugins()

@@ -63,9 +63,19 @@ class SpeechFacade:
 
     def attach(self, source) -> None:
         self.source = source
+        # The child was spawned with the current tier in its argv, so that is
+        # what it has. Recorded rather than cleared, so the first watcher
+        # after a restart does not resend what is already running - and
+        # recorded rather than left alone, because the OLD child's tier is
+        # not this one's.
+        self._audio_tier_sent = self.audio_tier()
 
     def detach(self):
         source, self.source = self.source, None
+        # Nothing is listening, so nothing has a tier. Watchers are kept:
+        # a page open across a restart of the assistant should still be
+        # watching when it comes back, and argv() reads them when it does.
+        self._audio_tier_sent = None
         return source
 
     @property
@@ -266,6 +276,272 @@ class SpeechFacade:
             source.stop()
         except Exception as exc:
             self.client.log("warning", f"[Assistant] Error stopping STT: {exc}")
+
+    ## -- the microphone itself
+    #
+    # Which capsule of an array is heard, and what the panel knows about the
+    # device it opened. Here rather than in settings - see mic_store.py for
+    # why - and here rather than on the recogniser, because the answers have
+    # to survive the assistant being off. A plugin asking "which channel"
+    # while the microphone is closed should get the stored answer, not None.
+
+    @property
+    def microphone(self):
+        """
+        The store, made on first use.
+
+        Not in `__init__`: this facade is built before the settings tree is
+        read, and the store's path comes from the same place the data file
+        does.
+        """
+        if getattr(self, "_microphone", None) is None:
+            from src.assistant.mic_store import MicStore
+            self._microphone = MicStore(log=self.client.log)
+        return self._microphone
+
+    def microphone_name(self) -> str:
+        """
+        Which microphone the assistant is set to, as the store keys it.
+
+        The stored NAME rather than the opened index, so a value written now
+        still points at the same device after a USB port is used for
+        something else.
+        """
+        try:
+            return str(self.client.setting(
+                "audio.devices.input_device.value", "") or "")
+        except Exception:
+            return ""
+
+    def channels(self, device_name: str = None) -> dict:
+        """
+        Which channel feeds the transcriber, and how the rest are reduced.
+
+        `{"stt_channel": 0, "mix": "first"}` on a panel nobody has changed,
+        which is what the panel did before any of this existed.
+        """
+        name = self.microphone_name() if device_name is None else device_name
+        entry = self.microphone.get(name)
+        return {"stt_channel": entry["stt_channel"], "mix": entry["mix"]}
+
+    def set_channels(self, stt_channel: int = None, mix: str = None,
+                     device_name: str = None) -> dict:
+        """
+        Choose the capsule. Takes effect at once, without a restart.
+
+        Written down AND pushed. The write is what survives a reboot; the push
+        is what makes it possible to choose at all - a value that only applied
+        on the next spawn would mean tearing down the microphone between every
+        comparison, and comparing capsules is the entire task.
+        """
+        name = self.microphone_name() if device_name is None else device_name
+        entry = self.microphone.set(name, stt_channel=stt_channel, mix=mix)
+        if device_name is None or self.microphone.key(device_name) == \
+                self.microphone.key(self.microphone_name()):
+            # Only when it is the device actually open. Editing the profile of
+            # a microphone that is not plugged in must not move the one that
+            # is.
+            self.set_live_channels(entry["stt_channel"], entry["mix"])
+        return {"stt_channel": entry["stt_channel"], "mix": entry["mix"]}
+
+    def set_live_channels(self, stt_channel: int, mix: str) -> bool:
+        """Tell the running child, without writing anything down."""
+        if self.source is None:
+            return False
+        try:
+            return bool(self.source.set_channels(int(stt_channel), str(mix)))
+        except Exception as exc:
+            self.client.log("warning",
+                            f"[Assistant] Could not change the channel: {exc}")
+            return False
+
+    def dsp_profile(self, device_name: str = None) -> dict:
+        """
+        The filter curve for a microphone, and whether it runs on the feed.
+
+        `{}` for the curve on a panel nobody has tuned, which means no filter
+        at all rather than a flat one - the difference is a conversion and a
+        copy per phrase that buys nothing.
+        """
+        name = self.microphone_name() if device_name is None else device_name
+        entry = self.microphone.get(name)
+        return {"dsp": dict(entry.get("dsp") or {}),
+                "dsp_stream": bool(entry.get("dsp_stream", False))}
+
+    def set_dsp_profile(self, profile: dict = None, stream: bool = None,
+                        device_name: str = None) -> dict:
+        """
+        Set the curve. Takes effect at once, without a restart.
+
+        Live for the same reason the channel is: a curve is arrived at by
+        moving something and listening, and a slider that costs a respawn per
+        move is a slider nobody can use. The write is what survives a reboot.
+
+        `profile` is passed through to be normalised by the module that owns
+        the shape, so a caller may send a partial one and get the rest filled
+        in rather than an error three files away.
+        """
+        name = self.microphone_name() if device_name is None else device_name
+        entry = self.microphone.set(name, dsp=profile, dsp_stream=stream)
+        if device_name is None or self.microphone.key(device_name) == \
+                self.microphone.key(self.microphone_name()):
+            self.set_live_dsp(entry.get("dsp") or {},
+                              bool(entry.get("dsp_stream", False)))
+        return {"dsp": dict(entry.get("dsp") or {}),
+                "dsp_stream": bool(entry.get("dsp_stream", False))}
+
+    def set_live_dsp(self, profile: dict, stream: bool = False) -> bool:
+        """Tell the running child, without writing anything down."""
+        if self.source is None:
+            return False
+        try:
+            return bool(self.source.set_dsp(profile, stream))
+        except Exception as exc:
+            self.client.log("warning",
+                            f"[Assistant] Could not change the filter: {exc}")
+            return False
+
+    def dsp_limits(self) -> dict:
+        """
+        What a curve may contain, for whatever is drawing the controls.
+
+        Asked rather than assumed. The capture is 16 kHz, so the whole
+        spectrum is 0-8 kHz and a filter UI spanning 20 Hz to 20 kHz would
+        have half its range doing nothing - and the rate is this side's to
+        know, not something a page should hardcode and be wrong about the day
+        it changes.
+        """
+        from src.assistant import mic_dsp
+
+        rate = int((self.audio_capabilities() or {}).get("rate") or 0)
+        limits = {
+            "bands": mic_dsp.BAND_COUNT,
+            "slopes": list(mic_dsp.SLOPES),
+            "hz": [mic_dsp.HZ_MIN, mic_dsp.HZ_MAX],
+            "gain_db": [mic_dsp.GAIN_MIN, mic_dsp.GAIN_MAX],
+            "q": [mic_dsp.Q_MIN, mic_dsp.Q_MAX],
+            "makeup_db": [mic_dsp.MAKEUP_MIN, mic_dsp.MAKEUP_MAX],
+            "rate": rate,
+        }
+        if rate:
+            # Just under, never at: a pole exactly on the Nyquist frequency is
+            # a divide by zero in the bilinear transform. The same margin the
+            # profile is clamped with, so a control built from this cannot
+            # ask for something that will be quietly moved.
+            limits["nyquist"] = rate / 2.0
+            limits["hz"] = [mic_dsp.HZ_MIN,
+                            min(mic_dsp.HZ_MAX, rate / 2.0 * 0.95)]
+        return limits
+
+    def default_dsp_profile(self) -> dict:
+        """The shipped curve, normalised, for anything offering a reset."""
+        from src.assistant import mic_dsp
+        return mic_dsp.normalise_profile(mic_dsp.DEFAULT_PROFILE)
+
+    ## -- watching the audio
+    #
+    # Counted by owner, and that is the whole reason this is here rather than
+    # a command a plugin sends for itself.
+    #
+    # A raw on/off would break the moment there were two watchers: the second
+    # one finishing turns the stream off under the first, which still has a
+    # page open and no way to know why it went blank. And a watcher that
+    # crashes or is unloaded never sends its `off`, so the panel spends the
+    # rest of the day writing telemetry down a socket that carries the
+    # messages that MATTER - the wake word, the transcript, the stop.
+    #
+    # Owner-scoped for the same reason PAGES and QUICK are: the loader tears
+    # a plugin's registrations down by name, so unloading one is not something
+    # the plugin has to remember to do properly.
+
+    #What may be asked for, cheapest first. The order IS the ranking: several
+    #watchers get the most anybody asked for, not the most recent request.
+    AUDIO_TIERS = ("off", "levels", "spectrum")
+
+    @property
+    def _watchers(self) -> dict:
+        if getattr(self, "_audio_watchers", None) is None:
+            self._audio_watchers = {}
+        return self._audio_watchers
+
+    def watch_audio(self, owner: str, tier: str = "levels") -> str:
+        """
+        Ask for the microphone's levels, or its spectrum, until you stop.
+
+        Answers with the tier now running, which may be higher than the one
+        asked for because somebody else wanted more. Nothing is sent at all
+        while nobody is watching - see the note above.
+        """
+        owner = str(owner or "").strip()
+        if not owner:
+            return self.audio_tier()
+        tier = str(tier or "levels").strip().lower()
+        if tier not in self.AUDIO_TIERS:
+            tier = "levels"
+        if tier == "off":
+            return self.unwatch_audio(owner)
+        self._watchers[owner] = tier
+        return self._apply_audio_tier()
+
+    def unwatch_audio(self, owner: str) -> str:
+        """Stop watching. Harmless when the owner was not watching."""
+        self._watchers.pop(str(owner or "").strip(), None)
+        return self._apply_audio_tier()
+
+    def audio_tier(self) -> str:
+        """The most anybody has asked for, which is what is being sent."""
+        wanted = [self.AUDIO_TIERS.index(tier)
+                  for tier in self._watchers.values()
+                  if tier in self.AUDIO_TIERS]
+        return self.AUDIO_TIERS[max(wanted)] if wanted else "off"
+
+    def audio_watchers(self) -> dict:
+        """Who is watching and for what, so a page can say."""
+        return dict(self._watchers)
+
+    def _apply_audio_tier(self) -> str:
+        """
+        Tell the child, but only when the answer has changed.
+
+        A second watcher asking for what is already running must not send
+        anything: the command socket is how STOP arrives, and a page with a
+        slider on it would otherwise reach for it on every move.
+        """
+        tier = self.audio_tier()
+        if tier == getattr(self, "_audio_tier_sent", None):
+            return tier
+        self._audio_tier_sent = tier
+        if self.source is None:
+            # Nothing to tell yet. `argv()` sends the tier at spawn, so a
+            # watcher that started before the assistant did is not lost.
+            return tier
+        try:
+            self.source.set_audio_monitor(tier)
+        except Exception as exc:
+            self.client.log("warning",
+                            f"[Assistant] Could not change the audio "
+                            f"monitor: {exc}")
+        return tier
+
+    def audio_capabilities(self) -> dict:
+        """
+        What the microphone that is actually open turned out to be.
+
+        Reported by the child when it opens the device, because the child is
+        the only thing that has opened it - the panel's own device list and
+        the child's differ on at least one machine, which is a fault the wake
+        report already exists to catch.
+
+        Empty while nothing is listening. A caller drawing a channel picker
+        should read `channels` from here rather than assume, and should say
+        so rather than draw four of them on a device with one.
+        """
+        if self.source is None:
+            return {}
+        try:
+            return dict(getattr(self.source, "audio_device", None) or {})
+        except Exception:
+            return {}
 
     ## -- the interface
     #
