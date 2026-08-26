@@ -1,4 +1,6 @@
 from __future__ import annotations
+import weakref
+from threading import Lock
 from typing import TYPE_CHECKING, Literal, Optional
 
 from PyQt6.QtWidgets import (
@@ -1288,6 +1290,72 @@ class _PanelScrim(QWidget):
         event.accept()
 
 
+# ── Panels, as a Python list ──────────────────────────────────────────────────
+#
+# Every live Panel, so questions about them can be answered OFF the UI thread.
+#
+# The idle clock in main.py runs on the update thread and used to ask
+# `OVERLAYS.findChildren(Panel)` and then `panel.isVisible()` - a Qt tree walk
+# and a C++ call, twenty times a second, against a widget tree the GUI thread
+# reparents and deletes every time a page changes. Land the walk inside a page
+# switch and it reads a child list that is being rewritten underneath it, and
+# Qt answers that with SIGSEGV rather than with an exception anything could
+# catch. Six segfaults in the crash log name that one line, always with a page
+# switch or a panel close beside them.
+#
+# `open`, `blocks_idle` and `_destroyed` are plain Python attributes the panel
+# already maintains, so keeping the list here makes the whole question
+# answerable without touching Qt at all.
+#
+# Weak references, so a panel that is destroyed or simply dropped does not stay
+# alive because this list remembers it.
+_PANELS: list = []
+_PANELS_LOCK = Lock()
+
+
+def _register_panel(panel: "Panel") -> None:
+    with _PANELS_LOCK:
+        _PANELS.append(weakref.ref(panel))
+
+
+def _forget_panel(panel: "Panel") -> None:
+    with _PANELS_LOCK:
+        _PANELS[:] = [ref for ref in _PANELS
+                      if ref() is not None and ref() is not panel]
+
+
+def live_panels() -> list:
+    """Every panel still alive. Safe from any thread; touches no Qt."""
+    with _PANELS_LOCK:
+        refs = list(_PANELS)
+    found = [panel for panel in (ref() for ref in refs) if panel is not None]
+    if len(found) != len(refs):
+        # Tidied on the way past rather than on a timer of its own.
+        with _PANELS_LOCK:
+            _PANELS[:] = [ref for ref in _PANELS if ref() is not None]
+    return found
+
+
+def idle_is_blocked() -> bool:
+    """
+    Whether an open panel is holding the idle clock open.
+
+    `open` rather than `isVisible()`: the first is a Python bool this class
+    sets itself, the second is a call into a widget that another thread may be
+    in the middle of deleting. They mean the same thing here, and only one of
+    them is safe to ask from the update thread.
+    """
+    for panel in live_panels():
+        try:
+            if panel.open and not panel._destroyed and panel.blocks_idle:
+                return True
+        except Exception:
+            # A half-built or half-torn-down panel is not one holding the
+            # clock open, and this must never raise into the caller's loop.
+            continue
+    return False
+
+
 class Panel(QWidget):
 
     DEFAULT_WIDTH = 680   #shared by TilePanel/NotificationPanel/create_panel() — see apply_frosted_style()
@@ -1381,6 +1449,9 @@ class Panel(QWidget):
         self._shown_pos  = QPoint(0, 0)
         self._sync_geometry()
         self.hide()
+
+        # Last, so nothing half-built is ever in the list - see _PANELS above.
+        _register_panel(self)
 
     # ── Content ───────────────────────────────────────────────────────────────
 
@@ -1706,6 +1777,9 @@ class Panel(QWidget):
         if self._destroyed:
             return
         self._destroyed = True
+        # Before anything that can raise. A destroyed panel left in the list
+        # is one the idle clock keeps asking about.
+        _forget_panel(self)
         self._release_mask()
         self._release_backdrop()
         try:

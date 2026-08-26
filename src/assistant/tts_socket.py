@@ -378,6 +378,9 @@ class SocketTTSProcessing:
         played = 0
         try:
             stream.start()
+            # Asked for by variable above, confirmed here - see
+            # sinks.ensure_routed().
+            server_sinks.ensure_routed(sink, log=self.client.log)
             # Silence first, so the first word is not eaten by a sink waking
             # up - see audio.wake_output().
             audio_backend.wake_output(stream, self.rate)

@@ -30,6 +30,8 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+import threading
+import time
 from typing import Optional
 
 #Long enough for a busy server, short enough that a hung one does not hold up
@@ -259,26 +261,173 @@ class routed:
     An empty sink name does nothing at all, which is what "Default" means.
     """
 
-    VARIABLE = "PULSE_SINK"
+    #Both, because which one is read depends on which plugin PortAudio's
+    #server device turns out to be.
+    #
+    #`PULSE_SINK` is read by the PulseAudio ALSA plugin. PipeWire's own ALSA
+    #plugin does not read it at all - it reads `PIPEWIRE_NODE`, and a sink's
+    #`Name` is its node name, so the same string answers both. `default` is
+    #whichever of the two the machine has wired up.
+    #
+    #Only the first was set, and SERVER_DEVICES prefers `pulse` but falls back
+    #to `pipewire`. On a PipeWire desktop with no alsa-plugins - which is the
+    #ordinary shape, and is what this panel has: PortAudio lists `pipewire`
+    #and `default` and no `pulse` - the dropdown filled with real sink names,
+    #the setting saved, the variable was set, and nothing moved. Silently.
+    #
+    #Setting the one the other plugin ignores costs nothing.
+    VARIABLES = ("PULSE_SINK", "PIPEWIRE_NODE")
 
     def __init__(self, sink_name: str = ""):
         self.sink_name = str(sink_name or "").strip()
-        self._before = None
-        self._had = False
+        #name -> what was there before, or None when it was not set at all.
+        #The difference matters: putting an empty string back is not the same
+        #as leaving the variable unset, and one of them routes nowhere.
+        self._before: dict = {}
 
     def __enter__(self):
         if not self.sink_name:
             return self
-        self._had = self.VARIABLE in os.environ
-        self._before = os.environ.get(self.VARIABLE)
-        os.environ[self.VARIABLE] = self.sink_name
+        for name in self.VARIABLES:
+            self._before[name] = os.environ.get(name)
+            os.environ[name] = self.sink_name
         return self
 
     def __exit__(self, *exc):
         if not self.sink_name:
             return False
-        if self._had:
-            os.environ[self.VARIABLE] = self._before or ""
-        else:
-            os.environ.pop(self.VARIABLE, None)
+        for name, was in self._before.items():
+            if was is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = was
+        self._before = {}
         return False
+
+
+#How many times the repair below looks for our own stream, and how long it
+#waits between looks.
+#
+#A stream is registered with the sound server a moment AFTER PortAudio opens
+#it, so the first look can legitimately find nothing - and treating that as
+#"nothing to move" is how the repair misses the very sound it was started for.
+ROUTE_ATTEMPTS = 4
+ROUTE_GAP = 0.15
+
+
+def _sink_input_blocks() -> list:
+    """
+    `pactl list sink-inputs`, as one dict per stream.
+
+    Split out from the reading so it can be driven against captured output
+    without a sound server.
+    """
+    out = _run(["pactl", "list", "sink-inputs"])
+    if not out:
+        return []
+
+    blocks, current = [], None
+    for line in out.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("Sink Input #"):
+            if current is not None:
+                blocks.append(current)
+            current = {"index": stripped.partition("#")[2].strip()}
+        elif current is None:
+            continue
+        elif stripped.startswith("Sink:"):
+            current["sink"] = stripped.partition(":")[2].strip()
+        elif stripped.startswith("application.process.id"):
+            current["pid"] = stripped.partition("=")[2].strip().strip('"')
+    if current is not None:
+        blocks.append(current)
+    return blocks
+
+
+def own_sink_inputs() -> list:
+    """
+    The streams THIS process is playing, as `[(index, sink_name)]`.
+
+    Matched on `application.process.id`, so the panel moves its own audio and
+    leaves everything else on the machine where it is. That is the whole
+    difference between this and `sink_inputs()`, which is what the Bluetooth
+    follow uses and which deliberately moves the lot.
+    """
+    blocks = _sink_input_blocks()
+    if not blocks:
+        return []
+    names = _sink_names_by_index()
+    pid = str(os.getpid())
+    return [(block["index"], names.get(block.get("sink", ""), ""))
+            for block in blocks if block.get("pid") == pid]
+
+
+def move_own_streams_to(name: str) -> int:
+    """Move this process's streams onto one sink. Returns how many moved."""
+    wanted = str(name or "").strip()
+    if not wanted:
+        return 0
+
+    moved = 0
+    for index, current in own_sink_inputs():
+        if current == wanted:
+            continue
+        try:
+            done = subprocess.run(["pactl", "move-sink-input", index, wanted],
+                                  capture_output=True, text=True,
+                                  timeout=CALL_TIMEOUT)
+        except Exception:
+            continue
+        if done.returncode == 0:
+            moved += 1
+    return moved
+
+
+def ensure_routed(sink_name: str, log=None) -> None:
+    """
+    Confirm a stream that has just started really is on the chosen sink, and
+    move it if it is not.
+
+    `routed()` asks by environment variable, which is free and is right
+    whenever the plugin underneath reads the variable. When it does not, there
+    is no error and no fallback - the sound simply comes out of the old place,
+    which is exactly the bug this pair was written for.
+
+    So the answer is checked rather than assumed. **On a worker**: `pactl` is
+    a subprocess and this is called from the phrase path, where the handoff's
+    rule about measuring the cost applies. Nothing here blocks the audio.
+
+    Costs, since they are real: two `pactl` reads per sound that names a sink,
+    on a thread of their own, plus one `move-sink-input` per stream that
+    turned out to be in the wrong place. Nothing at all when the output is
+    `Default`, which is the shipped setting.
+    """
+    wanted = str(sink_name or "").strip()
+    if not wanted:
+        return
+
+    def work():
+        for attempt in range(ROUTE_ATTEMPTS):
+            try:
+                mine = own_sink_inputs()
+            except Exception as e:
+                if log:
+                    log("debug", f"[Audio] Could not check the output sink: {e}")
+                return
+            if mine:
+                misplaced = [index for index, current in mine
+                             if current != wanted]
+                if not misplaced:
+                    return
+                moved = move_own_streams_to(wanted)
+                if log:
+                    # Worth a line: it means the environment variable was not
+                    # read, which is the difference between a switch that
+                    # works and one that only appears to.
+                    log("debug", f"[Audio] The output setting was not honoured "
+                                 f"by the driver - moved {moved} stream(s) onto "
+                                 f"'{wanted}'.")
+                return
+            time.sleep(ROUTE_GAP)
+
+    threading.Thread(target=work, name="__sink_route", daemon=True).start()

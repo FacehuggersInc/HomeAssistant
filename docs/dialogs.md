@@ -209,6 +209,15 @@ interaction, so measuring interaction measures the wrong thing.
 Off by default. Most panels are a control somebody uses and leaves, and one
 that stops the panel ever going idle has to be dismissed by hand.
 
+The check is answered from a registry of live panels kept in
+`src/ui/overlays.py`, not by looking at the widget tree. The idle clock runs on
+the update thread, and `findChildren()` plus `isVisible()` are calls into C++
+against a tree the interface thread rewrites every time a page changes - which
+segfaulted the panel, repeatedly, with nothing in the log to say why. `open`,
+`blocks_idle` and `_destroyed` are ordinary Python attributes and mean the same
+thing, so anything asking about panels from a background thread should ask
+`live_panels()` rather than reaching for the widgets.
+
 ## Holding the assistant pill
 
 Something slow that a person is waiting on should say so:

@@ -535,12 +535,15 @@ class AudioRegistry:
             # afterwards would send this one to the old place and only the
             # next one where it was asked to go.
             from src.system import sinks as server_sinks
-            with server_sinks.routed(self.chosen_sink()):
+            sink = self.chosen_sink()
+            with server_sinks.routed(sink):
                 stream = sounddevice.OutputStream(samplerate=rate,
                                                   device=chosen,
                                                   channels=channels,
                                                   dtype="float32")
                 stream.start()
+            # Asked for by variable above, confirmed here - see ensure_routed.
+            server_sinks.ensure_routed(sink, log=self.client.log)
             for start in range(0, len(data), self.BLOCK):
                 if handle.stop.is_set():
                     break

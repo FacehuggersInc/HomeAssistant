@@ -1,4 +1,4 @@
-# The filter, copied from plugins/MicDSP/dsp.py at 0.1.0.
+# The filter, copied from plugins/MicDSP/dsp.py at 0.2.0.
 #
 # Byte-identical below this comment, deliberately: re-copying it is replacing
 # everything after these lines, and anything edited in place is something the
@@ -31,6 +31,23 @@ from __future__ import annotations
 import math
 
 import numpy as np
+
+#SciPy's cascaded-biquad filter, when it is there.
+#
+#The fallback below it is a Python loop over samples, which is correct and
+#roughly two hundred times slower - 25 ms to filter a 30 ms window on a
+#desktop, which on the audio thread of a panel is not a filter, it is a
+#dropout. The loop cannot be vectorised (each output feeds the next state),
+#so the only way to be quick is to hand the recursion to something compiled.
+#
+#Not a new dependency: `noisereduce` requires scipy and is already in the
+#panel's requirements, so anything that can de-noise a phrase can do this.
+#Guarded anyway, because a filter that is slow is better than one that is
+#absent, and this file is meant to run anywhere.
+try:
+    from scipy.signal import sosfilt as _sosfilt
+except Exception:
+    _sosfilt = None
 
 
 ## -- LIMITS ------------------------------------------------------------------
@@ -280,6 +297,16 @@ class Chain:
         if not self.bypassed:
             self._build()
 
+        # The same sections as a second-order-section array, for scipy. Built
+        # once here rather than per block: it is the sections in a different
+        # shape, and the shape is all sosfilt wants.
+        self._sos = None
+        self._state = None
+        if self.sections and _sosfilt is not None:
+            self._sos = np.array(
+                [[s.b0, s.b1, s.b2, 1.0, s.a1, s.a2] for s in self.sections],
+                dtype=np.float64)
+
     def _build(self) -> None:
         fs = self.samplerate
         nyquist = fs / 2.0
@@ -313,21 +340,40 @@ class Chain:
         return bool(self.sections) or abs(self.makeup - 1.0) > 1e-6
 
     def reset(self, channels: int) -> None:
+        """
+        Forget the last two samples, on every path.
+
+        Called between PHRASES and never mid-stream. A biquad carries its
+        state, so a phrase filtered with the previous one's leaves a
+        transient built out of audio that is not in it - on a high pass, a
+        thump landing on the first word.
+        """
         for section in self.sections:
             section.reset(channels)
+        self._state = None
 
     def process(self, block: np.ndarray) -> np.ndarray:
         """
         A `(samples, channels)` block, filtered.
 
         Returns the input untouched when the chain is bypassed or empty, so a
-        caller does not have to ask first.
+        caller does not have to ask first. State carries across calls either
+        way, so consecutive blocks of one stream filter as one signal.
         """
         if self.bypassed or not self.active:
             return block
         out = np.asarray(block, dtype=np.float64)
-        for section in self.sections:
-            out = section.process(out)
+
+        if self._sos is not None and out.shape[0]:
+            channels = out.shape[1]
+            if self._state is None or self._state.shape[2] != channels:
+                self._state = np.zeros((self._sos.shape[0], 2, channels),
+                                       dtype=np.float64)
+            out, self._state = _sosfilt(self._sos, out, axis=0, zi=self._state)
+        else:
+            for section in self.sections:
+                out = section.process(out)
+
         if abs(self.makeup - 1.0) > 1e-6:
             out = out * self.makeup
         return out

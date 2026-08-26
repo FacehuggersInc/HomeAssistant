@@ -759,6 +759,23 @@ class ParakeetListener:
             self.dsp_phrase = self.dsp_stream = None
             return
 
+        if self.dsp_settings and not mic_dsp_stream.fast_path():
+            # OFF, not slow. Without scipy the recursion runs in Python, once
+            # per sample per section, and costs more than realtime on the
+            # thread holding the microphone - so the filter would not be a
+            # worse microphone, it would be a broken one, and it would look
+            # like the model failing rather than the filter.
+            #
+            # Unfiltered audio is what the panel had yesterday. This is the
+            # rules standing rather than the panel going quiet.
+            self.send_log("warning",
+                          "[Parakeet]: A microphone filter is set and scipy "
+                          "is not installed, so filtering would cost more "
+                          "than realtime on the audio thread - it is off. "
+                          "Install scipy (noisereduce needs it too).")
+            self.dsp_phrase = self.dsp_stream = None
+            return
+
         try:
             phrase = mic_dsp_stream.build(self.dsp_settings, self.SAMPLE_RATE)
             live = mic_dsp_stream.build(self.dsp_settings, self.SAMPLE_RATE,

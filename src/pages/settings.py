@@ -1320,6 +1320,9 @@ class SettingsPage(PageFramework):
                                  self.return_without_saving, kind="quiet",
                                  size=44, min_width=130, icon_size=24)
         leave_btn.setFont(make_font(SIZES.S3, bold=True))
+        # Kept, for the same reason _save_btn is: leaving is not instant
+        # either, and a button that cannot be reached cannot say so.
+        self._leave_btn = leave_btn
 
         # One control rather than two.
         #
@@ -2939,6 +2942,15 @@ class SettingsPage(PageFramework):
         control that discards work without a word is one people stop trusting
         after the first time it costs them something.
         """
+        # Immediately, before anything slow - exactly as Save and Return does.
+        #
+        # This button looked ignored where the other one did not, and it is
+        # not instant: unsaved() scrubs and compares the whole settings tree,
+        # and goto() then tears this page down and builds the home page. On a
+        # touch panel a control that does not change when it is touched has
+        # not been touched, so it gets touched again.
+        self._leaving()
+
         if self.unsaved():
             self.client.simple_notify(Icons.SETTINGS, "Settings",
                                       "Left without saving - the changes were "
@@ -2992,12 +3004,27 @@ class SettingsPage(PageFramework):
 
     def _saving(self) -> None:
         """Say the press landed, before the work that follows it."""
-        button = getattr(self, "_save_btn", None)
+        self._acknowledge("_save_btn", "Saving\u2026")
+
+    def _leaving(self) -> None:
+        """The same, for the button that leaves without saving."""
+        self._acknowledge("_leave_btn", "Leaving\u2026")
+
+    def _acknowledge(self, attribute: str, label: str) -> None:
+        """
+        Show a press on one of the top-bar buttons before acting on it.
+
+        One method rather than two nearly identical ones: they differ only in
+        which button and which word, and the version of this that existed for
+        Save only was written out in full - which is how Return ended up
+        without it at all.
+        """
+        button = getattr(self, attribute, None)
         if button is None:
             return
         try:
             button.setEnabled(False)
-            button.set_label("Saving\u2026")
+            button.set_label(label)
             # Painted now. Qt would otherwise draw this at the end of the
             # event handler - which is after everything this was meant to
             # cover, so nothing would ever be seen.

@@ -23,6 +23,7 @@ import threading
 
 import numpy as np
 
+from src.assistant import mic_dsp
 from src.assistant.mic_dsp import Chain, normalise_profile
 
 #Full scale for int16. 32768 negative and 32767 positive, and the positive one
@@ -127,6 +128,23 @@ class StreamFilter:
         audio = np.asarray(window, dtype=np.float64).reshape(-1, 1)
         out = self.chain.process(audio).ravel()
         return np.clip(out, -INT16_PEAK, INT16_PEAK).astype(np.int16)
+
+
+def fast_path() -> bool:
+    """
+    Whether the recursion runs in compiled code rather than in Python.
+
+    `Biquad.process` is a loop over samples and cannot be vectorised - each
+    output feeds the next state - so without scipy it runs at Python speed,
+    once per sample, per section. Measured: a 30 ms window through a nine
+    section chain takes about 20 ms on a desktop, which is two thirds of
+    realtime on the thread that has to keep up with the microphone, and more
+    than all of it on a panel.
+
+    That is not a slower filter, it is a dropout. `_overflows` climbs, phrases
+    arrive truncated, and it reads as the model being bad at its job.
+    """
+    return getattr(mic_dsp, "_sosfilt", None) is not None
 
 
 def build(profile: dict, samplerate: float, stream: bool = False):

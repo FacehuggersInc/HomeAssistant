@@ -15,7 +15,7 @@ import uuid as _uuid
 from datetime import datetime
 from pathlib import Path
 from contextlib import contextmanager
-from threading import Thread, RLock, enumerate as thread_enum
+from threading import Thread, RLock, Event as ThreadEvent, enumerate as thread_enum
 from typing import Callable, Literal, Optional, TextIO
 
 from dynaconf import Dynaconf
@@ -48,7 +48,10 @@ from src.registries.package_registry import PackageRegistry
 from src.backend import FlaskApp, FlaskService
 from src.assistant.skill import Skill, SkillIntentEngine
 from src.assistant.stt import STTProcessing
-from src.ui.overlays import OverlayManager, NotificationManager, DialogManager, Panel
+from src.ui.overlays import (
+    OverlayManager, NotificationManager, DialogManager, Panel,
+    idle_is_blocked, live_panels,
+)
 from src.styling import COLORS, load_styles, set_style
 from src.constants import (
     APP_NAME, EVENTS, EVENT_LEVELS, CLIENT_EVENT_NAMES,
@@ -768,6 +771,45 @@ class Client:
     def call_on_ui(self, fn: Callable) -> None:
         self.bridge.dispatch(fn)
 
+    #How long a background thread waits for the UI thread to answer a read.
+    #Generous: this is only ever used off the hot path, and giving up early on
+    #a busy UI would answer with the default and log a wrong number.
+    UI_ANSWER_TIMEOUT = 2.0
+
+    def ask_on_ui(self, fn: Callable, default=None, timeout: float = None):
+        """
+        Run something on the UI thread and WAIT for what it answers.
+
+        For the handful of background reads that genuinely have to touch Qt.
+        Calling into a widget from another thread is how this app spent months
+        segfaulting - see `_check_interaction_timeout` - and most of those
+        reads have a Python answer instead. The ones that do not come through
+        here.
+
+        Bounded, and answers `default` if the UI thread does not get to it: a
+        stuck interface must not take the update thread down with it.
+        """
+        if QThread.currentThread() is self.app.thread():
+            try:
+                return fn()
+            except Exception:
+                return default
+
+        box = {"value": default}
+        done = ThreadEvent()
+
+        def run():
+            try:
+                box["value"] = fn()
+            except Exception:
+                pass
+            finally:
+                done.set()
+
+        self.call_on_ui(run)
+        done.wait(self.UI_ANSWER_TIMEOUT if timeout is None else timeout)
+        return box["value"]
+
     ##EVENTS
 
     def set_state(self, state_name: str, state) -> None:
@@ -943,14 +985,18 @@ class Client:
         # screen is read for as long as it takes to read, produces no
         # interaction while it is, and was timed out from under the person
         # reading it.
+        #
+        # Asked of a Python list, not of the widget tree. This method runs on
+        # the update thread at 20Hz, and it used to walk OVERLAYS with
+        # findChildren(Panel) and then call isVisible() on each - both C++,
+        # both from the wrong thread. A page switch reparents and deletes
+        # widgets under that walk, and the result is a segfault with nothing
+        # in the log: six of them, all naming this line. See _PANELS in
+        # src/ui/overlays.py.
         try:
-            host = self.OVERLAYS
-            if host is not None:
-                from src.ui.overlays import Panel
-                for panel in host.findChildren(Panel):
-                    if panel.isVisible() and getattr(panel, "blocks_idle", False):
-                        self._last_interaction_time = time.time()
-                        return
+            if idle_is_blocked():
+                self._last_interaction_time = time.time()
+                return
         except Exception:
             pass
 
@@ -1351,13 +1397,20 @@ class Client:
         self.subscribe_to_event("on_settings_saved", self.on_assistant_settings_saved)
 
     def _answer_panels(self) -> list:
-        """Every answer currently on screen."""
+        """
+        Every answer currently on screen.
+
+        From the panel registry, not from `OVERLAYS.findChildren()`. This is
+        reached by the cancel registry when somebody says "stop", which
+        happens on the speech thread - so it is the same C++ walk from the
+        same wrong thread that the idle clock was segfaulting on, just less
+        often. `open` was already a Python bool; now the list is too.
+        """
         try:
             from src.ui.panels.answer import AnswerPanel
-            host = self.OVERLAYS
-            if host is None:
-                return []
-            return [p for p in host.findChildren(AnswerPanel) if p.open]
+            return [panel for panel in live_panels()
+                    if isinstance(panel, AnswerPanel)
+                    and panel.open and not panel._destroyed]
         except Exception:
             return []
 
@@ -3249,7 +3302,12 @@ class Client:
                     self.LAST_COLLECTION = time.time()
 
                     before_mb       = self._process.memory_info().rss / (1024 * 1024)
-                    overlays_before = len(self.OVERLAYS.children())
+                    # On the UI thread. QObject::children() is a C++ read of a
+                    # list the GUI thread rewrites, which is the same hazard
+                    # the idle clock was crashing on - rarer here at twice an
+                    # hour, and the same bug.
+                    overlays_before = self.ask_on_ui(
+                        lambda: len(self.OVERLAYS.children()), default=-1)
 
                     # Counted BEFORE anything is released, so this is what an
                     # hour of running actually accumulated rather than what
@@ -3262,7 +3320,8 @@ class Client:
                     pruned    = self.TIMEOUTS.prune()
 
                     after_mb       = self._process.memory_info().rss / (1024 * 1024)
-                    overlays_after = len(self.OVERLAYS.children())
+                    overlays_after = self.ask_on_ui(
+                        lambda: len(self.OVERLAYS.children()), default=-1)
 
                     self.log(
                         "info",

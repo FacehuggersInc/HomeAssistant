@@ -423,6 +423,9 @@ class PocketTTSProcessing:
                                          channels=channels, dtype="float32")
             try:
                 stream.start()
+                # Asked for by variable above, confirmed here - see
+                # sinks.ensure_routed().
+                server_sinks.ensure_routed(sink, log=self.client.log)
                 self.client.log(
                     "debug",
                     f"[TTS] Playing {len(data) / max(1, rate):.2f}s at {rate}Hz "
