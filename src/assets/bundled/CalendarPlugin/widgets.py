@@ -6,7 +6,7 @@ from datetime import date, timedelta
 from typing import TYPE_CHECKING
 
 from PyQt6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel
-from PyQt6.QtCore import Qt, QRectF
+from PyQt6.QtCore import Qt, QRectF, QTimer
 from PyQt6.QtGui import (
     QPainter, QColor, QPen, QBrush, QLinearGradient, QPainterPath)
 
@@ -313,18 +313,13 @@ class _TintedWidget(Widget):
 ## -- WIDGETS -------------------------------------------------------------------
 
 class UpcomingEventWidget(_TintedWidget):
-    """
-    The next thing happening, and how long until it.
+    # One event, large - what is next, read from across a room.
+    # Events starting close together are cycled through, with a line counting them.
 
-    One event, large. A wall panel is read from across a room, and the thing
-    people actually want off a calendar at a glance is what is next - not a
-    list they have to scan.
-    """
-
-    KEY         = "calendar_upcoming"
-    NAME        = "Next event"
-    ICON        = "mdi.calendar-clock"
-    DESCRIPTION = "The next event, with how long until it starts."
+    KEY = "calendar_upcoming"
+    NAME = "Next event"
+    ICON = "mdi.calendar-clock"
+    DESCRIPTION = "The next event, with how long until it starts. Events close together take turns."
 
     RESIZABLE = True
     ROTATABLE = False
@@ -335,9 +330,17 @@ class UpcomingEventWidget(_TintedWidget):
     MAX_W, MAX_H = 620, 300
     DEFAULT_ANCHOR = "top-left"
 
+    TICK_MS = 1000
+    REFRESH_SECONDS = 30
+    LOOK_AHEAD = 20
+
     def __init__(self, client: "Client", key: str = None, **kwargs):
+        self._group = []
+        self._index = 0
+        self._refreshed_at = 0.0
+        self._shown_at = 0.0
         super().__init__(client=client, key=key or self.KEY,
-                         width=320, height=150, **kwargs)
+                         width=320, height=170, **kwargs)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 12, 16, 12)
@@ -361,6 +364,7 @@ class UpcomingEventWidget(_TintedWidget):
 
         self.when = QLabel("")
         self.when.setFont(make_font(SIZES.S3, bold=True))
+        self.when.setWordWrap(True)
         add_text_shadow(self.when, blur=8)
         layout.addWidget(self.when)
 
@@ -370,9 +374,17 @@ class UpcomingEventWidget(_TintedWidget):
         add_text_shadow(self.where, blur=6)
         layout.addWidget(self.where)
 
+        self.count = QLabel("")
+        self.count.setFont(make_font(SIZES.S1))
+        self.count.setStyleSheet("color: rgba(255,255,255,150); background: transparent;")
+        add_text_shadow(self.count, blur=6)
+        self.count.setVisible(False)
+        layout.addWidget(self.count)
+
         self.apply_tint_to_text()
 
-        self.start_tick(30_000)   # a countdown in minutes needs no more
+        # Ticks every second so the cycle can turn; the calendar itself is only re-read every REFRESH_SECONDS
+        self.start_tick(self.TICK_MS)
         self.tick()
 
     def apply_tint_to_text(self) -> None:
@@ -380,23 +392,119 @@ class UpcomingEventWidget(_TintedWidget):
             if label is not None:
                 label.setStyleSheet(f"color: {self.accent()}; background: transparent;")
 
+    def _calendar_changed(self, event=None) -> None:
+        self._refreshed_at = 0.0
+        super()._calendar_changed(event)
+
+    ## -- settings
+
+    def _option(self, path: str, default):
+        api = calendar_api(self.client)
+        if api is None:
+            return default
+        try:
+            return api["option"](path, default)
+        except Exception:
+            return default
+
+    def window_hours(self) -> float:
+        try:
+            return max(0.0, float(self._option("widgets.next_event_window_hours", 3)))
+        except (TypeError, ValueError):
+            return 3.0
+
+    def cycle_seconds(self) -> float:
+        try:
+            return max(2.0, float(self._option("widgets.next_event_cycle_seconds", 8)))
+        except (TypeError, ValueError):
+            return 8.0
+
+    ## -- which events take turns
+
+    @staticmethod
+    def group_of(events: list, window_hours: float) -> list:
+        if not events:
+            return []
+        first = events[0]
+        if window_hours <= 0:
+            return [first]
+        if getattr(first, "all_day", False):
+            return [e for e in events
+                    if getattr(e, "all_day", False) and e.date == first.date]
+        start = getattr(first, "starts_at", None)
+        if start is None:
+            return [first]
+        reach = timedelta(hours=window_hours)
+        return [e for e in events
+                if not getattr(e, "all_day", False)
+                and getattr(e, "starts_at", None) is not None
+                and timedelta(0) <= e.starts_at - start <= reach]
+
+    @staticmethod
+    def count_text(index: int, total: int, window_hours: float, all_day: bool) -> str:
+        if total <= 1:
+            return ""
+        if all_day:
+            return f"{index + 1} of {total} all day"
+        hours = f"{window_hours:g}"
+        unit = "hour" if hours == "1" else "hours"
+        return f"{index + 1} of {total} within {hours} {unit}"
+
+    ## -- content
+
     def tick(self) -> None:
         api = calendar_api(self.client)
         if api is None:
+            self._group = []
+            self._show(None, api)
             self.title.setText("Calendar not loaded")
-            self.when.setText("")
-            self.where.setText("")
             return
 
-        try:
-            event = api["next_event"]()
-        except Exception:
-            event = None
+        now = clock.monotonic()
+        if now - self._refreshed_at >= self.REFRESH_SECONDS:
+            before = getattr(self._current(), "key", None)
+            self._refresh(api)
+            self._refreshed_at = now
+            # A refresh that lands on the same event keeps its turn, or a long cycle would never advance
+            if getattr(self._current(), "key", None) != before:
+                self._shown_at = now
+            self._show(self._current(), api)
+            return
 
+        if len(self._group) > 1 and now - self._shown_at >= self.cycle_seconds():
+            self._index = (self._index + 1) % len(self._group)
+            self._shown_at = now
+            self._show(self._current(), api)
+
+    def _refresh(self, api) -> None:
+        try:
+            events = list(api["upcoming"](self.LOOK_AHEAD))
+        except Exception:
+            try:
+                single = api["next_event"]()
+                events = [single] if single is not None else []
+            except Exception:
+                events = []
+
+        showing = self._current()
+        showing_key = getattr(showing, "key", None)
+        self._group = self.group_of(events, self.window_hours())
+        # Stay on the same event across a refresh rather than jumping back to the first
+        keys = [getattr(e, "key", None) for e in self._group]
+        self._index = keys.index(showing_key) if showing_key in keys else 0
+
+    def _current(self):
+        if not self._group:
+            return None
+        return self._group[self._index % len(self._group)]
+
+    def _show(self, event, api) -> None:
         if event is None:
             self.title.setText("Nothing coming up")
             self.when.setText("")
             self.where.setText("")
+            self.where.setVisible(False)
+            self.count.setVisible(False)
             self.glyph.clear()
             self.set_event(None)
             return
@@ -404,14 +512,21 @@ class UpcomingEventWidget(_TintedWidget):
         self.set_tint(colour_of(event))
         self.set_event(event)
         self.title.setText(event.title)
-        # The day and the time, not the day alone. "Tomorrow" is the answer
-        # to when in the loosest sense, and somebody reading it off a wall
-        # still has to know whether to be somewhere at nine or at four.
-        gap = api["describe_gap"](event).capitalize()
+        # The day and the time, not the day alone: "Tomorrow" still leaves nine or four to guess
+        try:
+            gap = api["describe_gap"](event, short=True)
+        except TypeError:
+            gap = api["describe_gap"](event)
+        gap = gap.capitalize()
         clock_part = when_text(event, span=True)
         self.when.setText(f"{gap}  \u00b7  {clock_part}" if clock_part else gap)
         self.where.setText(event.location or "")
         self.where.setVisible(bool(event.location))
+
+        text = self.count_text(self._index % max(1, len(self._group)), len(self._group),
+                               self.window_hours(), bool(getattr(event, "all_day", False)))
+        self.count.setText(text)
+        self.count.setVisible(bool(text))
         try:
             self.glyph.setPixmap(
                 icon(event.icon, color=colour_of(event)).pixmap(34, 34))
@@ -420,66 +535,112 @@ class UpcomingEventWidget(_TintedWidget):
 
 
 class NextEventsWidget(_TintedWidget):
-    """
-    Today and the two days after it, with what is on each.
+    # The days ahead and what is on each - an empty tomorrow is information, so every day is listed.
+    # The first MIN_DAYS are always there and are filled first; height past that adds more days.
 
-    A flat list of the next few events answers "what is next" - which the
-    other widget already answers, larger. What this is for is the shape of the
-    next few days, and that needs the days themselves: an empty tomorrow is
-    information, and a list that skips to the day after hides it.
-    """
-
-    KEY         = "calendar_list"
-    NAME        = "Coming up"
-    ICON        = "mdi.format-list-bulleted"
-    DESCRIPTION = "Today and the next two days, with what is on each."
+    KEY = "calendar_list"
+    NAME = "Coming up"
+    ICON = "mdi.format-list-bulleted"
+    DESCRIPTION = "The days ahead, with what is on each. Make it taller to see more days."
 
     RESIZABLE = True
     ROTATABLE = False
     FLOATABLE = True
     REMOVABLE = True
 
-    MIN_W, MIN_H = 260, 170
-    MAX_W, MAX_H = 620, 520
+    # Tall enough for MIN_DAYS at a heading and one line each
+    MIN_W, MIN_H = 260, 210
+    MAX_W, MAX_H = 620, 760
     DEFAULT_ANCHOR = "center-right"
 
-    #How many days it covers. Today, tomorrow, and the day after.
-    DAYS = 5
+    MIN_DAYS = 3
+    MAX_DAYS = 14
+    # Lines one day may take, its "+N more" included, so one busy day cannot push the rest off
+    DAY_CAP = 5
     ROW_H = 30
     HEAD_H = 26
+    ROW_GAP = 1
+    DAY_GAP = 4
+    MARGIN_TOP = 10
+    MARGIN_BOTTOM = 12
+    RELAYOUT_MS = 150
 
     def __init__(self, client: "Client", key: str = None, **kwargs):
         super().__init__(client=client, key=key or self.KEY,
-                         width=340, height=300, **kwargs)
+                         width=340, height=340, **kwargs)
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(14, 10, 14, 12)
-        layout.setSpacing(6)
+        layout.setContentsMargins(14, self.MARGIN_TOP, 14, self.MARGIN_BOTTOM)
+        layout.setSpacing(0)
 
         self.days = QVBoxLayout()
-        self.days.setSpacing(4)
+        self.days.setSpacing(self.DAY_GAP)
         layout.addLayout(self.days)
         layout.addStretch()
+
+        # Rebuilt once a resize settles, not on every step of a drag
+        self._relayout = QTimer(self)
+        self._relayout.setSingleShot(True)
+        self._relayout.timeout.connect(self._safe_tick)
+        self._last_height = self.height()
 
         self.start_tick(60_000)
         self.tick()
 
     def apply_tint_to_text(self) -> None:
-        # Every label is rebuilt on each tick, so there is nothing standing to
-        # recolour. Kept because the base calls it when the tint changes.
+        # Every label is rebuilt on each tick, so there is nothing standing to recolour
         pass
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        relayout = getattr(self, "_relayout", None)
+        if relayout is not None and self.height() != self._last_height:
+            self._last_height = self.height()
+            relayout.start(self.RELAYOUT_MS)
 
     ## -- how much fits
 
-    def _capacity(self) -> int:
-        """
-        How many lines fit in the widget, headings included.
+    def _usable(self) -> int:
+        return max(0, self.height() - self.MARGIN_TOP - self.MARGIN_BOTTOM)
 
-        One budget for the whole list rather than a share each. Dividing the
-        height between three days gives an empty tomorrow the same room as a
-        full today, and a busy day says "+4 more" beside two blank rows.
-        """
-        return max(self.DAYS, int((self.height() - 22) // self.ROW_H))
+    def _line_h(self) -> int:
+        return self.ROW_H + self.ROW_GAP
+
+    def _day_h(self, lines: int) -> int:
+        return self.HEAD_H + self.ROW_GAP + lines * self._line_h()
+
+    def plan(self, events_by_day: list) -> list:
+        # [(day, lines)] in order: MIN_DAYS at one line each, filled busiest first, then whole days while they fit
+        line_h, gap = self._line_h(), self.DAY_GAP
+        remaining = self._usable() + gap
+
+        def need(events) -> int:
+            return max(1, min(len(events), self.DAY_CAP))
+
+        lines = []
+        for day, events in events_by_day[:self.MIN_DAYS]:
+            cost = self._day_h(1) + gap
+            if remaining < cost and lines:
+                break
+            lines.append([day, 1, need(events)])
+            remaining -= cost
+
+        while remaining >= line_h:
+            hungriest = max(lines, key=lambda item: item[2] - item[1])
+            if hungriest[2] - hungriest[1] <= 0:
+                break
+            hungriest[1] += 1
+            remaining -= line_h
+
+        for day, events in events_by_day[len(lines):]:
+            cost = self._day_h(1) + gap
+            if remaining < cost:
+                break
+            extra = min(need(events) - 1, (remaining - cost) // line_h)
+            lines.append([day, 1 + extra, need(events)])
+            remaining -= cost + extra * line_h
+
+        return [(day, count) for day, count, _ in lines]
 
     ## -- content
 
@@ -493,68 +654,34 @@ class NextEventsWidget(_TintedWidget):
 
         api = calendar_api(self.client)
         today = date.today()
-        days = [today + timedelta(days=offset) for offset in range(self.DAYS)]
-
-        by_day = {}
-        for day in days:
+        candidates = []
+        for offset in range(self.MAX_DAYS):
+            day = today + timedelta(days=offset)
             found = []
             if api is not None:
                 try:
                     found = list(api["on_day"](day))
                 except Exception:
                     found = []
-            by_day[day] = found
+            candidates.append((day, found))
 
-        # The colour of the next thing that actually happens, not of today.
-        # A day with nothing on it has no colour to lend.
-        leading = next((entry for day in days for entry in by_day[day]), None)
+        planned = self.plan(candidates)
+        by_day = dict(candidates)
+
+        # The colour of the next thing that actually happens - a day with nothing on it has none to lend
+        leading = next((entry for day, _ in planned for entry in by_day[day]), None)
         self.set_tint(colour_of(leading) if leading is not None else "#4f9de0")
         self.set_event(leading)
 
-        for widget in self._lay_out(days, by_day, api):
-            self.days.addWidget(widget)
+        for day, lines in planned:
+            self.days.addWidget(self._day_block(day, by_day[day], lines, api))
 
-    def _lay_out(self, days: list, by_day: dict, api) -> list:
-        """
-        The list, filled from the top until the room runs out.
-
-        Every day gets its heading and at least one line, so a day with
-        nothing on it still says so - an empty tomorrow is information, and a
-        list that skips it hides that. What is left over goes to the days with
-        the most on them, in order, which is where it is worth having.
-        """
-        budget = self._capacity()
-        # A heading and one line each, reserved before anything is handed out.
-        budget -= self.DAYS * 2
-        shown = {day: 0 for day in days}
-
-        for day in days:
-            if not by_day[day]:
-                continue
-            shown[day] = 1
-
-        # The rest, a line at a time, to whichever day still has the most
-        # waiting. Round robin rather than first-come, so a packed today does
-        # not swallow every spare line before Wednesday is looked at.
-        while budget > 0:
-            hungriest = max(
-                days, key=lambda d: len(by_day[d]) - shown[d])
-            if len(by_day[hungriest]) - shown[hungriest] <= 0:
-                break
-            shown[hungriest] += 1
-            budget -= 1
-
-        blocks = []
-        for day in days:
-            blocks.append(self._day_block(day, by_day[day], shown[day], api))
-        return blocks
-
-    def _day_block(self, day, events: list, capacity: int, api) -> QWidget:
+    def _day_block(self, day, events: list, lines: int, api) -> QWidget:
         host = QWidget()
         set_style(host, "common", "transparent")
         column = QVBoxLayout(host)
         column.setContentsMargins(0, 0, 0, 0)
-        column.setSpacing(1)
+        column.setSpacing(self.ROW_GAP)
 
         heading = QLabel(self._day_name(day))
         heading.setFont(make_font(SIZES.S1, bold=True))
@@ -572,13 +699,20 @@ class NextEventsWidget(_TintedWidget):
             column.addWidget(empty)
             return host
 
-        shown = events[:max(0, capacity)]
-        for entry in shown:
-            column.addWidget(self._row(entry, api))
+        # The "+N more" line takes a line of its own, except when a day has only the one
+        if len(events) <= lines:
+            shown, hidden = events, 0
+        elif lines == 1:
+            shown, hidden = events[:1], len(events) - 1
+        else:
+            shown, hidden = events[:lines - 1], len(events) - (lines - 1)
 
-        remaining = len(events) - len(shown)
-        if remaining > 0:
-            more = QLabel(f"+{remaining} more")
+        for index, entry in enumerate(shown):
+            extra = hidden if (lines == 1 and index == 0) else 0
+            column.addWidget(self._row(entry, api, extra))
+
+        if hidden and lines > 1:
+            more = QLabel(f"+{hidden} more")
             more.setFont(make_font(SIZES.S1))
             more.setFixedHeight(self.ROW_H)
             more.setStyleSheet(
@@ -593,9 +727,12 @@ class NextEventsWidget(_TintedWidget):
             return "Today"
         if day == today + timedelta(days=1):
             return "Tomorrow"
-        return day.strftime("%A")
+        if (day - today).days < 7:
+            return day.strftime("%A")
+        # A week out the weekday names repeat, so the date comes with it
+        return f"{day.strftime('%A')}, {day.strftime('%b')} {day.day}"
 
-    def _row(self, event, api) -> QWidget:
+    def _row(self, event, api, more: int = 0) -> QWidget:
         host = QWidget()
         set_style(host, "common", "transparent")
         host.setFixedHeight(self.ROW_H)
@@ -618,7 +755,10 @@ class NextEventsWidget(_TintedWidget):
         add_text_shadow(title, blur=6)
         line.addWidget(title, stretch=1)
 
-        when = QLabel(when_text(event))
+        when_label = when_text(event)
+        if more:
+            when_label = f"{when_label}  +{more}" if when_label else f"+{more}"
+        when = QLabel(when_label)
         when.setFont(make_font(SIZES.S1))
         when.setStyleSheet(
             "color: rgba(255,255,255,170); background: transparent;")

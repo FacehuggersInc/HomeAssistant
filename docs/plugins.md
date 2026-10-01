@@ -643,7 +643,10 @@ timer.stop()
 signal.disconnect(...)
 ```
 
-Things added through registries do not need to be manually removed.
+Things added through registries do not need to be manually removed. That
+covers pages, endpoints, quick access, skills, public names, packages,
+services, secrets, cancel actions, players, status icons, sounds, and event
+handlers defined in the plugin's own modules.
 
 Only undo things that you explicitly created yourself.
 

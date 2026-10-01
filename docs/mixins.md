@@ -27,14 +27,14 @@ def refresh_weather(self):
 
 ```python
 mixin(
-    key="refresh_weather",
-    plugin="mypluginkey",
+    target_key="refresh_weather",
+    plugin_key="mypluginkey",
     when="before"
 )
 
 mixin(
-    key="refresh_weather",
-    plugin="mypluginkey",
+    target_key="refresh_weather",
+    plugin_key="mypluginkey",
     when="after"
 )
 ```
@@ -69,12 +69,15 @@ class DummyClass:
 class Plugin:
     @mixin("mixin_key", "mypluginkey", "before")
     def new_mixin(self, dummy_class_self, *args, **kwargs):
-        # self          - your plugin
+                # self             - your plugin
         # dummy_class_self - the object whose method was called
-        # *args         - whatever the original was called with
+        # *args            - the original's arguments, starting with that object again
         pass
 ```
-* `*args`: the given args to that targeted mixin function
+* `*args`: the arguments the target was called with, **including its own
+  `self` first** - so for `targeted_func(dummy, 1, 2)` a hook receives
+  `(plugin, dummy, dummy, 1, 2)`. That is why hooks are written
+  `(self, obj, *args)` and ignore `args[0]`.
 
 
 ## Available targets
@@ -86,16 +89,18 @@ are the ones that exist:
 
 | Target                | When it runs                                                        |
 |-----------------------|---------------------------------------------------------------------|
-| `client.__init__`     | The client is constructed. Registries exist; no UI does.            |
 | `client.build`        | The window is built and shown.                                      |
 | `client.build.setup`  | Inside `build`, before quick settings and the page host are raised. |
 | `client.configure`    | The window is configured or reconfigured.                           |
 | `client.goto`         | Any page navigation.                                                |
-| `client.update`       | The client tick.                                                    |
+| `client.update`       | `client.update()` - queue a callable or a repaint on the UI thread. |
 | `client.start_update` | An app update begins staging.                                       |
 | `client.load`         | Any JSON read through the client.                                   |
 | `client.dump`         | Any JSON write through the client.                                  |
-| `client.cleanup`      | Shutdown, before plugins are unloaded.                              |
+| `client.cleanup`      | Shutdown, after plugins have unloaded and settings are saved.       |
+
+`client.__init__` carries a target too, but no hook on it can run: mixins are
+applied to the client while its constructor is already executing.
 
 ### Pages
 

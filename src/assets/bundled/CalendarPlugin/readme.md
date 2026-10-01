@@ -56,9 +56,22 @@ needing to know whether to be somewhere at nine or at four — so the day and th
 time are shown together, with the frame where the event has an end:
 `Tomorrow  ·  2:05 PM - 3:30 PM`.
 
-**Coming up** is today and the next two days with what is on each, one line per
-event, the start time on the right. Just the start there: a row has one line to
-say it in, and the start is the part being looked for.
+When more events start within `widgets.next_event_window_hours` (3) of the
+next one, they take turns, `widgets.next_event_cycle_seconds` (8) each, and a
+line under them says which is showing: `2 of 3 within 3 hours`. All-day events
+take turns with the other all-day events on the same day. Tapping opens
+whichever is showing.
+
+**Coming up** is the days ahead with what is on each, one line per event, the
+start time on the right. Just the start there: a row has one line to say it
+in, and the start is the part being looked for.
+
+**A taller widget covers more days.** Today, tomorrow and the day after come
+first, with a heading and at least one line each, and get the height first - the
+busiest of them a line at a time. Height past that adds the days
+after, up to two weeks. A day shows at most five lines, its `+N more` included,
+so one busy day cannot push the rest off. A week out the weekday names repeat,
+so those headings carry the date: `Thursday, Oct 8`.
 
 Times are shown on a **12-hour clock**, minutes dropped on the hour — `3 PM`,
 `9:30 AM`, `All day`. The panel is read at a glance from across a room, and
@@ -122,6 +135,7 @@ saying on a page that lists them.
 | `general`       | Holidays, events shown per day, week start, dark map, how long finished events are kept. |
 | `reminders`     | Whether panels appear, how far ahead, how long they stay, how long Snooze defers.        |
 | `subscriptions` | Refresh interval. Calendars themselves are managed in the list above it.                 |
+| `widgets`       | Which events take turns on Next event, and how long each is shown.                       |
 
 Two are stored but not shown as fields, because the plugin draws a better
 control for them:

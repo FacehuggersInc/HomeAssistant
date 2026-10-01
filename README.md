@@ -118,8 +118,8 @@ Each is a page in the docs.
 
 Python 3.10 or newer. PyQt6, Flask, and the packages in `requirements.txt`.
 
-The voice assistant additionally wants a working microphone and will download a
-Whisper model on first use. Real screen dimming wants `ddcutil` for an external
+The voice assistant additionally wants a working microphone, and asks on the
+panel before downloading the Parakeet speech model on first use. Real screen dimming wants `ddcutil` for an external
 monitor or `brightnessctl` for a laptop panel. Everything else runs without
 either - the assistant simply stays off, and dimming falls back to a dark
 overlay.

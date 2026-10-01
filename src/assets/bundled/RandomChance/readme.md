@@ -250,12 +250,11 @@ RandomChance/
         page.html      the markup, static
         page.css       inlined, it is small
         page.js        served from its own endpoint, it is not
-    webpage.py         reads the three and hands them to the chrome
 ```
 
 **Nothing is templated.** The files are served exactly as written — not
 formatted, not substituted into, not escaped. Everything the panel has to say
-arrives as one JSON object in `window.RC`, and `page.js` reads it.
+arrives as one JSON object in `window.PAGE`, and `page.js` reads it.
 
 That is the point rather than a detail. Every bug this page has had was an
 escaping layer: a quote inside an HTML attribute inside a JavaScript string

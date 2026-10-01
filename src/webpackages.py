@@ -22,10 +22,14 @@ from src.webui import core_assets, page
 
 
 def _card(item: dict, token: str) -> str:
-    contents = "".join(
+    contents = "\n    ".join(
         f'<li>{html.escape(str(name))}</li>' for name in item["contents"])
-    inside = (f'<p class="label">Inside</p><ul class="inside">{contents}</ul>'
-              if contents else "")
+    inside = ""
+    if contents:
+        inside = f"""<p class="label">Inside</p>
+  <ul class="inside">
+    {contents}
+  </ul>"""
     owner = ("the panel" if item["owner"] == "client"
              else html.escape(item["owner"]))
     return f"""
@@ -52,11 +56,16 @@ def packages_page(items: list, token: str, search: str = "",
     if items:
         body = "".join(_card(item, token) for item in items)
     elif search:
-        body = (f'<section class="empty">Nothing matches '
-                f'{html.escape(search)!r}.</section>')
+        body = f"""
+<section class="card">
+  <p class="empty">Nothing matches {html.escape(search)!r}.</p>
+</section>"""
     else:
-        body = ('<section class="empty">No packages. The panel offers one for '
-                'the speech server; a plugin can add its own.</section>')
+        body = """
+<section class="card">
+  <p class="empty">No packages. The panel offers one for the speech server;
+    a plugin can add its own.</p>
+</section>"""
 
     search_box = f"""
 <form class="search" method="get" action="/packages">

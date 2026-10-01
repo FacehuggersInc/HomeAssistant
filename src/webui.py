@@ -38,7 +38,7 @@ FONTS = """
 
 PALETTE = """ :root{--bg:#0e0e11;--card:#17171c;--card2:#1e1e25;
        --line:#2a2a33;--text:#f0f0f4;--muted:#8f8f9c;
-       --accent:#2ff08e;--accent2:#5ac8fa;--warm:#ffb454;--bad:#ff7a7a;
+       --accent:#2ff08e;--accent2:#5ac8fa;--warm:#ffd479;--bad:#ff7a7a;
        --glow:rgba(47,240,142,.16);
        /* Not optional, and here rather than on each page.
           Chromium runs with forceDarkModeEnabled so that ordinary sites come
@@ -78,7 +78,8 @@ FIELD_CSS = """ input,textarea,select{width:100%;padding:13px;border-radius:9px;
 CONTROL_CSS = """ button,.btn{min-height:50px;padding:0 22px;border-radius:11px;
       font-family:inherit;font-size:15px;font-weight:600;cursor:pointer;
       border:1px solid var(--line);background:var(--card);color:var(--text);
-      display:inline-flex;align-items:center;justify-content:center;gap:9px}
+      display:inline-flex;align-items:center;justify-content:center;gap:9px;
+      text-decoration:none}
  button svg,.btn svg{flex:none}
  button:hover,.btn:hover{border-color:var(--accent);color:var(--accent)}
  button:active,.btn:active{transform:scale(.99)}
@@ -130,7 +131,8 @@ LAYOUT_CSS = """ *{box-sizing:border-box}
     page adding its own wrapping row should add it there too. */
  .wrap-centre{display:flex;flex-wrap:wrap;gap:8px;justify-content:center}
  .hint{color:var(--muted);font-size:12.5px;margin-top:6px;line-height:1.55}
- .empty{color:var(--muted);font-size:14px;padding:10px 0}"""
+ .empty{color:var(--muted);font-size:14px;padding:10px 0;margin:0}
+ p.label{color:var(--muted);font-size:13px;margin:0 0 8px}"""
 
 
 # One banner, not four. The same "it worked" strip was `.note`/`.warn` on three
@@ -164,7 +166,7 @@ BACK_CSS = """ a.back{display:inline-flex;align-items:center;gap:8px;
  a.back svg{width:16px;height:16px;fill:none;stroke:currentColor;
       stroke-width:2.4;stroke-linecap:round;stroke-linejoin:round}
  .backrow{display:flex;gap:10px;flex-wrap:wrap;align-items:center;
-          justify-content:center}
+          justify-content:flex-start}
 
  /* A row of buttons that wraps.
     Flexbox lays a wrapped row out from the left, so three buttons across
@@ -176,15 +178,18 @@ BACK_CSS = """ a.back{display:inline-flex;align-items:center;gap:8px;
  .wrap-row{display:flex;flex-wrap:wrap;gap:10px;justify-content:center}"""
 
 
-_CHEVRON = ('<svg viewBox="0 0 24 24" aria-hidden="true">'
-            '<path d="M15 5l-7 7 7 7"/></svg>')
+CHEVRON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>'
+
+
+def indent(markup: str, depth: int = 1) -> str:
+    # every line after the first, for markup built here - never anything holding <pre>
+    return markup.replace("\n", "\n" + "  " * depth)
 
 
 def back_button(token: str, label: str = "Dashboard", href: str = "/") -> str:
-    """A styled back control for the top of a GUI page."""
     joiner = "&" if "?" in href else "?"
-    return (f'<a class="back" href="{escape(href)}{joiner}'
-            f'token={escape(token)}">{_CHEVRON}<span>{escape(label)}</span></a>')
+    return (f'<a class="back" href="{escape(href)}{joiner}token={escape(token)}">'
+            f'{CHEVRON}<span>{escape(label)}</span></a>')
 
 
 # A sticky row of sibling pages, for a section with more than one.
@@ -213,17 +218,8 @@ SUBNAV_CSS = """ .subnav{position:sticky;top:0;z-index:20;display:flex;
  .subnav a svg{flex:none;opacity:.85}"""
 
 
+# `items` is (href, label, icon) rows; include SUBNAV_CSS on any page using this
 def subnav(items, current: str = "", token: str = "") -> str:
-    """
-    The sibling pages of a section, as a sticky row.
-
-    `items` is a list of (href, label, icon). The current page is still a link
-    rather than a dead span - a tab that does nothing when tapped reads as
-    broken, and reloading the page you are on is a harmless thing for it to
-    do.
-
-    Include SUBNAV_CSS on any page using this.
-    """
     from src.webicons import svg
 
     parts = []
@@ -232,9 +228,13 @@ def subnav(items, current: str = "", token: str = "") -> str:
         target = f"{escape(href)}{joiner}token={escape(token)}" if token \
             else escape(href)
         on = " class=\"on\"" if href == current else ""
-        parts.append(f'<a href="{target}"{on}>{svg(icon, 18)}'
-                     f'<span>{escape(label)}</span></a>')
-    return f'<nav class="subnav"><div class="row">{"".join(parts)}</div></nav>'
+        parts.append(f'<a href="{target}"{on}>{svg(icon, 18)}<span>{escape(label)}</span></a>')
+    links = "\n    ".join(parts)
+    return f"""<nav class="subnav">
+  <div class="row">
+    {links}
+  </div>
+</nav>"""
 
 
 def chrome_css() -> str:
@@ -252,23 +252,19 @@ def banner(message: str, bad: bool = False) -> str:
 
 def position_grid(selected: str = "", name: str = "quadrant",
                   field_id: str = "quadrant") -> str:
-    """
-    The nine positions as the shape of the screen, plus the field they set.
-
-    The framework's own list, so a page cannot offer a tenth or miss one out.
-    Include POSITION_SCRIPT once on any page that uses this.
-    """
+    # include POSITION_SCRIPT once on any page that uses this
     from src.ui.widget import POSITIONS, POSITION_LABELS
 
-    buttons = "".join(
+    buttons = "\n  ".join(
         '<button type="button" data-q="{key}"{on}>{label}</button>'.format(
             key=escape(key),
             on=' class="on"' if key == selected else "",
             label=escape(POSITION_LABELS[key]))
         for key in POSITIONS)
-    return (f'<input type="hidden" name="{escape(name)}" '
-            f'id="{escape(field_id)}" value="{escape(selected)}">'
-            f'<div class="where" data-for="{escape(field_id)}">{buttons}</div>')
+    return f"""<input type="hidden" name="{escape(name)}" id="{escape(field_id)}" value="{escape(selected)}">
+<div class="where" data-for="{escape(field_id)}">
+  {buttons}
+</div>"""
 
 
 # Wires every grid on the page to its own hidden field, so a page may carry
@@ -305,7 +301,11 @@ PAGE = """<!DOCTYPE html>
 {head}
 </head>
 <body>
-{back}{nav}{heading}{blurb}{banner}
+{back}
+{nav}
+{heading}
+{blurb}
+{banner}
 {body}
 {script}
 </body>
@@ -593,8 +593,9 @@ class WebAssets:
         if gone:
             return page(
                 title=title, heading=heading or title,
-                body="<section class=\"card\"><p class=\"empty\">This page is "
-                     "missing " + escape(", ".join(gone)) + ".</p></section>",
+                body=f"""<section class="card">
+  <p class="empty">This page is missing {escape(", ".join(gone))}.</p>
+</section>""",
                 token=token,
                 message="The page's files are not installed.", bad=True)
 

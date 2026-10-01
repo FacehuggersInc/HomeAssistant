@@ -37,20 +37,24 @@ to `upcoming` narrows to that kind.
 These are the reason the registry exists — the same question asked from a
 widget, a tile, a panel and a voice skill should give the same answer.
 
-| Call                                    | Returns                                           |
-|-----------------------------------------|---------------------------------------------------|
-| `next_event(source=None, now=None)`     | The next thing, or `None`.                        |
-| `next_holiday(now=None)`                | The next holiday.                                 |
-| `next_user_event(now=None)`             | The next thing a person added, ignoring holidays. |
-| `previous_event(source=None, now=None)` | The most recent one that has finished.            |
-| `current_event(now=None)`               | Something happening right now, if anything is.    |
-| `time_until(event, now=None)`           | A `timedelta`, or `None`.                         |
-| `days_until(event, today=None)`         | A whole number of days.                           |
-| `describe_gap(event, now=None)`         | `"in 20 minutes"`, `"tomorrow"`, `"in 6 days"`.   |
-| `describe_duration(event)`              | `"45 minutes"`, `"2h 30m"`, `"all day"`.          |
+| Call                                         | Returns                                                     |
+|----------------------------------------------|-------------------------------------------------------------|
+| `next_event(source=None, now=None)`          | The next thing, or `None`.                                  |
+| `next_holiday(now=None)`                     | The next holiday.                                           |
+| `next_user_event(now=None)`                  | The next thing a person added, ignoring holidays.           |
+| `previous_event(source=None, now=None)`      | The most recent one that has finished.                      |
+| `current_event(now=None)`                    | Something happening right now, if anything is.              |
+| `time_until(event, now=None)`                | A `timedelta`, or `None`.                                   |
+| `days_until(event, today=None)`              | A whole number of days.                                     |
+| `describe_gap(event, now=None, short=False)` | `"in 2 hours and 15 minutes"`, `"tomorrow"`, `"in 6 days"`. |
+| `describe_duration(event)`                   | `"45 minutes"`, `"2h 30m"`, `"all day"`.                    |
 
 `describe_gap` switches to days past a day out, because "in 37 hours" is not
-how anyone thinks about Thursday.
+how anyone thinks about Thursday. Within the day it keeps the minutes. An
+all-day event on today - a span covering today included - is `"today"`, never
+`"earlier today"`, since it has no start worth counting from; a timed event
+that has started and not ended is `"happening now"`. `short=True` gives the
+form for a card read at a glance: `"in 2h 15m"`.
 
 ---
 
@@ -413,11 +417,12 @@ covers, not only its first — the grid draws it in each cell it runs through.
 
 ## Skills
 
-The plugin registers six, all answering from this registry so a spoken answer
+The plugin registers seven, all answering from this registry so a spoken answer
 and the widget beside it cannot disagree.
 
 *What is next · what is on today · what is on tomorrow · what is on this week ·
-when is the next holiday · how long until my next event*
+when is the next holiday · when is Thanksgiving · how long until my next
+event*
 
 Answers are spoken **and** shown as a notification: text-to-speech needs a key,
 and a panel without one should still answer the question. A list reads out at

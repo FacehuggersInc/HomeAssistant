@@ -2,16 +2,13 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>Ask &mdash; {{ panel }}</title>
+<title>Ask</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="dark">
 <style>
 {{ chrome|safe }}
- :root{color-scheme:dark}
  h1{font-size:24px;font-weight:600;letter-spacing:-.02em;margin:0 0 6px}
  .sub{color:var(--muted);font-size:14px;margin:0 0 26px}
- label{display:block;font-size:12px;font-weight:600;text-transform:uppercase;
-       letter-spacing:.08em;color:var(--muted);margin:0 0 9px}
  .go{display:flex;gap:10px;margin:20px 0 0}
  .go button{flex:1;min-height:54px}
  #said{display:none;margin:20px 0 0}
@@ -24,7 +21,7 @@
 </style>
 </head>
 <body>
-<p>{{ back_button(token)|safe }}</p>
+{{ back_button(token)|safe }}
 
 <h1>Ask</h1>
 <p class="sub">The panel answers on its own screen, out loud if it can. The
@@ -43,7 +40,7 @@
 <input id="query" placeholder="what is the weather" maxlength="300"
        autocomplete="off" autocapitalize="none">
 
-<div class="go"><button type="button" id="send">Ask</button></div>
+<div class="go"><button type="button" class="btn primary" id="send">Ask</button></div>
 <div id="said"></div>
 
 <p class="hint">No wake word needed &mdash; typing it is already saying who you

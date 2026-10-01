@@ -53,7 +53,7 @@ Widgets are reusable UI components — not intended to be directly inserted into
 self.widget_manager = WidgetFramework(
     client   = client,
     page_key = "sub.home",
-    padding  = client.SETTINGS.home.widget_margin.value,
+    padding  = client.SETTINGS.home.layout.widget_margin.value,
 )
 self.widget_manager.setParent(self)
 self.widget_manager.setGeometry(0, 0, w, h)

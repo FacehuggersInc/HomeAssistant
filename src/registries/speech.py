@@ -217,6 +217,13 @@ class SpeechFacade:
             # that needs a relaunch between steps does not get adjusted.
             str(setting("assistant.wake.wake_sensitivity.value", 0.5)),
             str(setting("assistant.wake.wake_sensitivity_speaking.value", 0.0)),
+            # The rest of what argv() hands the child at spawn
+            str(setting("assistant.wake.max_phrase_seconds.value", 8)),
+            str(setting("assistant.wake.wake_diagnostics.value", False)),
+            str(setting("assistant.wake.wake_report.value", True)),
+            str(setting("assistant.wake.wake_ignore_similarity.value", 0.93)),
+            str(setting("assistant.wake.wake_noise_suppression.value", False)),
+            str(setting("assistant.wake.wake_speech_gate.value", 0.5)),
         )
 
     def remembered(self) -> tuple:
@@ -1312,7 +1319,7 @@ class JudgeFacade:
             setting("assistant.wake.judge_port.value",
                     judge_protocol.DEFAULT_PORT),
             setting("assistant.wake.judge_model.value", ""),
-            setting("assistant.wake.judge_timeout.value", 1.0),
+            setting("assistant.wake.judge_timeout.value", 2.0),
         )
 
     def remembered(self) -> tuple:

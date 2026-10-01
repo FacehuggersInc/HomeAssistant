@@ -2659,13 +2659,21 @@ class ParakeetServer:
         return b"".join(chunks)
 
     def __accept_data(self) -> None:
+        # Keeps accepting: a panel reader that drops and reconnects must find someone listening,
+        # otherwise the panel goes deaf while this process stays alive and is never restarted.
         with socket(AF_INET, SOCK_STREAM) as s:
             s.setsockopt(SOL_SOCKET, SO_REUSEADDR, 1)
             s.bind((self.host, self.ports["data"]))
             s.listen(1)
+            s.settimeout(1.0)
             self.send_log("debug", "[Parakeet]: Waiting for transcript connection...")
-            conn, addr = s.accept()
-            if conn:
+            while self.running:
+                try:
+                    conn, addr = s.accept()
+                except (TimeoutError, OSError):
+                    continue
+                if self.connections.get("data"):
+                    self.__close_connection("data")
                 self.connections["data"] = conn
                 self.send_log("debug", f"[Parakeet]: Data connection from {addr}")
                 try:

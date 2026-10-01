@@ -1260,7 +1260,7 @@ class CalendarStore:
         today = today or date.today()
         return None if event.date is None else (event.date - today).days
 
-    def describe_gap(self, event: Event, now: datetime = None) -> str:
+    def describe_gap(self, event: Event, now: datetime = None, short: bool = False) -> str:
         """
         Human phrasing for how far off something is.
 
@@ -1268,6 +1268,9 @@ class CalendarStore:
         anyone thinks about Thursday.
         """
         now = now or datetime.now()
+        # A span that started earlier and still covers today is today, not "yesterday"
+        if event.all_day and event.covers(now.date()):
+            return "today"
         days = self.days_until(event, now.date())
         if days is None:
             return "sometime"
@@ -1285,14 +1288,23 @@ class CalendarStore:
             return "today"
         seconds = int(gap.total_seconds())
         if seconds < -60:
+            end = event.ends_at
+            if end is not None and end > now and end != event.starts_at:
+                return "happening now"
             return "earlier today"
         if seconds < 60:
             return "now"
-        if seconds < 3600:
-            minutes = seconds // 60
-            return f"in {minutes} minute{'s' if minutes != 1 else ''}"
-        hours = seconds // 3600
-        return f"in {hours} hour{'s' if hours != 1 else ''}"
+        hours, rest = divmod(seconds, 3600)
+        minutes = rest // 60
+        # short is for a card read at a glance: "in 2h 15m" rather than a phrase meant to be spoken
+        if short:
+            parts = [f"{hours}h" if hours else "", f"{minutes}m" if minutes else ""]
+            return "in " + " ".join(p for p in parts if p)
+        minute_part = f"{minutes} minute{'s' if minutes != 1 else ''}"
+        if not hours:
+            return f"in {minute_part}"
+        hour_part = f"{hours} hour{'s' if hours != 1 else ''}"
+        return f"in {hour_part} and {minute_part}" if minutes else f"in {hour_part}"
 
     def describe_duration(self, event: Event) -> str:
         length = event.duration()

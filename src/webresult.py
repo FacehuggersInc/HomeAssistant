@@ -22,7 +22,7 @@ CSS = """
    letter-spacing:.04em;text-transform:uppercase;margin:0 0 18px}
  .badge.ok{background:rgba(47,240,142,.15);color:var(--accent)}
  .badge.bad{background:rgba(255,122,122,.15);color:var(--bad)}
- h1{font-size:26px;margin:0 0 22px;line-height:1.25}
+ h1{margin:0 0 22px;line-height:1.25}
  dl{margin:0;border:1px solid var(--line);border-radius:14px;
      background:var(--card);overflow:hidden}
  .pair{display:flex;gap:16px;padding:14px 17px;
@@ -67,15 +67,19 @@ def render(payload: dict, token: str = "", status: int = 200) -> str:
         if key in ("request", "what") or value in ("", None):
             continue
         label = str(key).replace("_", " ")
-        rows.append(f'<div class="pair"><dt>{escape(label)}</dt>'
-                    f'<dd>{escape(str(value))}</dd></div>')
+        rows.append(f"""<div class="pair">
+    <dt>{escape(label)}</dt>
+    <dd>{escape(str(value))}</dd>
+  </div>""")
 
     kind = "ok" if ok else "bad"
     status = escape(str(payload.get("request", "OK" if ok else "Failed")))
-    pairs = "".join(rows) or '<div class="pair"><dd>Nothing to show.</dd></div>'
+    pairs = "\n  ".join(rows) or '<div class="pair"><dd>Nothing to show.</dd></div>'
 
-    body = (f'<span class="badge {kind}">{status}</span>'
-            f'<h1>{escape(headline)}</h1>'
-            f'<dl>{pairs}</dl>')
+    body = f"""<span class="badge {kind}">{status}</span>
+<h1>{escape(headline)}</h1>
+<dl>
+  {pairs}
+</dl>"""
 
     return page(title=headline, body=body, token=token, css=CSS)

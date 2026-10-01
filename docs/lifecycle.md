@@ -80,15 +80,16 @@ is why a normal install lands there instead.
 
 ## Running
 
-The client runs a tick loop alongside the Qt event loop. On each tick it:
+The client runs an update loop on a background thread, about twenty times a
+second, alongside the Qt event loop. On each pass it:
 
-* calls `tick()` on the current page, if it has one
-* checks whether the window has been resized and re-lays out if so
-* fires `on_update`
+* checks whether the window has been resized, and hands the re-layout to the
+  UI thread
+* fires `on_update` - on this background thread, not the UI one
 * periodically fires `on_collection` for plugins to clean up after themselves
 
-Keep `tick()` cheap. It runs on the UI thread, so anything slow in it is
-dropped frames.
+Nothing calls a `tick()` on the page. A page that wants a heartbeat runs its
+own `QTimer` or a `client.TIMEOUTS` entry, and stops it in `stop()`.
 
 
 ## Page switching
@@ -135,12 +136,17 @@ signalled, the log is flushed and closed.
 
 The exit code is the message to the launcher:
 
-| Code | Means                                                |
-|------|------------------------------------------------------|
-| `0`  | Clean exit. Do not relaunch.                         |
-| `42` | A staged update is waiting. Apply it, then relaunch. |
-| `43` | Relaunch as-is.                                      |
-| `44` | Rollback requested.                                  |
+| Code | Means                                                                    |
+|------|--------------------------------------------------------------------------|
+| `0`  | Clean exit. Do not relaunch.                                             |
+| `42` | A staged update is waiting. Apply it, then relaunch.                     |
+| `43` | Relaunch as-is.                                                          |
+| `45` | Another panel is already running here. Stand down without relaunching.   |
+| `46` | A Python package is missing. Install the requirements once, then retry.  |
+
+`44` is not the app's to send: it is the launcher telling `startup.sh` or
+`startup.bat` that `launcher.py` replaced itself and must be re-run. A
+rollback is the launcher's own decision and has no exit code.
 
 `client.RESTART = True` produces `EXIT_RESTART` (43). `client.UPDATE = True`
 produces `EXIT_UPDATE` (42). Both then call `stop()`; the flag is what decides

@@ -16,7 +16,7 @@ from __future__ import annotations
 from html import escape
 
 from src.webicons import svg
-from src.webui import core_assets, page, subnav
+from src.webui import core_assets, indent, page, subnav
 
 NAV = (
     ("/plugins", "Installed", "playlist-check"),
@@ -53,7 +53,9 @@ def installed_page(entries: list, token: str, message: str = "",
     one is offering to break the panel from a phone.
     """
     if not entries:
-        body = '<section class="empty">No plugins found.</section>'
+        body = """<section class="card">
+  <p class="empty">No plugins found.</p>
+</section>"""
     else:
         cards = []
         for entry in entries:
@@ -69,10 +71,9 @@ def installed_page(entries: list, token: str, message: str = "",
             if bundled:
                 pills.append('<span class="pill bundled">Bundled</span>')
             if entry.get("version"):
-                pills.append(f'<span class="pill">v'
-                             f'{escape(str(entry["version"]))}</span>')
+                pills.append(f'<span class="pill">v{escape(str(entry["version"]))}</span>')
 
-            acts = ""
+            controls = []
             # No controls on a conflict. There is nothing to press: loading
             # will not work and installing packages will not help. The fix is
             # in the plugin's own toml, which is not on this page.
@@ -83,12 +84,11 @@ def installed_page(entries: list, token: str, message: str = "",
                     buttons.append(("unload", "Unload", "stop", True))
                 else:
                     buttons.append(("load", "Load", "play", False))
-                rows = "".join(
-                    f'<button type="button" class="{"danger" if danger else ""}" '
-                    f'data-act="{act}" data-key="{escape(entry["key"])}">'
-                    f'{svg(icon, 16)}<span>{label}</span></button>'
-                    for act, label, icon, danger in buttons)
-                acts = f'<div class="acts">{rows}</div>'
+                for act, label, icon, danger in buttons:
+                    controls.append(
+                        f'<button type="button" class="{"danger" if danger else ""}" '
+                        f'data-act="{act}" data-key="{escape(entry["key"])}">'
+                        f'{svg(icon, 16)}<span>{label}</span></button>')
 
             # Download sits outside that block, because a bundled plugin has
             # nothing to load, unload or remove and is still worth reading -
@@ -98,30 +98,31 @@ def installed_page(entries: list, token: str, message: str = "",
                 # A link, not a fetch. A download is the browser's job and
                 # trying to do it through the action handler would give a
                 # zip in a JSON parser.
-                link = (f'<a class="btn" href="/plugins/'
-                        f'{escape(entry["key"])}/download?token={escape(token)}">'
-                        f'{svg("download", 16)}<span>Download</span></a>')
-                if acts:
-                    acts = acts[:-len("</div>")] + link + "</div>"
-                else:
-                    acts = f'<div class="acts">{link}</div>' 
+                controls.append(
+                    f'<a class="btn" href="/plugins/{escape(entry["key"])}/download?token={escape(token)}">'
+                    f'{svg("download", 16)}<span>Download</span></a>')
 
             why = entry.get("description") or ""
             if entry.get("dependants"):
-                why = (f'{why} Required by '
-                       f'{escape(", ".join(entry["dependants"]))}.').strip()
+                why = f'{why} Required by {", ".join(entry["dependants"])}.'.strip()
 
-            cards.append(
-                f'<div class="plug{" blocked" if blocked else ""}">'
-                f'<span class="glyph">'
-                f'{svg(entry.get("icon") or "puzzle", 20)}</span>'
-                f'<span class="meta">'
-                f'<span class="name">{escape(entry.get("name") or entry["key"])}'
-                f'{"".join(pills)}</span>'
-                f'<span class="key">{escape(entry["key"])}</span>'
-                f'{f'<div class="why">{escape(why)}</div>' if why else ""}'
-                f'{acts}</span></div>')
-        body = "".join(cards)
+            meta = [
+                f'<span class="name">{escape(entry.get("name") or entry["key"])}{"".join(pills)}</span>',
+                f'<span class="key">{escape(entry["key"])}</span>',
+            ]
+            if why:
+                meta.append(f'<div class="why">{escape(why)}</div>')
+            if controls:
+                rows = "\n  ".join(controls)
+                meta.append(f'<div class="acts">\n  {rows}\n</div>')
+            meta = indent("\n".join(meta), 2)
+            cards.append(f"""<div class="plug{" blocked" if blocked else ""}">
+  <span class="glyph">{svg(entry.get("icon") or "puzzle", 20)}</span>
+  <span class="meta">
+    {meta}
+  </span>
+</div>""")
+        body = "\n".join(cards)
 
     script = """
 document.addEventListener('click', function (e) {
@@ -305,7 +306,7 @@ drop.addEventListener('drop', function (ev) {
 
 
 def _version_pill(report: dict) -> str:
-    """`v0.1.0 → v0.2.0`, or just the one when there is nothing to compare."""
+    # `v0.1.0 → v0.2.0`, or just the one when there is nothing to compare
     was, now = report.get("was_version") or "", report.get("version") or ""
     if was and now and was != now:
         return (f'<span class="pill">v{escape(was)}</span>'
@@ -316,11 +317,14 @@ def _version_pill(report: dict) -> str:
 def _file_group(title: str, items: list, klass: str, tag: str) -> str:
     if not items:
         return ""
-    rows = "".join(f'<li>{escape(p)}<span class="tag">{escape(tag)}</span></li>'
-                   for p in items)
-    return (f'<div class="group {klass}"><h3>{escape(title)}'
-            f'<span class="n">{len(items)}</span></h3>'
-            f'<ul class="files">{rows}</ul></div>')
+    rows = "\n    ".join(f'<li>{escape(p)}<span class="tag">{escape(tag)}</span></li>'
+                         for p in items)
+    return f"""<div class="group {klass}">
+  <h3>{escape(title)}<span class="n">{len(items)}</span></h3>
+  <ul class="files">
+    {rows}
+  </ul>
+</div>"""
 
 
 def result_page(name: str, key: str, message: str, action: str,
@@ -350,16 +354,14 @@ def result_page(name: str, key: str, message: str, action: str,
         # strip and a grey button row with a link beside it at a different
         # height - which reads as "here is the page, and here is some
         # furniture", when it is the only thing on the page worth pressing.
-        button = (f'<div class="nextstep">'
-                  f'<h3>{svg(icon, 19)}<span>One more step</span></h3>'
-                  f'<p>{escape(note)}</p>'
-                  f'<div class="acts">'
-                  f'<button type="submit" id="go" data-act="{action}" '
-                  f'data-key="{escape(key)}">{svg(icon, 16)}'
-                  f'<span>{escape(label)}</span></button>'
-                  f'<a class="skip" href="/plugins?token={escape(token)}">'
-                  f'Not now</a>'
-                  f'</div></div>')
+        button = f"""<div class="nextstep">
+  <h3>{svg(icon, 19)}<span>One more step</span></h3>
+  <p>{escape(note)}</p>
+  <div class="acts">
+    <button type="submit" id="go" data-act="{action}" data-key="{escape(key)}">{svg(icon, 16)}<span>{escape(label)}</span></button>
+    <a class="skip" href="/plugins?token={escape(token)}">Not now</a>
+  </div>
+</div>"""
 
     script = """
 var go = document.getElementById('go');
@@ -382,7 +384,7 @@ if (go) {
 }
 """
     return page(f"{name}", button, token=token,
-                nav=_nav("/plugins/upload", token), heading=name, blurb=message,
+                nav=_nav("/plugins/upload", token), heading=name,
                 message=message, bad=bad, css=_sheet()[0], head=_sheet()[1],
                 script=f"var TOKEN={token!r};" + script)
 
@@ -396,11 +398,15 @@ def waiting_page(name: str, token: str) -> str:
     changes is one somebody reloads until they give up.
     """
     body = f"""
-<div class="warnbox">{svg('shield-key', 20)}<div>
-  <strong>Waiting for the panel.</strong> Somebody at the panel has to allow
-  <code>{escape(name)}</code> before it is written. Nothing has been installed
-  yet.</div></div>
-<section id="state"><p class="hint">Still waiting&hellip;</p></section>
+<div class="warnbox">
+  {svg('shield-key', 20)}
+  <div><strong>Waiting for the panel.</strong> Somebody at the panel has to allow
+    <code>{escape(name)}</code> before it is written. Nothing has been installed
+    yet.</div>
+</div>
+<section id="state">
+  <p class="hint">Still waiting&hellip;</p>
+</section>
 """
     script = """
 var NAME = %s;
@@ -441,45 +447,45 @@ def preview_page(report: dict, staged_token: str, token: str) -> str:
     """
     warn = ""
     if report["overwritten"]:
-        warn = (f'<div class="warnbox">{svg("alert", 20)}'
-                f'<div><strong>{len(report["overwritten"])} file'
-                f'{"" if len(report["overwritten"]) == 1 else "s"} will be '
-                f'replaced.</strong> The versions installed now are not kept.'
-                f'</div></div>')
+        count = len(report["overwritten"])
+        warn = f"""<div class="warnbox">
+  {svg("alert", 20)}
+  <div><strong>{count} file{"" if count == 1 else "s"} will be replaced.</strong>
+    The versions installed now are not kept.</div>
+</div>"""
     elif report["new"]:
-        warn = (f'<div class="warnbox">{svg("shield-key", 20)}'
-                f'<div><strong>This plugin is not installed here yet.</strong> '
-                f'Somebody at the panel has to agree before it is written. '
-                f'Plugins run with the same reach as the panel itself.</div>'
-                f'</div>')
+        warn = f"""<div class="warnbox">
+  {svg("shield-key", 20)}
+  <div><strong>This plugin is not installed here yet.</strong>
+    Somebody at the panel has to agree before it is written.
+    Plugins run with the same reach as the panel itself.</div>
+</div>"""
 
-    groups = (
-        _file_group("Replaced", report["overwritten"], "lose", "overwritten")
-        + _file_group("New", report["created"], "gain", "added")
-        + _file_group("Merged", report["merged"], "", "values kept")
-        + _file_group("Kept", [k["path"] for k in report["kept"]], "",
-                      "install once")
-        + _file_group("Unchanged", report["unchanged"], "", "identical")
-    )
+    groups = "\n".join(group for group in (
+        _file_group("Replaced", report["overwritten"], "lose", "overwritten"),
+        _file_group("New", report["created"], "gain", "added"),
+        _file_group("Merged", report["merged"], "", "values kept"),
+        _file_group("Kept", [k["path"] for k in report["kept"]], "", "install once"),
+        _file_group("Unchanged", report["unchanged"], "", "identical"),
+    ) if group)
 
-    notes = "".join(f'<p class="hint">{escape(n)}</p>'
-                    for n in report["notes"])
+    notes = "\n".join(f'<p class="hint">{escape(n)}</p>' for n in report["notes"])
 
-    reload_box = (f'<div class="warnbox">{svg("refresh", 20)}<div>'
-                  f'{escape(report["reload_note"])}</div></div>')
+    reload_box = f"""<div class="warnbox">
+  {svg("refresh", 20)}
+  <div>{escape(report["reload_note"])}</div>
+</div>"""
 
     if report["writes"]:
-        confirm = f"""
-<form method="post" action="/plugins/upload/apply?token={escape(token)}">
+        confirm = f"""<form method="post" action="/plugins/upload/apply?token={escape(token)}">
   <input type="hidden" name="staged" value="{escape(staged_token)}">
   <button type="submit">{svg('check-network', 16)}<span>Apply these
     {report['writes']} change{'' if report['writes'] == 1 else 's'}</span></button>
-  <a class="back" style="margin-left:10px"
+  <a class="btn" style="margin-left:10px"
      href="/plugins/upload?token={escape(token)}">Cancel</a>
 </form>"""
     else:
-        confirm = (f'<a class="back" href="/plugins/upload?token='
-                   f'{escape(token)}">Back</a>')
+        confirm = f'<a class="back" href="/plugins/upload?token={escape(token)}">Back</a>'
 
     body = f"""
 {warn}
@@ -487,11 +493,13 @@ def preview_page(report: dict, staged_token: str, token: str) -> str:
   <h2>{escape(report['name'])}
       <span class="pill">{escape(report['key'])}</span>
       {_version_pill(report)}</h2>
-  {groups or '<p class="empty">This zip has nothing in it.</p>'}
-  {notes}
+  {indent(groups) or '<p class="empty">This zip has nothing in it.</p>'}
+  {indent(notes)}
 </section>
 {reload_box}
-<section>{confirm}</section>
+<section>
+  {indent(confirm)}
+</section>
 """
     return page("Confirm the upload", body, token=token,
                 nav=_nav("/plugins/upload", token),

@@ -9,7 +9,7 @@ from .store import CalendarStore, Event
 
 from pathlib import Path
 
-from src.webui import WebAssets
+from src.webui import WebAssets, subnav
 
 from . import subscriptions as subscriptions_module
 
@@ -26,18 +26,18 @@ ADD_PATH = "/public/calendar_add"
 SUBS_PATH = "/public/calendar_subscriptions"
 
 
-def render_form_page(token: str, people: list, upcoming: list) -> str:
-    """
-    The add-an-event page.
+def calendar_nav(current: str, token: str) -> str:
+    return subnav(((FORM_PATH, "Add an event", "plus-box"),
+                   (SUBS_PATH, "Subscribed", "sync")), current=current, token=token)
 
-    `people` and `upcoming` are sent as data and drawn by the script, so an
-    event called `<b>dentist` is text on the page rather than markup in it.
-    """
+
+def render_form_page(token: str, people: list, upcoming: list) -> str:
+    # people and upcoming go as data and are drawn by the script, so an event titled <b>dentist stays text
     return ASSETS.page(
         title="Add an event",
         heading="Add an event",
         blurb="It appears on the panel straight away.",
-        token=token, endpoint=FORM_PATH,
+        token=token, endpoint=FORM_PATH, nav=calendar_nav(FORM_PATH, token),
         body_file="form.html", css_file="form.css", script_file="form.js",
         data={
             "people": list(people or []),
@@ -51,18 +51,12 @@ def render_form_page(token: str, people: list, upcoming: list) -> str:
 
 def render_subs_page(token: str, people: list, subscriptions: list,
                      message: str = "") -> str:
-    """
-    The subscribed-calendars page.
-
-    A calendar's name and the error text from a feed both come from outside
-    the panel - one of them is a string a stranger's server chose - so they
-    are sent as data and written as text.
-    """
+    # A calendar's name and a feed's error text come from outside the panel, so they go as data and are written as text
     return ASSETS.page(
         title="Subscribed calendars",
         heading="Subscribed calendars",
         blurb="Mirrored onto the panel, one way. Nothing is sent back.",
-        token=token, endpoint=SUBS_PATH, message=message,
+        token=token, endpoint=SUBS_PATH, message=message, nav=calendar_nav(SUBS_PATH, token),
         body_file="subs.html", css_file="subs.css", script_file="subs.js",
         data={
             "people": list(people or []),
@@ -444,7 +438,7 @@ class Calendar(Plugin):
             sub_tiles = subs.get("tiles")
             if sub_tiles is not None and sub_tiles.has_feature("remove_tile"):
                 try:
-                    sub_tiles.features().remove_tile("calendar_mini")
+                    sub_tiles.features().remove_tile("calendar_mini", forget=False)
                 except Exception:
                     pass
             try:

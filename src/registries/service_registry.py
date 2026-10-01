@@ -328,7 +328,13 @@ class ServiceRegistry:
             self._log("warning", f"start('{name}') - nothing registered.")
             return False
         if entry.is_active():
-            return True
+            # A thread told to stop but not yet gone is on its way out, not running - wait for it and start a fresh one
+            if entry.kind != Service.THREAD or not entry.stop_event.is_set():
+                return True
+            entry.thread.join(timeout=2.0)
+            if entry.thread.is_alive():
+                self._log("warning", f"start('{entry.name}') - the previous thread did not stop in time.")
+                return False
 
         entry.stopping = False
         if entry.kind == Service.THREAD:

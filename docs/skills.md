@@ -74,6 +74,7 @@ class MyPlugin(Plugin):
                 wake_word  = wake,
                 skill_key  = "porch-light-on",
                 plugin_key = key,
+                kind       = "act",
                 examples   = [
                     "turn on the porch light",
                     "porch light on",
@@ -436,7 +437,11 @@ waiting for the wake word.
 def delete_everything(self):
     self.client.say("Are you sure?")
 
-    with self.client.STT.new_session() as session:
+    session = self.client.SERVICES.STT.new_session()
+    if session is None:
+        return                          # nothing listening, or a session is already open
+
+    with session:
         answer = session.wait_for_phrase()
         if answer is None:
             return                      # cancelled, timed out, or closed

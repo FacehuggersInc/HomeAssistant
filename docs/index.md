@@ -49,7 +49,7 @@ plugins are allowed to touch.
 callables, so a plugin can ask a page to do something without importing it.
 
 ```python
-self.client.action("sub.home.register_widget", MyWidget)
+self.client.action("home.register_widget", MyWidget)
 ```
 
 **Widgets and tiles** are the reusable components that live on pages. Widgets

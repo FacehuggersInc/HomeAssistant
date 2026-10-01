@@ -137,15 +137,10 @@ class TileGrid(QWidget):
         self._write(section)
         return True
 
-    def save_positions(self) -> None:
-        # Span as well as position, so a resized tile comes back resized -
-        # plus whatever the tile itself says it needs.
-        #
-        # A bookmark tile is a position and an ADDRESS; without somewhere to
-        # put the second it comes back on the right cell asking to be chosen
-        # again. Merged under the same key rather than in a second file: it is
-        # the same tile's state.
-        saved = {}
+    def save_positions(self, drop: tuple = ()) -> None:
+        # Merged over what is on disk: a tile whose plugin is not loaded right now keeps its saved place.
+        # Position always wins over whatever tile_state() returns.
+        saved = {key: entry for key, entry in self.load_positions().items() if key not in drop}
         for tile in self.tiles:
             entry = {"col": tile.grid_col, "row": tile.grid_row,
                      "w": tile.grid_w, "h": tile.grid_h}
@@ -154,8 +149,6 @@ class TileGrid(QWidget):
                 try:
                     more = extra()
                     if isinstance(more, dict):
-                        # Position wins. A tile cannot overwrite where it is by
-                        # returning a key with the same name.
                         entry = {**more, **entry}
                 except Exception as e:
                     self.client.log("debug",
@@ -286,7 +279,8 @@ class TileGrid(QWidget):
 
         tile.show()
 
-    def remove_tile(self, key: str) -> None:
+    def remove_tile(self, key: str, forget: bool = True) -> None:
+        # forget=False takes it off the grid but keeps its saved place, for a plugin unloading rather than a user removing it
         tile = next((t for t in self.tiles if t.KEY == key), None)
         teardown = getattr(tile, "teardown", None) if tile is not None else None
         if callable(teardown):
@@ -300,7 +294,7 @@ class TileGrid(QWidget):
             tile.setParent(None)
             self.tiles.remove(tile)
         if found:
-            self.save_positions()
+            self.save_positions(drop=(key,) if forget else ())
 
     def get_tile(self, key: str) -> Optional[Tile]:
         found = [t for t in self.tiles if t.KEY == key]

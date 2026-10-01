@@ -11,12 +11,10 @@
 <meta name="color-scheme" content="dark">
 <style>
 {{ chrome|safe }}
- :root{color-scheme:dark}
  /* This page sets its own column width through .inner, so the shared cap
     would hold it below the width the bookmark grid is measured for. */
  body{max-width:none;display:flex;flex-direction:column;align-items:center;
-      justify-content:center;min-height:100vh;padding:48px 32px;
-      box-sizing:border-box}
+      justify-content:center;min-height:100vh;padding:48px 32px}
  .inner{width:100%;max-width:860px}
 
  /* The clock is the anchor, not a decoration. Aligned left with everything
@@ -28,7 +26,7 @@
  .date{color:var(--muted);font-size:15px;margin:0}
 
  .search{position:relative;margin:0 auto 40px;max-width:640px}
- .search input{width:100%;box-sizing:border-box;min-height:56px;
+ .search input{width:100%;min-height:56px;
    padding:0 20px 0 52px;font-size:17px;border-radius:12px;
    border:1px solid var(--line);background:var(--card);color:var(--text);
    font-family:inherit}

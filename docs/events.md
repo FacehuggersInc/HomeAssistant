@@ -102,8 +102,10 @@ Each handler receives one `event` argument — its shape is in the table above.
 letting it throw on every future fire, so an exception in a handler silently
 disables it for the rest of the session. Wrap anything that can fail.
 
-Always unsubscribe in `unload()`. A handler pointing into an unloaded module
-is an exception the first time the event fires.
+Unsubscribe in `unload()` anyway. When a plugin unloads, the loader drops
+every handler defined in that plugin's own modules, so a forgotten one does
+not outlive it - but a handler that is a method of a client class, or of
+another plugin's object, is not the loader's to find.
 
 
 ## Examples
@@ -138,7 +140,9 @@ valid. `on_visit` fires after the new one is up.
 
 ### `on_update`
 
-Every tick, on the UI thread. Do almost nothing here.
+Every pass of the update loop, about twenty times a second, on a background
+thread - not the UI one. Do almost nothing here, and reach widgets only
+through `client.call_on_ui(...)`.
 
 ```python
 def on_update(self, event=None):

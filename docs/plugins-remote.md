@@ -155,9 +155,10 @@ on disk, zipped, as its contents rather than as the folder - the same shape
 Upload accepts and Create hands out. Take what is installed, change something,
 send it back.
 
-Bundled plugins have no download. They ship with the app and a project update
-replaces them, so a copy of one is a thing that quietly stops matching what is
-installed.
+Bundled plugins download too, as `<Folder>-bundled-copy.zip`. A copy of one
+stops matching what is installed after the next project update, and the name
+says so - and keeps it out of `plugins/`, where it would load twice under one
+key.
 
 ## What an update respects
 

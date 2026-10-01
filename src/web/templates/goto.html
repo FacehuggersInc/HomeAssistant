@@ -2,16 +2,15 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>Go to &mdash; {{ panel }}</title>
+<title>Go to</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="dark">
 <style>
 {{ chrome|safe }}
- .label{color:var(--muted);font-size:13px;margin:0 0 8px}
  .pages{display:flex;flex-direction:column;gap:8px}
  .page{display:flex;align-items:center;gap:12px;width:100%;min-height:56px;
        padding:0 16px;border:1px solid var(--line);border-radius:10px;
-       background:#141417;color:var(--text);font-size:16px;font-weight:600;
+       background:#111114;color:var(--text);font-size:16px;font-weight:600;
        text-align:left;cursor:pointer}
  .page:active{opacity:.75}
  .page.here{border-color:var(--accent)}
@@ -21,12 +20,11 @@
 </style>
 </head>
 <body>
-<p>{{ back_button(token)|safe }}</p>
+{{ back_button(token)|safe }}
+{{ nav|safe }}
 
 <h1>Go to</h1>
 <p class="sub">Change which page {{ panel }} is showing.</p>
-
-{{ nav|safe }}
 
 <div id="note"></div>
 

@@ -54,7 +54,7 @@ class SocketJudge:
         self.port = int(port or self._setting(
             "assistant.wake.judge_port.value", DEFAULT_PORT) or DEFAULT_PORT)
         self.timeout = float(self._setting(
-            "assistant.wake.judge_timeout.value", 1.0) or 1.0)
+            "assistant.wake.judge_timeout.value", 2.0) or 2.0)
 
         if not self.host:
             # Said at startup rather than the first time somebody speaks.

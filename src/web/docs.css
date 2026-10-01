@@ -3,8 +3,10 @@
      A page declaring itself dark is skipped; one that does not is inverted
      into a white rectangle, and this viewer is read on the panel itself. */
   color-scheme:dark;
-  --bg:#151517; --panel:#1c1c1f; --line:#2c2c31; --text:#e6e6e8;
-  --muted:#9a9aa2; --accent:#2ff08e; --accent-dim:#1faf68; --code:#111114;
+  /* The same tokens and values as chrome_css() in src/webui.py. */
+  --bg:#0e0e11; --card:#17171c; --line:#2a2a33; --text:#f0f0f4;
+  --muted:#8f8f9c; --accent:#2ff08e; --accent2:#5ac8fa; --accent-dim:#1faf68;
+  --code:#111114;
   --inline:#7fe0b0;
   /* Syntax tokens. Kept away from the accent green so a keyword is never
      mistaken for a link. */
@@ -15,22 +17,35 @@
 * { box-sizing:border-box; }
 body {
   margin:0; background:var(--bg); color:var(--text);
-  font:16px/1.65 -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  font:16px/1.65 Poppins, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   display:grid; grid-template-columns:270px minmax(0,1fr) 220px;
 }
-a { color:var(--accent); text-decoration:none; }
+a { color:var(--accent2); text-decoration:none; }
 a:hover { text-decoration:underline; }
 
 .sidebar {
   position:sticky; top:0; height:100vh; overflow-y:auto;
-  background:var(--panel); border-right:1px solid var(--line); padding:22px 16px;
+  background:var(--card); border-right:1px solid var(--line); padding:22px 16px;
+}
+/* The way back to the dashboard - the same control as back_button() in src/webui.py. */
+.sidebar a.back {
+  display:inline-flex; align-items:center; gap:8px; text-decoration:none;
+  background:var(--card); border:1px solid var(--line); color:var(--text);
+  border-radius:10px; padding:11px 16px; font-size:15px; font-weight:600;
+  margin-bottom:18px;
+}
+.sidebar a.back:hover { text-decoration:none; }
+.sidebar a.back:active { background:#26262b; }
+.sidebar a.back svg {
+  width:16px; height:16px; fill:none; stroke:currentColor;
+  stroke-width:2.4; stroke-linecap:round; stroke-linejoin:round;
 }
 .brand { font-weight:600; font-size:17px; margin-bottom:16px; }
 .brand span { display:block; font-weight:400; font-size:12px; color:var(--muted);
   text-transform:uppercase; letter-spacing:.09em; margin-top:2px; }
 .filter {
   width:100%; padding:8px 10px; margin-bottom:14px; border-radius:7px;
-  border:1px solid var(--line); background:var(--bg); color:var(--text); font-size:14px;
+  border:1px solid var(--line); background:var(--bg); color:var(--text); font-size:16px;
 }
 .filter:focus { outline:none; border-color:var(--accent-dim); }
 .nav { display:flex; flex-direction:column; gap:1px; }
@@ -242,7 +257,7 @@ tr:nth-child(even) td { background:#1a1a1e; }
   .menu {
     display:block; position:fixed; z-index:21; top:12px; left:12px;
     width:42px; height:42px; border-radius:9px; cursor:pointer;
-    background:var(--panel); border:1px solid var(--line); color:var(--text); font-size:19px;
+    background:var(--card); border:1px solid var(--line); color:var(--text); font-size:19px;
   }
   main { padding:70px 20px 60px; }
 }

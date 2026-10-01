@@ -14,7 +14,7 @@ Read them when the documentation runs out. They are the worked examples.
 | `coreskillsbundle`  | Core Skills          | Voice skills and the activity bar.                         |
 | `aifallback`        | AI Fallback          | Answers phrases no skill matched.                          |
 | `idletriggers`      | Idle Random Triggers | Runs registered callbacks while the panel is idle.         |
-| `rssfeeds`          | RSS Feeds            | Feed fetching, shown through the idle triggers.            |
+| `rssfeeds`          | RSS Feeds Plugin     | Feed fetching, shown through the idle triggers.            |
 | `nighttimeclock`    | Nighttime Clock      | A full-screen clock page for after hours.                  |
 | `musicplugin`       | Music                | Playing music by voice, and the now-playing card.          |
 | `calendar`          | Calendar             | Events, holidays, a calendar sub-page, widgets and a tile. |
@@ -64,12 +64,187 @@ comes with the app:
 * **OpenMeteoAPI** - registered on `client.API["weather"]`, and used by the
   weather widget and the weather voice skill.
 
-It also registers a **Widgets** quick access button, which opens the widgets
-panel from anywhere rather than only from the home page.
+Also among its widgets: **Bookmark**, **Checklist** and **WeatherEvent**
+(severe weather, shown while it applies). Among its tiles: **SunTile**,
+**BookmarkTile**, **ActionTile** (runs a panel route, a plugin endpoint or a
+public-registry call, and takes its look from rules on the result), and eight
+quick settings tiles - Do not disturb, Microphone, Silence, Timers, Alarms,
+Web, and Volume and Brightness sliders.
+
+Quick access buttons: **Widgets** (opens the widgets panel from anywhere),
+**Timers**, **Alarms**, **Do not disturb**, **Silence**, **Microphone** and
+**Web**. "Stop" reaches a ringing alarm through the
+[cancel registry](cancel.md) as `stop_alarm`.
+
+The **sticker page** at `/public/sticker_add` has **Clear the home page**,
+which takes every sticker off the screen and leaves the library alone.
+Deleting a file is what Remove does, one at a time — a button that empties
+the page and a button that empties the library should not be the same button.
 
 This is the plugin to copy from. It exercises page registration, widget
 registration, `MULTIPLE` templates, mixins, an API class, the public registry
 and quick access in one place.
+
+### Bookmark
+
+A saved web page, as a floating widget or a 1×1 tile. Both show the site's icon
+— fetched by the browser engine when the page was saved, not by a second
+request.
+
+On the tile the icon fills the cell, and **the name goes when there is one**. A
+site's own picture says which site it is better than a few elided characters do,
+and keeping both means the icon gets whatever the text left over — which is the
+small centred thumbnail again by another route. Without an icon the tile falls
+back to the site's initial and its name.
+
+Added from the widgets or tiles panel, it asks which bookmark first; with none
+saved it opens the browser's home page instead, since there is nothing to choose
+from. Pressing one opens `#webpage` **locked to that site**: a bookmark is a
+destination rather than a way into the internet.
+
+Bookmarks themselves belong to the client (`client.BOOKMARKS`), so they outlive
+this plugin.
+
+Saving one from the browser toolbar puts a copy on the home page for a few
+seconds. Queued rather than placed immediately — bookmarking happens *on the web
+page*, so the home page is not on screen to receive it.
+
+### Checklist
+
+A title and a list of things to tick off. Tapping a row toggles it; tapping
+anywhere else opens the menu — the rows are the point, and anything that makes a
+tick harder is the widget getting in the way of the list.
+
+Everything happens on the list. A row's box ticks it, the X beside it removes
+it, and the **Add** row at the bottom is the only thing that opens a keyboard —
+tapping a list should not put a wall of text in front of somebody who wanted to
+cross off one thing.
+
+The X is drawn in the paper's own colour darkened. A red one on a yellow note is
+an alarm; this is a quiet way to take a line off a list.
+
+The **chrome button** opens colour and size only: swatches and a stepper rather
+than a menu of "Text 17pt" rows.
+
+Twelve rows are drawn and the rest counted — a list longer than that is one
+somebody scrolls, and a widget is not the place for that.
+
+The sticky note carries the same colour and size controls.
+
+### Alarms
+
+**An alarm sounds even when the panel is muted**, and rings for a minute by
+default. An alarm set for six is a promise, and muting at nine the night
+before is somebody saying they did not want to hear anything *until* six. Nothing else does this: a timer, a reminder and a tap all stay
+quiet, because none of them was asked for by time.
+
+### Notes and lists from a phone
+
+`/public/note_add` and `/public/list_add` put either on the panel without
+walking over to it. Both are in the dashboard drawer.
+
+Colours are shown as colours rather than a dropdown of hex codes, and where it
+lands is picked on a nine-cell grid shaped like the screen — the same one the
+sticker page uses, and the same words for each cell.
+
+The note page also carries its **text size**, and each option is drawn at the
+size it names. A row reading 14 / 17 / 20 in one size tells you the numbers and
+nothing about what is being chosen, which is the only question being asked.
+
+The colour and the size both come back after placing, so putting up three notes
+that match is one choice rather than three.
+
+A size is checked against the widget's own ladder and anything else is dropped
+rather than clamped. A note is drawn at whatever number it holds, so an
+unbounded one from a posted form is a note the size of the screen or one too
+small to read — neither reachable from the panel's own dialog. A note appearing
+at the default is better than one appearing at a size nobody picked.
+
+**Both pages carry the text size**, and each option is drawn at the size it
+names.
+
+**The whiteboard composes its ink once and adds to it.** A frame draws the
+piece of the stroke that arrived since the last one, so what it costs does
+not change between the start of a line and the end of it. Copying the canvas
+per frame and re-drawing the live stroke from its first point both grow while
+somebody is drawing, which arrives as a line in batches rather than as lag.
+
+A move event repaints only the rectangle the new segment touches.
+
+**Nothing behind a dialog keeps animating.** A `QMovie` decodes and asks for
+repaints whatever is on top of it, and a dialog covers the page without
+hiding a single widget of it - so a page of animated stickers spends frames
+against whatever the dialog was opened to do. `DialogManager` asks every
+widget with a `set_animations_paused` method, on open and on close, rather
+than knowing which ones animate.
+
+Paused, not stopped: stopping rewinds, and a sticker that restarts on every
+dialog never gets anywhere.
+
+**A widget takes a size that suits its text.** A fixed default belongs to one
+particular font, so raising the font on one leaves the same box with bigger
+writing in it — a note at 30pt holding about half of what it holds at 17, and
+a list showing three rows where it showed six.
+
+**A note is measured**, not scaled. A note *is* its text, so four lines at
+24pt need a bigger box than four words at the same size — scaling from a
+default gave both the same one and cut the longer off at the bottom. It is
+measured with font metrics, which need no parent, no layout and no paint. A
+note too tall for the screen is widened before it is given up on: the same
+text a third wider is a shape that fits on a wall.
+
+The width starts narrow and widens only while the block would be a column —
+capped at the longest line, past which the extra width is empty paper. A sentence is free to wrap: insisting a whole line fit would turn "Dentist at
+3pm on Thursday" into a 480-pixel banner with one line of text in it. Nothing is done
+for a line that cannot wrap, because Qt breaks at punctuation and a pasted
+link wraps at its slashes on its own.
+
+A note also has a modest floor on its height, so two words do not produce a
+strip. It is deliberately modest: a near-square floor makes every note the
+same shape with the words in the top third and empty paper under them — the
+floor would decide the height rather than the words.
+
+**A self-painted widget that resizes itself needs a `sizeHint()`.** `place()`
+calls `_fit_to_content`, which for a resizable widget with no *chosen* size
+discards whatever the content measured and takes the hint instead — and a
+widget with no layout reports −1, so it falls back to its minimum and comes
+out a small square whatever its font.
+
+A **list** scales its width with the font and keeps taking its height from how
+many items it holds, which `_refit` already knew.
+
+**A size you dragged on the panel is left alone.** That is a decision, and a
+font change does not overwrite it.
+
+**A new note or list starts at 20pt**, which is legible from across a room
+rather than only at arm's length - and across a room is where a wall panel is
+usually read from. A widget already on the panel keeps whatever size it was given, in
+or out of the ladder.
+
+Choosing a checklist that is already up **loads it**: its name and its lines fill
+the form. What comes back replaces the list rather than being appended, so
+removing a line works and nothing doubles; anything still there keeps its tick.
+
+**Notes work the same way.** The chooser lists every note on the panel, picking
+one loads its text, colour and size, and saving writes it back — so a note put
+up from a phone is editable from the same phone rather than only by walking
+over to the panel. A note has no title, so its first line stands in for one in
+the chooser.
+
+Both pages have **Remove**, which follows the chooser and can only ever take off
+the thing in front of you. It uses the framework's own removal rather than the
+delete handle: the handle files a widget into the widgets panel so it can be
+dragged back out, which is right on the panel and wrong from a phone. Somebody
+pressing Remove means gone, and a note that reappears in a drawer they cannot
+see from there is not gone.
+
+A note or list removed on the panel while the page is open is said plainly and
+the chooser falls back, rather than the edit being written into nothing and
+reported as saved.
+
+Placing goes through the framework's own copy path, which names the instance,
+registers it, places it and writes the layout. It runs on the UI thread; these
+requests arrive on a Flask one.
 
 
 ## Core Skills
@@ -79,7 +254,9 @@ activity bar along the bottom of the screen.
 
 Skills cover the time and relative dates, opening and clearing notifications,
 weather, the sun and moon, looking a word up, searching Wikipedia, converting
-units, the next calendar event, timers, and quitting the app.
+units, timers, and quitting the app. When the [Calendar](#calendar) is
+loaded, the date answer also lists the day's events; the calendar's own
+questions are its skills, not these.
 
 Every skill it registers, and one way to reach each:
 
@@ -366,8 +543,10 @@ Panels passed to it are handled automatically, including being closed again
 when interaction resumes. This is what a screensaver-style rotation is built
 on.
 
-Uses `on_interaction` and `on_fresh_interaction` to know when idleness starts
-and ends. See [Events](events.md).
+Uses `on_fresh_interaction` and `on_interaction_timeout` to know when
+idleness starts and ends, `on_update` to run the rotation, and
+`on_plugin_unload` to drop whatever an unloading plugin registered with it.
+See [Events](events.md).
 
 
 ## RSS Feeds
@@ -422,6 +601,9 @@ time, date and temperature, and comes half-way up when somebody touches it.
   unremarkable as a fade.
 * **Quick access** - a *Night clock* button to reach the page at any hour, and
   an `enabled` setting that turns the whole thing off.
+* **Voice** - `night-good-night` (*"good night"*, *"bedtime"*) goes to the
+  night page now, and `night-good-morning` (*"good morning"*, *"I'm up"*)
+  leaves it.
 * **Idle triggers** - the page sets `blocks_idle_triggers`, which
   `IdleRandomTriggers` checks. Neither plugin names the other in code.
 
@@ -433,7 +615,8 @@ Ask for a song and it plays.
 
 |                |                                                             |
 |----------------|-------------------------------------------------------------|
-| Voice          | *"play Everlong"*, *"put on some jazz"*, *"stop the music"* |
+| Voice          | *"play Everlong"*, *"pause the music"*, *"keep playing"*    |
+| More voice     | *"skip this song"*, *"what song is this"*                   |
 | On screen      | A now-playing card with cover art, progress, and play/pause |
 | Quick settings | A **Music** button opening what has been played recently    |
 | Also shows     | Whatever else the machine is playing, through MPRIS         |
@@ -443,6 +626,9 @@ registry - see [What is playing](player.md) - so anything showing or
 controlling playback works
 the same whether the sound is coming from this plugin, from a browser tab, or
 from something added later.
+
+The skills are `play-music`, `pause-music`, `resume-music`, `skip-music` and
+`whats-playing`.
 
 Titles arrive whole because `play-music` uses a
 [payload argument](skills.md) — everything after "play" is taken verbatim
@@ -498,14 +684,13 @@ December.
 * **Calendar sub-page** - a month grid at `(0, 1)`, so it is one swipe down
   from the widgets. Tapping a day opens the day view; tapping an event opens
   it in full, with a map when it has somewhere to be.
-* **Clear the home page** takes every sticker off the screen and leaves the
-  library alone. Deleting a file is what Remove does, one at a time — a button
-  that empties the page and a button that empties the library should not be the
-  same button.
 * **Pickers** - date, time and location, each a dialog rather than a typed
   field. A time chosen on a stepper cannot be `25:70`.
-* **Next event** and **Coming up** widgets - one large upcoming event, or a
-  list that fits however many rows it has room for.
+* **Next event** widget - the next upcoming event. When several start within
+  a few hours of each other it cycles through them, with a line saying which
+  of how many is showing.
+* **Coming up** widget - the days ahead and their events. A taller widget
+  covers more days, and each day shows as many rows as it has room for.
 * **Calendar tile** - a month at a glance with marked days, minimum 5x3.
 * **Reminder panels** - a half-width card with the event, a map and buttons to
   open or edit it, shown inside the lead window and closing itself after a
@@ -517,6 +702,10 @@ December.
 * **API** - `calendar_add`, `calendar_upcoming`, `calendar_form` (a page sized
   for a phone), `calendar_subscriptions`, `calendar_sync` and `calendar_dump`.
   All authed.
+* **Voice** - seven skills: `calendar-next-event` (*"what is my next event"*),
+  `calendar-today`, `calendar-tomorrow`, `calendar-this-week`,
+  `calendar-next-holiday`, `calendar-named-holiday` (*"when is Thanksgiving"*)
+  and `calendar-how-long` (*"how long until my next event"*).
 
 Everything above disappears with the plugin. Nothing in the client depends on
 the calendar existing; anything that reads it checks
@@ -579,8 +768,10 @@ plus `stage.result_per_item_ms` for each item after the first, capped at
 the behaviour without knowing about it. A coin holds for 2.4s and sixty dice
 for 6.5s.
 
-Exposed on the public registry as `flip`, `roll`, `spin` and `wheels`, and it
-publishes `on_coin_flip`, `on_dice_roll` and `on_wheel_spin`. Wheels are saved
+Exposed on the public registry as one entry, `randomchance`, holding `flip`,
+`roll`, `spin` and `wheels`, and it publishes `on_coin_flip`, `on_dice_roll`
+and `on_wheel_spin`. Coins and dice can be asked for by voice (`coin-flip`,
+`dice-roll`); wheels are spun from the panel or a phone. Wheels are saved
 to `wheels.json` in the user data directory rather than to the plugin's
 `settings.json`, which ships with the app and is replaced by an update.
 
@@ -610,169 +801,6 @@ CoreWidgetsBundle/
 ```
 
 Nothing enforces that structure - `main.py` and `plugin.toml` are the only
-required files - but every bundled plugin follows it, and it scales better
-than one long module. See [Plugins](plugins.md).
-
-## Bookmark
-
-A saved web page, as a floating widget or a 1×1 tile. Both show the site's icon
-— fetched by the browser engine when the page was saved, not by a second
-request.
-
-On the tile the icon fills the cell, and **the name goes when there is one**. A
-site's own picture says which site it is better than a few elided characters do,
-and keeping both means the icon gets whatever the text left over — which is the
-small centred thumbnail again by another route. Without an icon the tile falls
-back to the site's initial and its name.
-
-Added from the widgets or tiles panel, it asks which bookmark first; with none
-saved it opens the browser's home page instead, since there is nothing to choose
-from. Pressing one opens `#webpage` **locked to that site**: a bookmark is a
-destination rather than a way into the internet.
-
-Bookmarks themselves belong to the client (`client.BOOKMARKS`), so they outlive
-this plugin.
-
-Saving one from the browser toolbar puts a copy on the home page for a few
-seconds. Queued rather than placed immediately — bookmarking happens *on the web
-page*, so the home page is not on screen to receive it.
-
-## Checklist
-
-A title and a list of things to tick off. Tapping a row toggles it; tapping
-anywhere else opens the menu — the rows are the point, and anything that makes a
-tick harder is the widget getting in the way of the list.
-
-Everything happens on the list. A row's box ticks it, the X beside it removes
-it, and the **Add** row at the bottom is the only thing that opens a keyboard —
-tapping a list should not put a wall of text in front of somebody who wanted to
-cross off one thing.
-
-The X is drawn in the paper's own colour darkened. A red one on a yellow note is
-an alarm; this is a quiet way to take a line off a list.
-
-The **chrome button** opens colour and size only: swatches and a stepper rather
-than a menu of "Text 17pt" rows.
-
-Twelve rows are drawn and the rest counted — a list longer than that is one
-somebody scrolls, and a widget is not the place for that.
-
-The sticky note carries the same colour and size controls.
-
-**An alarm sounds even when the panel is muted**, and rings for a minute by
-default. It was the one thing on the panel that a setting changed hours
-earlier could silently cancel — an alarm set for six is a promise, and muting
-at nine the night before is somebody saying they did not want to hear anything
-*until* six. Nothing else does this: a timer, a reminder and a tap all stay
-quiet, because none of them was asked for by time.
-
-### From a phone
-
-`/public/note_add` and `/public/list_add` put either on the panel without
-walking over to it. Both are in the dashboard drawer.
-
-Colours are shown as colours rather than a dropdown of hex codes, and where it
-lands is picked on a nine-cell grid shaped like the screen — the same one the
-sticker page uses, and the same words for each cell.
-
-The note page also carries its **text size**, and each option is drawn at the
-size it names. A row reading 14 / 17 / 20 in one size tells you the numbers and
-nothing about what is being chosen, which is the only question being asked.
-
-The colour and the size both come back after placing, so putting up three notes
-that match is one choice rather than three.
-
-A size is checked against the widget's own ladder and anything else is dropped
-rather than clamped. A note is drawn at whatever number it holds, so an
-unbounded one from a posted form is a note the size of the screen or one too
-small to read — neither reachable from the panel's own dialog. A note appearing
-at the default is better than one appearing at a size nobody picked.
-
-**Both pages carry the text size**, and each option is drawn at the size it
-names.
-
-**The whiteboard composes its ink once and adds to it.** A frame draws the
-piece of the stroke that arrived since the last one, so what it costs does
-not change between the start of a line and the end of it. Copying the canvas
-per frame and re-drawing the live stroke from its first point both grow while
-somebody is drawing, which arrives as a line in batches rather than as lag.
-
-A move event repaints only the rectangle the new segment touches.
-
-**Nothing behind a dialog keeps animating.** A `QMovie` decodes and asks for
-repaints whatever is on top of it, and a dialog covers the page without
-hiding a single widget of it - so a page of animated stickers spends frames
-against whatever the dialog was opened to do. `DialogManager` asks every
-widget with a `set_animations_paused` method, on open and on close, rather
-than knowing which ones animate.
-
-Paused, not stopped: stopping rewinds, and a sticker that restarts on every
-dialog never gets anywhere.
-
-**A widget takes a size that suits its text.** A fixed default belongs to one
-particular font, so raising the font on one leaves the same box with bigger
-writing in it — a note at 30pt holding about half of what it holds at 17, and
-a list showing three rows where it showed six.
-
-**A note is measured**, not scaled. A note *is* its text, so four lines at
-24pt need a bigger box than four words at the same size — scaling from a
-default gave both the same one and cut the longer off at the bottom. It is
-measured with font metrics, which need no parent, no layout and no paint. A
-note too tall for the screen is widened before it is given up on: the same
-text a third wider is a shape that fits on a wall.
-
-The width starts narrow and widens only while the block would be a column —
-capped at the longest line, past which the extra width is empty paper. A
-sentence is free to wrap: insisting a whole line fit turned "Dentist at 3pm on
-Thursday" into a 480-pixel banner with one line of text in it. Nothing is done
-for a line that cannot wrap, because Qt breaks at punctuation and a pasted
-link wraps at its slashes on its own.
-
-A note also has a modest floor on its height, so two words do not produce a
-strip. It is deliberately modest: at a near-square floor every note came out
-the same shape with the words in the top third and empty paper under them —
-the floor was deciding the height rather than the words were.
-
-**A self-painted widget that resizes itself needs a `sizeHint()`.** `place()`
-calls `_fit_to_content`, which for a resizable widget with no *chosen* size
-discards whatever the content measured and takes the hint instead — and a
-widget with no layout reports −1, so it falls back to its minimum. That is
-why a note placed from a phone came out a small square whatever its font: the
-measuring was right and was thrown away a moment later. The checklist never
-hit it because it has always had one.
-
-A **list** scales its width with the font and keeps taking its height from how
-many items it holds, which `_refit` already knew.
-
-**A size you dragged on the panel is left alone.** That is a decision, and a
-font change does not overwrite it.
-
-**A new note or list starts at 20pt.** The previous default was legible at
-arm's length and not from across a room, which is where a wall panel is usually
-read from. A widget already on the panel keeps whatever size it was given, in
-or out of the ladder.
-
-Choosing a checklist that is already up **loads it**: its name and its lines fill
-the form. What comes back replaces the list rather than being appended, so
-removing a line works and nothing doubles; anything still there keeps its tick.
-
-**Notes work the same way.** The chooser lists every note on the panel, picking
-one loads its text, colour and size, and saving writes it back — so a note put
-up from a phone is editable from the same phone rather than only by walking
-over to the panel. A note has no title, so its first line stands in for one in
-the chooser.
-
-Both pages have **Remove**, which follows the chooser and can only ever take off
-the thing in front of you. It uses the framework's own removal rather than the
-delete handle: the handle files a widget into the widgets panel so it can be
-dragged back out, which is right on the panel and wrong from a phone. Somebody
-pressing Remove means gone, and a note that reappears in a drawer they cannot
-see from there is not gone.
-
-A note or list removed on the panel while the page is open is said plainly and
-the chooser falls back, rather than the edit being written into nothing and
-reported as saved.
-
-Placing goes through the framework's own copy path, which names the instance,
-registers it, places it and writes the layout. It runs on the UI thread; these
-requests arrive on a Flask one.
+required files. Core Widgets uses all three folders, Core Skills and RSS Feeds
+use `api/`, and the smaller plugins are flat. Split a plugin this way once one
+module stops being easy to read. See [Plugins](plugins.md).

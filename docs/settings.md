@@ -105,16 +105,16 @@ Attribute access works too, and is what most of the codebase uses:
 
 ```python
 self.client.SETTINGS.application.window.size.value
-self.client.SETTINGS.home.widget_margin.value
+self.client.SETTINGS.home.layout.widget_margin.value
 ```
 
 Writing is the same path in reverse:
 
 ```python
-self.client.SETTINGS.home.pinned.value = "/path/to/image.png"
+self.client.SETTINGS.home.layout.pinned.value = "/path/to/image.png"
 ```
 
-From a plugin, prefer `self.option("general.enabled", True)` - it reads from
+From a plugin, prefer `self.setting_value("general.enabled", True)` - it reads from
 your own `settings.json` and keeps you out of the client's tree.
 
 Writes are not thread-safe. Do them on the UI thread, or hold
@@ -640,7 +640,7 @@ def load(self, carryover=None):
     self.client.subscribe_to_event("on_settings_saved", self.on_saved)
 
 def on_saved(self, event=None):
-    self.interval = int(self.option("general.poll_interval", 30))
+    self.interval = int(self.setting_value("general.poll_interval", 30))
 ```
 
 Fires once when the Settings page is saved, not per field. See

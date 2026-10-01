@@ -2,7 +2,7 @@
   The Random Chance page body.
 
   Static. Nothing here is substituted, formatted or escaped on the way out -
-  everything the panel has to say arrives as one JSON object in window.RC,
+  everything the panel has to say arrives as one JSON object in window.PAGE,
   and the script reads it. Counts, die types and saved wheels are filled in
   by page.js rather than being written in here.
 
@@ -41,7 +41,9 @@
     </section>
 
     <input type="hidden" name="what" value="coin">
-    <button type="submit">Flip the coin</button>
+    <div class="go">
+      <button type="submit">Flip the coin</button>
+    </div>
   </form>
 </div>
 
@@ -78,7 +80,9 @@
     <input type="hidden" name="what" value="dice">
     <input type="hidden" name="groups" id="groups" value="[]">
     <input type="hidden" name="outcomes" id="outcomes" value="[]">
-    <button type="submit" id="roll" disabled>Roll</button>
+    <div class="go">
+      <button type="submit" id="roll" disabled>Roll</button>
+    </div>
   </form>
 </div>
 
@@ -118,7 +122,9 @@
 
     <input type="hidden" name="what" value="wheel_spin">
     <input type="hidden" name="wheel" id="wheel-json">
-    <button type="submit" id="spin" disabled>Spin the wheel</button>
+    <div class="go">
+      <button type="submit" id="spin" disabled>Spin the wheel</button>
+    </div>
   </form>
 
   <div class="row">

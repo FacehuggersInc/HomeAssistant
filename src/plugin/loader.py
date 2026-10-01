@@ -441,7 +441,7 @@ class PluginManager():
 						with open(path, "r") as settings_file:
 							settings = json.load(settings_file)
 							setattr(plugin_instance, "settings", Settings( settings ))
-							self.client.log("info", f"[PluginManager][{plugin_name}] Settings Were Loaded ({config["settings"]["path"]})")
+							self.client.log("info", f"[PluginManager][{plugin_name}] Settings Were Loaded ({config['settings']['path']})")
 
 					setattr(plugin_instance, "config", Settings( config ))
 					setattr(plugin_instance, "client", self.client)
@@ -450,7 +450,7 @@ class PluginManager():
 					self.plugins[ key ] = plugin_instance
 					self.registered[key] = plugin_path
 
-					self.client.log("info", f"[PluginManager] Loaded key:{key}, class:{plugin_name}, name:{config["plugin"]["name"]}")
+					self.client.log("info", f"[PluginManager] Loaded key:{key}, class:{plugin_name}, name:{config['plugin']['name']}")
 
 					# Said at load, not when somebody presses the button.
 					#
@@ -669,6 +669,8 @@ class PluginManager():
 			# reload does not silently require retyping the credential.
 			self.client.SECRETS.unregister(plugin_key)
 
+			self._release_owned(plugin_key, plugin.__class__.__module__.split(".")[0])
+
 			# etc c. Remove from sys.modules
 			module_name = plugin.__class__.__module__  # e.g. "myplugin.main"
 			base_name = module_name.split(".")[0]      # e.g. "myplugin"
@@ -682,6 +684,34 @@ class PluginManager():
 			self.client.log("info", f"[PluginManager] Successfully unloaded '{plugin_key}'")
 
 		return True
+
+	def _release_owned(self, plugin_key: str, base_module: str) -> None:
+		## owner-keyed registries a plugin may forget to release itself
+		for name, release in (
+			("cancel actions", lambda: self.client.CANCEL.unregister(plugin_key)),
+			("players",        lambda: self.client.PLAYER.unregister(plugin_key)),
+			("status icons",   lambda: self.client.STATUS.stop_all(plugin_key)),
+			("sounds",         lambda: self.client.AUDIO.unregister(plugin_key)),
+		):
+			try:
+				release()
+			except Exception as e:
+				self.client.log("warning", f"[PluginManager] Could not release '{plugin_key}' {name}: {e}")
+
+		## event handlers defined in the plugin's modules, which are about to leave sys.modules
+		def owned(callable_) -> bool:
+			func = getattr(callable_, "__func__", callable_)
+			module = getattr(func, "__module__", "") or ""
+			return module == base_module or module.startswith(base_module + ".")
+
+		removed = 0
+		for event_name, handlers in self.client.EVENTS["on_call"].items():
+			stale = [h for h in handlers if owned(h)]
+			for handler in stale:
+				handlers.remove(handler)
+			removed += len(stale)
+		if removed:
+			self.client.log("debug", f"[PluginManager] Dropped {removed} event handler(s) left by '{plugin_key}'.")
 
 	def reload_plugin(self, plugin_key:str):
 		plugin_path : Path = self.registered.get(plugin_key)

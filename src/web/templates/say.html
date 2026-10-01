@@ -2,23 +2,20 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>Say something &mdash; {{ panel }}</title>
+<title>Say something</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="dark">
 <style>
 {{ chrome|safe }}
- :root{color-scheme:dark}
  h1{font-size:24px;font-weight:600;letter-spacing:-.02em;margin:0 0 6px}
  .sub{color:var(--muted);font-size:14px;margin:0 0 26px}
- label{display:block;font-size:12px;font-weight:600;text-transform:uppercase;
-       letter-spacing:.08em;color:var(--muted);margin:0 0 9px}
  .who{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;
       margin:0 0 24px}
  .who button{min-height:46px;padding:0 17px;border-radius:11px;
    border:1px solid var(--line);background:var(--card);color:var(--text);
    font-size:14px;font-weight:500;font-family:inherit;cursor:pointer}
  .who button.on{border-color:var(--accent);color:var(--accent);
-   background:linear-gradient(150deg,rgba(47,240,142,.12),var(--card) 70%)}
+   background:linear-gradient(150deg,rgba(47,240,142,.14),var(--card) 70%)}
  textarea{min-height:120px;resize:vertical;line-height:1.5}
  .go{display:flex;gap:10px;margin:20px 0 0}
  .go button{flex:1;min-height:54px}
@@ -33,7 +30,7 @@
 </style>
 </head>
 <body>
-<p>{{ back_button(token)|safe }}</p>
+{{ back_button(token)|safe }}
 
 <h1>Say something</h1>
 <p class="sub">The panel reads it out. If it cannot speak, it shows it instead.</p>
@@ -64,8 +61,7 @@
 </div>
 {% elif speech.voices %}
 <div class="voice">
-  <label for="voice">Voice <span style="text-transform:none;font-weight:400;
-    letter-spacing:0">&mdash; for this message only</span></label>
+  <label for="voice">Voice &mdash; for this message only</label>
   <select id="voice">
     <option value="">{{ speech.current or 'Default' }}</option>
     {% for v in speech.voices %}{% if v != speech.current %}
@@ -91,7 +87,7 @@
 <textarea id="message" placeholder="Dinner is ready" maxlength="400"
           autocomplete="off"></textarea>
 
-<div class="go"><button type="button" id="send">Say it</button></div>
+<div class="go"><button type="button" class="btn primary" id="send">Say it</button></div>
 <div id="said"></div>
 
 <p class="hint">Spoken as &ldquo;<span id="preview">Somebody</span> said

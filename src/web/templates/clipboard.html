@@ -2,50 +2,42 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>Clipboard &mdash; {{ panel }}</title>
+<title>Clipboard</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
 <style>
 {{ chrome|safe }}
- h1{font-size:22px;margin:0 0 4px}
  .sub{color:var(--muted);font-size:14px;margin:0 0 20px}
- .card{background:var(--card);border:1px solid var(--line);border-radius:12px;
+ .card{background:var(--card);border:1px solid var(--line);border-radius:14px;
        padding:16px;margin:0 0 16px}
- .label{color:var(--muted);font-size:13px;margin:0 0 8px}
- textarea{width:100%;box-sizing:border-box;min-height:150px;resize:vertical;
-          background:#141417;color:var(--text);border:1px solid var(--line);
+ textarea{width:100%;min-height:150px;resize:vertical;
+          background:#111114;color:var(--text);border:1px solid var(--line);
           border-radius:8px;padding:12px;font-size:16px;font-family:inherit;
           line-height:1.5}
  .row{display:flex;gap:10px;flex-wrap:wrap;justify-content:center;
       margin:12px 0 0}
- button{flex:1 1 130px;min-height:48px;font-size:16px;font-weight:600;
-        border-radius:9px;border:1px solid var(--line);background:var(--card);
-        color:var(--text);cursor:pointer}
- button.primary{background:var(--accent);border-color:var(--accent);color:#0f2418}
- button:active{opacity:.75}
+ .row button{flex:1 1 130px}
  .empty{color:var(--muted);font-style:italic}
- #note{display:none;margin:0 0 16px;padding:10px 14px;border-radius:9px;
-       background:rgba(47,240,142,.12);border:1px solid rgba(47,240,142,.4);
-       font-size:14px;word-break:break-word}
- #note.bad{background:rgba(224,138,138,.12);border-color:rgba(224,138,138,.45)}
+ #note{display:none}
 </style>
 </head>
 <body>
-<p>{{ back_button(token)|safe }}</p>
+{{ back_button(token)|safe }}
 
 <h1>Clipboard</h1>
 <p class="sub">Shared with {{ panel }}. Copying here puts it on this device;
   sending puts it on the panel.</p>
 
-<div id="note"></div>
+<p id="note" class="banner"></p>
 
 <div class="card">
   <p class="label">On the panel now</p>
   <textarea id="text" spellcheck="false"
             placeholder="Nothing on the clipboard."></textarea>
   <div class="row">
-    <button class="primary" id="copy">Copy to this device</button>
-    <button id="send">Send to panel</button>
-    <button id="refresh">Refresh</button>
+    <button type="button" class="btn primary" id="copy">Copy to this device</button>
+    <button type="button" id="send">Send to panel</button>
+    <button type="button" id="refresh">Refresh</button>
   </div>
 </div>
 
@@ -56,7 +48,7 @@ var note = document.getElementById('note');
 
 function say(message, bad) {
   note.textContent = message;
-  note.className = bad ? 'bad' : '';
+  note.className = bad ? 'banner bad' : 'banner';
   note.style.display = 'block';
 }
 

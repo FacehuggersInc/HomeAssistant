@@ -989,8 +989,6 @@ class WidgetFramework(QWidget):
         # stay, saying placed: False.
         if widget.template_key or getattr(widget, "transient", False):
             self.forget_layout(key)
-        else:
-            self.save_layout()
         self.save_layout()
 
     def unplace(self, widget: Widget) -> None:

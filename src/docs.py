@@ -27,7 +27,7 @@ from pathlib import Path
 from typing import Optional
 
 from src.constants import INSTALL_ROOT
-from src.webui import core_assets
+from src.webui import CHEVRON, FONTS, core_assets, indent
 
 DOCS_DIR = INSTALL_ROOT / "docs"
 BUNDLED_DIR = INSTALL_ROOT / "src" / "assets" / "bundled"
@@ -746,10 +746,14 @@ def highlight(code: str, language: str) -> str:
 def code_block(code: str, language: str) -> str:
     label = html.escape(language or "text", quote=True)
     body = highlight(code, language)
-    return (f'<div class="code" data-lang="{label}">'
-            f'<div class="code-bar"><span>{label}</span>'
-            f'<button class="copy" type="button">copy</button></div>'
-            f"<pre><code>{body}</code></pre></div>")
+    # the <pre> stays on one line: anything added inside it is shown
+    return f"""<div class="code" data-lang="{label}">
+  <div class="code-bar">
+    <span>{label}</span>
+    <button class="copy" type="button">copy</button>
+  </div>
+  <pre><code>{body}</code></pre>
+</div>"""
 
 
 ## -- PAGE --------------------------------------------------------------------
@@ -777,24 +781,26 @@ def changes_page() -> str:
     for entry in entries:
         when = _dt.datetime.fromtimestamp(entry.get("at", 0))
         note = html.escape(str(entry.get("note") or ""))
-        parts.append('<div class="change-entry">')
-        parts.append(f'<div class="change-when">{when:%d %b %Y, %H:%M}</div>')
-        if note:
-            parts.append(f'<div class="change-note">{note}</div>')
-        parts.append('<ul class="change-pages">')
+        lines = []
         for item in entry.get("pages", []):
             slug = str(item.get("slug", ""))
             state = str(item.get("state", ""))
             label = html.escape(titles.get(slug, slug))
             if state == "removed":
-                parts.append(f'<li><span class="doc-badge removed">removed'
-                             f'</span>{label}</li>')
+                lines.append(f'<li><span class="doc-badge removed">removed</span>{label}</li>')
             else:
-                parts.append(f'<li><span class="doc-badge {state}">{state}'
-                             f'</span><a href="/docs/{slug}">{label}</a></li>')
-        parts.append("</ul></div>")
+                lines.append(f'<li><span class="doc-badge {state}">{state}</span>'
+                             f'<a href="/docs/{slug}">{label}</a></li>')
+        note_html = f'\n  <div class="change-note">{note}</div>' if note else ""
+        rows = "\n    ".join(lines)
+        parts.append(f"""<div class="change-entry">
+  <div class="change-when">{when:%d %b %Y, %H:%M}</div>{note_html}
+  <ul class="change-pages">
+    {rows}
+  </ul>
+</div>""")
 
-    return shell("What changed", "".join(parts), "", "changes")
+    return shell("What changed", "\n".join(parts), "", "changes")
 
 
 def page(slug: str) -> Optional[str]:
@@ -836,8 +842,8 @@ def _render_file(path: Path, current: str, note: str) -> Optional[str]:
     except OSError:
         return None
     body, toc = render(markdown)
-    intro = (f'<p class="note">{html.escape(note)} See '
-             f'<a href="/docs/bundled-plugins">Bundled plugins</a>.</p>')
+    intro = (f'<p class="note">{html.escape(note)} '
+             f'See <a href="/docs/bundled-plugins">Bundled plugins</a>.</p>\n')
     return shell(title_of(path), intro + body, toc_html(toc), current)
 
 
@@ -853,9 +859,9 @@ def plugin_page(slug: str) -> Optional[str]:
     body, toc = render(markdown)
     # A note above the readme, because a plugin readme is written by whoever
     # wrote the plugin and does not necessarily follow the house style.
-    intro = ('<p class="note">Shipped readme for this bundled plugin. '
-             'See <a href="/docs/bundled-plugins">Bundled plugins</a> for how '
-             'it fits with the rest.</p>')
+    intro = """<p class="note">Shipped readme for this bundled plugin.
+  See <a href="/docs/bundled-plugins">Bundled plugins</a> for how it fits with the rest.</p>
+"""
     return shell(title_of(path), intro + body, toc_html(toc), f"plugin/{slug}")
 
 
@@ -865,11 +871,14 @@ def toc_html(toc: list) -> str:
     items = [(level, title, anchor) for level, title, anchor in toc if 2 <= level <= 3]
     if len(items) < 2:
         return ""
-    rows = "".join(
+    rows = "\n  ".join(
         f'<a class="toc-{level}" href="#{anchor}">{html.escape(title)}</a>'
         for level, title, anchor in items
     )
-    return f'<nav class="toc"><div class="toc-title">On this page</div>{rows}</nav>'
+    return f"""<nav class="toc">
+  <div class="toc-title">On this page</div>
+  {rows}
+</nav>"""
 
 
 def _parent_of(slug: str) -> str:
@@ -963,14 +972,17 @@ def _nav_button(entry, direction: str, skip: bool) -> str:
     # wall panel to read as punctuation.
     arrow = ("&#10094;" if direction == "prev" else "&#10095;")
     mark = f'<span class="page-nav-arrow" aria-hidden="true">{arrow}</span>'
-    words = (f'<span class="page-nav-words">'
-             f'<span class="page-nav-hint">{hint}</span>'
-             f'<span class="page-nav-title">{label}</span></span>')
+    words = f"""<span class="page-nav-words">
+    <span class="page-nav-hint">{hint}</span>
+    <span class="page-nav-title">{label}</span>
+  </span>"""
 
-    inner = (mark + words) if direction == "prev" else (words + mark)
+    inner = f"{mark}\n  {words}" if direction == "prev" else f"{words}\n  {mark}"
     classes = "page-nav-link" + (" skip" if skip else "")
     classes += " prev" if direction == "prev" else " next"
-    return f'<a class="{classes}" href="/docs/{slug}">{inner}</a>'
+    return f"""<a class="{classes}" href="/docs/{slug}">
+  {inner}
+</a>"""
 
 
 def page_nav_html(current: str, position: str) -> str:
@@ -994,7 +1006,10 @@ def page_nav_html(current: str, position: str) -> str:
         parts.append(_nav_button(around["next"], "next", False))
     if not [p for p in parts if "page-nav-link" in p]:
         return ""
-    return f'<nav class="page-nav {position}">' + "".join(parts) + "</nav>"
+    links = indent("\n".join(parts))
+    return f"""<nav class="page-nav {position}">
+  {links}
+</nav>"""
 
 
 def sidebar_html(current: str) -> str:
@@ -1049,7 +1064,7 @@ def sidebar_html(current: str) -> str:
                 sub_active = " active" if page_slug == current else ""
                 rows.append(f'<a class="sub{sub_active}" '
                             f'href="/docs/{page_slug}">{html.escape(title)}</a>')
-    return "".join(rows)
+    return "\n".join(rows)
 
 
 _SEARCH_CACHE: dict = {"stamp": None, "data": None}
@@ -1164,39 +1179,41 @@ def search_index() -> list:
     return rows
 
 
+# its own document rather than page(): it has a sidebar, a filter and a table of contents
 def shell(title: str, body: str, toc: str, current: str) -> str:
-    """
-    The whole document.
-
-    Its own rather than `page()`: this has a sidebar, a filter and a table of
-    contents, and belongs to no plugin. The styling and the script are still
-    files in `src/web/` and are served the same way - see docs/web-ui.md - so
-    the only thing built here is the shape.
-    """
     assets = core_assets()
     sheet, sheet_tag = assets.inline_or_link("docs.css")
     script, script_tag = assets.inline_or_link("docs.js")
+    sidebar = indent(sidebar_html(current), 2)
+    top = indent(page_nav_html(current, "top"))
+    bottom = indent(page_nav_html(current, "bottom"))
 
+    # `body` is not indented - it holds <pre> blocks; docs carry no token, so back is plain "/"
     return f"""<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{html.escape(title)} - Home Assistant docs</title>
-<style>{sheet}</style>{sheet_tag}
+<title>{html.escape(title)}</title>
+<style>{FONTS}{sheet}</style>{sheet_tag}
 </head>
 <body>
 <button class="menu" type="button" aria-label="Menu">&#9776;</button>
 <aside class="sidebar">
+  <a class="back" href="/">{CHEVRON}<span>Dashboard</span></a>
   <div class="brand">Home Assistant<span>documentation</span></div>
   <input class="filter" type="search" placeholder="Search docs" aria-label="Search docs">
-  <nav class="nav">{sidebar_html(current)}</nav>
+  <nav class="nav">
+    {sidebar}
+  </nav>
   <div class="results" hidden></div>
 </aside>
 <main>
-  {page_nav_html(current, "top")}
-  <article>{body}</article>
-  {page_nav_html(current, "bottom")}
+  {top}
+  <article>
+{body}
+  </article>
+  {bottom}
 </main>
 {toc}
 <script type="application/json" id="search-index">{json.dumps(search_index())}</script>

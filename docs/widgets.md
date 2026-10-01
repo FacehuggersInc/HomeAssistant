@@ -114,9 +114,9 @@ Everything - anchor, position, size, rotation, offset, and whether a widget is
 placed at all - is saved per page to **`widget_layout.json` in the user data
 directory**.
 
-Saving is debounced: every mutation calls `schedule_save()` rather than
-writing directly, so no interaction path can forget to persist and a drag
-firing hundreds of move events still writes once. `hideEvent` and
+Dragging is debounced through `schedule_save()`, so a drag firing hundreds of
+move events writes once. Placing, removing, sending to the panel and
+finishing a transform save directly. `hideEvent` and
 `closeEvent` flush anything still pending.
 
 Saves **merge** rather than replace. If the page is ever rebuilt - a plugin
@@ -764,9 +764,11 @@ The cost is that it can only ever add. A key belonging to a widget that has been
 removed looks exactly like a key belonging to a widget not built yet, so a
 removed widget's entry survives and the next load restores it.
 
-`remove()` therefore calls `forget_layout(key)`, which drops that one entry from
-the file directly. Without it, clearing the home page of stickers holds only
-until the page is reopened.
+`remove()` therefore calls `forget_layout(key)` for a template copy or a
+transient widget, which drops that one entry from the file directly - without
+it, clearing the home page of stickers holds only until the page is reopened.
+A singleton keeps its entry with `placed: false` instead: it is re-created on
+every load, and no entry at all falls back to the class default of placed.
 
 ## A button on the chrome
 

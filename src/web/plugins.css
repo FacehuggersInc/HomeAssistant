@@ -5,7 +5,7 @@
       background:#111114;border:1px solid var(--line);display:flex;
       align-items:center;justify-content:center;color:var(--muted)}
  .plug .meta{flex:1;min-width:0}
- .plug .name{font-size:16.5px;font-weight:650;display:block}
+ .plug .name{font-size:16.5px;font-weight:600;display:block}
  .plug .key{color:var(--muted);font-size:12.5px;
       font-family:ui-monospace,monospace}
  .plug .why{color:var(--muted);font-size:13px;margin-top:5px;line-height:1.5}
@@ -13,7 +13,7 @@
       text-transform:uppercase;border-radius:999px;padding:3px 9px;
       border:1px solid var(--line);color:var(--muted);margin-left:6px}
  .pill.on{color:var(--accent);border-color:var(--accent)}
- .pill.off{color:#e0b070;border-color:#5a4a30}
+ .pill.off{color:var(--warm);border-color:rgba(255,212,121,.3)}
  .pill.bundled{color:var(--muted)}
  .pill.bad{color:#ffb3b3;border-color:var(--bad)}
  .plug.blocked{border-color:rgba(255,122,122,.35)}
@@ -32,19 +32,19 @@
  .group h3{margin:0 0 8px;font-size:14px;display:flex;align-items:center;
       gap:8px}
  .group h3 .n{color:var(--muted);font-weight:500}
- .lose h3{color:#e0b070}
+ .lose h3{color:var(--warm)}
  .gain h3{color:var(--accent)}
- .warnbox{border:1px solid #5a4a30;background:rgba(224,176,112,.10);
+ .warnbox{border:1px solid rgba(255,212,121,.3);background:rgba(255,212,121,.10);
       border-radius:11px;padding:13px 15px;margin:0 0 16px;font-size:14px;
       display:flex;gap:11px;align-items:flex-start}
- .warnbox svg{flex:none;margin-top:1px;color:#e0b070}
+ .warnbox svg{flex:none;margin-top:1px;color:var(--warm)}
  /* The one thing left to do, made to look like it. A row of the same
     bordered grey as everything else reads as a footer, and a footer is
     something people scroll past - so the step that actually applies the
     upload was the least noticeable thing on the page. */
  .nextstep{border:1px solid var(--accent);border-radius:14px;padding:18px;
       margin:0 0 16px;
-      background:linear-gradient(150deg,rgba(47,240,142,.13),var(--card) 72%);
+      background:linear-gradient(150deg,rgba(47,240,142,.14),var(--card) 72%);
       box-shadow:0 8px 30px var(--glow)}
  .nextstep h3{margin:0 0 4px;font-size:16px;color:var(--accent);
       display:flex;align-items:center;gap:9px}

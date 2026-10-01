@@ -88,7 +88,7 @@ class LocalJudge:
         self.repo = str(self._setting("assistant.wake.judge_model.value",
                                       DEFAULT_REPO) or DEFAULT_REPO).strip()
         self.timeout = float(self._setting(
-            "assistant.wake.judge_timeout.value", 1.0) or 1.0)
+            "assistant.wake.judge_timeout.value", 2.0) or 2.0)
 
         self._loader = threading.Thread(target=self._load, name="__judge_load",
                                         daemon=True)

@@ -213,9 +213,9 @@ inside, and the two are separate because they answer different questions -
 "is this phone allowed here" and "may this phone put code on the machine" are
 not the same decision and should not be made by the same yes.
 
-| Permission | What it allows                           |
-|------------|------------------------------------------|
-| `plugins`  | Upload, load, unload and reload plugins. |
+| Permission | What it allows                                                                         |
+|------------|----------------------------------------------------------------------------------------|
+| `plugins`  | Everything under `/plugins`: list, upload, load, unload, reload, and install packages. |
 
 They live as a **set of names** on the user rather than a flag each. Adding
 one is a string in `PERMISSIONS` and a checkbox, rather than a new column in
@@ -242,10 +242,10 @@ opening a menu is one nobody audits.
 
 ## Reading the token in a route
 
-`auth()` looks in three places - the query string, the `X-Client-Token`
-header, and the cookie - because a device arrives by all three: a link carries
-the token, a script sends the header, and a browser that has been here before
-sends the cookie and nothing else.
+`auth()` looks in four places - the query string, a posted form, the
+`X-Client-Token` header, and the cookie - because a device arrives by all of
+them: a link carries the token, a form posts it, a script sends the header,
+and a browser that has been here before sends the cookie and nothing else.
 
 **A route that reads only the first two passes `auth()` and then behaves as
 though nobody is there.** The cookie satisfies the check, so the request is
@@ -254,7 +254,8 @@ fails and every link it renders carries `token=`. On a phone - which is the
 only place these pages are ever opened - that is the whole of the failure, and
 it looks exactly like the permission not having been granted.
 
-Use `_token()`. It is the same three places, in the same order.
+Use `_token()`. `auth()` reads the token through it - query, form, header,
+cookie, in that order - so the two always agree.
 
 ## Where it lives
 

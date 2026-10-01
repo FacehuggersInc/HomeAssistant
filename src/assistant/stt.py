@@ -9,6 +9,7 @@ import time
 import queue
 import string
 import socket
+import codecs
 import subprocess
 from pathlib import Path
 from threading import Thread, RLock
@@ -1711,40 +1712,30 @@ class STTProcessing():
 				#While Connected to Self
 				with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
 
-					#Try Connection
-					while True:
+					connected = False
+					while self.listening and not stop_event.is_set():
 						try:
 							sock.connect( (self.host, self.ports["data"]) )
+							connected = True
 							break
 						except ConnectionRefusedError:
-							time.sleep(0.5)
+							stop_event.wait(0.5)
+					if not connected:
+						break
 
-					#If Connections, Data Receive loop
-					#
-					# Buffered, and split on newlines.
-					#
-					# `recv` hands back whatever bytes have arrived, not one
-					# message: two sendall calls a moment apart come back in
-					# ONE read, and the old `raw.split(":", 2)` then read the
-					# first message and swallowed the second into its payload.
-					#
-					# `host:transcribe:...` immediately followed by
-					# `host:transcribed:1` arrives as one string, so the
-					# transcript was acted on and the panel was never told the
-					# model had finished - it sat at THINKING forever. The
-					# same read also ate `transcribing` off the end of the
-					# voice_activity stream, which is every 30ms while
-					# somebody is speaking.
-					#
-					# It was survivable with whisper, where seconds in the
-					# model spaced the messages out by accident. It is not
-					# with a transcriber that answers in 300ms.
+					# recv returns whatever bytes arrived, not one message: buffer and split on newlines.
+					# The decoder is incremental so a multibyte character split across reads survives.
+					sock.settimeout(1.0)
+					decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
 					buffer = ""
-					while self.listening:
-						chunk = sock.recv(1024 * 5).decode("utf-8")
-						if not chunk:
+					while self.listening and not stop_event.is_set():
+						try:
+							raw_bytes = sock.recv(1024 * 5)
+						except socket.timeout:
+							continue
+						if not raw_bytes:
 							break
-						buffer += chunk
+						buffer += decoder.decode(raw_bytes)
 
 						# A message that never terminates would otherwise grow
 						# this without limit. Dropped loudly rather than
@@ -1942,8 +1933,8 @@ class STTProcessing():
 									case "audio_error":
 										self.handle_audio_error(data)
 
-									
-							except: pass
+							except Exception as e:
+								self.client.log("warning", f"[STTProcessing] Could not handle '{raw[:80]}': {type(e).__name__}: {e}")
 			
 			except Exception as ex:
 				self.client.simple_notify(
@@ -1951,7 +1942,7 @@ class STTProcessing():
 					"Assistant: LISTENING ERROR",
 					str(ex)
 				)
-				time.sleep(1)  # avoid busy loop
+				stop_event.wait(1)
 
 
 	def handle_audio_error(self, message:str):
@@ -2160,7 +2151,7 @@ class STTProcessing():
 			"wake_speex": bool(self.client.setting(
 				"assistant.wake.wake_noise_suppression.value", False)),
 			"wake_vad": float(self.client.setting(
-				"assistant.wake.wake_speech_gate.value", 0.0)),
+				"assistant.wake.wake_speech_gate.value", 0.5)),
 			# How sure the spotter has to be. Read here rather than held,
 			# because the child is respawned when it changes.
 			"wake_sensitivity": float(self.client.setting(

@@ -1,5 +1,3 @@
- .label{color:var(--muted);font-size:13px;margin:0 0 8px}
-
 /* The verdict reads as a sentence rather than a field, so it gets the size a
    heading would and the card gets the accent. It is the only thing on the
    page somebody has to read. */
@@ -13,7 +11,7 @@
  .field .v{flex:1;min-width:0;word-break:break-word}
 
  .warn{margin:0 0 14px;padding:12px 14px;border-radius:10px;
-       border:1px dashed var(--accent);color:var(--text);
+       border:1px dashed var(--warm);color:var(--text);
        font-size:13.5px;line-height:1.6}
 
 /* The folded half. `summary` carries the whole hit target rather than the
@@ -43,9 +41,9 @@
 /* A clip is something to LISTEN to before deciding, so the player is the
    widest thing on the row rather than an afterthought beside a filename. */
  .clips{display:flex;flex-direction:column;gap:10px}
- .clip{border:1px solid var(--line);border-radius:12px;background:#141417;
+ .clip{border:1px solid var(--line);border-radius:12px;background:#111114;
        padding:12px 14px}
- .clip.ignoring{border-left:3px solid #ffd479}
+ .clip.ignoring{border-left:3px solid var(--warm)}
  .clip.was-ignored{opacity:.72}
  .clip .top{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
  .clip .score{font-size:17px;font-weight:700;font-variant-numeric:tabular-nums}
@@ -54,7 +52,7 @@
             font-variant-numeric:tabular-nums;margin-right:4px}
  .clip .tag{font-size:11px;font-weight:700;letter-spacing:.05em;
             text-transform:uppercase;color:var(--muted)}
- .clip .tag.on{color:#ffd479}
+ .clip .tag.on{color:var(--warm)}
  .clip .when{margin-left:auto;color:var(--muted);font-size:12px;
              font-variant-numeric:tabular-nums}
  .clip audio{width:100%;margin-top:10px;height:34px}

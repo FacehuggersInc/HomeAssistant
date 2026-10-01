@@ -37,7 +37,7 @@ escalation after that belongs to the registry.
 
 ## What it is doing
 
-`client.STT.status()` is one snapshot rather than a handful of attributes -
+`client.SERVICES.STT.status_snapshot()` is one snapshot rather than a handful of attributes -
 `listening`, `processing`, `woke_at` and `process.poll()` read separately give
 a different answer each depending on when they were asked.
 
@@ -65,7 +65,7 @@ and any transcript listener left behind by a page nobody closed.
 | `assistant.speech.parakeet_precision` | `int8`        | `int8` is ~700MB. `float32` is ~2.5GB and several times the memory.       |
 | `assistant.wake.wake_word`            | `alexa`       | One of the four openWakeWord ships.                                       |
 | `assistant.wake.wake_listen_timeout`  | `12` sec      | How long to wait for a phrase after waking.                               |
-| `assistant.wake.max_phrase_seconds`   | `8` sec       | The longest one phrase may run before it is discarded.                    |
+| `assistant.wake.max_phrase_seconds`   | `8` sec       | The longest one phrase may run before it is cut and transcribed.          |
 | `assistant.wake.wake_diagnostics`     | `off`         | Explain every wake in the log. See [What woke it](#what-woke-it).         |
 | `assistant.wake.session_silence`      | `800` ms      | How long a pause ends a sentence inside a conversation.                   |
 | `assistant.feedback.voice_bar`        | `on`          | The activity bar along the bottom.                                        |
@@ -120,7 +120,7 @@ answers as the word completes, which is before the question starts.
 | The 250ms after it (`WAKE_TAIL_MS`) | Lead-in only. It cannot start a phrase.                      |
 | Armed for                           | `assistant.wake.wake_listen_timeout`, from the last capture. |
 | A phrase ends on                    | 700ms of silence.                                            |
-| A phrase is DISCARDED at            | `assistant.wake.max_phrase_seconds` of continuous speech.    |
+| A phrase is CUT at                  | `assistant.wake.max_phrase_seconds` of continuous speech.    |
 | Disarmed when                       | A transcript comes back **with words in it**.                |
 
 Both ways of speaking work. Run straight on - "alexa what is the weather" -
@@ -631,15 +631,15 @@ as success.
 Two classes. `ParakeetListener` owns the microphone, the spotter and the
 transcriber; `ParakeetServer` owns the ports and the protocol.
 
-| Constant         | Value | Is                                            |
-|------------------|-------|-----------------------------------------------|
-| `SAMPLE_RATE`    | 16000 | What both models want.                        |
-| `WINDOW_MS`      | 30    | webrtcvad takes 10, 20 or 30.                 |
-| `PRE_CONTEXT_MS` | 420   | Lead-in, so a phrase does not start mid-word. |
-| `SILENCE_MS`     | 700   | Ends a phrase in wake mode.                   |
-| `MIN_SPEECH_MS`  | 200   | Below this it is a cough, not a phrase.       |
-| `MAX_PHRASE_MS`  | 8000  | Past this it is a television. Discarded.      |
-| `LEVEL_EVERY`    | 3     | One meter report per three speech windows.    |
+| Constant         | Value | Is                                              |
+|------------------|-------|-------------------------------------------------|
+| `SAMPLE_RATE`    | 16000 | What both models want.                          |
+| `WINDOW_MS`      | 30    | webrtcvad takes 10, 20 or 30.                   |
+| `PRE_CONTEXT_MS` | 420   | Lead-in, so a phrase does not start mid-word.   |
+| `SILENCE_MS`     | 700   | Ends a phrase in wake mode.                     |
+| `MIN_SPEECH_MS`  | 200   | Below this it is a cough, not a phrase.         |
+| `MAX_PHRASE_MS`  | 8000  | Cut here, transcribed, and the wake stood down. |
+| `LEVEL_EVERY`    | 3     | One meter report per three speech windows.      |
 
 Two threads, and the audio thread never waits. Anything longer than a window -
 a socket write to a slow parent, a model run - drops audio, and dropped audio
@@ -705,27 +705,39 @@ fresh thread that reads the flag once and returns.
 Two ports: `65432` for commands in, `65433` for events out. Messages are
 `host:<event>:<payload>\n`.
 
-| Message                     | Means                                      |
-|-----------------------------|--------------------------------------------|
-| `host:notify:Ready!`        | The child is up.                           |
-| `host:woke:<word>`          | The wake word fired.                       |
-| `host:voice_activity:<0-1>` | Input level, while capturing.              |
-| `host:transcribing:1`       | Audio captured, the model is running.      |
-| `host:transcribe:<text>`    | A finished transcript.                     |
-| `host:transcribed:1`        | The model finished, whatever it decided.   |
-| `host:wait:<kind>`          | Woke, and nothing was said.                |
-| `host:audio_error:<text>`   | Microphone trouble. Empty means recovered. |
-| `host:log:<level>:<text>`   | Anything the child would have printed.     |
+| Message                                                       | Means                                                       |
+|---------------------------------------------------------------|-------------------------------------------------------------|
+| `host:notify:Ready!`                                          | The child is up, sent on every data connection it accepts.  |
+| `host:woke:<word>`                                            | The wake word fired.                                        |
+| `host:voice_activity:<0-1>`                                   | Input level, while capturing.                               |
+| `host:transcribing:1`                                         | Audio captured, the model is running.                       |
+| `host:transcribe:<text>`                                      | A finished transcript.                                      |
+| `host:transcribed:1`                                          | The model finished, whatever it decided.                    |
+| `host:wait:<kind>`                                            | Woke, and nothing was said.                                 |
+| `host:audio_error:<text>`                                     | Microphone trouble. Empty means recovered.                  |
+| `host:audio_device:<json>`                                    | What the microphone turned out to be, once per open.        |
+| `host:dsp_levels:<rate>:<channels>:<rms>:<peak>:<clipped>`    | Per-channel dBFS, comma-separated, while a monitor is on.   |
+| `host:dsp_frame:<rate>:<channels>:<bands>:<base64>`           | The spectrum, while the monitor is on its spectrum tier.    |
+| `host:log:<level>:<text>`                                     | Anything the child would have printed.                      |
 
-Commands are `server:<name>`:
+`audio_device` is JSON rather than colon-separated because device names
+contain colons (`hw:0,0`).
 
-| Command             | Does                                        |
-|---------------------|---------------------------------------------|
-| `STOP`              | Shut the process down.                      |
-| `START_WAKE`        | Wait for the wake word again.               |
-| `START_PASSTHROUGH` | Transcribe everything.                      |
-| `MUTE`              | Capture nothing. The spotter keeps running. |
-| `UNMUTE`            | Capture again.                              |
+Commands are `server:<name>[:<argument>]`, one connection per command:
+
+| Command                       | Does                                                                |
+|-------------------------------|---------------------------------------------------------------------|
+| `STOP`                        | Shut the process down.                                              |
+| `START_WAKE[:deafen]`         | Wait for the wake word again. `deafen` when a person cancelled.     |
+| `START_PASSTHROUGH`           | Transcribe everything.                                              |
+| `MUTE`                        | Capture nothing. The spotter keeps running.                         |
+| `UNMUTE`                      | Capture again.                                                      |
+| `CHANNEL:<index>[:<mix>]`     | Which capsule to listen to, live. `mix` defaults to `first`.        |
+| `DSP_MONITOR:<tier>`          | Start or stop reporting levels and spectrum. Unknown tiers are off. |
+| `DSP_PROFILE:<json>`          | Replace the DSP curve live, as `{"dsp": ..., "dsp_stream": ...}`.   |
+| `IGNORE:<clip>`               | Learn a recorded wake clip as noise.                                |
+| `FORGET:<key>`                | Drop one learned noise.                                             |
+| `FORGET_ALL`                  | Drop every learned noise.                                           |
 
 **Passthrough** transcribes everything with no wake word. A session uses it,
 and so does the microphone test page.
@@ -1120,7 +1132,7 @@ which is one of them. Exempting the branch exempts the television with it.
 - The setting is off.
 - A session is open. A skill asked a question and is waiting; "Tuesday" is a
   complete answer and passes no test for question shape.
-- The panel **answered** something within `FOLLOW_UP_WITHIN` (30s).
+- The panel **answered** something within `FOLLOW_UP_WITHIN` (10s).
 
 **A session is a trust window, so it is a short one.** Nothing said while one
 is open is judged at all, which is right for "Tuesday" and "tell me more" and
@@ -1583,19 +1595,21 @@ being moved off this hardware in the first place.
 
 ## Speech that is not for the panel
 
-A television talks for minutes. A wake it caused is followed by whatever was
-being said, and the old behaviour transcribed it: at the length cap the
-buffer was finalised, so two sentences of somebody else's dialogue went to
-the skill engine to be matched against. Long enough and some of it matches.
+A television talks for minutes, and a wake it caused is followed by whatever
+was being said.
 
-Past `assistant.wake.max_phrase_seconds` the audio is **discarded** and the
-wake stands down. Nothing that long was said to the panel, so there is
-nothing in the buffer worth keeping, and the next thing said starts a fresh
-prompt rather than landing in the middle of an abandoned one.
+Past `assistant.wake.max_phrase_seconds` the capture is cut, what was captured
+is transcribed, and the wake stands down quietly - see
+[Hitting the limit](#hitting-the-limit). A fan or an air conditioner keeps the
+VAD calling speech, so in a noisy room a real question routinely runs to the
+limit, and throwing the capture away would throw the question away with it.
+Whether the transcript was meant for the panel is the
+[addressed-speech gate](#was-anybody-talking-to-the-panel)'s question, not the
+length cap's.
 
 The spotter is reset along with the wake state. It carries context between
-frames, and context from audio that has just been thrown away describes
-something no longer adjacent to what comes next.
+frames, and context from a capture that has ended describes something no
+longer adjacent to what comes next.
 
 Eight seconds is longer than any question anybody asks a wall panel and
 shorter than any programme. The limit is counted in 30ms windows, so what is

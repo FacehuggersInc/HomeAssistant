@@ -591,7 +591,7 @@ would leave the panel deaf to its own voice for exactly the window it is most
 likely to hear it.
 
 `attach()` and `detach()` are how the implementation is set, which is why
-`client.STT` is read-only.
+`client.SERVICES.STT` is read-only.
 
 **They have separate `config()` tuples, and that separation is the point.**
 Each holds the settings its own implementation was built against, and a save
@@ -660,10 +660,14 @@ open_session()  close_session()  is_session()  processing
 start_monitor()  stop_monitor()  add_listener(cb)  remove_listener(cb)
 note_speech_ended()  note_interrupted()  check_wake_timeout()
 send_command(command, retries=10)  hold_capture(held)  cancel(reason)
+silence()  set_channels(index, mix)  set_dsp(...)  set_audio_monitor(tier)
+audio_device
 ```
 
 The factory is called as `factory(client, **kwargs)`, with `input_device`,
-`model`, `wake_words` and `session_silence_ms`.
+`input_device_name`, `model`, `wake_words` and `session_silence_ms`.
+`input_device_name` is there because a child process enumerates devices on
+its own, and the same index can name a different device in each list.
 
 **The guards are not yours to reimplement.** Self-hearing, the echo comparison,
 hallucination trimming, wake matching, sessions and the interrupt settle all
@@ -760,14 +764,16 @@ process, a companion, a restart policy, and a facade holding the state.
 ```python
 self.SERVICES.provide("client", "assistant.stt", parakeet,
                       "Parakeet, in a child process")
-self.SERVICES.provide("client", "assistant.tts", pocket,
-                      "Pocket TTS, locally")
+self.SERVICES.provide("client", "assistant.tts", speaking,
+                      "The panel's own voice")
+self.SERVICES.provide("client", "assistant.judge", judging,
+                      "Whether somebody was talking to the panel")
 self.SERVICES.watch_provider("assistant.stt", self._speech_provider_changed)
 self.SERVICES.watch_provider("assistant.tts", self._speech_provider_changed)
 ```
 
-Nothing is running yet. At this point the registry holds **two providers and
-no services** — the factories, and nothing built from them. The watcher guards
+Nothing is running yet. At this point the registry holds **three providers
+and no services** — the factories, and nothing built from them. The watcher guards
 on `self.BUILT`, so these registrations do not trigger the restart they are
 there to cause.
 
@@ -885,11 +891,12 @@ from a broken microphone.
 
 ### 8. What is running once it is up
 
-| Holds     |                                                              |
-|-----------|--------------------------------------------------------------|
-| Providers | `assistant.stt`, `assistant.tts`, both owned by `client`     |
-| Services  | `assistant.stt` (process), `assistant.stt.receiver` (thread) |
-| Threads   | one supervisor, not registered as a service                  |
+| Holds     |                                                                                     |
+|-----------|-------------------------------------------------------------------------------------|
+| Providers | `assistant.stt`, `assistant.tts`, `assistant.judge`, all owned by `client`          |
+| Services  | `assistant.stt` (process), `assistant.stt.receiver` (thread)                        |
+| Optional  | `assistant.tts.process` and `assistant.judge.process`, when set to `subprocess`     |
+| Threads   | one supervisor, not registered as a service                                         |
 
 The supervisor exists only because a process was spawned; a panel with the
 assistant off never has one. Each pass is a `poll()` per process.

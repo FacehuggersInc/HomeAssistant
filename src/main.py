@@ -476,7 +476,7 @@ class Client:
         ## -- PLUGINS
 
         self.MIXINS = MixinManager(self)
-        self.public = PublicRegistry()
+        self.public = PublicRegistry(log=self.log)
         self.plugin_dirs = [
             Asset(Path("src") / "assets" / "bundled"),
             Asset("plugins"),
@@ -2143,11 +2143,7 @@ class Client:
                          SocketTTSProcessing)]
 
             if where == "subprocess":
-                # Started by the service registry, which owns its lifetime -
-                # it goes down when the panel does, and comes back if it
-                # dies. Nothing here waits for it: SocketJudge answers "not
-                # ready" until the model is open, and the rules decide until
-                # then.
+                # Started by the service registry, which owns its lifetime - it goes down with the panel and comes back if it dies.
                 # The same server, on this machine. The work still costs what
                 # it costs; what changes is that it no longer happens inside
                 # the interpreter the screen and the microphone share.
@@ -2204,6 +2200,7 @@ class Client:
                               "Whether somebody was talking to the panel")
         self.SERVICES.watch_provider("assistant.stt", self._speech_provider_changed)
         self.SERVICES.watch_provider("assistant.tts", self._speech_provider_changed)
+        self.SERVICES.watch_provider("assistant.judge", self._speech_provider_changed)
 
     #What the local speech server is registered as, and how hard it tries.
     SPEECH_SERVICE = "assistant.tts.process"
@@ -2298,9 +2295,7 @@ class Client:
             return [sys.executable, str(script),
                     "--host", "127.0.0.1", "--port", str(port),
                     "--model", model,
-                    # int8 beside the panel: this is the same machine, with
-                    # the same screen and microphone on it, as the local
-                    # backend. The remote package asks for fp16.
+                    # q4 beside the panel, the same build the local backend runs; the remote package asks for fp16
                     "--file", "onnx/model_q4.onnx"]
 
         def gone(code, restarting):
@@ -2367,6 +2362,11 @@ class Client:
             self.log("info", f"[Assistant] '{name}' changed hands - "
                              f"rebuilding the voice.")
             self.call_on_ui(self.rebuild_voice)
+            return
+
+        if name == self.SERVICES.JUDGE.PROVIDER:
+            self.log("info", f"[Assistant] '{name}' changed hands - rebuilding the judge.")
+            self.call_on_ui(self.rebuild_judge)
             return
 
         self.log("info", f"[Assistant] '{name}' changed hands - restarting.")
@@ -2672,6 +2672,11 @@ class Client:
         self.rebuild_voice()
         return True
 
+    def rebuild_judge(self) -> None:
+        self.SERVICES.JUDGE.stop()
+        self.stop_judge_process()
+        self.SERVICES.JUDGE.start()
+
     def restart_judge_if_changed(self) -> bool:
         """
         Rebuild the judge, and nothing else, when a judge setting changed.
@@ -2692,13 +2697,8 @@ class Client:
             return False
 
         self.log("info", "[Judge] Settings changed, rebuilding it.")
-        self.SERVICES.JUDGE.stop()
-        # Stopped whatever the new setting is, for the reason the voice is:
-        # moving off `subprocess` otherwise leaves a process holding the port
-        # against the next one to want it. start_judge_process() puts it back
-        # when the provider asks for it.
-        self.stop_judge_process()
-        self.SERVICES.JUDGE.start()
+        # The process is stopped whatever the new setting is: moving off `subprocess` would otherwise hold the port
+        self.rebuild_judge()
         return True
 
     def start_assistant(self) -> None:

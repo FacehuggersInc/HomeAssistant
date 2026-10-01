@@ -53,7 +53,7 @@ revoked on its own.
 | `GET /clipboard/clear`           | Empty it.                                              |
 
 `/update` returns as soon as staging starts - the download and restart happen
-in the background. Poll `/plugins` to tell when the panel is back.
+in the background. Poll `/ping` to tell when the panel is back.
 
 
 ## Navigation
@@ -234,6 +234,9 @@ after it clears a setting rather than reading it.
 | `GET /plugins/<key>/load`      | Load a pending plugin.                      |
 | `GET /plugins/<key>/install`   | Install its pip requirements, then load it. |
 | `GET /plugins/<key>/uninstall` | Remove its pip requirements.                |
+
+Every route here needs the device's `plugins` permission as well as its
+token, and answers **403** without it - see [Users](users.md).
 
 `unload` returns **409** when another plugin depends on this one. Pass
 `?force=1` to do it anyway - unloading underneath a dependant leaves it calling
@@ -573,7 +576,8 @@ without saving.
 `--json` prints the raw reply. Exit codes are 0 success, 1 refused, 2 usage,
 3 unreachable, so it is usable from a shell script.
 
-`--wait` polls `/plugins`, which is read-only and safe to hit repeatedly. It
+`--wait` polls `/ping`, which is read-only, needs no permission beyond
+approval, and is safe to hit repeatedly. It
 requires the panel to actually drop before counting it as back - otherwise a
 poll landing between the reply and the restart reports success against the
 process on its way out.
@@ -608,9 +612,9 @@ A group with nothing in it is left out rather than shown as an empty heading.
 ## Downloading a plugin
 
 `/plugins/<key>/download` zips a plugin as it is on disk. **Bundled plugins
-download too** — they were refused on the grounds that a copy of something the
-app ships gets replaced by the next update, which is true and is not a reason
-to withhold the best worked example there is of how one is written. The zip is
+download too**: a copy of something the app ships goes stale at the next
+update, but it is also the best worked example there is of how a plugin is
+written. The zip is
 named `<Folder>-bundled-copy.zip` so what somebody is holding is obvious a week
 later, and so nobody unpacks it back into `plugins/` where it would load twice
 under one key.

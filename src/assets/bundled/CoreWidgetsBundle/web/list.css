@@ -32,5 +32,5 @@
   text-align:center;padding:10px 8px;border-radius:12px;
   border:1px solid var(--line);background:var(--card);color:var(--muted);
   box-sizing:border-box;line-height:1.2}
-.sizes input:checked + label{background:var(--card2);color:var(--text);
-  border-color:var(--accent)}
+.sizes input:checked + label{border-color:var(--accent);color:var(--accent);
+  background:linear-gradient(150deg,rgba(47,240,142,.14),var(--card) 70%)}

@@ -34,17 +34,19 @@ def render_page(token: str, feeds: list, message: str = "",
 
     rows = []
     for name, url in feeds:
-        rows.append(
-            f'<li><span class="meta">'
-            f'<span class="nm">{escape(name)}</span>'
-            f'<span class="url">{escape(url)}</span></span>'
-            f'<form method="post" action="{action}" '
-            f'onsubmit="return confirm(\'Remove {escape(name)}?\')">'
-            f'<input type="hidden" name="remove" value="{escape(name)}">'
-            f'<button class="danger" type="submit">Remove</button>'
-            f'</form></li>')
+        rows.append(f"""<li>
+      <span class="meta">
+        <span class="nm">{escape(name)}</span>
+        <span class="url">{escape(url)}</span>
+      </span>
+      <form method="post" action="{action}" data-name="{escape(name)}"
+            onsubmit="return confirm('Remove ' + this.dataset.name + '?')">
+        <input type="hidden" name="remove" value="{escape(name)}">
+        <button class="danger" type="submit">Remove</button>
+      </form>
+    </li>""")
 
-    listed = "".join(rows) or '<li class="empty">No feeds yet.</li>'
+    listed = "\n    ".join(rows) or '<li class="empty">No feeds yet.</li>'
 
     body = f"""
 <section>
@@ -69,7 +71,9 @@ def render_page(token: str, feeds: list, message: str = "",
 
 <section>
   <h2>{len(feeds)} subscribed</h2>
-  <ul>{listed}</ul>
+  <ul>
+    {listed}
+  </ul>
 </section>
 """
 

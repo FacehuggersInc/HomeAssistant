@@ -2,7 +2,7 @@
 
 Registries manage and store extendable, plugin-ownable objects — things like API endpoints or pages, that a plugin registers and expects to have cleaned up automatically when it's unloaded or reloaded.
 
-Twelve concrete registries currently exist, and `BookmarkStore` sits alongside
+Thirteen concrete registries exist, and `BookmarkStore` sits alongside
 them below. They are not all shaped the same way.
 
 Six of them are large enough to have a page of their own, listed under this
@@ -108,6 +108,12 @@ self.client.public.expose("myplugin", "my_shared_state", self.my_shared_state)
 # elsewhere, any other plugin can read it directly:
 self.client.public.my_shared_state
 ```
+
+A name is refused - with a warning, and `expose` returning `False` - when
+another plugin already holds it, when your own plugin holds it and
+`overwrite` is not set, or when it is one of the registry's own method names
+(`list`, `clear`, `has`, ...), since those share the namespace exposed values
+are read from. `has(name)` answers only for exposed names.
 
 Like the other two, anything exposed under your plugin's key is cleared automatically on unload via `self.client.public.clear(owner)` — you don't need to call `unexpose` yourself during a normal teardown.
 

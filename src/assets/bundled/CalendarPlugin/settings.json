@@ -76,5 +76,21 @@
             "suffix": "min",
             "description": "How often subscribed calendars are re-fetched. Google's ICS feed is cached for hours, so polling faster does not make it fresher - it only costs requests. Minimum 15."
         }
+    },
+    "widgets": {
+        "next_event_window_hours": {
+            "type": "float",
+            "default": 3.0,
+            "value": 3.0,
+            "suffix": "hours",
+            "description": "Events starting within this long of the next one take turns on the Next event widget, with a line counting them. 0 shows only the next event."
+        },
+        "next_event_cycle_seconds": {
+            "type": "int",
+            "default": 8,
+            "value": 8,
+            "suffix": "sec",
+            "description": "How long the Next event widget shows each event before moving to the next. Minimum 2."
+        }
     }
 }

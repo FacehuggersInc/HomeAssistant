@@ -1,15 +1,16 @@
 .tabs{display:flex;gap:8px;margin:0 0 18px}
 .tabs button{flex:1;background:var(--card);border:1px solid var(--line);
   color:var(--muted);border-radius:12px;padding:12px 8px;font-size:16px}
-.tabs button.on{background:var(--card2);color:var(--text);
-  border-color:var(--accent)}
+.tabs button.on{border-color:var(--accent);color:var(--accent);
+  background:linear-gradient(150deg,rgba(47,240,142,.14),var(--card) 70%)}
 .pane{display:none}
 .pane.on{display:block}
+.go{margin-top:18px}
+.go button{width:100%}
 .dice-types{display:flex;flex-wrap:wrap;gap:8px;justify-content:center}
 .dice-types button{flex:1 1 26%;min-width:86px;padding:14px 6px;font-size:17px}
 .tray{display:flex;flex-wrap:wrap;gap:10px;justify-content:center;
-  margin-top:12px;
-  justify-content:center}
+  margin-top:12px}
 .chip{display:flex;align-items:center;gap:2px;background:var(--card2);
   border:1px solid var(--line);border-radius:999px;padding:4px}
 .chip b{font-size:16px;color:var(--text);min-width:62px;text-align:center}
@@ -40,7 +41,7 @@
   border-radius:999px;border:1px solid var(--line);background:var(--card);
   color:var(--muted)}
 .witem .toggle.on{background:var(--accent);border-color:var(--accent);
-  color:#08120c}
+  color:#0d1a12}
 .witem .drop{flex:0 0 auto;background:none;border:none;color:var(--muted);
   font-size:22px;padding:0 6px}
 .witem.off input{opacity:.45}

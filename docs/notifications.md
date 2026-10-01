@@ -221,9 +221,11 @@ folder the API can read from and write into.
 
 ### Where to put files
 
-User data belongs in `get_data_dir(APP_NAME)`, not the app tree. Anything
-written inside the install is wiped when an update is unpacked over it -
-`UPDATE_PRESERVE` covers `plugins/`, `.env` and logs, and nothing else.
+User data belongs in `get_data_dir(APP_NAME)`, not the app tree. An update
+copies its own files over the install, so anything inside it that shares a
+path with a shipped file is replaced. `UPDATE_PRESERVE` in `constants.py`
+lists what is never touched - `plugins/`, `.env`, the virtualenv, logs and
+the updater's own state - and an update never deletes anything.
 
 ```python
 from src.constants import get_data_dir, APP_NAME

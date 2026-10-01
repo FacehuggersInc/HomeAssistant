@@ -105,6 +105,7 @@ def FlaskApp(client):
 		page ends up with a hand-written back link that drifts from the shared
 		one. This way a new page gets all three without having to ask.
 		"""
+		from src.webicons import svg
 		from src.webui import back_button, chrome_css
 		try:
 			name = client.panel_name()
@@ -112,18 +113,12 @@ def FlaskApp(client):
 			name = APP_NAME
 		return {"panel": name,
 				"chrome": chrome_css(),
-				"back_button": back_button}
+				"back_button": back_button,
+				"svg": svg}
 
 	# AUTH & HELPERS
 	def _token() -> str:
-		"""
-		The calling device's token, from wherever it arrived.
-
-		The same three places `auth()` looks. A route that reads only
-		`request.args` works from a link and silently does not from a form
-		post or a fetch with a header, which is the kind of difference that
-		shows up as one page in a section behaving unlike the others.
-		"""
+		# Query, form, header, cookie - auth() reads through this, so the two cannot disagree
 		return (request.args.get("token")
 				or request.form.get("token")
 				or request.headers.get("X-Client-Token")
@@ -168,17 +163,8 @@ def FlaskApp(client):
 		return urlunsplit(("", "", path, urlencode(kept), ""))
 
 	def auth():
-		"""
-		A per-device token, checked against the approved list.
-
-		There is no shared secret any more. A token identifies one device, is
-		revocable on its own, and tells an endpoint who is calling - none of
-		which a single id copied between machines could do.
-		"""
-		token = (request.args.get("token")
-				 or request.headers.get("X-Client-Token")
-				 or request.cookies.get(TOKEN_COOKIE)
-				 or "").strip()
+		# A per-device token checked against the approved list, read from the same places _token() reads
+		token = _token()
 		if not token:
 			if _wants_html():
 				# Sent to wait rather than refused. A browser arriving at a
@@ -414,6 +400,9 @@ def FlaskApp(client):
 	
 	@app.route("/process", methods=["GET"])
 	def start_intent():
+		log()
+		err = auth()
+		if err: return err
 		query = request.args.get("q")
 		if not (query and query.strip()):
 			return {"request": "Failed", "reason": "No Query(q) Given!"}, 404
@@ -2446,6 +2435,9 @@ def FlaskApp(client):
 			return webplugins.installed_page(_plugin_entries(), token,
 											 message=note, bad=bool(note))
 
+		refusal = _may_plugins()
+		if refusal:
+			return refusal
 		return {"request": "Success", "loaded": loaded, "pending": pending}, 200
 
 	## -- the Plugins section -------------------------------------------------
@@ -2466,10 +2458,12 @@ def FlaskApp(client):
 
 	def webplugins_denied(token):
 		from src.webui import page
+		body = """<section class="card">
+  <p class="empty">This device is approved, but does not have permission to manage plugins.
+    A panel user with access can grant it in Settings &rarr; Users.</p>
+</section>"""
 		return page(
-			"Plugins", '<section class="empty">This device is approved, but '
-			'does not have permission to manage plugins. A panel user with '
-			'access can grant it in Settings &rarr; Users.</section>',
+			"Plugins", body,
 			token=token, heading="Plugins",
 			blurb="Not permitted on this device.")
 
@@ -2943,6 +2937,10 @@ def FlaskApp(client):
 
 		if not plugin_key or not endpoint:
 			return {"request": "Failed", "reason": "No Plugin Key Given!"}, 404
+
+		refusal = _may_plugins()
+		if refusal:
+			return refusal
 
 		is_loaded  = client.PLUGIN.has_plugin(plugin_key)
 		is_pending = any(getattr(p, "key", None) == plugin_key

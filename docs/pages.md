@@ -26,13 +26,13 @@ The key is what `client.goto()` takes, and the display name is what appears
 anywhere pages are listed. Pages are dropped from the registry when their
 owning plugin unloads.
 
-| Call                   | Does                                                   |
-|------------------------|--------------------------------------------------------|
-| `client.goto(key)`     | Navigate. Tears the old page down, builds the new one. |
-| `client.has_page(key)` | Whether anything has registered it.                    |
-| `client.get_page(key)` | The registry entry, not the live widget.               |
-| `client.get_pages()`   | Every registered key.                                  |
-| `client.PAGE`          | The page currently on screen.                          |
+| Call                        | Does                                                   |
+|-----------------------------|--------------------------------------------------------|
+| `client.goto(key)`          | Navigate. Tears the old page down, builds the new one. |
+| `client.has_page(key)`      | Whether anything has registered it.                    |
+| `client.get_page_data(key)` | The registry entry, not the live widget.               |
+| `client.get_pages()`        | Every registered key.                                  |
+| `client.PAGE`               | The page currently on screen.                          |
 
 Only one page is instantiated at a time. `client.PAGE` is the live widget;
 everything else in the registry is a class waiting to be built.
@@ -116,10 +116,6 @@ class WeatherPage(PageFramework):
         """Called by goto() before the page is torn down."""
         self.client.TIMEOUTS.cancel("weather_page_refresh")
 
-    def tick(self) -> None:
-        """Called on the client tick. Keep it cheap - this is the UI thread."""
-        pass
-
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)
         # Nothing lays a page out for you. Anything positioned by hand rather
@@ -169,8 +165,8 @@ Four things in there are the whole pattern:
 
 > **`#cwb_home_page` and its sub-pages come from `corewidgetsbundle`.** A
 > plugin adding a sub-page depends on that plugin being loaded, and should
-> degrade rather than raise when it is not. `#root` and `#settings` are the
-> only two pages the client registers itself — see
+> degrade rather than raise when it is not. `#root`, `#settings` and `#webpage`
+> are the only pages the client registers itself — see
 > [Application lifecycle](lifecycle.md).
 
 
@@ -198,12 +194,12 @@ the parent's `__init__`:
 class MyPlugin(Plugin):
 
     def built(self):
-        home = self.client.get_page("#cwb_home_page")
+        home = self.client.get_page_data("#cwb_home_page")
         if home and home.instance and home.instance.has_feature("add_sub_page"):
             home.instance.features().add_sub_page("mysub", MySubPage)
 
     def unload(self, carryover=None):
-        home = self.client.get_page("#cwb_home_page")
+        home = self.client.get_page_data("#cwb_home_page")
         if home and home.instance and home.instance.has_feature("remove_sub_page"):
             home.instance.features().remove_sub_page("mysub")
 ```
@@ -314,8 +310,8 @@ questions.
 
 ```python
 class MyPage(PageFramework):
-    def __init__(self, key, client, data=None):
-        super().__init__(key, client, data)
+    def __init__(self, client, data=None):
+        super().__init__("#mypage", client, data)
         self.add_features({"refresh": self.refresh})
 
 # and from a plugin
@@ -334,11 +330,12 @@ A sub-page's own features are re-exposed on the parent under the sub-page's
 name, so a plugin reaches them through the parent it already has:
 
 ```python
-self.client.action("sub.home.register_widget", MyWidget)
+self.client.action("home.register_widget", MyWidget)
 ```
 
-That is why the key is `sub.home.register_widget` and not just
-`register_widget` — the prefix is the sub-page.
+That is why the key is `home.register_widget` and not just
+`register_widget` — the prefix is the sub-page's name. `sub.home` is the
+sub-page's mixin target (`sub.home.__init__`), not its feature key.
 
 
 ## What a page owns
@@ -363,8 +360,8 @@ A page is constructed on navigation and destroyed on leaving. That means:
   `add_features()`.
 * `resizeEvent()` is where geometry is re-applied. The window can change size
   at runtime, and nothing lays a page out for you.
-* `tick()` is called on the client's tick, if you define it. Keep it cheap -
-  it runs on the UI thread.
+* Nothing ticks a page for you. Run a `QTimer` or a `client.TIMEOUTS` entry
+  from `start()` and stop it in `stop()`.
 
 Anything a plugin added to a page is gone when the page is rebuilt, which is
 why widgets are **registered** rather than constructed and handed over. The

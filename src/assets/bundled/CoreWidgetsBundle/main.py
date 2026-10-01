@@ -319,8 +319,8 @@ class CoreWidgetsBundle(Plugin):
             if sub_tiles:
                 for widget in self.widgets.get("sub.tiles", []):
                     widget.stop_tick()
-                    if sub_tiles.has_feature("remove_widget"):
-                        sub_tiles.features().remove_widget(widget.KEY)
+                    if sub_tiles.has_feature("remove_tile"):
+                        sub_tiles.features().remove_tile(widget.KEY, forget=False)
 
 
     ## CALLBACKS

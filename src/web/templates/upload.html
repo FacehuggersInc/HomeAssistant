@@ -1,15 +1,18 @@
-<!doctype html><html lang="en"><head>
+<!DOCTYPE html>
+<html lang="en">
+<head>
 <meta charset="utf-8">
+<title>Upload to {{ key }}</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{{ key }} &mdash; {{ panel }}</title>
+<meta name="color-scheme" content="dark">
 <style>
 {{ chrome|safe }}
- h1{font-size:22px;margin:10px 0 2px}
+ h1{margin:10px 0 2px}
  p.sub{font-size:12px;font-family:ui-monospace,monospace;word-break:break-all}
  .drop{border:2px dashed var(--line);border-radius:12px;padding:26px 16px;
       text-align:center;color:var(--muted)}
  .drop.over{border-color:var(--accent);color:var(--text)}
- .drop .big{font-size:30px;display:block;margin-bottom:6px}
+ .drop .big{display:block;margin-bottom:8px}
  /* The label IS the button; the input behind it is hidden. */
  label.browse{display:block;margin-top:14px;min-height:50px;line-height:50px;
       border-radius:11px;border:none;text-align:center;font-size:15px;
@@ -56,21 +59,27 @@
        color:var(--bad);font-size:16px;font-weight:700}
  #wipe{background:var(--bad);color:#fff;border:none}
  #wipe[hidden]{display:none}
-</style></head><body>
-<div class="backrow">{{ back_button(token)|safe }}{{ back_button(token, "All folders", "/upload")|safe }}</div>
+</style>
+</head>
+<body>
+<div class="backrow">
+  {{ back_button(token)|safe }}
+  {{ back_button(token, "All folders", "/upload")|safe }}
+</div>
+
 <h1>Upload to {{ key }}</h1>
 <p class="sub">{{ path }}</p>
 
 <section>
   <div class="drop" id="drop">
-    <span class="big">&#8679;</span>
+    <span class="big">{{ svg('upload', 30)|safe }}</span>
     Drop files here
   </div>
   <label class="browse" for="pick">Choose files</label>
   <input type="file" id="pick" multiple hidden>
 
   <ul id="list"><li class="empty">Nothing queued yet.</li></ul>
-  <button id="send" disabled>Upload</button>
+  <button type="button" class="btn primary" id="send" disabled>Upload</button>
 </section>
 
 <section id="resultBox" style="display:none">
@@ -406,4 +415,5 @@
    });
  })();
 </script>
-</body></html>
+</body>
+</html>

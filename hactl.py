@@ -243,15 +243,8 @@ def decode(raw: bytes):
 
 
 def probe(target: Target, timeout: int = 3) -> str:
-    """
-    ready | starting | unauthorized | unreachable.
-
-    Read-only, so it is safe to poll. `unauthorized` is its own answer rather
-    than being folded into `ready`: the panel is up, but a wrong client id
-    means nothing else in this tool will work, and reporting that as ready
-    sends you looking at the network instead of the id.
-    """
-    url = f"{target.base}/plugins?{urllib.parse.urlencode({'token': target.token})}"
+    # ready | starting | unauthorized | unreachable; /ping needs only approval, not the plugins permission
+    url = f"{target.base}/ping?{urllib.parse.urlencode({'token': target.token})}"
     try:
         with urllib.request.urlopen(url, timeout=timeout) as response:
             return "ready" if response.status == 200 else "starting"

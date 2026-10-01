@@ -61,8 +61,9 @@ def unload(self, carryover=None):
     self.client.STATUS.stop_all(self.KEY)
 ```
 
-A plugin that goes away while one of its jobs is showing leaves an icon
-nothing can ever remove.
+The loader calls `stop_all(plugin_key)` itself after `unload()`, so a job
+left showing is still taken down. Stopping them yourself keeps the order of
+teardown in your hands.
 
 ## What the row is for
 
