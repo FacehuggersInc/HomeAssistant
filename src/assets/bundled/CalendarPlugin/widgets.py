@@ -444,7 +444,7 @@ class NextEventsWidget(_TintedWidget):
     DEFAULT_ANCHOR = "center-right"
 
     #How many days it covers. Today, tomorrow, and the day after.
-    DAYS = 3
+    DAYS = 5
     ROW_H = 30
     HEAD_H = 26
 
